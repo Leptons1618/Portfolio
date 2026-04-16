@@ -1,0 +1,32 @@
+---
+interface Props { categories: string[]; topTags: string[]; }
+const { categories, topTags } = Astro.props;
+---
+<div class="filter-bar" id="filter-bar">
+  <div class="filter-row">
+    <input type="search" id="filter-search" class="filter-input" placeholder="Search projects…" autocomplete="off" />
+    <select id="filter-sort" class="filter-select">
+      <option value="featured">Featured</option>
+      <option value="newest">Newest</option>
+      <option value="az">A–Z</option>
+    </select>
+  </div>
+  <div class="filter-chips">
+    <button class="chip chip-active" data-filter="category" data-value="">All</button>
+    {categories.map(cat => <button class="chip" data-filter="category" data-value={cat}>{cat}</button>)}
+  </div>
+  <div class="filter-chips" id="tag-chips">
+    {topTags.map(tag => <button class="chip chip-tag" data-filter="tag" data-value={tag}>{tag}</button>)}
+  </div>
+</div>
+<style>
+  .filter-bar { display: flex; flex-direction: column; gap: 1rem; margin-bottom: 2rem; }
+  .filter-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+  .filter-input { flex: 1; min-width: 200px; padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text); font-size: 0.875rem; }
+  .filter-input:focus { outline: none; border-color: var(--color-accent); }
+  .filter-select { padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text); font-size: 0.875rem; cursor: pointer; }
+  .filter-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .chip { padding: 0.3rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text-muted); font-size: 0.8rem; cursor: pointer; transition: all 0.12s; }
+  .chip:hover, .chip-active { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-bg-tertiary); }
+  .chip-tag.chip-tag-active { border-color: var(--color-accent); background: var(--color-accent-subtle); color: var(--color-text); }
+</style>

@@ -1,0 +1,49 @@
+---
+import Badge from './Badge.astro';
+interface Props {
+  title: string; slug: string; summary: string; category: string;
+  tags: string[]; stack: string[]; status: string; year: number;
+  highlights: string[]; repoUrl: string; demoUrl?: string;
+  caseStudySlug?: string; heroImage?: string; metrics?: Record<string, string>;
+}
+const { title, slug, summary, category, tags, stack, status, year, highlights, repoUrl, demoUrl, caseStudySlug, heroImage, metrics } = Astro.props;
+const statusColors: Record<string, string> = { active: 'var(--color-success)', stable: 'var(--color-accent)', archived: 'var(--color-text-muted)', wip: 'var(--color-warning)' };
+---
+<article class="project-card card">
+  {heroImage && <div class="card-image"><img src={heroImage} alt={title} loading="lazy" /></div>}
+  <div class="card-header">
+    <div class="card-meta">
+      <span class="card-year">{year}</span>
+      <span class="card-status" style={`color: ${statusColors[status]}`}>● {status}</span>
+    </div>
+    <h3 class="card-title"><a href={`/projects/${slug}`}>{title}</a></h3>
+  </div>
+  <p class="card-summary">{summary}</p>
+  {metrics && <div class="card-metrics">{Object.entries(metrics).map(([k, v]) => <span class="metric"><span class="metric-val">{v}</span> {k}</span>)}</div>}
+  <div class="card-tags">{tags.slice(0, 4).map(tag => <Badge text={tag} />)}</div>
+  <div class="card-stack">{stack.slice(0, 5).map(s => <span class="stack-chip">{s}</span>)}</div>
+  <div class="card-actions">
+    <a href={`/projects/${slug}`} class="btn btn-primary btn-xs">Details</a>
+    {caseStudySlug && <a href={`/case-studies/${caseStudySlug}`} class="btn btn-outline btn-xs">Case Study</a>}
+    <a href={repoUrl} class="btn btn-outline btn-xs" target="_blank" rel="noopener">Repo ↗</a>
+    {demoUrl && <a href={demoUrl} class="btn btn-outline btn-xs" target="_blank" rel="noopener">Demo ↗</a>}
+  </div>
+</article>
+<style>
+  .project-card { display: flex; flex-direction: column; gap: 0.75rem; }
+  .card-image img { width: 100%; height: 160px; object-fit: cover; border-radius: var(--radius-sm); }
+  .card-header { display: flex; flex-direction: column; gap: 0.25rem; }
+  .card-meta { display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; color: var(--color-text-muted); }
+  .card-title { font-size: 1.05rem; margin: 0; }
+  .card-title a { color: var(--color-text); text-decoration: none; }
+  .card-title a:hover { color: var(--color-accent); }
+  .card-summary { font-size: 0.875rem; color: var(--color-text-muted); line-height: 1.5; margin: 0; }
+  .card-metrics { display: flex; gap: 1rem; flex-wrap: wrap; }
+  .metric { font-size: 0.78rem; color: var(--color-text-muted); }
+  .metric-val { font-family: var(--font-mono); color: var(--color-accent); font-weight: 600; }
+  .card-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .card-stack { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .stack-chip { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); color: var(--color-text-muted); font-family: var(--font-mono); }
+  .card-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: auto; padding-top: 0.5rem; }
+  .btn-xs { padding: 0.25rem 0.6rem; font-size: 0.75rem; }
+</style>

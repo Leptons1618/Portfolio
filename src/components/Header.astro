@@ -1,0 +1,39 @@
+---
+import ThemeToggle from './ThemeToggle.astro';
+const navLinks = [
+  { href: '/', label: 'Home' },
+  { href: '/projects', label: 'Projects' },
+  { href: '/about', label: 'About' },
+  { href: '/resume', label: 'Resume' },
+];
+const currentPath = Astro.url.pathname;
+---
+<header class="site-header">
+  <div class="container">
+    <div class="header-inner">
+      <a href="/" class="logo"><span class="logo-bracket">[</span><span class="logo-text">Leptons</span><span class="logo-bracket">]</span></a>
+      <nav class="main-nav" aria-label="Main navigation">
+        {navLinks.map(link => (
+          <a href={link.href} class={`nav-link ${currentPath === link.href ? 'active' : ''}`}>{link.label}</a>
+        ))}
+      </nav>
+      <div class="header-actions">
+        <a href="https://github.com/Leptons1618" class="btn btn-outline btn-sm" target="_blank" rel="noopener">GitHub ↗</a>
+        <ThemeToggle />
+      </div>
+    </div>
+  </div>
+</header>
+<style>
+  .site-header { position: sticky; top: 0; z-index: 100; background: var(--color-bg); border-bottom: 1px solid var(--color-border); backdrop-filter: blur(8px); }
+  .header-inner { display: flex; align-items: center; gap: 2rem; height: 60px; }
+  .logo { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 700; color: var(--color-text); text-decoration: none; white-space: nowrap; }
+  .logo-bracket { color: var(--color-accent); }
+  .main-nav { display: flex; gap: 1.5rem; flex: 1; }
+  .nav-link { font-size: 0.875rem; color: var(--color-text-muted); text-decoration: none; transition: color 0.15s; }
+  .nav-link:hover, .nav-link.active { color: var(--color-text); }
+  .nav-link.active { font-weight: 600; }
+  .header-actions { display: flex; align-items: center; gap: 0.75rem; }
+  .btn-sm { padding: 0.3rem 0.75rem; font-size: 0.8rem; }
+  @media (max-width: 640px) { .main-nav { display: none; } }
+</style>
