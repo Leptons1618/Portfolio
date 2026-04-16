@@ -1,0 +1,26 @@
+---
+title: "StreamFusion"
+slug: "streamfusion"
+subtitle: "Realtime watch-party experience with synchronized playback, shared queue, and in-room chat."
+problem: "Watch-party apps fail quickly when playback drift accumulates across devices, leading to broken group experiences and fragmented session state."
+solution: "Built a room-based sync architecture using WebRTC data channels and WebSocket signaling, with reconciliation logic for playback state, queue coordination, and chat delivery."
+achievements:
+  - "Maintained low drift across participants with periodic sync reconciliation."
+  - "Implemented shared queue controls with multi-user conflict handling."
+  - "Delivered integrated chat tied to room session state."
+  - "Shipped cross-platform mobile client with Expo + React Native."
+stack: ["React Native", "Expo", "TypeScript", "WebRTC", "Zustand", "WebSocket", "Node.js"]
+repoUrl: "https://github.com/Leptons1618/streamfusion"
+date: "2023-09-16"
+readTime: "5 min"
+---
+
+## System Design
+
+StreamFusion separates signaling from realtime room state to keep sessions recoverable and resilient during reconnects.
+
+## Realtime Strategy
+
+- WebRTC channels carry latency-sensitive sync events.
+- WebSocket signaling coordinates room membership and negotiation.
+- Client-side state management keeps playback and queue views consistent.
