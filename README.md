@@ -5,7 +5,7 @@ My Portfolio Website
 
 This repository includes a Pages workflow at:
 
-- `/home/runner/work/Portfolio/Portfolio/.github/workflows/deploy.yml`
+- `.github/workflows/deploy.yml`
 
 ### Optional custom domain setup
 
