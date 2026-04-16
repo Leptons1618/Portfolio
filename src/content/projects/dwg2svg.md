@@ -1,17 +1,17 @@
 ---
 title: "dwg2svg"
 slug: "dwg2svg"
-summary: "Converts DWG/DXF CAD files to clean, optimized SVG vector graphics."
-category: "devtools"
+summary: "CAD conversion toolkit for SVG↔DXF workflows with block attributes and coordinate mapping."
+category: "other"
 tags: ["cad", "dwg", "dxf", "svg", "conversion"]
-stack: ["Python", "ezdxf", "svgwrite", "Click", "lxml"]
+stack: ["React", "Node.js", "Express", "Python", "Flask", "ezdxf", "lxml"]
 repoUrl: "https://github.com/Leptons1618/dwg2svg"
 status: "stable"
 year: 2023
 highlights:
-  - "Parses DXF entity types (LINE, ARC, CIRCLE, POLYLINE, SPLINE) to SVG primitives."
-  - "Normalizes coordinate spaces and handles DWG unit scaling."
-  - "CLI interface with configurable layer filtering and SVG optimization options."
+  - "Implements a 3-service architecture (React UI, Node backend, Python conversion engine)."
+  - "Handles SVG-to-DXF block generation with ATTDEF/ATTRIB support and base-point selection."
+  - "Includes DXF↔SVG conversion improvements for geometry fidelity and hatch rendering."
 ---
 
 Project metadata entry.

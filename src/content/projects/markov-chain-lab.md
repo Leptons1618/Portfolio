@@ -1,20 +1,20 @@
 ---
 title: "Markov Chain Lab"
 slug: "markov-chain-lab"
-summary: "Interactive visualization and experimentation environment for discrete Markov chains."
+summary: "Interactive learning platform for Markov chains, automata, and grammar conversion."
 category: "simulation"
-tags: ["markov-chains", "visualization", "probability", "simulation", "python"]
-stack: ["Python", "NumPy", "Matplotlib", "NetworkX", "Streamlit"]
+tags: ["markov-chains", "automata", "simulation", "education", "interactive"]
+stack: ["Next.js", "React", "TypeScript", "Tailwind CSS", "Supabase"]
 repoUrl: "https://github.com/Leptons1618/Markov-Chain-Lab"
 caseStudySlug: "markov-chain-lab"
-featuredRank: 1
+featuredRank: 2
 status: "stable"
 year: 2024
 highlights:
-  - "Implemented steady-state distribution solver using eigendecomposition."
-  - "Visualized Markov chain transition graphs with NetworkX and Matplotlib."
-  - "Added interactive parameter controls via Streamlit for real-time chain manipulation."
-  - "Supports both absorbing and ergodic chain configurations."
+  - "Built an interactive chain builder supporting Markov chains, DFA, and NFA workflows."
+  - "Added simulation and analysis modules for convergence, stationary distribution, and chain properties."
+  - "Implemented grammar-to-automata and automata-to-grammar conversion utilities."
+  - "Integrated Supabase-backed persistence for saved workspaces and user settings."
 ---
 
 Project metadata entry.
