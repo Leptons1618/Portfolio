@@ -12,9 +12,10 @@
   type Theme = (typeof themes)[number];
   function getTheme(): string {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === 'science') return 'science-dark';
-    if (stored === 'punk') return 'aurora';
-    return stored && themes.includes(stored as Theme) ? stored : 'science-dark';
+    let normalized = stored || 'science-dark';
+    if (stored === 'science') normalized = 'science-dark';
+    if (stored === 'punk') normalized = 'aurora';
+    return themes.includes(normalized as Theme) ? normalized : 'science-dark';
   }
   function getThemeMeta(theme: string) {
     if (theme === 'aurora') return { icon: '🌌', label: 'Aurora', ariaName: 'Aurora' };

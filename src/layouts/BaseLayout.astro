@@ -28,7 +28,9 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site || 'https://leptons1
   <script is:inline>
     (function() {
       const stored = localStorage.getItem('portfolio-theme');
-      const theme = stored === 'science' ? 'science-dark' : stored === 'punk' ? 'aurora' : (stored || 'science-dark');
+      let theme = stored || 'science-dark';
+      if (stored === 'science') theme = 'science-dark';
+      if (stored === 'punk') theme = 'aurora';
       document.documentElement.setAttribute('data-theme', theme);
     })();
   </script>
