@@ -1,0 +1,27 @@
+---
+title: "QueryPilot"
+slug: "querypilot"
+subtitle: "Schema-aware natural-language-to-SQL workflow with validation and explainability."
+problem: "Text-to-SQL assistants often produce unsafe or invalid queries when they lack schema context and execution safeguards."
+solution: "Built a schema-aware generation pipeline that reads live metadata, produces SQL from user intent, validates before execution, and returns both query output and human-readable SQL explanations."
+achievements:
+  - "Reduced invalid query execution with pre-run validation checks."
+  - "Improved generation quality via schema-aware prompt construction."
+  - "Added SQL explanation output for trust and review workflows."
+  - "Exposed end-to-end workflow through FastAPI + React interface."
+stack: ["Python", "FastAPI", "SQLAlchemy", "PostgreSQL", "React", "TypeScript"]
+repoUrl: "https://github.com/Leptons1618/QueryPilot"
+date: "2024-08-05"
+readTime: "6 min"
+---
+
+## Workflow
+
+1. Inspect live database schema and relationships.
+2. Build constrained prompt context for query generation.
+3. Validate generated SQL before any execution step.
+4. Return results plus explanation for user verification.
+
+## Key Outcome
+
+By combining schema grounding and a validation gate, QueryPilot balances usability with safer execution behavior.
