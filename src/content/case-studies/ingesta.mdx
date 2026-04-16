@@ -1,0 +1,36 @@
+---
+title: "Ingesta"
+slug: "ingesta"
+subtitle: "High-throughput data ingestion pipeline with reliable batch processing and DLQ."
+problem: "Ingesting high-volume event streams into a relational database is error-prone when individual record failures cause entire batch failures. Retry logic without backoff causes thundering herd problems under load."
+solution: "Built a Kafka consumer pipeline with configurable batch sizes, transactional batch inserts, dead-letter queue routing for failed records, and exponential backoff retry."
+achievements:
+  - "Configurable batch insert controls reducing DB round-trips by 85%."
+  - "Dead-letter queue with retry and poison-pill detection."
+  - "At-least-once delivery with manual Kafka offset commit."
+  - "Prometheus metrics for lag, throughput, and error rates."
+stack: ["Python", "Apache Kafka", "PostgreSQL", "Redis", "Docker", "FastAPI"]
+repoUrl: "https://github.com/Leptons1618/Ingesta"
+date: "2024-02-10"
+readTime: "7 min"
+---
+
+## Design
+
+Ingesta is a Python service that consumes from Kafka topics and writes to PostgreSQL in batches.
+
+### Batch Strategy
+
+Each consumer thread accumulates records up to a configurable `BATCH_SIZE` or `BATCH_TIMEOUT_MS`, whichever comes first. Batches are inserted in a single multi-row `INSERT`.
+
+### Dead-Letter Queue
+
+Records failing schema validation or DB insertion after `MAX_RETRIES` are routed to a DLQ topic with an error envelope containing the original payload, error type, and timestamp.
+
+### Offset Management
+
+Kafka offsets are committed manually after successful batch insertion, ensuring at-least-once delivery.
+
+## Deployment
+
+Packaged as a Docker container configured via environment variables. A `docker-compose.yml` is provided for local development with Kafka and PostgreSQL.

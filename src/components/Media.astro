@@ -1,0 +1,35 @@
+---
+interface Props {
+  image?: string;
+  video?: string;
+  alt?: string;
+  class?: string;
+}
+const { image, video, alt = '', class: className = '' } = Astro.props;
+---
+{video ? (
+  <video
+    src={video}
+    class={`media-el ${className}`}
+    autoplay
+    muted
+    loop
+    playsinline
+  />
+) : image ? (
+  <img
+    src={image}
+    alt={alt}
+    class={`media-el ${className}`}
+    loading="lazy"
+  />
+) : null}
+
+<style>
+  .media-el {
+    width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+    object-fit: cover;
+  }
+</style>

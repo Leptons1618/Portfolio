@@ -1,0 +1,8 @@
+---
+interface Props {
+  text: string;
+  variant?: 'tag' | 'category' | 'status';
+}
+const { text, variant = 'tag' } = Astro.props;
+---
+<span class={`badge badge-${variant}`}>{text}</span>
