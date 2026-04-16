@@ -5,7 +5,7 @@ interface SEOProps {
   url?: string;
 }
 
-const SITE_NAME = 'Leptons Portfolio';
+const SITE_NAME = 'Anish Giri Portfolio';
 const DEFAULT_DESCRIPTION = 'ML/CV engineer and full-stack developer portfolio.';
 const DEFAULT_IMAGE = '/images/ui/og-default.png';
 
