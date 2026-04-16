@@ -1,0 +1,109 @@
+{
+  "$ref": "#/definitions/projects",
+  "definitions": {
+    "projects": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "slug": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "featured",
+            "ml-cv",
+            "ai-llm",
+            "full-stack",
+            "devtools",
+            "systems",
+            "simulation",
+            "other"
+          ]
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stack": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "repoUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "demoUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "docsUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "caseStudySlug": {
+          "type": "string"
+        },
+        "featuredRank": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "active",
+            "stable",
+            "archived",
+            "wip"
+          ]
+        },
+        "year": {
+          "type": "number"
+        },
+        "heroImage": {
+          "type": "string"
+        },
+        "heroVideo": {
+          "type": "string"
+        },
+        "highlights": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "$schema": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "slug",
+        "summary",
+        "category",
+        "tags",
+        "stack",
+        "repoUrl",
+        "status",
+        "year",
+        "highlights"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}
