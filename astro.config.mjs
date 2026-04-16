@@ -4,7 +4,7 @@ import tailwind from '@astrojs/tailwind';
 import sitemap from '@astrojs/sitemap';
 
 export default defineConfig({
-  site: 'https://leptons1618.github.io',
+  site: process.env.SITE_URL || 'https://leptons1618.github.io',
   output: 'static',
   integrations: [
     mdx(),
