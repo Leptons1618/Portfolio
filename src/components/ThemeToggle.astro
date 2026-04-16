@@ -1,6 +1,6 @@
 ---
 ---
-<button id="theme-toggle" class="theme-btn" aria-label="Switch theme (currently Science Dark)" title="Cycle science dark, science light, and punk themes">
+<button id="theme-toggle" class="theme-btn" aria-label="Switch theme" title="Cycle science dark, science light, and punk themes">
   <span id="theme-icon">⚗</span>
   <span id="theme-label">Science</span>
 </button>
@@ -9,9 +9,10 @@
   const STORAGE_KEY = 'portfolio-theme';
   const html = document.documentElement;
   const themes = ['science', 'science-light', 'punk'] as const;
+  type Theme = (typeof themes)[number];
   function getTheme(): string {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored && themes.includes(stored as (typeof themes)[number]) ? stored : 'science';
+    return stored && themes.includes(stored as Theme) ? stored : 'science';
   }
   function getThemeMeta(theme: string) {
     if (theme === 'punk') return { icon: '⚡', label: 'Punk', ariaName: 'Punk' };
@@ -32,7 +33,7 @@
   applyTheme(getTheme());
   document.getElementById('theme-toggle')?.addEventListener('click', () => {
     const current = html.getAttribute('data-theme') || 'science';
-    const currentIndex = themes.indexOf(current as (typeof themes)[number]);
+    const currentIndex = themes.indexOf(current as Theme);
     if (currentIndex === -1) {
       applyTheme('science');
       return;
