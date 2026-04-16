@@ -6,6 +6,7 @@ category: "ml-cv"
 tags: ["ocr", "computer-vision", "text-extraction", "image-processing", "nlp"]
 stack: ["Python", "PaddleOCR", "OpenCV", "spaCy", "FastAPI", "React"]
 repoUrl: "https://github.com/Leptons1618/menu-ocr"
+caseStudySlug: "menu-ocr"
 featuredRank: 3
 status: "stable"
 year: 2023

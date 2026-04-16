@@ -28,10 +28,14 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site || 'https://leptons1
   <script is:inline>
     (function() {
       const stored = localStorage.getItem('portfolio-theme');
-      let theme = stored || 'science-dark';
-      if (stored === 'science') theme = 'science-dark';
-      if (stored === 'punk') theme = 'aurora';
-      document.documentElement.setAttribute('data-theme', theme);
+      let selected = stored || 'system';
+      if (stored === 'science') selected = 'science-dark';
+      if (stored === 'punk') selected = 'aurora';
+      if (!['system', 'science-dark', 'science-light', 'aurora'].includes(selected)) selected = 'system';
+      const resolved = selected === 'system'
+        ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'science-light' : 'science-dark')
+        : selected;
+      document.documentElement.setAttribute('data-theme', resolved);
     })();
   </script>
 </head>

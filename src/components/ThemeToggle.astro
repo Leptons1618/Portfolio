@@ -1,6 +1,6 @@
 ---
 ---
-<button id="theme-toggle" class="theme-btn" aria-label="Switch theme" title="Cycle science dark, science light, and aurora themes">
+<button id="theme-toggle" class="theme-btn" aria-label="Switch theme" title="Cycle System, Science Dark, Science Light, and Aurora themes">
   <span id="theme-icon">⚗</span>
   <span id="theme-label">Science Dark</span>
 </button>
@@ -8,22 +8,30 @@
 <script>
   const STORAGE_KEY = 'portfolio-theme';
   const html = document.documentElement;
-  const themes = ['science-dark', 'science-light', 'aurora'] as const;
+  const themes = ['system', 'science-dark', 'science-light', 'aurora'] as const;
   type Theme = (typeof themes)[number];
-  function getTheme(): string {
+  function getSystemScienceTheme(): Theme {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'science-light' : 'science-dark';
+  }
+  function getTheme(): Theme {
     const stored = localStorage.getItem(STORAGE_KEY);
-    let normalized = stored || 'science-dark';
+    let normalized = stored || 'system';
     if (stored === 'science') normalized = 'science-dark';
     if (stored === 'punk') normalized = 'aurora';
-    return themes.includes(normalized as Theme) ? normalized : 'science-dark';
+    return themes.includes(normalized as Theme) ? (normalized as Theme) : 'system';
   }
-  function getThemeMeta(theme: string) {
+  function resolveTheme(theme: Theme): Theme {
+    if (theme === 'system') return getSystemScienceTheme();
+    return theme;
+  }
+  function getThemeMeta(theme: Theme) {
+    if (theme === 'system') return { icon: '🖥', label: 'System', ariaName: 'System' };
     if (theme === 'aurora') return { icon: '🌌', label: 'Aurora', ariaName: 'Aurora' };
-    if (theme === 'science-light') return { icon: '🔬', label: 'Sci Light', ariaName: 'Science Light' };
+    if (theme === 'science-light') return { icon: '🔬', label: 'Science Light', ariaName: 'Science Light' };
     return { icon: '⚗', label: 'Science Dark', ariaName: 'Science Dark' };
   }
-  function applyTheme(theme: string) {
-    html.setAttribute('data-theme', theme);
+  function applyTheme(theme: Theme) {
+    html.setAttribute('data-theme', resolveTheme(theme));
     const meta = getThemeMeta(theme);
     const icon = document.getElementById('theme-icon');
     const label = document.getElementById('theme-label');
@@ -34,11 +42,14 @@
     localStorage.setItem(STORAGE_KEY, theme);
   }
   applyTheme(getTheme());
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    if (getTheme() === 'system') applyTheme('system');
+  });
   document.getElementById('theme-toggle')?.addEventListener('click', () => {
-    const current = html.getAttribute('data-theme') || 'science-dark';
-    const currentIndex = themes.indexOf(current as Theme);
+    const current = getTheme();
+    const currentIndex = themes.indexOf(current);
     if (currentIndex === -1) {
-      applyTheme('science-dark');
+      applyTheme('system');
       return;
     }
     const next = themes[(currentIndex + 1) % themes.length];
