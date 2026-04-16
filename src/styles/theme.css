@@ -50,3 +50,29 @@ html[data-theme="punk"] {
   --shadow-card: 0 1px 8px rgba(255,0,255,0.15);
   --shadow-hover: 0 4px 20px rgba(255,0,255,0.35);
 }
+
+html[data-theme="science-light"] {
+  --color-bg: #f6f8fb;
+  --color-bg-secondary: #ffffff;
+  --color-bg-tertiary: #eef3fb;
+  --color-border: #c8d4e8;
+  --color-text: #0f172a;
+  --color-text-muted: #475569;
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-subtle: #93c5fd;
+  --color-success: #15803d;
+  --color-warning: #b45309;
+  --color-error: #b91c1c;
+  --color-tag-bg: #e2e8f0;
+  --color-tag-text: #1d4ed8;
+  --color-card-bg: #ffffff;
+  --color-card-border: #c8d4e8;
+  --font-display: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-card: 0 1px 3px rgba(15,23,42,0.08);
+  --shadow-hover: 0 6px 18px rgba(37,99,235,0.14);
+}
