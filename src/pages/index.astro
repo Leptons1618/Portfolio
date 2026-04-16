@@ -35,7 +35,7 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
       <h2 class="section-title">Featured Case Studies</h2>
       <div class="cs-grid">
         {featuredCaseStudies.map(project => (
-          <a href={project.data.caseStudySlug ? `/case-studies/${project.data.caseStudySlug}` : `/projects/${project.slug}`} class="cs-card card">
+          <a href={project.data.caseStudySlug ? `/case-studies/${encodeURIComponent(project.data.caseStudySlug)}` : `/projects/${encodeURIComponent(project.slug)}`} class="cs-card card">
             <div class="cs-card-body">
               <h3 class="cs-card-title">{project.data.title}</h3>
               <p class="cs-card-subtitle">{project.data.summary}</p>
