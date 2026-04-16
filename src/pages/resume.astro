@@ -1,19 +1,55 @@
 ---
 import PageLayout from '../layouts/PageLayout.astro';
 ---
-<PageLayout title="Resume" description="Resume — Leptons1618, ML/CV Engineer and full-stack developer.">
+<PageLayout title="Resume" description="Resume — Anish Giri, ML/CV Engineer and full-stack developer.">
   <div class="container">
     <div class="resume-header">
       <h1>Resume</h1>
-      <p class="resume-note">A living document. For the latest version, see my GitHub profile.</p>
+      <p class="resume-note">Anish Giri — Software Engineer, Bengaluru, Karnataka, India</p>
     </div>
     <div class="resume-body">
       <section class="resume-section">
-        <h2>Experience</h2>
-        <p class="muted">Experience details coming soon. Check GitHub for project history.</p>
+        <h2>Contact</h2>
+        <div class="contact-list">
+          <p>Nanjappa Layout, Adugodi, Bengaluru, Karnataka, 560030</p>
+          <p><a href="tel:+916294957979">6294957979</a> (Mobile)</p>
+          <p><a href="mailto:anishgiri163@gmail.com">anishgiri163@gmail.com</a></p>
+          <p><a href="https://www.linkedin.com/in/anish-giri-a4031723a" target="_blank" rel="noopener">www.linkedin.com/in/anish-giri-a4031723a</a> (LinkedIn)</p>
+        </div>
       </section>
       <section class="resume-section">
-        <h2>Skills</h2>
+        <h2>Summary</h2>
+        <p class="muted">As a curious, skeptical, and agnostic carbon-based bipedal, I thrive on delving into the depths of knowledge and discovering the world's treasures. With a strong interest in technology, I find peace in the Linux environment and enjoy deciphering its complexities. As an AI, ML, and Data Science enthusiast, I am eager to realize these areas' full potential and leverage their transformative impact. With an unshakable passion for coding, I am always looking for new ways to broaden my programming language vocabulary. My unquenchable curiosity drives my ambition to explore the fields of AI, ML, and Data Science, where I hope to make a significant contribution.</p>
+      </section>
+      <section class="resume-section">
+        <h2>Experience</h2>
+        <div class="experience-list">
+          <article class="experience-item">
+            <h3>Axcend Automation and Software Solutions pvt.Ltd</h3>
+            <p class="role">Software Engineer</p>
+            <p class="meta">July 2024 - Present (1 year 10 months) · Bengaluru, Karnataka, India</p>
+            <p class="muted">As a Trainee Engineer at Axcend Automation and Software Solutions, I am responsible for developing and maintaining software for industrial automation projects. My role involves working with network protocols to ensure seamless communication between devices and systems. I collaborate on designing and managing control systems and SCADA systems, gaining hands-on experience with PLCs, HMIs, and other automation components. Additionally, I integrate hardware and software components to ensure efficient and reliable operation.</p>
+          </article>
+          <article class="experience-item">
+            <h3>Chegg India</h3>
+            <p class="role">Subject Matter Expert</p>
+            <p class="meta">June 2023 - September 2024 (1 year 4 months)</p>
+          </article>
+          <article class="experience-item">
+            <h3>Axcend Automation and Software Solutions pvt.Ltd</h3>
+            <p class="role">Intern</p>
+            <p class="meta">January 2024 - May 2024 (5 months) · Bengaluru, Karnataka, India</p>
+          </article>
+        </div>
+      </section>
+      <section class="resume-section">
+        <h2>Top Skills</h2>
+        <div class="skill-rows">
+          <div class="skill-row"><span class="skill-label">Frameworks</span><span class="skill-val">Next.js, React.js, TypeScript</span></div>
+        </div>
+      </section>
+      <section class="resume-section">
+        <h2>Additional Skills</h2>
         <div class="skill-rows">
           <div class="skill-row"><span class="skill-label">ML / CV</span><span class="skill-val">PyTorch, TensorFlow, OpenCV, scikit-learn, YOLO</span></div>
           <div class="skill-row"><span class="skill-label">Languages</span><span class="skill-val">Python, TypeScript, Go, Rust, SQL</span></div>
@@ -23,8 +59,22 @@ import PageLayout from '../layouts/PageLayout.astro';
         </div>
       </section>
       <section class="resume-section">
-        <h2>Projects</h2>
-        <p class="muted">See the <a href="/projects">Projects page</a> for a full list.</p>
+        <h2>Certifications</h2>
+        <ul class="resume-list">
+          <li>Artificial Intelligence Fundamentals</li>
+          <li>Problem Solving (Basic)</li>
+          <li>SQL (Intermediate)</li>
+          <li>Data Fundamentals</li>
+          <li>SQL (Basic)</li>
+        </ul>
+      </section>
+      <section class="resume-section">
+        <h2>Education</h2>
+        <article class="experience-item">
+          <h3>Pondicherry University, Puducherry</h3>
+          <p class="role">Master's degree, Computer Science</p>
+          <p class="meta">December 2022 - July 2024</p>
+        </article>
       </section>
     </div>
   </div>
@@ -36,9 +86,16 @@ import PageLayout from '../layouts/PageLayout.astro';
   .resume-note { color: var(--color-text-muted); }
   .resume-section { margin-bottom: 2.5rem; }
   .resume-section h2 { font-size: 1.25rem; color: var(--color-accent); margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; }
+  .resume-section h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+  .contact-list p { margin: 0.2rem 0; color: var(--color-text-muted); }
+  .experience-list { display: flex; flex-direction: column; gap: 1.5rem; }
+  .experience-item .role { margin: 0; font-weight: 600; }
+  .experience-item .meta { margin: 0.25rem 0 0.6rem; color: var(--color-text-muted); font-size: 0.9rem; }
   .muted { color: var(--color-text-muted); }
   .skill-rows { display: flex; flex-direction: column; gap: 0.75rem; }
   .skill-row { display: flex; gap: 1rem; align-items: baseline; }
   .skill-label { font-weight: 600; font-size: 0.875rem; min-width: 100px; }
   .skill-val { color: var(--color-text-muted); font-size: 0.875rem; }
+  .resume-list { color: var(--color-text-muted); padding-left: 1.25rem; margin: 0; }
+  .resume-list li { margin-bottom: 0.35rem; }
 </style>

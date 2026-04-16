@@ -1,6 +1,6 @@
 ---
 ---
-<button id="theme-toggle" class="theme-btn" aria-label="Toggle theme" title="Toggle science/punk theme">
+<button id="theme-toggle" class="theme-btn" aria-label="Switch theme" title="Cycle science dark, science light, and punk themes">
   <span id="theme-icon">⚗</span>
   <span id="theme-label">Science</span>
 </button>
@@ -8,19 +8,38 @@
 <script>
   const STORAGE_KEY = 'portfolio-theme';
   const html = document.documentElement;
-  function getTheme(): string { return localStorage.getItem(STORAGE_KEY) || 'science'; }
+  const themes = ['science', 'science-light', 'punk'] as const;
+  type Theme = (typeof themes)[number];
+  function getTheme(): string {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored && themes.includes(stored as Theme) ? stored : 'science';
+  }
+  function getThemeMeta(theme: string) {
+    if (theme === 'punk') return { icon: '⚡', label: 'Punk', ariaName: 'Punk' };
+    if (theme === 'science-light') return { icon: '🔬', label: 'Sci Light', ariaName: 'Science Light' };
+    return { icon: '⚗', label: 'Science', ariaName: 'Science Dark' };
+  }
   function applyTheme(theme: string) {
     html.setAttribute('data-theme', theme);
+    const meta = getThemeMeta(theme);
     const icon = document.getElementById('theme-icon');
     const label = document.getElementById('theme-label');
-    if (icon) icon.textContent = theme === 'punk' ? '⚡' : '⚗';
-    if (label) label.textContent = theme === 'punk' ? 'Punk' : 'Science';
+    const button = document.getElementById('theme-toggle');
+    if (icon) icon.textContent = meta.icon;
+    if (label) label.textContent = meta.label;
+    if (button) button.setAttribute('aria-label', `Switch theme (currently ${meta.ariaName})`);
     localStorage.setItem(STORAGE_KEY, theme);
   }
   applyTheme(getTheme());
   document.getElementById('theme-toggle')?.addEventListener('click', () => {
     const current = html.getAttribute('data-theme') || 'science';
-    applyTheme(current === 'science' ? 'punk' : 'science');
+    const currentIndex = themes.indexOf(current as Theme);
+    if (currentIndex === -1) {
+      applyTheme('science');
+      return;
+    }
+    const next = themes[(currentIndex + 1) % themes.length];
+    applyTheme(next);
   });
 </script>
 
