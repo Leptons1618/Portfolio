@@ -1,7 +1,7 @@
 ---
 ---
 <button id="theme-toggle" class="theme-btn" aria-label="Switch theme" title="Cycle science dark, science light, and aurora themes">
-  <span id="theme-icon">⚗️</span>
+  <span id="theme-icon">⚗</span>
   <span id="theme-label">Science Dark</span>
 </button>
 
@@ -20,7 +20,7 @@
   function getThemeMeta(theme: string) {
     if (theme === 'aurora') return { icon: '🌌', label: 'Aurora', ariaName: 'Aurora' };
     if (theme === 'science-light') return { icon: '🔬', label: 'Sci Light', ariaName: 'Science Light' };
-    return { icon: '⚗️', label: 'Science Dark', ariaName: 'Science Dark' };
+    return { icon: '⚗', label: 'Science Dark', ariaName: 'Science Dark' };
   }
   function applyTheme(theme: string) {
     html.setAttribute('data-theme', theme);
