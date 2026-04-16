@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://leptons1618.github.io/sitemap-index.xml

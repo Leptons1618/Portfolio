@@ -1,0 +1,33 @@
+---
+title: "VisionID"
+slug: "visionid"
+subtitle: "Real-time multi-object detection and tracking with YOLOv8 and DeepSort."
+problem: "Tracking multiple objects across video frames requires balancing detection accuracy with tracking continuity. YOLO alone loses object identity across frames, while naive IoU tracking fails under occlusion."
+solution: "Combined YOLOv8 for per-frame detection with DeepSort for appearance-based re-identification, exposed through a FastAPI interface supporting both batch video and live stream inputs."
+achievements:
+  - "25 FPS real-time tracking on a single consumer GPU."
+  - "Per-object track ID stability across occlusions via appearance embedding."
+  - "REST API with configurable detection thresholds."
+  - "JSON output with bounding boxes, class labels, and track IDs per frame."
+stack: ["Python", "PyTorch", "YOLOv8", "DeepSort", "OpenCV", "FastAPI"]
+repoUrl: "https://github.com/Leptons1618/VisionID"
+date: "2024-04-15"
+readTime: "6 min"
+---
+
+## Architecture
+
+The pipeline runs in two stages:
+
+1. **Detection**: YOLOv8n processes each frame and returns bounding boxes with class scores.
+2. **Tracking**: DeepSort assigns consistent IDs by matching detections against existing tracks using Kalman filter prediction and cosine similarity on appearance embeddings.
+
+## API Design
+
+Two endpoints:
+- `POST /track/video` — processes uploaded video and returns tracking JSON.
+- `GET /track/stream` — SSE endpoint for live tracking data.
+
+## Tuning Notes
+
+Confidence threshold 0.45 and NMS IoU 0.5 gave the best balance on the traffic camera test set. Track confirmation requires 3 consecutive detections.

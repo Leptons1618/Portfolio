@@ -1,0 +1,95 @@
+---
+import PageLayout from '../../layouts/PageLayout.astro';
+import Badge from '../../components/Badge.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const projects = await getCollection('projects');
+  return projects.map(p => ({ params: { slug: p.slug }, props: { project: p } }));
+}
+
+const { project } = Astro.props;
+const { title, summary, category, tags, stack, status, year, highlights, repoUrl, demoUrl, docsUrl, caseStudySlug, heroImage, heroVideo, metrics } = project.data;
+
+const allProjects = await getCollection('projects');
+const related = allProjects
+  .filter(p => p.slug !== project.slug && p.data.tags.some(t => tags.includes(t)))
+  .slice(0, 3);
+---
+<PageLayout title={title} description={summary}>
+  <div class="container">
+    <div class="detail-grid">
+      <div class="detail-main">
+        <div class="detail-meta">
+          <span>{year}</span>
+          <span>{category}</span>
+          <span class={`status-${status}`}>● {status}</span>
+        </div>
+        <h1>{title}</h1>
+        <p class="detail-summary">{summary}</p>
+        {highlights.length > 0 && (
+          <section class="detail-section">
+            <h2>Highlights</h2>
+            <ul class="highlight-list">
+              {highlights.map(h => <li>{h}</li>)}
+            </ul>
+          </section>
+        )}
+        {related.length > 0 && (
+          <section class="detail-section">
+            <h2>Related Projects</h2>
+            <div class="related-list">
+              {related.map(r => (
+                <a href={`/projects/${r.slug}`} class="card">
+                  <strong>{r.data.title}</strong>
+                  <p>{r.data.summary}</p>
+                </a>
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+      <aside class="detail-sidebar">
+        <div class="card sidebar-section">
+          <h3>Links</h3>
+          <div class="link-list">
+            <a href={repoUrl} class="btn btn-outline full-w" target="_blank" rel="noopener">Repository ↗</a>
+            {demoUrl && <a href={demoUrl} class="btn btn-primary full-w" target="_blank" rel="noopener">Live Demo ↗</a>}
+            {caseStudySlug && <a href={`/case-studies/${caseStudySlug}`} class="btn btn-primary full-w">Read Case Study →</a>}
+          </div>
+        </div>
+        <div class="card sidebar-section">
+          <h3>Tags</h3>
+          <div class="tag-list">{tags.map(tag => <Badge text={tag} />)}</div>
+        </div>
+        <div class="card sidebar-section">
+          <h3>Stack</h3>
+          <div class="tag-list">{stack.map(s => <span class="stack-badge">{s}</span>)}</div>
+        </div>
+      </aside>
+    </div>
+  </div>
+</PageLayout>
+<style>
+  .container { padding: 3rem 1.5rem; max-width: 1200px; margin: 0 auto; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 280px; gap: 3rem; }
+  .detail-meta { display: flex; gap: 1rem; font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.75rem; }
+  h1 { font-size: clamp(1.5rem, 4vw, 2.25rem); margin-bottom: 0.75rem; }
+  .detail-summary { font-size: 1.05rem; color: var(--color-text-muted); line-height: 1.6; }
+  .detail-section { margin-bottom: 2.5rem; margin-top: 2rem; }
+  .detail-section h2 { font-size: 1.15rem; color: var(--color-accent); margin-bottom: 1rem; }
+  .highlight-list { list-style: none; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+  .highlight-list li { padding-left: 1.25rem; position: relative; color: var(--color-text-muted); font-size: 0.9rem; }
+  .highlight-list li::before { content: '→'; position: absolute; left: 0; color: var(--color-accent); }
+  .related-list { display: flex; flex-direction: column; gap: 0.75rem; }
+  .sidebar-section { margin-bottom: 1.25rem; }
+  .sidebar-section h3 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--color-text-muted); margin-bottom: 0.75rem; }
+  .link-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .full-w { width: 100%; justify-content: center; }
+  .tag-list { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .stack-badge { font-size: 0.75rem; padding: 0.2rem 0.5rem; border: 1px solid var(--color-border); border-radius: var(--radius-sm); color: var(--color-text-muted); font-family: var(--font-mono); }
+  .status-active { color: var(--color-success); }
+  .status-stable { color: var(--color-accent); }
+  .status-wip { color: var(--color-warning); }
+  @media (max-width: 768px) { .detail-grid { grid-template-columns: 1fr; } }
+</style>
