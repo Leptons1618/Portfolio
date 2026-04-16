@@ -4,8 +4,14 @@ import ProjectCard from '../components/ProjectCard.astro';
 import { getCollection } from 'astro:content';
 
 const allProjects = await getCollection('projects');
-const allCaseStudies = await getCollection('case-studies');
 const featured = allProjects.filter(p => p.data.featuredRank !== undefined).sort((a, b) => (a.data.featuredRank ?? 99) - (b.data.featuredRank ?? 99)).slice(0, 10);
+const featuredCaseStudies = [...allProjects]
+  .sort((a, b) => {
+    const rankDiff = (a.data.featuredRank ?? 99) - (b.data.featuredRank ?? 99);
+    if (rankDiff !== 0) return rankDiff;
+    return b.data.year - a.data.year;
+  })
+  .slice(0, 12);
 const skillSet = new Set<string>();
 allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
 ---
@@ -28,13 +34,13 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
     <div class="container">
       <h2 class="section-title">Featured Case Studies</h2>
       <div class="cs-grid">
-        {allCaseStudies.map(cs => (
-          <a href={} class="cs-card card">
+        {featuredCaseStudies.map(project => (
+          <a href={project.data.caseStudySlug ? `/case-studies/${project.data.caseStudySlug}` : `/projects/${project.slug}`} class="cs-card card">
             <div class="cs-card-body">
-              <h3 class="cs-card-title">{cs.data.title}</h3>
-              <p class="cs-card-subtitle">{cs.data.subtitle}</p>
+              <h3 class="cs-card-title">{project.data.title}</h3>
+              <p class="cs-card-subtitle">{project.data.summary}</p>
             </div>
-            <span class="cs-card-cta">Read case study →</span>
+            <span class="cs-card-cta">Read detailed case study →</span>
           </a>
         ))}
       </div>
