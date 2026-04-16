@@ -8,7 +8,7 @@ const fullTitle = title === 'Anish Giri Portfolio' ? title : `${title} | Anish G
 const canonicalURL = new URL(Astro.url.pathname, Astro.site || 'https://leptons1618.github.io');
 ---
 <!DOCTYPE html>
-<html lang="en" data-theme="science">
+<html lang="en" data-theme="science-dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -27,7 +27,8 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site || 'https://leptons1
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <script is:inline>
     (function() {
-      const theme = localStorage.getItem('portfolio-theme') || 'science';
+      const stored = localStorage.getItem('portfolio-theme');
+      const theme = stored === 'science' ? 'science-dark' : stored === 'punk' ? 'aurora' : (stored || 'science-dark');
       document.documentElement.setAttribute('data-theme', theme);
     })();
   </script>
