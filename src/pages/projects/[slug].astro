@@ -14,7 +14,7 @@ const { title, summary, category, tags, stack, status, year, highlights, repoUrl
 const allProjects = await getCollection('projects');
 const related = allProjects
   .filter(p => p.slug !== project.slug && p.data.tags.some(t => tags.includes(t)))
-  .slice(0, 3);
+  .slice(0, 8);
 ---
 <PageLayout title={title} description={summary}>
   <div class="container">
@@ -37,7 +37,7 @@ const related = allProjects
         )}
         {related.length > 0 && (
           <section class="detail-section">
-            <h2>Related Projects</h2>
+            <h2>Related Detailed Projects</h2>
             <div class="related-list">
               {related.map(r => (
                 <a href={`/projects/${r.slug}`} class="card">
