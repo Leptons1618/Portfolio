@@ -11,7 +11,7 @@ interface Props {
 const { title, subtitle, slug, heroImage, heroVideo, problem, solution, architectureImage, achievements, stack, repoUrl, demoUrl, date, readTime } = Astro.props;
 const allCaseStudies = await getCollection('case-studies');
 const sorted = allCaseStudies.sort((a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime());
-const currentIdx = sorted.findIndex(cs => cs.data.slug === slug);
+const currentIdx = sorted.findIndex(cs => cs.slug === slug);
 const prev = sorted[currentIdx + 1] || null;
 const next = sorted[currentIdx - 1] || null;
 ---
@@ -49,8 +49,8 @@ const next = sorted[currentIdx - 1] || null;
         </aside>
       </div>
       <nav class="cs-nav">
-        {prev && <a href={`/case-studies/${prev.data.slug}`} class="cs-nav-link prev"><span>← Previous</span><strong>{prev.data.title}</strong></a>}
-        {next && <a href={`/case-studies/${next.data.slug}`} class="cs-nav-link next"><span>Next →</span><strong>{next.data.title}</strong></a>}
+        {prev && <a href={`/case-studies/${prev.slug}`} class="cs-nav-link prev"><span>← Previous</span><strong>{prev.data.title}</strong></a>}
+        {next && <a href={`/case-studies/${next.slug}`} class="cs-nav-link next"><span>Next →</span><strong>{next.data.title}</strong></a>}
       </nav>
     </div>
   </article>

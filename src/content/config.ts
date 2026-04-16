@@ -4,7 +4,6 @@ const projects = defineCollection({
   type: 'content',
   schema: z.object({
     title: z.string(),
-    slug: z.string(),
     summary: z.string(),
     category: z.enum(['featured', 'ml-cv', 'ai-llm', 'full-stack', 'devtools', 'systems', 'simulation', 'other']),
     tags: z.array(z.string()),
@@ -27,7 +26,6 @@ const caseStudies = defineCollection({
   type: 'content',
   schema: z.object({
     title: z.string(),
-    slug: z.string(),
     subtitle: z.string(),
     heroImage: z.string().optional(),
     heroVideo: z.string().optional(),

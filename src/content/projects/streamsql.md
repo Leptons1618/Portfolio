@@ -14,3 +14,5 @@ highlights:
   - "WebSocket API for streaming query results to frontend in real time."
   - "Query planner validates window semantics before execution."
 ---
+
+Project metadata entry.

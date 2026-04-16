@@ -5,7 +5,7 @@ import { getCollection } from 'astro:content';
 
 export async function getStaticPaths() {
   const projects = await getCollection('projects');
-  return projects.map(p => ({ params: { slug: p.data.slug }, props: { project: p } }));
+  return projects.map(p => ({ params: { slug: p.slug }, props: { project: p } }));
 }
 
 const { project } = Astro.props;
@@ -13,7 +13,7 @@ const { title, summary, category, tags, stack, status, year, highlights, repoUrl
 
 const allProjects = await getCollection('projects');
 const related = allProjects
-  .filter(p => p.data.slug !== project.data.slug && p.data.tags.some(t => tags.includes(t)))
+  .filter(p => p.slug !== project.slug && p.data.tags.some(t => tags.includes(t)))
   .slice(0, 3);
 ---
 <PageLayout title={title} description={summary}>
@@ -40,7 +40,7 @@ const related = allProjects
             <h2>Related Projects</h2>
             <div class="related-list">
               {related.map(r => (
-                <a href={`/projects/${r.data.slug}`} class="card">
+                <a href={`/projects/${r.slug}`} class="card">
                   <strong>{r.data.title}</strong>
                   <p>{r.data.summary}</p>
                 </a>
