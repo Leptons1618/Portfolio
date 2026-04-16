@@ -39,8 +39,21 @@ import PageLayout from '../layouts/PageLayout.astro';
   .about-body h2 { font-size: 1.25rem; margin: 2rem 0 1rem; }
   .about-body ul { color: var(--color-text-muted); padding-left: 1.5rem; margin-bottom: 1.5rem; }
   .about-body ul li { margin-bottom: 0.5rem; }
-  .about-profile { --profile-photo-width: 220px; display: grid; grid-template-columns: var(--profile-photo-width) 1fr; gap: 1.25rem; align-items: start; margin-bottom: 0.5rem; }
-  .about-profile img { width: 100%; max-width: var(--profile-photo-width); border-radius: 0.75rem; border: 1px solid var(--color-border); background: var(--color-bg-alt); }
+  .about-profile {
+    --profile-photo-width: 220px;
+    display: grid;
+    grid-template-columns: var(--profile-photo-width) 1fr;
+    gap: 1.25rem;
+    align-items: start;
+    margin-bottom: 0.5rem;
+  }
+  .about-profile img {
+    width: 100%;
+    max-width: var(--profile-photo-width);
+    border-radius: 0.75rem;
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-alt);
+  }
   @media (max-width: 640px) {
     .about-profile { grid-template-columns: 1fr; }
     .about-profile img { max-width: 180px; }
