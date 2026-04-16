@@ -11,7 +11,7 @@ const currentPath = Astro.url.pathname;
 <header class="site-header">
   <div class="container">
     <div class="header-inner">
-      <a href="/" class="logo"><span class="logo-bracket">[</span><span class="logo-text">Leptons</span><span class="logo-bracket">]</span></a>
+      <a href="/" class="logo"><span class="logo-bracket">[</span><span class="logo-text">Anish Giri</span><span class="logo-bracket">]</span></a>
       <nav class="main-nav" aria-label="Main navigation">
         {navLinks.map(link => (
           <a href={link.href} class={`nav-link ${currentPath === link.href ? 'active' : ''}`}>{link.label}</a>

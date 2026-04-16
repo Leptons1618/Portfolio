@@ -1,14 +1,18 @@
 ---
 import PageLayout from '../layouts/PageLayout.astro';
 ---
-<PageLayout title="About" description="About Leptons1618 — ML/CV engineer and full-stack developer.">
+<PageLayout title="About" description="About Anish Giri — ML/CV engineer and full-stack developer.">
   <div class="container">
     <section class="about-section">
       <h1>About Me</h1>
-      <p class="lead">I'm a software engineer focused on machine learning, computer vision, and full-stack development.</p>
+      <p class="lead">I'm Anish Giri, a software engineer focused on machine learning, computer vision, and full-stack development.</p>
       <div class="about-body">
-        <p>I build systems at the intersection of data, inference, and user experience. My work spans research prototypes to production systems, with a bias towards clean code and measurable results.</p>
-        <p>When I'm not writing code, I'm exploring new ML architectures, working on side projects, or reading research papers.</p>
+        <div class="about-profile">
+          <img src="https://github.com/user-attachments/assets/ac0a8a77-f1eb-45fa-8670-9b13cefd85e4" alt="Anish Giri profile photo" loading="lazy" />
+          <p>I build systems at the intersection of data, inference, and user experience. My work spans research prototypes to production systems, with a bias towards clean code and measurable results.</p>
+        </div>
+        <p>I enjoy turning complex ideas into practical products, especially in AI-powered applications where model performance and user experience both matter. I focus on writing maintainable code, designing scalable architecture, and shipping features that create clear impact.</p>
+        <p>When I'm not writing code, I'm exploring new ML architectures, working on side projects, and reading research papers to stay current with modern AI and systems engineering trends.</p>
         <h2>What I Work With</h2>
         <ul>
           <li>Machine Learning &amp; Computer Vision (PyTorch, TensorFlow, OpenCV)</li>
@@ -16,6 +20,8 @@ import PageLayout from '../layouts/PageLayout.astro';
           <li>Data Engineering (SQL, streaming, ETL)</li>
           <li>DevTools &amp; Systems (Rust, Go, Python)</li>
         </ul>
+        <h2>Beyond Work</h2>
+        <p>I like building and sharing projects publicly, learning through experimentation, and continuously improving engineering quality through better tooling and workflows.</p>
         <div class="about-links">
           <a href="https://github.com/Leptons1618" class="btn btn-primary" target="_blank" rel="noopener">GitHub ↗</a>
           <a href="/resume" class="btn btn-outline">Resume</a>
@@ -33,5 +39,11 @@ import PageLayout from '../layouts/PageLayout.astro';
   .about-body h2 { font-size: 1.25rem; margin: 2rem 0 1rem; }
   .about-body ul { color: var(--color-text-muted); padding-left: 1.5rem; margin-bottom: 1.5rem; }
   .about-body ul li { margin-bottom: 0.5rem; }
+  .about-profile { display: grid; grid-template-columns: 220px 1fr; gap: 1.25rem; align-items: start; margin-bottom: 0.5rem; }
+  .about-profile img { width: 100%; max-width: 220px; border-radius: 0.75rem; border: 1px solid var(--color-border); background: var(--color-bg-alt); }
+  @media (max-width: 640px) {
+    .about-profile { grid-template-columns: 1fr; }
+    .about-profile img { max-width: 180px; }
+  }
   .about-links { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 2rem; }
 </style>
