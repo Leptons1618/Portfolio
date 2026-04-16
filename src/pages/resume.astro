@@ -1,0 +1,44 @@
+---
+import PageLayout from '../layouts/PageLayout.astro';
+---
+<PageLayout title="Resume" description="Resume — Leptons1618, ML/CV Engineer and full-stack developer.">
+  <div class="container">
+    <div class="resume-header">
+      <h1>Resume</h1>
+      <p class="resume-note">A living document. For the latest version, see my GitHub profile.</p>
+    </div>
+    <div class="resume-body">
+      <section class="resume-section">
+        <h2>Experience</h2>
+        <p class="muted">Experience details coming soon. Check GitHub for project history.</p>
+      </section>
+      <section class="resume-section">
+        <h2>Skills</h2>
+        <div class="skill-rows">
+          <div class="skill-row"><span class="skill-label">ML / CV</span><span class="skill-val">PyTorch, TensorFlow, OpenCV, scikit-learn, YOLO</span></div>
+          <div class="skill-row"><span class="skill-label">Languages</span><span class="skill-val">Python, TypeScript, Go, Rust, SQL</span></div>
+          <div class="skill-row"><span class="skill-label">Web</span><span class="skill-val">Astro, React, FastAPI, Node.js, Tailwind</span></div>
+          <div class="skill-row"><span class="skill-label">Data</span><span class="skill-val">PostgreSQL, Redis, Apache Kafka, DuckDB</span></div>
+          <div class="skill-row"><span class="skill-label">Infra</span><span class="skill-val">Docker, GitHub Actions, Cloudflare, Vercel</span></div>
+        </div>
+      </section>
+      <section class="resume-section">
+        <h2>Projects</h2>
+        <p class="muted">See the <a href="/projects">Projects page</a> for a full list.</p>
+      </section>
+    </div>
+  </div>
+</PageLayout>
+<style>
+  .container { max-width: 800px; margin: 0 auto; padding: 4rem 1.5rem; }
+  .resume-header { margin-bottom: 3rem; }
+  .resume-header h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
+  .resume-note { color: var(--color-text-muted); }
+  .resume-section { margin-bottom: 2.5rem; }
+  .resume-section h2 { font-size: 1.25rem; color: var(--color-accent); margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; }
+  .muted { color: var(--color-text-muted); }
+  .skill-rows { display: flex; flex-direction: column; gap: 0.75rem; }
+  .skill-row { display: flex; gap: 1rem; align-items: baseline; }
+  .skill-label { font-weight: 600; font-size: 0.875rem; min-width: 100px; }
+  .skill-val { color: var(--color-text-muted); font-size: 0.875rem; }
+</style>

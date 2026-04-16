@@ -1,0 +1,32 @@
+---
+interface Props {
+  type?: 'info' | 'warning' | 'success' | 'error';
+  title?: string;
+}
+const { type = 'info', title } = Astro.props;
+const icons = { info: 'ℹ', warning: '⚠', success: '✓', error: '✕' };
+---
+<div class={`callout callout-${type}`}>
+  {title && <div class="callout-title">{icons[type]} {title}</div>}
+  <div class="callout-body"><slot /></div>
+</div>
+
+<style>
+  .callout {
+    padding: 1rem 1.25rem;
+    border-radius: var(--radius-md);
+    border-left: 3px solid;
+    background: var(--color-bg-secondary);
+    margin: 1rem 0;
+  }
+  .callout-info { border-color: var(--color-accent); }
+  .callout-warning { border-color: var(--color-warning); }
+  .callout-success { border-color: var(--color-success); }
+  .callout-error { border-color: var(--color-error); }
+  .callout-title {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    font-size: 0.9rem;
+  }
+  .callout-body { font-size: 0.9rem; color: var(--color-text-muted); }
+</style>

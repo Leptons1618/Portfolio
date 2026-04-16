@@ -1,0 +1,92 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import Badge from '../components/Badge.astro';
+import { getCollection } from 'astro:content';
+import { formatDate } from '../lib/format';
+interface Props {
+  title: string; subtitle: string; slug: string; heroImage?: string; heroVideo?: string;
+  problem: string; solution: string; architectureImage?: string; achievements: string[];
+  stack: string[]; repoUrl?: string; demoUrl?: string; date: string; readTime?: string;
+}
+const { title, subtitle, slug, heroImage, heroVideo, problem, solution, architectureImage, achievements, stack, repoUrl, demoUrl, date, readTime } = Astro.props;
+const allCaseStudies = await getCollection('case-studies');
+const sorted = allCaseStudies.sort((a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime());
+const currentIdx = sorted.findIndex(cs => cs.data.slug === slug);
+const prev = sorted[currentIdx + 1] || null;
+const next = sorted[currentIdx - 1] || null;
+---
+<BaseLayout title={title} description={subtitle}>
+  <article class="case-study">
+    <div class="cs-hero">
+      {heroVideo ? <video src={heroVideo} autoplay muted loop playsinline class="cs-media" /> : heroImage ? <img src={heroImage} alt={title} class="cs-media" /> : <div class="cs-media-placeholder" />}
+      <div class="container cs-hero-content">
+        <h1 class="cs-title">{title}</h1>
+        <p class="cs-subtitle">{subtitle}</p>
+        <div class="cs-meta"><span>{formatDate(date)}</span>{readTime && <span>· {readTime} read</span>}</div>
+        <div class="cs-links">
+          {repoUrl && <a href={repoUrl} class="btn btn-outline" target="_blank" rel="noopener">Repo ↗</a>}
+          {demoUrl && <a href={demoUrl} class="btn btn-primary" target="_blank" rel="noopener">Demo ↗</a>}
+        </div>
+      </div>
+    </div>
+    <div class="container cs-body">
+      <div class="cs-grid">
+        <div class="cs-main">
+          <section class="cs-section"><h2>Problem</h2><p>{problem}</p></section>
+          <section class="cs-section"><h2>Solution</h2><p>{solution}</p></section>
+          <div class="cs-content"><slot /></div>
+          {architectureImage && <section class="cs-section"><h2>Architecture</h2><img src={architectureImage} alt="Architecture diagram" class="arch-img" /></section>}
+        </div>
+        <aside class="cs-sidebar">
+          <div class="card sidebar-card">
+            <h3>Achievements</h3>
+            <ul class="achievement-list">{achievements.map(a => <li>{a}</li>)}</ul>
+          </div>
+          <div class="card sidebar-card">
+            <h3>Stack</h3>
+            <div class="stack-chips">{stack.map(s => <Badge text={s} />)}</div>
+          </div>
+        </aside>
+      </div>
+      <nav class="cs-nav">
+        {prev && <a href={`/case-studies/${prev.data.slug}`} class="cs-nav-link prev"><span>← Previous</span><strong>{prev.data.title}</strong></a>}
+        {next && <a href={`/case-studies/${next.data.slug}`} class="cs-nav-link next"><span>Next →</span><strong>{next.data.title}</strong></a>}
+      </nav>
+    </div>
+  </article>
+</BaseLayout>
+<style>
+  .cs-hero { position: relative; overflow: hidden; background: var(--color-bg-secondary); }
+  .cs-media { width: 100%; height: 400px; object-fit: cover; opacity: 0.6; }
+  .cs-media-placeholder { height: 300px; background: var(--color-bg-tertiary); }
+  .cs-hero-content { position: relative; padding: 3rem 1.5rem; }
+  .cs-title { font-size: clamp(1.5rem, 4vw, 2.5rem); margin-bottom: 0.5rem; }
+  .cs-subtitle { font-size: 1.1rem; color: var(--color-text-muted); margin-bottom: 1rem; }
+  .cs-meta { font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem; }
+  .cs-links { display: flex; gap: 0.75rem; }
+  .cs-body { padding: 3rem 1.5rem; }
+  .cs-grid { display: grid; grid-template-columns: 1fr 300px; gap: 3rem; }
+  .cs-main { min-width: 0; }
+  .cs-section { margin-bottom: 2.5rem; }
+  .cs-section h2 { font-size: 1.25rem; margin-bottom: 0.75rem; color: var(--color-accent); }
+  .cs-section p { color: var(--color-text-muted); line-height: 1.7; }
+  .cs-content { line-height: 1.7; }
+  .cs-content :global(h2) { font-size: 1.25rem; color: var(--color-accent); margin: 2rem 0 0.75rem; }
+  .cs-content :global(h3) { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
+  .cs-content :global(p) { color: var(--color-text-muted); margin-bottom: 1rem; }
+  .cs-content :global(ul) { color: var(--color-text-muted); padding-left: 1.5rem; margin-bottom: 1rem; }
+  .cs-content :global(code) { background: var(--color-bg-tertiary); padding: 0.1em 0.4em; border-radius: 3px; font-size: 0.9em; }
+  .arch-img { width: 100%; border-radius: var(--radius-md); border: 1px solid var(--color-border); }
+  .sidebar-card { margin-bottom: 1.5rem; }
+  .sidebar-card h3 { font-size: 0.9rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
+  .achievement-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+  .achievement-list li { font-size: 0.875rem; color: var(--color-text); padding-left: 1rem; position: relative; }
+  .achievement-list li::before { content: '→'; position: absolute; left: 0; color: var(--color-accent); }
+  .stack-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+  .cs-nav { display: flex; justify-content: space-between; gap: 1rem; padding-top: 3rem; border-top: 1px solid var(--color-border); margin-top: 3rem; }
+  .cs-nav-link { display: flex; flex-direction: column; gap: 0.25rem; color: var(--color-text-muted); font-size: 0.875rem; max-width: 45%; }
+  .cs-nav-link:hover { color: var(--color-accent); }
+  .cs-nav-link strong { font-size: 1rem; color: var(--color-text); }
+  .cs-nav-link.next { text-align: right; margin-left: auto; }
+  @media (max-width: 768px) { .cs-grid { grid-template-columns: 1fr; } .cs-sidebar { order: -1; } }
+</style>

@@ -1,0 +1,16 @@
+---
+import CaseStudyLayout from '../../layouts/CaseStudyLayout.astro';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+  const caseStudies = await getCollection('case-studies');
+  return caseStudies.map(cs => ({ params: { slug: cs.data.slug }, props: { entry: cs } }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await entry.render();
+const { title, subtitle, slug, heroImage, heroVideo, problem, solution, architectureImage, achievements, stack, repoUrl, demoUrl, date, readTime } = entry.data;
+---
+<CaseStudyLayout title={title} subtitle={subtitle} slug={slug} heroImage={heroImage} heroVideo={heroVideo} problem={problem} solution={solution} architectureImage={architectureImage} achievements={achievements} stack={stack} repoUrl={repoUrl} demoUrl={demoUrl} date={date} readTime={readTime}>
+  <Content />
+</CaseStudyLayout>
