@@ -1,0 +1,30 @@
+---
+title: "Markov Chain Lab"
+slug: "markov-chain-lab"
+subtitle: "Interactive visualization environment for discrete Markov chain analysis."
+problem: "Understanding Markov chain behavior requires both mathematical computation and visual intuition. Most tools only compute results numerically or provide static diagrams."
+solution: "Built an interactive Streamlit app coupling eigendecomposition-based computation with live graph visualization, letting users manipulate transition matrices and see steady-state effects immediately."
+achievements:
+  - "Steady-state computation via eigendecomposition with numerical stability checks."
+  - "Interactive graph rendering with NetworkX and Matplotlib."
+  - "Support for absorbing and ergodic chain configurations."
+  - "Real-time convergence visualization with step-by-step iteration display."
+stack: ["Python", "NumPy", "Matplotlib", "NetworkX", "Streamlit"]
+repoUrl: "https://github.com/Leptons1618/Markov-Chain-Lab"
+date: "2024-03-01"
+readTime: "5 min"
+---
+
+## Overview
+
+Markov Chain Lab provides a hands-on environment for exploring discrete-time Markov chains, aimed at students and practitioners who want to verify theoretical results visually.
+
+## Technical Approach
+
+The steady-state distribution is computed via eigendecomposition of the transition matrix transpose. The eigenvector corresponding to eigenvalue 1 is extracted and normalized.
+
+For absorbing chains, the canonical form is used to extract the fundamental matrix and compute absorption probabilities.
+
+## Implementation Notes
+
+State transitions are represented as a NumPy matrix. NetworkX builds the graph and Matplotlib renders it, with edge weights proportional to transition probabilities.
