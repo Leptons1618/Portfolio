@@ -1,0 +1,33 @@
+---
+title: "EchoScript"
+slug: "echoscript"
+subtitle: "Automatic transcription with speaker diarization using Whisper and PyAnnote."
+problem: "Generating accurate transcripts from multi-speaker audio requires both high-quality ASR and speaker attribution. Whisper alone produces accurate text but does not identify who is speaking."
+solution: "Integrated OpenAI Whisper for ASR with PyAnnote.audio for speaker diarization, aligning speaker labels to transcript segments via timestamp matching."
+achievements:
+  - "Per-speaker transcript segments with < 200ms alignment error."
+  - "SRT, VTT, and plain text export formats."
+  - "Batch processing API for multi-file jobs."
+  - "React frontend with waveform visualization using WaveSurfer.js."
+stack: ["Python", "OpenAI Whisper", "PyAnnote", "FastAPI", "React", "TypeScript", "WaveSurfer.js"]
+repoUrl: "https://github.com/Leptons1618/EchoScript"
+date: "2024-05-20"
+readTime: "6 min"
+---
+
+## Pipeline
+
+1. **Preprocessing**: resample to 16kHz mono, normalize loudness.
+2. **Diarization**: PyAnnote.audio segments audio by speaker with RTTM output.
+3. **Transcription**: Whisper transcribes each diarized segment independently.
+4. **Alignment**: Word-level timestamps from Whisper are matched to diarization segments.
+
+## Export Formats
+
+- **SRT**: speaker-labeled subtitle blocks with timecodes.
+- **VTT**: WebVTT format for browser-native subtitle tracks.
+- **JSON**: structured data with per-word timing and confidence scores.
+
+## Frontend
+
+WaveSurfer.js renders audio waveforms. Clicking a transcript segment seeks the audio to that position. Speaker colors are assigned per unique speaker ID.

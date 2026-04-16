@@ -1,0 +1,71 @@
+{
+  "$ref": "#/definitions/case-studies",
+  "definitions": {
+    "case-studies": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "subtitle": {
+          "type": "string"
+        },
+        "heroImage": {
+          "type": "string"
+        },
+        "heroVideo": {
+          "type": "string"
+        },
+        "problem": {
+          "type": "string"
+        },
+        "solution": {
+          "type": "string"
+        },
+        "architectureImage": {
+          "type": "string"
+        },
+        "achievements": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stack": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "repoUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "demoUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "date": {
+          "type": "string"
+        },
+        "readTime": {
+          "type": "string"
+        },
+        "$schema": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "subtitle",
+        "problem",
+        "solution",
+        "achievements",
+        "stack",
+        "date"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

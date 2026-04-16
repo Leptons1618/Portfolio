@@ -1,0 +1,97 @@
+---
+import PageLayout from '../layouts/PageLayout.astro';
+import ProjectCard from '../components/ProjectCard.astro';
+import { getCollection } from 'astro:content';
+
+const allProjects = await getCollection('projects');
+const allCaseStudies = await getCollection('case-studies');
+const featured = allProjects.filter(p => p.data.featuredRank !== undefined).sort((a, b) => (a.data.featuredRank ?? 99) - (b.data.featuredRank ?? 99)).slice(0, 10);
+const skillSet = new Set<string>();
+allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
+---
+<PageLayout title="Home" description="ML/CV engineer and full-stack developer portfolio.">
+  <section class="hero">
+    <div class="container">
+      <div class="hero-content">
+        <span class="hero-label">SOFTWARE ENGINEER</span>
+        <h1 class="hero-title">Building <span class="accent">ML systems</span>,<br />full-stack apps &amp; dev tools</h1>
+        <p class="hero-desc">I work at the intersection of machine learning, computer vision, and software engineering. I build practical systems that ship.</p>
+        <div class="hero-actions">
+          <a href="/projects" class="btn btn-primary">View Projects</a>
+          <a href="/resume" class="btn btn-outline">Resume</a>
+          <a href="https://github.com/Leptons1618" class="btn btn-outline" target="_blank" rel="noopener">GitHub ↗</a>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section class="section-case-studies">
+    <div class="container">
+      <h2 class="section-title">Featured Case Studies</h2>
+      <div class="cs-grid">
+        {allCaseStudies.map(cs => (
+          <a href={} class="cs-card card">
+            <div class="cs-card-body">
+              <h3 class="cs-card-title">{cs.data.title}</h3>
+              <p class="cs-card-subtitle">{cs.data.subtitle}</p>
+            </div>
+            <span class="cs-card-cta">Read case study →</span>
+          </a>
+        ))}
+      </div>
+    </div>
+  </section>
+  <section class="section-projects">
+    <div class="container">
+      <h2 class="section-title">Featured Projects</h2>
+      <div class="project-grid">
+        {featured.slice(0, 6).map(project => (
+          <ProjectCard title={project.data.title} slug={project.slug} summary={project.data.summary} category={project.data.category} tags={project.data.tags} stack={project.data.stack} status={project.data.status} year={project.data.year} highlights={project.data.highlights} repoUrl={project.data.repoUrl} demoUrl={project.data.demoUrl} caseStudySlug={project.data.caseStudySlug} heroImage={project.data.heroImage} metrics={project.data.metrics} />
+        ))}
+      </div>
+      <div class="view-all"><a href="/projects" class="btn btn-outline">View all projects →</a></div>
+    </div>
+  </section>
+  <section class="section-skills">
+    <div class="container">
+      <h2 class="section-title">Skills &amp; Stack</h2>
+      <div class="skill-chips">
+        {Array.from(skillSet).sort().map(s => <span class="skill-chip">{s}</span>)}
+      </div>
+    </div>
+  </section>
+  <section class="section-cta">
+    <div class="container">
+      <div class="cta-box card">
+        <h2>Let's work together</h2>
+        <p>Open to interesting ML/CV, full-stack, and systems projects.</p>
+        <div class="cta-actions">
+          <a href="https://github.com/Leptons1618" class="btn btn-primary" target="_blank" rel="noopener">GitHub ↗</a>
+          <a href="/resume" class="btn btn-outline">Resume</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</PageLayout>
+<style>
+  .hero { padding: 6rem 0 4rem; border-bottom: 1px solid var(--color-border); }
+  .hero-content { max-width: 700px; }
+  .hero-label { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.15em; color: var(--color-accent); display: block; margin-bottom: 1rem; }
+  .hero-title { font-size: clamp(2rem, 5vw, 3.5rem); line-height: 1.15; margin-bottom: 1.5rem; }
+  .accent { color: var(--color-accent); }
+  .hero-desc { font-size: 1.1rem; color: var(--color-text-muted); max-width: 560px; line-height: 1.6; margin-bottom: 2rem; }
+  .hero-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
+  .cs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.5rem; }
+  .cs-card { display: flex; flex-direction: column; justify-content: space-between; text-decoration: none; color: var(--color-text); min-height: 160px; }
+  .cs-card:hover { color: var(--color-text); }
+  .cs-card-title { font-size: 1.05rem; margin-bottom: 0.5rem; }
+  .cs-card-subtitle { font-size: 0.875rem; color: var(--color-text-muted); }
+  .cs-card-cta { font-size: 0.8rem; color: var(--color-accent); margin-top: 1rem; }
+  .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; }
+  .view-all { text-align: center; margin-top: 2rem; }
+  .skill-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .skill-chip { padding: 0.3rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg-secondary); font-size: 0.8rem; color: var(--color-text-muted); font-family: var(--font-mono); }
+  .cta-box { text-align: center; padding: 3rem; }
+  .cta-box h2 { font-size: 1.75rem; margin-bottom: 0.75rem; }
+  .cta-box p { color: var(--color-text-muted); margin-bottom: 1.5rem; }
+  .cta-actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+</style>
