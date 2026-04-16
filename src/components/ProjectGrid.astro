@@ -5,7 +5,7 @@ const { projects } = Astro.props;
 ---
 <div class="project-grid">
   {projects.map(project => (
-    <ProjectCard title={project.data.title} slug={project.data.slug} summary={project.data.summary} category={project.data.category} tags={project.data.tags} stack={project.data.stack} status={project.data.status} year={project.data.year} highlights={project.data.highlights} repoUrl={project.data.repoUrl} demoUrl={project.data.demoUrl} caseStudySlug={project.data.caseStudySlug} heroImage={project.data.heroImage} metrics={project.data.metrics} />
+    <ProjectCard title={project.data.title} slug={project.slug} summary={project.data.summary} category={project.data.category} tags={project.data.tags} stack={project.data.stack} status={project.data.status} year={project.data.year} highlights={project.data.highlights} repoUrl={project.data.repoUrl} demoUrl={project.data.demoUrl} caseStudySlug={project.data.caseStudySlug} heroImage={project.data.heroImage} metrics={project.data.metrics} />
   ))}
 </div>
 <style>

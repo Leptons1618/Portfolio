@@ -45,7 +45,7 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
       <h2 class="section-title">Featured Projects</h2>
       <div class="project-grid">
         {featured.slice(0, 6).map(project => (
-          <ProjectCard title={project.data.title} slug={project.data.slug} summary={project.data.summary} category={project.data.category} tags={project.data.tags} stack={project.data.stack} status={project.data.status} year={project.data.year} highlights={project.data.highlights} repoUrl={project.data.repoUrl} demoUrl={project.data.demoUrl} caseStudySlug={project.data.caseStudySlug} heroImage={project.data.heroImage} metrics={project.data.metrics} />
+          <ProjectCard title={project.data.title} slug={project.slug} summary={project.data.summary} category={project.data.category} tags={project.data.tags} stack={project.data.stack} status={project.data.status} year={project.data.year} highlights={project.data.highlights} repoUrl={project.data.repoUrl} demoUrl={project.data.demoUrl} caseStudySlug={project.data.caseStudySlug} heroImage={project.data.heroImage} metrics={project.data.metrics} />
         ))}
       </div>
       <div class="view-all"><a href="/projects" class="btn btn-outline">View all projects →</a></div>

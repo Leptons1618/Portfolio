@@ -14,3 +14,5 @@ highlights:
   - "Supports model hot-swap at runtime without page reload."
   - "Mobile-compatible with MediaDevices API for camera access."
 ---
+
+Project metadata entry.

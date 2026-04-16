@@ -16,3 +16,5 @@ highlights:
   - "Exports transcripts in SRT, VTT, and plain text formats."
   - "React frontend with waveform visualization and segment editing."
 ---
+
+Project metadata entry.

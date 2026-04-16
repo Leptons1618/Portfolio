@@ -20,7 +20,7 @@ const topTags = Object.entries(tagCounts)
 
 const projectsData = allProjects.map(p => ({
   title: p.data.title,
-  slug: p.data.slug,
+  slug: p.slug,
   summary: p.data.summary,
   category: p.data.category,
   tags: p.data.tags,

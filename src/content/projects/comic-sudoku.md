@@ -13,3 +13,5 @@ highlights:
   - "Hand-drawn comic art style UI rendered on HTML Canvas."
   - "Puzzle generator with difficulty classification via filled-cell count."
 ---
+
+Project metadata entry.

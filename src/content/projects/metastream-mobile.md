@@ -14,3 +14,5 @@ highlights:
   - "Offline cache with Redux Persist for metadata browsing without connectivity."
   - "Push notification integration for new content alerts."
 ---
+
+Project metadata entry.

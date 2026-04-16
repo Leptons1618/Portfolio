@@ -13,3 +13,5 @@ highlights:
   - "One-click deployment of public keys to remote hosts via Paramiko."
   - "Stores key metadata locally with optional passphrase encryption."
 ---
+
+Project metadata entry.

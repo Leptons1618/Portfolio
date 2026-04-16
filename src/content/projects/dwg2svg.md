@@ -13,3 +13,5 @@ highlights:
   - "Normalizes coordinate spaces and handles DWG unit scaling."
   - "CLI interface with configurable layer filtering and SVG optimization options."
 ---
+
+Project metadata entry.

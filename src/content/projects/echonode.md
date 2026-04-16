@@ -13,3 +13,5 @@ highlights:
   - "Automatic service health checks and circuit breaker via Redis TTL."
   - "Event replay from RabbitMQ dead-letter exchange for debugging."
 ---
+
+Project metadata entry.

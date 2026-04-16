@@ -14,3 +14,5 @@ highlights:
   - "Supports multiple local LLM backends via Ollama (Mistral, Llama3, Phi3)."
   - "Context window management with source citation in responses."
 ---
+
+Project metadata entry.
