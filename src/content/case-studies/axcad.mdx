@@ -1,0 +1,30 @@
+---
+title: "AXCAD"
+slug: "axcad"
+subtitle: "Browser-based CAD workspace with parametric constraints, command workflows, and export pipelines."
+problem: "Most lightweight web drawing tools are not suitable for precision drafting workflows because they lack command-driven editing, constraints, and production-ready export formats."
+solution: "Built a TypeScript/React CAD editor with precision snapping, constraint-aware geometry operations, an AutoCAD-style command parser, and multi-format export support for engineering handoff."
+achievements:
+  - "Implemented command-driven geometry creation/editing for faster drafting flows."
+  - "Added snapping and history systems to support reversible precision operations."
+  - "Shipped DXF, SVG, PDF, JSON, and Excel export pathways from a single web workspace."
+  - "Maintained responsive interaction in a Fabric.js canvas-based editor architecture."
+stack: ["TypeScript", "React", "Fabric.js", "Zustand", "Node.js", "Express"]
+repoUrl: "https://github.com/Leptons1618/AXCAD"
+date: "2024-06-12"
+readTime: "6 min"
+---
+
+## Product Scope
+
+AXCAD focuses on day-to-day drafting workflows in the browser: create/edit geometry, keep precision under control, and export into formats teammates can consume immediately.
+
+## Core Engineering Decisions
+
+1. **Command-first interaction** for geometry operations and power-user speed.
+2. **Constraint and snap support** to reduce precision errors during manual editing.
+3. **Stateful history management** for safe iteration and rollback.
+
+## Delivery
+
+The tool was designed as a web-native CAD surface with practical export options so users can transition from ideation to downstream tooling without format friction.
