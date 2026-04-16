@@ -1,17 +1,17 @@
 ---
 title: "StreamFusion"
 slug: "streamfusion"
-summary: "Real-time multi-source video stream compositor with dynamic overlays."
-category: "systems"
-tags: ["video", "streaming", "ffmpeg", "opencv", "realtime"]
-stack: ["Python", "FFmpeg", "GStreamer", "OpenCV", "FastAPI", "WebSocket"]
+summary: "Cross-platform synchronized watch-party app with realtime playback, queue, and chat."
+category: "other"
+tags: ["watch-party", "realtime", "webrtc", "mobile", "streaming"]
+stack: ["React Native", "Expo", "TypeScript", "WebRTC", "Zustand", "WebSocket", "Node.js"]
 repoUrl: "https://github.com/Leptons1618/streamfusion"
 status: "stable"
 year: 2023
 highlights:
-  - "Merged multiple live inputs into configurable layout templates."
-  - "Implemented runtime overlay updates via websocket control channel."
-  - "Reduced restart churn by applying pipeline updates in-place."
+  - "Implements room-based realtime playback sync with low drift using WebRTC data channels."
+  - "Includes chat and shared queue management for multi-user sessions."
+  - "Ships with a Node.js signal server and Expo-based mobile client architecture."
 ---
 
 Project metadata entry.
