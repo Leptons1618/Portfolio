@@ -16,3 +16,5 @@ highlights:
   - "Kafka consumer groups with manual offset commit for at-least-once delivery."
   - "Monitoring dashboard via Prometheus metrics and Grafana."
 ---
+
+Project metadata entry.

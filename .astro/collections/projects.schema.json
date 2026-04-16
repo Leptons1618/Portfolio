@@ -7,9 +7,6 @@
         "title": {
           "type": "string"
         },
-        "slug": {
-          "type": "string"
-        },
         "summary": {
           "type": "string"
         },
@@ -92,7 +89,6 @@
       },
       "required": [
         "title",
-        "slug",
         "summary",
         "category",
         "tags",

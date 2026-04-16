@@ -14,3 +14,5 @@ highlights:
   - "Streaming response rendering with token-by-token display."
   - "System prompt editor with template library."
 ---
+
+Project metadata entry.

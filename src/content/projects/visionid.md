@@ -16,3 +16,5 @@ highlights:
   - "Built REST API with FastAPI for programmatic access to detection pipeline."
   - "Added configurable confidence and NMS thresholds for precision/recall tuning."
 ---
+
+Project metadata entry.

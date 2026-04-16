@@ -16,3 +16,5 @@ highlights:
   - "Added interactive parameter controls via Streamlit for real-time chain manipulation."
   - "Supports both absorbing and ergodic chain configurations."
 ---
+
+Project metadata entry.
