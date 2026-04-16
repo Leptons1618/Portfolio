@@ -6,6 +6,7 @@ category: "other"
 tags: ["watch-party", "realtime", "webrtc", "mobile", "streaming"]
 stack: ["React Native", "Expo", "TypeScript", "WebRTC", "Zustand", "WebSocket", "Node.js"]
 repoUrl: "https://github.com/Leptons1618/streamfusion"
+caseStudySlug: "streamfusion"
 status: "stable"
 year: 2023
 highlights:

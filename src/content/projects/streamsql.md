@@ -6,6 +6,7 @@ category: "systems"
 tags: ["sql", "streaming", "kafka", "real-time", "analytics"]
 stack: ["Python", "Apache Kafka", "Debezium", "Kafka Connect", "MQTT", "Docker", "SQL Server"]
 repoUrl: "https://github.com/Leptons1618/StreamSQL"
+caseStudySlug: "streamsql"
 featuredRank: 5
 status: "active"
 year: 2024

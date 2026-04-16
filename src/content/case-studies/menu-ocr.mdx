@@ -1,0 +1,27 @@
+---
+title: "Menu OCR"
+slug: "menu-ocr"
+subtitle: "Layout-aware OCR pipeline for extracting structured menu items and prices from noisy restaurant photos."
+problem: "Restaurant menu images are highly inconsistent in layout, font quality, and lighting, which makes raw OCR output unreliable for downstream structured use."
+solution: "Built a modular OCR system combining PaddleOCR and OpenCV preprocessing, then applied DBSCAN-based column grouping, FSM/Viterbi hierarchy enforcement, and Hungarian matching for robust item-price pairing."
+achievements:
+  - "Improved extraction quality with layout-aware postprocessing on noisy captures."
+  - "Added robust multi-column parsing using DBSCAN clustering."
+  - "Enforced semantic structure via FSM + Viterbi decoding for menu hierarchies."
+  - "Used global Hungarian assignment to improve item-to-price mapping reliability."
+stack: ["Python", "PaddleOCR", "OpenCV", "spaCy", "FastAPI", "React"]
+repoUrl: "https://github.com/Leptons1618/menu-ocr"
+date: "2023-11-08"
+readTime: "7 min"
+---
+
+## Pipeline
+
+1. **Image normalization** for contrast, skew, and noise reduction.
+2. **OCR extraction** of text candidates and bounding regions.
+3. **Layout reconstruction** to infer columns and item blocks.
+4. **Semantic correction** to map sections, items, and prices.
+
+## Why It Worked
+
+The quality improvement came from treating OCR as a full information extraction problem rather than just text recognition, with explicit modeling of layout and business rules.

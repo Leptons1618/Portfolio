@@ -6,6 +6,7 @@ category: "devtools"
 tags: ["cad", "parametric", "constraints", "dxf", "typescript"]
 stack: ["TypeScript", "React", "Fabric.js", "Zustand", "Node.js", "Express"]
 repoUrl: "https://github.com/Leptons1618/AXCAD"
+caseStudySlug: "axcad"
 featuredRank: 1
 status: "wip"
 year: 2024
