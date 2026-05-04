@@ -7,7 +7,6 @@ tags: ["data-pipeline", "ingestion", "batch-processing", "kafka", "python"]
 stack: ["Python", "Apache Kafka", "PostgreSQL", "Redis", "Docker", "FastAPI"]
 repoUrl: "https://github.com/Leptons1618/Ingesta"
 caseStudySlug: "ingesta"
-featuredRank: 3
 status: "stable"
 year: 2024
 highlights:
