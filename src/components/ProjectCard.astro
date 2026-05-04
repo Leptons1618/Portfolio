@@ -27,8 +27,8 @@ const statusIcon: Record<string, string> = { active: '●', stable: '◆', archi
       <div class="card-meta">
         <span class="card-year">{year}</span>
         <span class="card-category">{category}</span>
-        <span class="card-status" style={`color: ${statusColors[status]}`}>
-          {statusIcon[status] || '●'} {status}
+        <span class="card-status" style={`color: ${statusColors[status]}`} aria-label={`Status: ${status}`}>
+          <span aria-hidden="true">{statusIcon[status] || '●'}</span> {status}
         </span>
       </div>
       <h3 class="card-title">

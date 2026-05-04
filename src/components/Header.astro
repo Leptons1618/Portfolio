@@ -47,7 +47,10 @@ const currentPath = Astro.url.pathname;
       <span class="logo-text">Anish Giri</span>
       <span class="logo-bracket">]</span>
     </a>
-    <button class="mobile-close-btn" id="mobile-close-btn" aria-label="Close menu">✕</button>
+      <button class="mobile-close-btn" id="mobile-close-btn" aria-label="Close menu">
+          <span aria-hidden="true">✕</span>
+          <span class="sr-only">Close menu</span>
+        </button>
   </div>
   <div class="mobile-nav-links">
     {navLinks.map(link => (
