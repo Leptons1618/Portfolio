@@ -1,18 +1,19 @@
 ---
 title: "StreamSQL"
 slug: "streamsql"
-summary: "SQL query interface over live Kafka streams with windowed aggregations."
+summary: "Real-time CDC pipeline from SQL Server through Debezium/Kafka to MQTT consumers."
 category: "systems"
 tags: ["sql", "streaming", "kafka", "real-time", "analytics"]
-stack: ["Python", "Apache Kafka", "DuckDB", "FastAPI", "WebSocket", "React"]
+stack: ["Python", "Apache Kafka", "Debezium", "Kafka Connect", "MQTT", "Docker", "SQL Server"]
 repoUrl: "https://github.com/Leptons1618/StreamSQL"
+caseStudySlug: "streamsql"
+featuredRank: 5
 status: "active"
 year: 2024
 highlights:
-  - "Translates SQL queries to Kafka consumer logic with tumbling/sliding window support."
-  - "DuckDB backend for in-memory aggregation of stream snapshots."
-  - "WebSocket API for streaming query results to frontend in real time."
-  - "Query planner validates window semantics before execution."
+  - "Streams SQL Server CDC changes through Debezium into Kafka topics in near real time."
+  - "Bridges Kafka change events to HiveMQ MQTT topics for low-latency subscribers."
+  - "Ships with Docker-based local stack and operational monitoring via Kafka UI/Connect."
 ---
 
 Project metadata entry.

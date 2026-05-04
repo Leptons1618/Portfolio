@@ -1,15 +1,15 @@
 ---
 title: "Markov Chain Lab"
 slug: "markov-chain-lab"
-subtitle: "Interactive visualization environment for discrete Markov chain analysis."
-problem: "Understanding Markov chain behavior requires both mathematical computation and visual intuition. Most tools only compute results numerically or provide static diagrams."
-solution: "Built an interactive Streamlit app coupling eigendecomposition-based computation with live graph visualization, letting users manipulate transition matrices and see steady-state effects immediately."
+subtitle: "Interactive learning platform for Markov chains, automata, simulation, and grammar workflows."
+problem: "Students and practitioners need one place to learn theory, build automata, run simulations, and validate behavior; most tools are fragmented across static notes and disconnected utilities."
+solution: "Built a modern Next.js platform with an interactive builder, simulation and analysis tabs, grammar conversion tooling, and persisted user workspaces."
 achievements:
-  - "Steady-state computation via eigendecomposition with numerical stability checks."
-  - "Interactive graph rendering with NetworkX and Matplotlib."
-  - "Support for absorbing and ergodic chain configurations."
-  - "Real-time convergence visualization with step-by-step iteration display."
-stack: ["Python", "NumPy", "Matplotlib", "NetworkX", "Streamlit"]
+  - "Visual chain builder supports Markov Chains, DFA, and NFA with interactive editing."
+  - "Simulation and analysis cover stationary behavior, convergence, and chain properties."
+  - "Grammar editor supports two-way grammar↔automata conversion with validation."
+  - "User settings and workspace state persist through Supabase integration."
+stack: ["Next.js", "React", "TypeScript", "Tailwind CSS", "Supabase"]
 repoUrl: "https://github.com/Leptons1618/Markov-Chain-Lab"
 date: "2024-03-01"
 readTime: "5 min"
@@ -17,14 +17,14 @@ readTime: "5 min"
 
 ## Overview
 
-Markov Chain Lab provides a hands-on environment for exploring discrete-time Markov chains, aimed at students and practitioners who want to verify theoretical results visually.
+Markov Chain Lab is a full learning-and-practice environment that combines lessons, interactive tools, and experimentation workflows in one platform.
 
 ## Technical Approach
 
-The steady-state distribution is computed via eigendecomposition of the transition matrix transpose. The eigenvector corresponding to eigenvalue 1 is extracted and normalized.
+The core toolset is organized around building state machines, running simulations, and analyzing behavior in real time. Users can switch between Markov Chain, DFA, and NFA modes while preserving a consistent editing workflow.
 
-For absorbing chains, the canonical form is used to extract the fundamental matrix and compute absorption probabilities.
+Conversion utilities bridge formal grammars and automata, while analysis views expose transition behavior and convergence-related properties for iterative experimentation.
 
 ## Implementation Notes
 
-State transitions are represented as a NumPy matrix. NetworkX builds the graph and Matplotlib renders it, with edge weights proportional to transition probabilities.
+The platform is implemented with a Next.js + React + TypeScript frontend and uses Supabase-backed persistence for settings and saved workspace state.
