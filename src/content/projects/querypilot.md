@@ -6,6 +6,7 @@ category: "ai-llm"
 tags: ["nlp", "sql", "llm", "text-to-sql", "databases"]
 stack: ["Python", "FastAPI", "SQLAlchemy", "PostgreSQL", "React", "TypeScript"]
 repoUrl: "https://github.com/Leptons1618/QueryPilot"
+caseStudySlug: "querypilot"
 status: "active"
 year: 2024
 highlights:

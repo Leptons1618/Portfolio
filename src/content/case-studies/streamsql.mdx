@@ -1,0 +1,28 @@
+---
+title: "StreamSQL"
+slug: "streamsql"
+subtitle: "Real-time SQL Server CDC streaming through Debezium/Kafka into MQTT subscribers."
+problem: "Operational analytics pipelines often need low-latency change propagation from transactional databases to event-driven consumers, but direct polling introduces delay and consistency issues."
+solution: "Implemented a CDC-first architecture using Debezium + Kafka Connect for SQL Server change capture, with Kafka topics bridged to MQTT for low-latency downstream consumption and monitoring."
+achievements:
+  - "Delivered near-real-time CDC propagation from SQL Server to event consumers."
+  - "Added Kafka-to-MQTT bridge for subscriber-friendly fan-out."
+  - "Packaged local reproducible stack with Docker and Kafka UI/Connect tooling."
+  - "Improved observability of connector and topic health during iteration."
+stack: ["Python", "Apache Kafka", "Debezium", "Kafka Connect", "MQTT", "Docker", "SQL Server"]
+repoUrl: "https://github.com/Leptons1618/StreamSQL"
+date: "2024-07-01"
+readTime: "6 min"
+---
+
+## Architecture
+
+The data path is:
+
+`SQL Server (CDC) -> Debezium Connector -> Kafka Topics -> MQTT Bridge -> Subscribers`
+
+## Reliability Notes
+
+- Connector-driven CDC removed application-level polling complexity.
+- Topic-based buffering enabled decoupled consumers.
+- Dockerized dependencies reduced setup variance across environments.

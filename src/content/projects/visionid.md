@@ -7,7 +7,6 @@ tags: ["object-detection", "tracking", "computer-vision", "yolo", "real-time"]
 stack: ["Python", "PyTorch", "YOLOv8", "DeepSort", "OpenCV", "FastAPI"]
 repoUrl: "https://github.com/Leptons1618/VisionID"
 caseStudySlug: "visionid"
-featuredRank: 2
 status: "active"
 year: 2024
 highlights:
