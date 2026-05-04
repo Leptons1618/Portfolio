@@ -43,5 +43,23 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site || 'https://leptons1
   <Header />
   <main><slot /></main>
   <Footer />
+  <script>
+    // Global section reveal via IntersectionObserver
+    function initReveal() {
+      const revealEls = document.querySelectorAll('.reveal');
+      if (!revealEls.length) return;
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach(e => {
+          if (e.isIntersecting) {
+            e.target.classList.add('revealed');
+            observer.unobserve(e.target);
+          }
+        });
+      }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+      revealEls.forEach(el => observer.observe(el));
+    }
+    initReveal();
+    document.addEventListener('astro:page-load', initReveal);
+  </script>
 </body>
 </html>

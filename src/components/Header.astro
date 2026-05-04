@@ -8,33 +8,188 @@ const navLinks = [
 ];
 const currentPath = Astro.url.pathname;
 ---
+<div class="scroll-progress" id="scroll-progress"></div>
 <header class="site-header">
   <div class="container">
     <div class="header-inner">
-      <a href="/" class="logo"><span class="logo-bracket">[</span><span class="logo-text">Anish Giri</span><span class="logo-bracket">]</span></a>
+      <a href="/" class="logo">
+        <span class="logo-bracket">[</span>
+        <span class="logo-text">Anish Giri</span>
+        <span class="logo-bracket">]</span>
+      </a>
       <nav class="main-nav" aria-label="Main navigation">
         {navLinks.map(link => (
-          <a href={link.href} class={`nav-link ${currentPath === link.href ? 'active' : ''}`}>{link.label}</a>
+          <a href={link.href} class={`nav-link ${currentPath === link.href || (link.href !== '/' && currentPath.startsWith(link.href)) ? 'active' : ''}`}>
+            {link.label}
+          </a>
         ))}
       </nav>
       <div class="header-actions">
         <a href="https://github.com/Leptons1618" class="btn btn-outline btn-sm" target="_blank" rel="noopener">GitHub ↗</a>
         <a href="https://www.linkedin.com/in/anish-giri-a4031723a/" class="btn btn-outline btn-sm" target="_blank" rel="noopener">LinkedIn ↗</a>
         <ThemeToggle />
+        <button class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Toggle menu" aria-expanded="false">
+          <span class="hamburger-line"></span>
+          <span class="hamburger-line"></span>
+          <span class="hamburger-line"></span>
+        </button>
       </div>
     </div>
   </div>
 </header>
+
+<!-- Mobile drawer -->
+<div class="mobile-overlay" id="mobile-overlay"></div>
+<nav class="mobile-drawer" id="mobile-drawer" aria-label="Mobile navigation">
+  <div class="mobile-drawer-header">
+    <a href="/" class="logo">
+      <span class="logo-bracket">[</span>
+      <span class="logo-text">Anish Giri</span>
+      <span class="logo-bracket">]</span>
+    </a>
+    <button class="mobile-close-btn" id="mobile-close-btn" aria-label="Close menu">✕</button>
+  </div>
+  <div class="mobile-nav-links">
+    {navLinks.map(link => (
+      <a href={link.href} class={`mobile-nav-link ${currentPath === link.href ? 'active' : ''}`}>
+        {link.label}
+      </a>
+    ))}
+  </div>
+  <div class="mobile-social">
+    <a href="https://github.com/Leptons1618" target="_blank" rel="noopener" class="btn btn-outline">GitHub ↗</a>
+    <a href="https://www.linkedin.com/in/anish-giri-a4031723a/" target="_blank" rel="noopener" class="btn btn-outline">LinkedIn ↗</a>
+  </div>
+</nav>
+
+<script>
+  const btn = document.getElementById('mobile-menu-btn');
+  const close = document.getElementById('mobile-close-btn');
+  const drawer = document.getElementById('mobile-drawer');
+  const overlay = document.getElementById('mobile-overlay');
+  function openMenu() {
+    drawer?.classList.add('open');
+    overlay?.classList.add('open');
+    document.body.classList.add('mobile-nav-open');
+    btn?.setAttribute('aria-expanded', 'true');
+  }
+  function closeMenu() {
+    drawer?.classList.remove('open');
+    overlay?.classList.remove('open');
+    document.body.classList.remove('mobile-nav-open');
+    btn?.setAttribute('aria-expanded', 'false');
+  }
+  btn?.addEventListener('click', openMenu);
+  close?.addEventListener('click', closeMenu);
+  overlay?.addEventListener('click', closeMenu);
+
+  const bar = document.getElementById('scroll-progress');
+  function updateProgress() {
+    if (!bar) return;
+    const scrollTop = document.documentElement.scrollTop;
+    const docHeight = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+    bar.style.width = docHeight > 0 ? `${(scrollTop / docHeight) * 100}%` : '0%';
+  }
+  window.addEventListener('scroll', updateProgress, { passive: true });
+  updateProgress();
+</script>
+
 <style>
-  .site-header { position: sticky; top: 0; z-index: 100; background: var(--color-bg); border-bottom: 1px solid var(--color-border); backdrop-filter: blur(8px); }
-  .header-inner { display: flex; align-items: center; gap: 2rem; height: 60px; }
-  .logo { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 700; color: var(--color-text); text-decoration: none; white-space: nowrap; }
+  .site-header {
+    position: sticky; top: 0; z-index: 100;
+    background: color-mix(in srgb, var(--color-bg) 85%, transparent);
+    border-bottom: 1px solid var(--color-border);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+  .header-inner {
+    display: flex; align-items: center; gap: 2rem; height: 64px;
+  }
+  .logo {
+    font-family: var(--font-mono); font-size: 1.05rem; font-weight: 700;
+    color: var(--color-text); text-decoration: none; white-space: nowrap;
+    flex-shrink: 0;
+  }
   .logo-bracket { color: var(--color-accent); }
   .main-nav { display: flex; gap: 1.5rem; flex: 1; }
-  .nav-link { font-size: 0.875rem; color: var(--color-text-muted); text-decoration: none; transition: color 0.15s; }
+  .nav-link {
+    font-size: 0.875rem; color: var(--color-text-muted);
+    text-decoration: none; transition: color 0.15s; position: relative;
+    padding-bottom: 2px;
+  }
+  .nav-link::after {
+    content: ''; position: absolute; bottom: -2px; left: 0; right: 0;
+    height: 2px; background: linear-gradient(to right, var(--gradient-from), var(--gradient-to));
+    transform: scaleX(0); transform-origin: left; transition: transform 0.2s ease;
+    border-radius: 1px;
+  }
   .nav-link:hover, .nav-link.active { color: var(--color-text); }
+  .nav-link:hover::after, .nav-link.active::after { transform: scaleX(1); }
   .nav-link.active { font-weight: 600; }
-  .header-actions { display: flex; align-items: center; gap: 0.75rem; }
+  .header-actions { display: flex; align-items: center; gap: 0.75rem; margin-left: auto; }
   .btn-sm { padding: 0.3rem 0.75rem; font-size: 0.8rem; }
-  @media (max-width: 640px) { .main-nav { display: none; } }
+
+  .mobile-menu-btn {
+    display: none; flex-direction: column; gap: 5px; padding: 6px;
+    background: transparent; border: none; cursor: pointer;
+    flex-shrink: 0;
+  }
+  .hamburger-line {
+    display: block; width: 22px; height: 2px;
+    background: var(--color-text); border-radius: 1px;
+    transition: all 0.2s ease;
+  }
+
+  .mobile-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+    z-index: 199;
+  }
+  .mobile-overlay.open { display: block; }
+  .mobile-drawer {
+    position: fixed; top: 0; right: -100%; width: 280px; height: 100%;
+    background: var(--color-bg-secondary); border-left: 1px solid var(--color-border);
+    z-index: 200; transition: right 0.3s ease;
+    display: flex; flex-direction: column; padding: 0;
+  }
+  .mobile-drawer.open { right: 0; }
+  .mobile-drawer-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--color-border);
+  }
+  .mobile-close-btn {
+    background: transparent; border: none; color: var(--color-text-muted);
+    font-size: 1.25rem; cursor: pointer; padding: 4px 8px;
+    border-radius: var(--radius-sm);
+    transition: color 0.15s, background 0.15s;
+  }
+  .mobile-close-btn:hover { color: var(--color-text); background: var(--color-bg-tertiary); }
+  .mobile-nav-links {
+    display: flex; flex-direction: column; gap: 0.25rem;
+    padding: 1.5rem;
+  }
+  .mobile-nav-link {
+    font-size: 1.05rem; color: var(--color-text-muted);
+    text-decoration: none; padding: 0.65rem 1rem;
+    border-radius: var(--radius-md);
+    transition: background 0.15s, color 0.15s;
+  }
+  .mobile-nav-link:hover, .mobile-nav-link.active {
+    color: var(--color-accent); background: var(--color-bg-tertiary);
+  }
+  .mobile-social {
+    padding: 1rem 1.5rem; margin-top: auto;
+    border-top: 1px solid var(--color-border);
+    display: flex; flex-direction: column; gap: 0.75rem;
+  }
+  .mobile-social .btn { justify-content: center; }
+
+  @media (max-width: 768px) {
+    .main-nav { display: none; }
+    .header-actions .btn-outline { display: none; }
+    .mobile-menu-btn { display: flex; }
+  }
+  @media (max-width: 380px) {
+    .header-inner { gap: 1rem; }
+  }
 </style>

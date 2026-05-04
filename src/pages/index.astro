@@ -16,13 +16,32 @@ const skillSet = new Set<string>();
 allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
 ---
 <PageLayout title="Home" description="ML/CV engineer and full-stack developer portfolio.">
+  <!-- HERO -->
   <section class="hero">
+    <div class="hero-bg">
+      <div class="dot-grid-bg hero-dots"></div>
+      <div class="hero-orb-primary"></div>
+      <div class="hero-orb-accent"></div>
+    </div>
     <div class="container">
       <div class="hero-content">
-        <span class="hero-label">SOFTWARE ENGINEER</span>
-        <h1 class="hero-title">Building <span class="accent">ML systems</span>,<br />full-stack apps &amp; dev tools</h1>
-        <p class="hero-desc">I work at the intersection of machine learning, computer vision, and software engineering. I build practical systems that ship.</p>
-        <div class="hero-actions">
+        <div class="hero-label reveal">
+          <span class="hero-badge">SOFTWARE ENGINEER</span>
+        </div>
+        <h1 class="hero-title reveal reveal-delay-1">
+          Building <span class="text-gradient">ML systems</span>,<br />
+          full-stack apps &amp; dev tools
+        </h1>
+        <p class="hero-desc reveal reveal-delay-2">
+          I work at the intersection of machine learning, computer vision, and software engineering.
+          I build practical systems that ship.
+        </p>
+        <div class="hero-typewriter reveal reveal-delay-3" aria-live="polite">
+          <span class="tw-prefix">→</span>
+          <span class="tw-text" id="tw-text"></span>
+          <span class="typewriter-cursor">|</span>
+        </div>
+        <div class="hero-actions reveal reveal-delay-4">
           <a href="/projects" class="btn btn-primary">View Projects</a>
           <a href="/resume" class="btn btn-outline">Resume</a>
           <a href="https://github.com/Leptons1618" class="btn btn-outline" target="_blank" rel="noopener">GitHub ↗</a>
@@ -30,13 +49,16 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
       </div>
     </div>
   </section>
+
+  <!-- CASE STUDIES -->
   <section class="section-case-studies">
     <div class="container">
-      <h2 class="section-title">Featured Case Studies</h2>
+      <h2 class="section-title reveal">Featured Case Studies</h2>
       <div class="cs-grid">
-        {featuredCaseStudies.map(project => (
-          <a href={project.data.caseStudySlug ? `/case-studies/${encodeURIComponent(project.data.caseStudySlug)}` : `/projects/${encodeURIComponent(project.slug)}`} class="cs-card card">
+        {featuredCaseStudies.map((project, i) => (
+          <a href={project.data.caseStudySlug ? `/case-studies/${encodeURIComponent(project.data.caseStudySlug)}` : `/projects/${encodeURIComponent(project.slug)}`} class="cs-card reveal" style={`transition-delay: ${i * 0.05}s`}>
             <div class="cs-card-body">
+              <span class="cs-card-year">{project.data.year}</span>
               <h3 class="cs-card-title">{project.data.title}</h3>
               <p class="cs-card-subtitle">{project.data.summary}</p>
             </div>
@@ -46,28 +68,52 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
       </div>
     </div>
   </section>
+
+  <!-- FEATURED PROJECTS -->
   <section class="section-projects">
     <div class="container">
-      <h2 class="section-title">Featured Projects</h2>
+      <h2 class="section-title reveal">Featured Projects</h2>
       <div class="project-grid">
-        {featured.slice(0, 6).map(project => (
-          <ProjectCard title={project.data.title} slug={project.slug} summary={project.data.summary} category={project.data.category} tags={project.data.tags} stack={project.data.stack} status={project.data.status} year={project.data.year} highlights={project.data.highlights} repoUrl={project.data.repoUrl} demoUrl={project.data.demoUrl} caseStudySlug={project.data.caseStudySlug} heroImage={project.data.heroImage} metrics={project.data.metrics} />
+        {featured.slice(0, 6).map((project, i) => (
+          <ProjectCard
+            title={project.data.title}
+            slug={project.slug}
+            summary={project.data.summary}
+            category={project.data.category}
+            tags={project.data.tags}
+            stack={project.data.stack}
+            status={project.data.status}
+            year={project.data.year}
+            highlights={project.data.highlights}
+            repoUrl={project.data.repoUrl}
+            demoUrl={project.data.demoUrl}
+            caseStudySlug={project.data.caseStudySlug}
+            heroImage={project.data.heroImage}
+            metrics={project.data.metrics}
+          />
         ))}
       </div>
-      <div class="view-all"><a href="/projects" class="btn btn-outline">View all projects →</a></div>
+      <div class="view-all reveal">
+        <a href="/projects" class="btn btn-outline">View all projects →</a>
+      </div>
     </div>
   </section>
+
+  <!-- SKILLS -->
   <section class="section-skills">
     <div class="container">
-      <h2 class="section-title">Skills &amp; Stack</h2>
-      <div class="skill-chips">
+      <h2 class="section-title reveal">Skills &amp; Stack</h2>
+      <div class="skill-chips reveal">
         {Array.from(skillSet).sort().map(s => <span class="skill-chip">{s}</span>)}
       </div>
     </div>
   </section>
+
+  <!-- CTA -->
   <section class="section-cta">
     <div class="container">
-      <div class="cta-box card">
+      <div class="cta-box reveal">
+        <div class="cta-orb"></div>
         <h2>Let's work together</h2>
         <p>Open to interesting ML/CV, full-stack, and systems projects.</p>
         <div class="cta-actions">
@@ -78,26 +124,163 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
     </div>
   </section>
 </PageLayout>
+
+<script>
+  const roles = ['ML Systems Engineer', 'Computer Vision Developer', 'Full-Stack Engineer', 'Dev Tools Builder'];
+  let currentRole = 0;
+  let charIndex = 0;
+  let isDeleting = false;
+  const twEl = document.getElementById('tw-text');
+
+  function typewrite() {
+    if (!twEl) return;
+    const current = roles[currentRole];
+    if (isDeleting) {
+      twEl.textContent = current.substring(0, charIndex - 1);
+      charIndex--;
+      if (charIndex === 0) {
+        isDeleting = false;
+        currentRole = (currentRole + 1) % roles.length;
+        setTimeout(typewrite, 400);
+        return;
+      }
+      setTimeout(typewrite, 50);
+    } else {
+      twEl.textContent = current.substring(0, charIndex + 1);
+      charIndex++;
+      if (charIndex === current.length) {
+        isDeleting = true;
+        setTimeout(typewrite, 2000);
+        return;
+      }
+      setTimeout(typewrite, 80);
+    }
+  }
+  setTimeout(typewrite, 600);
+</script>
+
 <style>
-  .hero { padding: 6rem 0 4rem; border-bottom: 1px solid var(--color-border); }
-  .hero-content { max-width: 700px; }
-  .hero-label { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.15em; color: var(--color-accent); display: block; margin-bottom: 1rem; }
-  .hero-title { font-size: clamp(2rem, 5vw, 3.5rem); line-height: 1.15; margin-bottom: 1.5rem; }
-  .accent { color: var(--color-accent); }
-  .hero-desc { font-size: 1.1rem; color: var(--color-text-muted); max-width: 560px; line-height: 1.6; margin-bottom: 2rem; }
+  /* HERO */
+  .hero {
+    position: relative; overflow: hidden;
+    padding: 7rem 0 5rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .hero-bg {
+    position: absolute; inset: 0; pointer-events: none; overflow: hidden;
+  }
+  .hero-dots {
+    position: absolute; inset: 0; opacity: 0.6;
+  }
+  .hero-content { max-width: 700px; position: relative; z-index: 1; }
+
+  .hero-badge {
+    display: inline-block;
+    font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: 0.18em;
+    color: var(--color-accent);
+    border: 1px solid rgba(56,189,248,0.3);
+    background: rgba(56,189,248,0.08);
+    padding: 0.3rem 0.8rem; border-radius: 9999px;
+    margin-bottom: 1.25rem;
+  }
+
+  .hero-title {
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    line-height: 1.12; margin-bottom: 1.25rem;
+    animation: fade-up 0.8s ease both;
+    animation-delay: 0.1s;
+  }
+
+  .hero-desc {
+    font-size: 1.1rem; color: var(--color-text-muted);
+    max-width: 560px; line-height: 1.65; margin-bottom: 1.25rem;
+  }
+
+  .hero-typewriter {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-family: var(--font-mono); font-size: 0.95rem;
+    color: var(--color-text-muted); margin-bottom: 2rem;
+    min-height: 1.5em;
+  }
+  .tw-prefix { color: var(--color-accent); }
+  .tw-text { color: var(--color-text); }
+
   .hero-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
-  .cs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.5rem; }
-  .cs-card { display: flex; flex-direction: column; justify-content: space-between; text-decoration: none; color: var(--color-text); min-height: 160px; }
-  .cs-card:hover { color: var(--color-text); }
-  .cs-card-title { font-size: 1.05rem; margin-bottom: 0.5rem; }
-  .cs-card-subtitle { font-size: 0.875rem; color: var(--color-text-muted); }
-  .cs-card-cta { font-size: 0.8rem; color: var(--color-accent); margin-top: 1rem; }
-  .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; }
-  .view-all { text-align: center; margin-top: 2rem; }
+
+  /* CASE STUDIES */
+  .cs-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1.25rem;
+  }
+  .cs-card {
+    display: flex; flex-direction: column; justify-content: space-between;
+    text-decoration: none; color: var(--color-text);
+    background: var(--color-card-bg); border: 1px solid var(--color-card-border);
+    border-radius: var(--radius-lg); padding: 1.5rem;
+    min-height: 170px;
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    box-shadow: var(--shadow-card);
+    position: relative; overflow: hidden;
+  }
+  .cs-card::before {
+    content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(to right, var(--gradient-from), var(--gradient-to));
+    transform: scaleX(0); transform-origin: left;
+    transition: transform 0.3s ease;
+  }
+  .cs-card:hover {
+    color: var(--color-text);
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-hover);
+    border-color: var(--color-accent);
+  }
+  .cs-card:hover::before { transform: scaleX(1); }
+  .cs-card-year {
+    display: block; font-family: var(--font-mono); font-size: 0.7rem;
+    color: var(--color-accent); margin-bottom: 0.5rem;
+  }
+  .cs-card-title { font-size: 1rem; margin-bottom: 0.5rem; }
+  .cs-card-subtitle { font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.5; }
+  .cs-card-cta { font-size: 0.8rem; color: var(--color-accent); margin-top: 1.25rem; }
+
+  /* PROJECTS */
+  .project-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+  }
+  .view-all { text-align: center; margin-top: 2.5rem; }
+
+  /* SKILLS */
   .skill-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-  .skill-chip { padding: 0.3rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg-secondary); font-size: 0.8rem; color: var(--color-text-muted); font-family: var(--font-mono); }
-  .cta-box { text-align: center; padding: 3rem; }
-  .cta-box h2 { font-size: 1.75rem; margin-bottom: 0.75rem; }
-  .cta-box p { color: var(--color-text-muted); margin-bottom: 1.5rem; }
-  .cta-actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+
+  /* CTA */
+  .cta-box {
+    text-align: center; padding: 4rem 2rem;
+    background: var(--color-card-bg); border: 1px solid var(--color-card-border);
+    border-radius: var(--radius-lg); position: relative; overflow: hidden;
+    box-shadow: var(--shadow-card);
+  }
+  .cta-orb {
+    position: absolute; width: 400px; height: 400px;
+    border-radius: 50%; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(circle, var(--orb-primary), transparent 70%);
+    pointer-events: none; filter: blur(60px);
+  }
+  .cta-box h2 { font-size: 2rem; margin-bottom: 0.75rem; position: relative; }
+  .cta-box p { color: var(--color-text-muted); margin-bottom: 2rem; font-size: 1.05rem; position: relative; }
+  .cta-actions {
+    display: flex; gap: 0.75rem; justify-content: center;
+    flex-wrap: wrap; position: relative;
+  }
+
+  @media (max-width: 640px) {
+    .hero { padding: 4.5rem 0 3.5rem; }
+    .hero-title { font-size: clamp(1.75rem, 8vw, 2.5rem); }
+    .project-grid { grid-template-columns: 1fr; }
+    .cs-grid { grid-template-columns: 1fr; }
+    .cta-box { padding: 3rem 1.5rem; }
+  }
 </style>

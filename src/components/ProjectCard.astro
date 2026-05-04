@@ -7,43 +7,152 @@ interface Props {
   caseStudySlug?: string; heroImage?: string; metrics?: Record<string, string>;
 }
 const { title, slug, summary, category, tags, stack, status, year, highlights, repoUrl, demoUrl, caseStudySlug, heroImage, metrics } = Astro.props;
-const statusColors: Record<string, string> = { active: 'var(--color-success)', stable: 'var(--color-accent)', archived: 'var(--color-text-muted)', wip: 'var(--color-warning)' };
+const statusColors: Record<string, string> = {
+  active: 'var(--color-success)',
+  stable: 'var(--color-accent)',
+  archived: 'var(--color-text-muted)',
+  wip: 'var(--color-warning)'
+};
+const statusIcon: Record<string, string> = { active: '●', stable: '◆', archived: '○', wip: '◐' };
 ---
-<article class="project-card card">
-  {heroImage && <div class="card-image"><img src={heroImage} alt={title} loading="lazy" /></div>}
-  <div class="card-header">
-    <div class="card-meta">
-      <span class="card-year">{year}</span>
-      <span class="card-status" style={`color: ${statusColors[status]}`}>● {status}</span>
+<article class="project-card reveal">
+  {heroImage && (
+    <div class="card-image">
+      <img src={heroImage} alt={title} loading="lazy" />
+      <div class="card-image-overlay"></div>
     </div>
-    <h3 class="card-title"><a href={`/projects/${slug}`}>{title}</a></h3>
-  </div>
-  <p class="card-summary">{summary}</p>
-  {metrics && <div class="card-metrics">{Object.entries(metrics).map(([k, v]) => <span class="metric"><span class="metric-val">{v}</span> {k}</span>)}</div>}
-  <div class="card-tags">{tags.slice(0, 4).map(tag => <Badge text={tag} />)}</div>
-  <div class="card-stack">{stack.slice(0, 5).map(s => <span class="stack-chip">{s}</span>)}</div>
-  <div class="card-actions">
-    <a href={`/projects/${slug}`} class="btn btn-primary btn-xs">Details</a>
-    {caseStudySlug && <a href={`/case-studies/${caseStudySlug}`} class="btn btn-outline btn-xs">Case Study</a>}
-    <a href={repoUrl} class="btn btn-outline btn-xs" target="_blank" rel="noopener">Repo ↗</a>
-    {demoUrl && <a href={demoUrl} class="btn btn-outline btn-xs" target="_blank" rel="noopener">Demo ↗</a>}
+  )}
+  <div class="card-body">
+    <div class="card-header">
+      <div class="card-meta">
+        <span class="card-year">{year}</span>
+        <span class="card-category">{category}</span>
+        <span class="card-status" style={`color: ${statusColors[status]}`}>
+          {statusIcon[status] || '●'} {status}
+        </span>
+      </div>
+      <h3 class="card-title">
+        <a href={`/projects/${slug}`}>{title}</a>
+      </h3>
+    </div>
+    <p class="card-summary">{summary}</p>
+    {metrics && Object.keys(metrics).length > 0 && (
+      <div class="card-metrics">
+        {Object.entries(metrics).map(([k, v]) => (
+          <div class="metric-item">
+            <span class="metric-val">{v}</span>
+            <span class="metric-key">{k}</span>
+          </div>
+        ))}
+      </div>
+    )}
+    {highlights.length > 0 && (
+      <ul class="card-highlights">
+        {highlights.slice(0, 2).map(h => <li>{h}</li>)}
+      </ul>
+    )}
+    <div class="card-stack">
+      {stack.slice(0, 5).map(s => <span class="stack-chip">{s}</span>)}
+    </div>
+    <div class="card-tags">
+      {tags.slice(0, 4).map(tag => <Badge text={tag} />)}
+    </div>
+    <div class="card-actions">
+      <a href={`/projects/${slug}`} class="btn btn-primary btn-xs">Details</a>
+      {caseStudySlug && (
+        <a href={`/case-studies/${caseStudySlug}`} class="btn btn-outline btn-xs">Case Study</a>
+      )}
+      <a href={repoUrl} class="btn btn-outline btn-xs" target="_blank" rel="noopener">Repo ↗</a>
+      {demoUrl && (
+        <a href={demoUrl} class="btn btn-outline btn-xs" target="_blank" rel="noopener">Demo ↗</a>
+      )}
+    </div>
   </div>
 </article>
 <style>
-  .project-card { display: flex; flex-direction: column; gap: 0.75rem; }
-  .card-image img { width: 100%; height: 160px; object-fit: cover; border-radius: var(--radius-sm); }
-  .card-header { display: flex; flex-direction: column; gap: 0.25rem; }
-  .card-meta { display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; color: var(--color-text-muted); }
+  .project-card {
+    display: flex; flex-direction: column;
+    background: var(--color-card-bg);
+    border: 1px solid var(--color-card-border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    position: relative;
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    box-shadow: var(--shadow-card);
+  }
+  .project-card::before {
+    content: '';
+    position: absolute; inset: 0;
+    border-radius: inherit; padding: 1px;
+    background: linear-gradient(135deg, var(--gradient-from), var(--gradient-to));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+  }
+  .project-card:hover {
+    transform: translateY(-6px);
+    box-shadow: var(--shadow-hover);
+    border-color: var(--color-accent);
+  }
+  .project-card:hover::before { opacity: 1; }
+
+  .card-image { position: relative; overflow: hidden; height: 160px; }
+  .card-image img {
+    width: 100%; height: 100%; object-fit: cover;
+    transition: transform 0.4s ease;
+  }
+  .project-card:hover .card-image img { transform: scale(1.05); }
+  .card-image-overlay {
+    position: absolute; inset: 0;
+    background: linear-gradient(to bottom, transparent 50%, var(--color-card-bg) 100%);
+  }
+
+  .card-body { display: flex; flex-direction: column; gap: 0.75rem; padding: 1.25rem; flex: 1; }
+
+  .card-header { display: flex; flex-direction: column; gap: 0.4rem; }
+  .card-meta { display: flex; align-items: center; gap: 0.6rem; font-size: 0.72rem; flex-wrap: wrap; }
+  .card-year { color: var(--color-text-muted); font-family: var(--font-mono); }
+  .card-category {
+    color: var(--color-accent); font-family: var(--font-mono);
+    background: var(--color-tag-bg); padding: 0.1rem 0.4rem;
+    border-radius: var(--radius-sm);
+  }
+  .card-status { font-size: 0.72rem; }
+
   .card-title { font-size: 1.05rem; margin: 0; }
-  .card-title a { color: var(--color-text); text-decoration: none; }
+  .card-title a {
+    color: var(--color-text); text-decoration: none;
+    transition: color 0.15s;
+  }
   .card-title a:hover { color: var(--color-accent); }
-  .card-summary { font-size: 0.875rem; color: var(--color-text-muted); line-height: 1.5; margin: 0; }
-  .card-metrics { display: flex; gap: 1rem; flex-wrap: wrap; }
-  .metric { font-size: 0.78rem; color: var(--color-text-muted); }
-  .metric-val { font-family: var(--font-mono); color: var(--color-accent); font-weight: 600; }
-  .card-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+
+  .card-summary { font-size: 0.875rem; color: var(--color-text-muted); line-height: 1.55; margin: 0; }
+
+  .card-metrics { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+  .metric-item { display: flex; flex-direction: column; }
+  .metric-val {
+    font-family: var(--font-mono); color: var(--color-accent);
+    font-weight: 700; font-size: 1rem;
+  }
+  .metric-key { font-size: 0.7rem; color: var(--color-text-muted); }
+
+  .card-highlights { margin: 0; padding-left: 1.1rem; }
+  .card-highlights li { font-size: 0.8rem; color: var(--color-text-muted); margin-bottom: 0.25rem; }
+
   .card-stack { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-  .stack-chip { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); color: var(--color-text-muted); font-family: var(--font-mono); }
+  .stack-chip {
+    font-size: 0.7rem; padding: 0.15rem 0.5rem;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-muted);
+    font-family: var(--font-mono);
+    background: var(--color-bg-tertiary);
+  }
+
+  .card-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; }
   .card-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: auto; padding-top: 0.5rem; }
   .btn-xs { padding: 0.25rem 0.6rem; font-size: 0.75rem; }
 </style>
