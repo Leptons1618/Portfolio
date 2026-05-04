@@ -3,119 +3,321 @@ import PageLayout from '../layouts/PageLayout.astro';
 ---
 <PageLayout title="Resume" description="Resume — Anish Giri, ML/CV Engineer and full-stack developer.">
   <div class="container">
-    <div class="resume-header">
+    <div class="resume-header reveal">
       <h1>Resume</h1>
       <p class="resume-note">Anish Giri — Software Engineer, Bengaluru, Karnataka, India</p>
     </div>
+
     <div class="resume-body">
-      <section class="resume-section">
-        <h2>Contact</h2>
+      <!-- CONTACT -->
+      <section class="resume-section reveal">
+        <h2 class="section-title">Contact</h2>
         <div class="contact-list">
           <p>Nanjappa Layout, Adugodi, Bengaluru, Karnataka, 560030</p>
-          <p><a href="tel:+916294957979">6294957979</a> (Mobile)</p>
+          <p><a href="tel:+916294957979">+91 6294957979</a></p>
           <p><a href="mailto:anishgiri163@gmail.com">anishgiri163@gmail.com</a></p>
-          <p><a href="https://www.linkedin.com/in/anish-giri-a4031723a" target="_blank" rel="noopener">www.linkedin.com/in/anish-giri-a4031723a</a> (LinkedIn)</p>
+          <p><a href="https://www.linkedin.com/in/anish-giri-a4031723a" target="_blank" rel="noopener">linkedin.com/in/anish-giri-a4031723a</a></p>
         </div>
       </section>
-      <section class="resume-section">
-        <h2>Summary</h2>
-        <p class="muted">As a curious, skeptical, and agnostic carbon-based bipedal, I thrive on delving into the depths of knowledge and discovering the world's treasures. With a strong interest in technology, I find peace in the Linux environment and enjoy deciphering its complexities. As an AI, ML, and Data Science enthusiast, I am eager to realize these areas' full potential and leverage their transformative impact. With an unshakable passion for coding, I am always looking for new ways to broaden my programming language vocabulary. My unquenchable curiosity drives my ambition to explore the fields of AI, ML, and Data Science, where I hope to make a significant contribution.</p>
+
+      <!-- SUMMARY -->
+      <section class="resume-section reveal">
+        <h2 class="section-title">Summary</h2>
+        <p class="muted">As a curious, skeptical, and agnostic carbon-based bipedal, I thrive on delving into the depths of knowledge and discovering the world's treasures. With a strong interest in technology, I find peace in the Linux environment and enjoy deciphering its complexities. As an AI, ML, and Data Science enthusiast, I am eager to realize these areas' full potential and leverage their transformative impact.</p>
       </section>
+
+      <!-- EXPERIENCE -->
       <section class="resume-section">
-        <h2>Experience</h2>
+        <h2 class="section-title reveal">Experience</h2>
         <div class="experience-list">
-          <article class="experience-item">
-            <h3>Axcend Automation and Software Solutions pvt.Ltd</h3>
-            <p class="role">Software Engineer</p>
-            <p class="meta">July 2024 - Present (1 year 10 months) · Bengaluru, Karnataka, India</p>
-            <p class="muted">As a Trainee Engineer at Axcend Automation and Software Solutions, I am responsible for developing and maintaining software for industrial automation projects. My role involves working with network protocols to ensure seamless communication between devices and systems. I collaborate on designing and managing control systems and SCADA systems, gaining hands-on experience with PLCs, HMIs, and other automation components. Additionally, I integrate hardware and software components to ensure efficient and reliable operation.</p>
+
+          <!-- Featured experience card (warm olive bg, metrics panel) -->
+          <article class="exp-card-featured reveal">
+            <div class="exp-card-main">
+              <div class="exp-card-top">
+                <div class="exp-icon" aria-hidden="true">⚙️</div>
+                <span class="status-badge status-badge-active">Current</span>
+              </div>
+              <h3 class="exp-company">Axcend Automation &amp; Software Solutions</h3>
+              <p class="exp-role">Software Engineer</p>
+              <p class="exp-meta">July 2024 – Present · Bengaluru, Karnataka, India</p>
+              <p class="muted exp-desc">As a Trainee Engineer I am responsible for developing and maintaining software for industrial automation projects. My role involves working with network protocols to ensure seamless communication between devices and systems, collaborating on SCADA/control systems design, and integrating hardware and software components for efficient operation.</p>
+              <ul class="feature-list">
+                <li>Developed and maintained software for industrial automation (SCADA, PLCs, HMIs)</li>
+                <li>Implemented network protocols for device-to-device communication pipelines</li>
+                <li>Integrated hardware and software components ensuring reliable automation workflows</li>
+                <li>Documented SOPs and streamlined automation control logic for production systems</li>
+              </ul>
+              <a href="https://www.linkedin.com/in/anish-giri-a4031723a" class="exp-cta" target="_blank" rel="noopener">
+                <span>View Profile</span>
+                <span>→</span>
+              </a>
+            </div>
+            <div class="exp-metrics">
+              <div class="metric-box">
+                <span class="metric-box-val">1y+</span>
+                <span class="metric-box-key">at company</span>
+              </div>
+              <div class="metric-box">
+                <span class="metric-box-val">SCADA</span>
+                <span class="metric-box-key">systems</span>
+              </div>
+              <div class="metric-box">
+                <span class="metric-box-val">PLCs</span>
+                <span class="metric-box-key">hardware</span>
+              </div>
+            </div>
           </article>
-          <article class="experience-item">
-            <h3>Chegg India</h3>
-            <p class="role">Subject Matter Expert</p>
-            <p class="meta">June 2023 - September 2024 (1 year 4 months)</p>
-          </article>
-          <article class="experience-item">
-            <h3>Axcend Automation and Software Solutions pvt.Ltd</h3>
-            <p class="role">Intern</p>
-            <p class="meta">January 2024 - May 2024 (5 months) · Bengaluru, Karnataka, India</p>
-          </article>
+
+          <!-- Smaller experience cards -->
+          <div class="exp-cards-row">
+            <article class="exp-card-sm reveal">
+              <div class="exp-card-sm-top">
+                <span class="exp-icon-sm" aria-hidden="true">📚</span>
+                <div>
+                  <h3 class="exp-company-sm">Chegg India</h3>
+                  <p class="exp-role-sm">Subject Matter Expert</p>
+                </div>
+              </div>
+              <p class="exp-meta-sm">June 2023 – September 2024 · 1 yr 4 mo</p>
+              <p class="exp-desc-sm muted">Provided expert-level academic assistance and explanations to students across computer science and mathematics subjects.</p>
+              <span class="status-badge status-badge-archived">Completed</span>
+            </article>
+
+            <article class="exp-card-sm reveal">
+              <div class="exp-card-sm-top">
+                <span class="exp-icon-sm" aria-hidden="true">🔧</span>
+                <div>
+                  <h3 class="exp-company-sm">Axcend Automation</h3>
+                  <p class="exp-role-sm">Intern</p>
+                </div>
+              </div>
+              <p class="exp-meta-sm">January 2024 – May 2024 · 5 months</p>
+              <p class="exp-desc-sm muted">Hands-on internship working with industrial automation systems, PLCs, and SCADA software under engineering mentorship.</p>
+              <span class="status-badge status-badge-archived">Completed</span>
+            </article>
+          </div>
         </div>
       </section>
-      <section class="resume-section">
-        <h2>Top Skills</h2>
-        <div class="skill-rows">
-          <div class="skill-row"><span class="skill-label">Frameworks</span><span class="skill-val">Next.js, React.js, TypeScript</span></div>
-        </div>
-      </section>
-      <section class="resume-section">
-        <h2>Additional Skills</h2>
-        <div class="skill-rows">
-          <div class="skill-row"><span class="skill-label">ML / CV</span><span class="skill-val">PyTorch, TensorFlow, OpenCV, scikit-learn, YOLO</span></div>
-          <div class="skill-row"><span class="skill-label">Languages</span><span class="skill-val">Python, TypeScript, Go, Rust, SQL</span></div>
-          <div class="skill-row"><span class="skill-label">Web</span><span class="skill-val">Astro, React, FastAPI, Node.js, Tailwind</span></div>
-          <div class="skill-row"><span class="skill-label">Data</span><span class="skill-val">PostgreSQL, Redis, Apache Kafka, DuckDB</span></div>
-          <div class="skill-row"><span class="skill-label">Infra</span><span class="skill-val">Docker, GitHub Actions, Cloudflare, Vercel</span></div>
-        </div>
-      </section>
-      <section class="resume-section">
-        <h2>Certifications</h2>
-        <ul class="resume-list">
-          <li>Artificial Intelligence Fundamentals</li>
-          <li>Problem Solving (Basic)</li>
-          <li>SQL (Intermediate)</li>
-          <li>Data Fundamentals</li>
-          <li>SQL (Basic)</li>
-        </ul>
-      </section>
-      <section class="resume-section">
-        <h2>Education</h2>
-        <article class="experience-item">
-          <h3>Pondicherry University, Puducherry</h3>
-          <p class="role">Master's degree, Computer Science</p>
-          <p class="meta">December 2022 - July 2024</p>
+
+      <!-- EDUCATION -->
+      <section class="resume-section reveal">
+        <h2 class="section-title">Education</h2>
+        <article class="exp-card-sm exp-card-edu">
+          <div class="exp-card-sm-top">
+            <span class="exp-icon-sm" aria-hidden="true">🎓</span>
+            <div>
+              <h3 class="exp-company-sm">Pondicherry University, Puducherry</h3>
+              <p class="exp-role-sm">Master's degree, Computer Science</p>
+            </div>
+          </div>
+          <p class="exp-meta-sm">December 2022 – July 2024</p>
         </article>
+      </section>
+
+      <!-- SKILLS -->
+      <section class="resume-section reveal">
+        <h2 class="section-title">Skills &amp; Stack</h2>
+        <div class="skills-grid">
+          <div class="skill-category-card">
+            <span class="skill-cat-icon" aria-hidden="true">🤖</span>
+            <div>
+              <p class="skill-cat-label">ML / CV</p>
+              <p class="skill-cat-val">PyTorch · TensorFlow · OpenCV · scikit-learn · YOLO</p>
+            </div>
+          </div>
+          <div class="skill-category-card">
+            <span class="skill-cat-icon" aria-hidden="true">💻</span>
+            <div>
+              <p class="skill-cat-label">Languages</p>
+              <p class="skill-cat-val">Python · TypeScript · Go · Rust · SQL</p>
+            </div>
+          </div>
+          <div class="skill-category-card">
+            <span class="skill-cat-icon" aria-hidden="true">🌐</span>
+            <div>
+              <p class="skill-cat-label">Web</p>
+              <p class="skill-cat-val">Astro · React · FastAPI · Node.js · Tailwind</p>
+            </div>
+          </div>
+          <div class="skill-category-card">
+            <span class="skill-cat-icon" aria-hidden="true">🗄️</span>
+            <div>
+              <p class="skill-cat-label">Data</p>
+              <p class="skill-cat-val">PostgreSQL · Redis · Apache Kafka · DuckDB</p>
+            </div>
+          </div>
+          <div class="skill-category-card">
+            <span class="skill-cat-icon" aria-hidden="true">🚀</span>
+            <div>
+              <p class="skill-cat-label">Infra</p>
+              <p class="skill-cat-val">Docker · GitHub Actions · Cloudflare · Vercel</p>
+            </div>
+          </div>
+          <div class="skill-category-card">
+            <span class="skill-cat-icon" aria-hidden="true">📦</span>
+            <div>
+              <p class="skill-cat-label">Frameworks</p>
+              <p class="skill-cat-val">Next.js · React.js · TypeScript</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CERTIFICATIONS -->
+      <section class="resume-section reveal">
+        <h2 class="section-title">Certifications</h2>
+        <div class="cert-grid">
+          <span class="cert-pill">🏅 Artificial Intelligence Fundamentals</span>
+          <span class="cert-pill">🏅 Problem Solving (Basic)</span>
+          <span class="cert-pill">🏅 SQL (Intermediate)</span>
+          <span class="cert-pill">🏅 Data Fundamentals</span>
+          <span class="cert-pill">🏅 SQL (Basic)</span>
+        </div>
       </section>
     </div>
   </div>
 </PageLayout>
+
 <style>
-  .container { max-width: 800px; margin: 0 auto; padding: 4rem 1.5rem; }
+  .container { max-width: 900px; margin: 0 auto; padding: 4rem 1.5rem; }
   .resume-header { margin-bottom: 3rem; }
   .resume-header h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
   .resume-note { color: var(--color-text-muted); }
-  .resume-section { margin-bottom: 2.5rem; }
-  .resume-section h2 { font-size: 1.25rem; color: var(--color-accent); margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; }
-  .resume-section h3 { margin: 0 0 0.25rem; font-size: 1rem; }
-  .contact-list p { margin: 0.2rem 0; color: var(--color-text-muted); }
-  .experience-list { display: flex; flex-direction: column; gap: 1.5rem; }
-  .experience-item {
+  .resume-body { display: flex; flex-direction: column; gap: 0; }
+  .resume-section { margin-bottom: 3rem; }
+  .resume-section .section-title { font-size: 1.1rem; }
+  .contact-list p { margin: 0.3rem 0; color: var(--color-text-muted); }
+  .muted { color: var(--color-text-muted); }
+
+  /* ===== FEATURED EXPERIENCE CARD (Image 1 style) ===== */
+  .exp-card-featured {
+    background: color-mix(in srgb, var(--color-card-bg) 65%, #2a2200 35%);
+    border: 1px solid color-mix(in srgb, var(--color-card-border) 50%, #4a3a00 50%);
+    border-radius: var(--radius-lg);
+    padding: 1.75rem;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 1.5rem;
+    position: relative; overflow: hidden;
+    transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    box-shadow: var(--shadow-card);
+  }
+  .exp-card-featured:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 36px rgba(251, 191, 36, 0.12);
+    border-color: rgba(251, 191, 36, 0.4);
+  }
+  .exp-card-featured::before {
+    content: '';
+    position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+    background: linear-gradient(to bottom, var(--color-warning), var(--gradient-to));
+  }
+  .exp-card-main { display: flex; flex-direction: column; gap: 0.65rem; min-width: 0; }
+  .exp-card-top { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+  .exp-icon {
+    width: 44px; height: 44px;
+    background: color-mix(in srgb, var(--color-bg-tertiary) 80%, #4a3a00 20%);
+    border: 1px solid color-mix(in srgb, var(--color-border) 50%, #4a3a00 50%);
+    border-radius: var(--radius-md);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.4rem; flex-shrink: 0;
+  }
+  .exp-company { font-size: 1.3rem; margin: 0; font-weight: 700; }
+  .exp-role { margin: 0; font-weight: 600; color: var(--color-warning); font-size: 0.9rem; }
+  .exp-meta { margin: 0; color: var(--color-text-muted); font-size: 0.85rem; }
+  .exp-desc { margin: 0; font-size: 0.875rem; line-height: 1.6; }
+
+  .exp-cta {
+    display: inline-flex; align-items: center; gap: 0.75rem;
+    padding: 0.45rem 1rem;
+    border: 1px solid color-mix(in srgb, var(--color-border) 60%, #4a3a00 40%);
+    border-radius: var(--radius-md);
+    font-size: 0.8rem; color: var(--color-text-muted);
+    background: color-mix(in srgb, var(--color-bg-tertiary) 80%, #4a3a00 20%);
+    text-decoration: none; width: fit-content;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .exp-cta:hover { border-color: var(--color-warning); color: var(--color-warning); }
+
+  /* Metrics column on the right */
+  .exp-metrics {
+    display: flex; flex-direction: column; gap: 0.6rem;
+    min-width: 110px; flex-shrink: 0;
+  }
+  .exp-metrics .metric-box {
+    background: color-mix(in srgb, var(--color-bg-tertiary) 70%, #1a1000 30%);
+    border-color: color-mix(in srgb, var(--color-border) 50%, #4a3a00 50%);
+  }
+
+  /* Smaller 2-col experience cards */
+  .experience-list { display: flex; flex-direction: column; gap: 1.25rem; }
+  .exp-cards-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  .exp-card-sm {
     background: var(--color-card-bg);
     border: 1px solid var(--color-card-border);
     border-radius: var(--radius-lg);
-    padding: 1.75rem;
-    position: relative;
+    padding: 1.25rem;
+    display: flex; flex-direction: column; gap: 0.6rem;
+    position: relative; overflow: hidden;
     transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-    overflow: hidden;
   }
-  .experience-item::before {
+  .exp-card-sm::before {
     content: '';
     position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
     background: linear-gradient(to bottom, var(--gradient-from), var(--gradient-to));
-    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
   }
-  .experience-item:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-hover);
-    border-color: var(--color-accent);
+  .exp-card-sm:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); border-color: var(--color-accent); }
+  .exp-card-sm-top { display: flex; align-items: flex-start; gap: 0.7rem; }
+  .exp-icon-sm {
+    width: 36px; height: 36px; flex-shrink: 0;
+    background: var(--color-bg-tertiary); border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    display: flex; align-items: center; justify-content: center; font-size: 1.1rem;
   }
-  .experience-item .role { margin: 0; font-weight: 600; }
-  .experience-item .meta { margin: 0.25rem 0 0.6rem; color: var(--color-text-muted); font-size: 0.9rem; }
-  .muted { color: var(--color-text-muted); }
-  .skill-rows { display: flex; flex-direction: column; gap: 0.75rem; }
-  .skill-row { display: flex; gap: 1rem; align-items: baseline; }
-  .skill-label { font-weight: 600; font-size: 0.875rem; min-width: 100px; }
-  .skill-val { color: var(--color-text-muted); font-size: 0.875rem; }
-  .resume-list { color: var(--color-text-muted); padding-left: 1.25rem; margin: 0; }
-  .resume-list li { margin-bottom: 0.35rem; }
+  .exp-company-sm { font-size: 0.95rem; margin: 0; font-weight: 700; }
+  .exp-role-sm { margin: 0; font-size: 0.8rem; color: var(--color-accent); font-weight: 500; }
+  .exp-meta-sm { font-size: 0.78rem; color: var(--color-text-muted); margin: 0; }
+  .exp-desc-sm { font-size: 0.82rem; line-height: 1.5; }
+
+  .exp-card-edu { margin-top: 0; }
+
+  /* Skills grid */
+  .skills-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0.75rem; }
+  .skill-category-card {
+    display: flex; align-items: flex-start; gap: 0.75rem;
+    background: var(--color-card-bg); border: 1px solid var(--color-card-border);
+    border-radius: var(--radius-md); padding: 1rem;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .skill-category-card:hover { border-color: var(--color-accent); transform: translateY(-2px); }
+  .skill-cat-icon {
+    font-size: 1.3rem; flex-shrink: 0;
+    width: 36px; height: 36px;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--color-bg-tertiary); border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+  }
+  .skill-cat-label { font-size: 0.75rem; font-weight: 700; color: var(--color-accent); margin: 0 0 0.25rem; text-transform: uppercase; letter-spacing: 0.06em; }
+  .skill-cat-val { font-size: 0.8rem; color: var(--color-text-muted); margin: 0; line-height: 1.5; font-family: var(--font-mono); }
+
+  /* Certifications */
+  .cert-grid { display: flex; flex-wrap: wrap; gap: 0.6rem; }
+  .cert-pill {
+    padding: 0.4rem 0.9rem;
+    border-radius: 9999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-card-bg);
+    font-size: 0.8rem; color: var(--color-text-muted);
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .cert-pill:hover { border-color: var(--color-accent); color: var(--color-text); }
+
+  /* Responsive */
+  @media (max-width: 640px) {
+    .exp-card-featured { grid-template-columns: 1fr; }
+    .exp-metrics { flex-direction: row; flex-wrap: wrap; }
+    .exp-cards-row { grid-template-columns: 1fr; }
+    .skills-grid { grid-template-columns: 1fr; }
+  }
 </style>
