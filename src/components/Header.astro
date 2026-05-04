@@ -19,7 +19,7 @@ const currentPath = Astro.url.pathname;
       </a>
       <nav class="main-nav" aria-label="Main navigation">
         {navLinks.map(link => (
-          <a href={link.href} class={`nav-link ${currentPath === link.href || (link.href !== '/' && currentPath.startsWith(link.href)) ? 'active' : ''}`}>
+          <a href={link.href} class={`nav-link ${currentPath === link.href || (link.href !== '/' && currentPath.startsWith(link.href + '/')) ? 'active' : ''}`}>
             {link.label}
           </a>
         ))}

@@ -56,7 +56,7 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
       <h2 class="section-title reveal">Featured Case Studies</h2>
       <div class="cs-grid">
         {featuredCaseStudies.map((project, i) => (
-          <a href={project.data.caseStudySlug ? `/case-studies/${encodeURIComponent(project.data.caseStudySlug)}` : `/projects/${encodeURIComponent(project.slug)}`} class="cs-card reveal" style={`transition-delay: ${i * 0.05}s`}>
+          <a href={project.data.caseStudySlug ? `/case-studies/${encodeURIComponent(project.data.caseStudySlug)}` : `/projects/${encodeURIComponent(project.slug)}`} class={`cs-card reveal${i < 4 ? ` reveal-delay-${i + 1}` : ''}`}>
             <div class="cs-card-body">
               <span class="cs-card-year">{project.data.year}</span>
               <h3 class="cs-card-title">{project.data.title}</h3>
