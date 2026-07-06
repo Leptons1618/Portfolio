@@ -26,13 +26,16 @@ const currentPath = Astro.url.pathname;
   </div>
 </header>
 <style>
-  .site-header { position: sticky; top: 0; z-index: 100; background: var(--color-bg); border-bottom: 1px solid var(--color-border); backdrop-filter: blur(8px); }
+  .site-header { position: sticky; top: 0; z-index: 100; background: var(--color-header-bg); border-bottom: 1px solid var(--color-border); backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4); }
   .header-inner { display: flex; align-items: center; gap: 2rem; height: 60px; }
-  .logo { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 700; color: var(--color-text); text-decoration: none; white-space: nowrap; }
+  .logo { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 700; color: var(--color-text); text-decoration: none; white-space: nowrap; transition: text-shadow 0.2s; }
+  .logo:hover { text-shadow: 0 0 18px var(--color-glow); }
   .logo-bracket { color: var(--color-accent); }
   .main-nav { display: flex; gap: 1.5rem; flex: 1; }
-  .nav-link { font-size: 0.875rem; color: var(--color-text-muted); text-decoration: none; transition: color 0.15s; }
+  .nav-link { position: relative; font-size: 0.875rem; color: var(--color-text-muted); text-decoration: none; transition: color 0.15s; padding: 0.25rem 0; }
+  .nav-link::after { content: ''; position: absolute; left: 0; bottom: -2px; width: 100%; height: 2px; background: var(--gradient-text); transform: scaleX(0); transform-origin: left; transition: transform 0.22s ease; border-radius: 2px; }
   .nav-link:hover, .nav-link.active { color: var(--color-text); }
+  .nav-link:hover::after, .nav-link.active::after { transform: scaleX(1); }
   .nav-link.active { font-weight: 600; }
   .header-actions { display: flex; align-items: center; gap: 0.75rem; }
   .btn-sm { padding: 0.3rem 0.75rem; font-size: 0.8rem; }

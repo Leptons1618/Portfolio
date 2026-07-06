@@ -4,10 +4,14 @@ module.exports = {
   theme: {
     extend: {
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'monospace'],
+        sans: ['system-ui', 'sans-serif'],
+        mono: ['JetBrains Mono Variable', 'JetBrains Mono', 'monospace'],
+        pixel: ['"Press Start 2P"', 'monospace'],
+        'pixel-body': ['VT323', 'monospace'],
+        typewriter: ['"Special Elite"', '"Courier New"', 'monospace'],
+        serif: ['"IBM Plex Serif"', 'Georgia', 'serif'],
       },
     },
   },
-  plugins: [],
+  plugins: [require('tailwindcss-animate')],
 };
