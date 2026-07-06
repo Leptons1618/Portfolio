@@ -1,34 +1,34 @@
 ---
 ---
-<button id="theme-toggle" class="theme-btn" aria-label="Switch theme" title="Cycle System, Science Dark, Science Light, and Aurora themes">
-  <span id="theme-icon">⚗</span>
-  <span id="theme-label">Science Dark</span>
+<button id="theme-toggle" class="theme-btn" aria-label="Switch theme" title="Cycle System, Pixel, and Paper themes">
+  <span id="theme-icon">🖥</span>
+  <span id="theme-label">System</span>
 </button>
 
 <script>
   const STORAGE_KEY = 'portfolio-theme';
   const html = document.documentElement;
-  const themes = ['system', 'science-dark', 'science-light', 'aurora'] as const;
+  const themes = ['system', 'pixel', 'paper'] as const;
   type Theme = (typeof themes)[number];
-  function getSystemScienceTheme(): Theme {
-    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'science-light' : 'science-dark';
+  function getSystemTheme(): Theme {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'paper' : 'pixel';
   }
   function getTheme(): Theme {
     const stored = localStorage.getItem(STORAGE_KEY);
     let normalized = stored || 'system';
-    if (stored === 'science') normalized = 'science-dark';
-    if (stored === 'punk') normalized = 'aurora';
+    // Migrate retired themes: light -> paper, dark ones -> pixel.
+    if (stored === 'science-light') normalized = 'paper';
+    if (['science-dark', 'science', 'aurora', 'punk'].includes(stored || '')) normalized = 'pixel';
     return themes.includes(normalized as Theme) ? (normalized as Theme) : 'system';
   }
   function resolveTheme(theme: Theme): Theme {
-    if (theme === 'system') return getSystemScienceTheme();
+    if (theme === 'system') return getSystemTheme();
     return theme;
   }
   function getThemeMeta(theme: Theme) {
-    if (theme === 'system') return { icon: '🖥', label: 'System', ariaName: 'System' };
-    if (theme === 'aurora') return { icon: '🌌', label: 'Aurora', ariaName: 'Aurora' };
-    if (theme === 'science-light') return { icon: '🔬', label: 'Science Light', ariaName: 'Science Light' };
-    return { icon: '⚗', label: 'Science Dark', ariaName: 'Science Dark' };
+    if (theme === 'pixel') return { icon: '🕹', label: 'Pixel', ariaName: 'Pixel' };
+    if (theme === 'paper') return { icon: '📐', label: 'Paper', ariaName: 'Paper' };
+    return { icon: '🖥', label: 'System', ariaName: 'System' };
   }
   function applyTheme(theme: Theme) {
     html.setAttribute('data-theme', resolveTheme(theme));
