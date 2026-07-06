@@ -26,7 +26,7 @@ const { categories, topTags } = Astro.props;
   .filter-input:focus { outline: none; border-color: var(--color-accent); }
   .filter-select { padding: 0.5rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text); font-size: 0.875rem; cursor: pointer; }
   .filter-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-  .chip { padding: 0.3rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text-muted); font-size: 0.8rem; cursor: pointer; transition: all 0.12s; }
+  .chip { padding: 0.3rem 0.75rem; border-radius: var(--chip-radius); border: 1px solid var(--color-border); background: var(--color-bg-secondary); color: var(--color-text-muted); font-size: 0.8rem; cursor: pointer; transition: all 0.12s; }
   .chip:hover, .chip-active { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-bg-tertiary); }
   .chip-tag.chip-tag-active { border-color: var(--color-accent); background: var(--color-accent-subtle); color: var(--color-text); }
 </style>

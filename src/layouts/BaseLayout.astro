@@ -1,6 +1,13 @@
 ---
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
+import '@fontsource-variable/jetbrains-mono';
+import '@fontsource/press-start-2p';
+import '@fontsource/vt323';
+import '@fontsource/special-elite';
+import '@fontsource/ibm-plex-serif/400.css';
+import '@fontsource/ibm-plex-serif/400-italic.css';
+import '@fontsource/ibm-plex-serif/600.css';
 import '../styles/global.css';
 interface Props { title?: string; description?: string; image?: string; }
 const { title = 'Anish Giri Portfolio', description = 'ML/CV engineer and full-stack developer portfolio.', image = '/images/ui/og-default.png' } = Astro.props;
@@ -8,7 +15,7 @@ const fullTitle = title === 'Anish Giri Portfolio' ? title : `${title} | Anish G
 const canonicalURL = new URL(Astro.url.pathname, Astro.site || 'https://leptons1618.github.io');
 ---
 <!DOCTYPE html>
-<html lang="en" data-theme="science-dark">
+<html lang="en" data-theme="pixel">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -29,11 +36,12 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site || 'https://leptons1
     (function() {
       const stored = localStorage.getItem('portfolio-theme');
       let selected = stored || 'system';
-      if (stored === 'science') selected = 'science-dark';
-      if (stored === 'punk') selected = 'aurora';
-      if (!['system', 'science-dark', 'science-light', 'aurora'].includes(selected)) selected = 'system';
+      // Migrate retired themes: light -> paper, dark ones -> pixel.
+      if (stored === 'science-light') selected = 'paper';
+      if (['science-dark', 'science', 'aurora', 'punk'].includes(stored)) selected = 'pixel';
+      if (!['system', 'pixel', 'paper'].includes(selected)) selected = 'system';
       const resolved = selected === 'system'
-        ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'science-light' : 'science-dark')
+        ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'paper' : 'pixel')
         : selected;
       document.documentElement.setAttribute('data-theme', resolved);
     })();

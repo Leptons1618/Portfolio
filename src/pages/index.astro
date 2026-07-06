@@ -19,10 +19,11 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
   <section class="hero">
     <div class="container">
       <div class="hero-content">
-        <span class="hero-label">SOFTWARE ENGINEER</span>
-        <h1 class="hero-title">Building <span class="accent">ML systems</span>,<br />full-stack apps &amp; dev tools</h1>
-        <p class="hero-desc">I work at the intersection of machine learning, computer vision, and software engineering. I build practical systems that ship.</p>
-        <div class="hero-actions">
+        <span class="hero-status anim-fade-up"><span class="status-dot"></span>Open to opportunities</span>
+        <span class="hero-label anim-fade-up anim-delay-1">SOFTWARE ENGINEER</span>
+        <h1 class="hero-title anim-fade-up anim-delay-1">Building <span class="gradient-text">ML systems</span>,<br />full-stack apps &amp; dev tools</h1>
+        <p class="hero-desc anim-fade-up anim-delay-2">I work at the intersection of machine learning, computer vision, and software engineering. I build practical systems that ship.</p>
+        <div class="hero-actions anim-fade-up anim-delay-3">
           <a href="/projects" class="btn btn-primary">View Projects</a>
           <a href="/resume" class="btn btn-outline">Resume</a>
           <a href="https://github.com/Leptons1618" class="btn btn-outline" target="_blank" rel="noopener">GitHub ↗</a>
@@ -81,9 +82,10 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
 <style>
   .hero { padding: 6rem 0 4rem; border-bottom: 1px solid var(--color-border); }
   .hero-content { max-width: 700px; }
+  .hero-status { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; font-family: var(--font-mono); color: var(--color-success); border: 1px solid var(--color-border); background: var(--color-bg-secondary); border-radius: var(--chip-radius); padding: 0.25rem 0.8rem; margin-bottom: 1.25rem; }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-success); box-shadow: 0 0 8px var(--color-success); animation: pulse-dot 2s ease-in-out infinite; }
   .hero-label { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.15em; color: var(--color-accent); display: block; margin-bottom: 1rem; }
   .hero-title { font-size: clamp(2rem, 5vw, 3.5rem); line-height: 1.15; margin-bottom: 1.5rem; }
-  .accent { color: var(--color-accent); }
   .hero-desc { font-size: 1.1rem; color: var(--color-text-muted); max-width: 560px; line-height: 1.6; margin-bottom: 2rem; }
   .hero-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
   .cs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.5rem; }
@@ -95,8 +97,10 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
   .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; }
   .view-all { text-align: center; margin-top: 2rem; }
   .skill-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-  .skill-chip { padding: 0.3rem 0.75rem; border-radius: var(--radius-sm); border: 1px solid var(--color-border); background: var(--color-bg-secondary); font-size: 0.8rem; color: var(--color-text-muted); font-family: var(--font-mono); }
-  .cta-box { text-align: center; padding: 3rem; }
+  .skill-chip { padding: 0.3rem 0.75rem; border-radius: var(--chip-radius); border: 1px solid var(--color-border); background: var(--color-bg-secondary); font-size: 0.8rem; color: var(--color-text-muted); font-family: var(--font-mono); transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease; cursor: default; }
+  .skill-chip:hover { color: var(--color-accent); border-color: var(--color-accent); transform: translateY(-1px); }
+  .cta-box { text-align: center; padding: 3rem; overflow: hidden; }
+  .cta-box::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse 70% 90% at 50% -20%, var(--color-glow), transparent 70%); pointer-events: none; }
   .cta-box h2 { font-size: 1.75rem; margin-bottom: 0.75rem; }
   .cta-box p { color: var(--color-text-muted); margin-bottom: 1.5rem; }
   .cta-actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
