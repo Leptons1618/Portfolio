@@ -9,7 +9,7 @@ export async function getStaticPaths() {
 }
 
 const { project } = Astro.props;
-const { title, summary, category, tags, stack, status, year, highlights, repoUrl, demoUrl, docsUrl, caseStudySlug, heroImage, heroVideo, metrics } = project.data;
+const { title, summary, category, tags, stack, status, year, highlights, repoUrl, demoUrl, caseStudySlug } = project.data;
 
 const allProjects = await getCollection('projects');
 const related = allProjects
