@@ -1,8 +1,7 @@
 ---
 interface Props {
   text: string;
-  variant?: 'tag' | 'category' | 'status';
 }
-const { text, variant = 'tag' } = Astro.props;
+const { text } = Astro.props;
 ---
-<span class={`badge badge-${variant}`}>{text}</span>
+<span class="badge">{text}</span>

@@ -10,15 +10,12 @@ const projects = defineCollection({
     stack: z.array(z.string()),
     repoUrl: z.string().url(),
     demoUrl: z.string().url().optional(),
-    docsUrl: z.string().url().optional(),
     caseStudySlug: z.string().optional(),
     featuredRank: z.number().optional(),
     status: z.enum(['active', 'stable', 'archived', 'wip']),
     year: z.number(),
     heroImage: z.string().optional(),
-    heroVideo: z.string().optional(),
     highlights: z.array(z.string()),
-    metrics: z.record(z.string()).optional(),
   }),
 });
 

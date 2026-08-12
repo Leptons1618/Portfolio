@@ -1,12 +1,12 @@
 ---
 import Badge from './Badge.astro';
 interface Props {
-  title: string; slug: string; summary: string; category: string;
+  title: string; slug: string; summary: string;
   tags: string[]; stack: string[]; status: string; year: number;
-  highlights: string[]; repoUrl: string; demoUrl?: string;
-  caseStudySlug?: string; heroImage?: string; metrics?: Record<string, string>;
+  repoUrl: string; demoUrl?: string;
+  caseStudySlug?: string; heroImage?: string;
 }
-const { title, slug, summary, category, tags, stack, status, year, highlights, repoUrl, demoUrl, caseStudySlug, heroImage, metrics } = Astro.props;
+const { title, slug, summary, tags, stack, status, year, repoUrl, demoUrl, caseStudySlug, heroImage } = Astro.props;
 const statusColors: Record<string, string> = { active: 'var(--color-success)', stable: 'var(--color-accent)', archived: 'var(--color-text-muted)', wip: 'var(--color-warning)' };
 ---
 <article class="project-card card">
@@ -19,7 +19,6 @@ const statusColors: Record<string, string> = { active: 'var(--color-success)', s
     <h3 class="card-title"><a href={`/projects/${slug}`}>{title}</a></h3>
   </div>
   <p class="card-summary">{summary}</p>
-  {metrics && <div class="card-metrics">{Object.entries(metrics).map(([k, v]) => <span class="metric"><span class="metric-val">{v}</span> {k}</span>)}</div>}
   <div class="card-tags">{tags.slice(0, 4).map(tag => <Badge text={tag} />)}</div>
   <div class="card-stack">{stack.slice(0, 5).map(s => <span class="stack-chip">{s}</span>)}</div>
   <div class="card-actions">
@@ -38,9 +37,6 @@ const statusColors: Record<string, string> = { active: 'var(--color-success)', s
   .card-title a { color: var(--color-text); text-decoration: none; }
   .card-title a:hover { color: var(--color-accent); }
   .card-summary { font-size: 0.875rem; color: var(--color-text-muted); line-height: 1.5; margin: 0; }
-  .card-metrics { display: flex; gap: 1rem; flex-wrap: wrap; }
-  .metric { font-size: 0.78rem; color: var(--color-text-muted); }
-  .metric-val { font-family: var(--font-mono); color: var(--color-accent); font-weight: 600; }
   .card-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; }
   .card-stack { display: flex; flex-wrap: wrap; gap: 0.35rem; }
   .stack-chip { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: var(--chip-radius); border: 1px solid var(--color-border); color: var(--color-text-muted); font-family: var(--font-mono); }
