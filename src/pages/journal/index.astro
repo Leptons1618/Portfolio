@@ -1,0 +1,92 @@
+---
+import PageLayout from '../../layouts/PageLayout.astro';
+import { getCollection } from 'astro:content';
+import { formatShortDate, formatTag } from '../../lib/format';
+
+const posts = (await getCollection('journal')).sort(
+  (a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime()
+);
+const [featured, ...archive] = posts;
+
+function metaLine(data: { date: string; readTime?: string; videoDuration?: string }) {
+  return [formatShortDate(data.date), data.readTime && `${data.readTime} read`, data.videoDuration && `${data.videoDuration} video`]
+    .filter(Boolean)
+    .join(' · ');
+}
+---
+<PageLayout title="Journal" description="Field notes from building things — write-ups and the occasional video log.">
+  <header class="container container-mid page-header">
+    <h1>Journal</h1>
+    <p class="page-desc">Field notes from building things — write-ups and the occasional video log.</p>
+  </header>
+
+  {featured && (
+    <section class="container container-mid featured-section">
+      <a href={`/journal/${featured.slug}`} class="card elev-md featured-card">
+        <div class="tag-row">
+          {featured.data.tags.slice(0, 3).map((tag, i) => (
+            <span class={`tag ${i % 2 === 0 ? 'tag-accent' : 'tag-accent-2'}`}>{formatTag(tag)}</span>
+          ))}
+        </div>
+        <h2 class="card-title featured-title">{featured.data.title}</h2>
+        <p class="card-body">{featured.data.summary}</p>
+        <div class="card-meta">{metaLine(featured.data)}</div>
+      </a>
+    </section>
+  )}
+
+  {archive.length > 0 && (
+    <section class="container container-mid archive-section">
+      <h6 class="eyebrow">Archive</h6>
+      <div class="archive-list">
+        {archive.map(post => (
+          <a href={`/journal/${post.slug}`} class="archive-row">
+            <span class="text-muted archive-date">{formatShortDate(post.data.date)}</span>
+            <span class="archive-title">{post.data.title}</span>
+            <span class="text-muted archive-duration">{post.data.videoDuration ?? post.data.readTime ?? ''}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+  )}
+
+  {posts.length === 0 && (
+    <section class="container container-mid archive-section">
+      <p class="text-muted">No entries published yet.</p>
+    </section>
+  )}
+</PageLayout>
+<style>
+  .page-header { padding-top: var(--space-6); padding-bottom: var(--space-4); }
+  .page-desc { opacity: 0.8; max-width: 56ch; margin: 0; }
+
+  .featured-section { padding-bottom: var(--space-6); }
+  .featured-card { gap: var(--space-3); text-decoration: none; color: inherit; }
+  .featured-card:hover { color: inherit; }
+  .featured-card:hover .featured-title { color: var(--color-accent); }
+  .featured-title { font-size: 26px; }
+  .tag-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  .archive-section { padding-bottom: var(--space-8); }
+  .eyebrow { color: var(--color-accent-700); margin-bottom: var(--space-3); }
+  .archive-list { display: flex; flex-direction: column; }
+  .archive-row {
+    display: flex;
+    gap: var(--space-4);
+    align-items: baseline;
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--color-divider);
+    text-decoration: none;
+    color: inherit;
+  }
+  .archive-row:hover .archive-title { color: var(--color-accent); }
+  .archive-date { font-size: 12px; width: 96px; flex: none; }
+  .archive-title { flex: 1; }
+  .archive-duration { font-size: 12px; font-family: var(--font-mono); }
+
+  @media (max-width: 560px) {
+    .archive-row { flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
+    .archive-date { width: auto; }
+    .archive-title { flex: 1 1 100%; order: 3; }
+  }
+</style>

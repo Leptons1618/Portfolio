@@ -1,0 +1,10 @@
+---
+/* The design system's `.tag` in its four tints. Styling lives in the global
+   component layer so every tag on the site resolves to the same rules. */
+interface Props {
+  text: string;
+  variant?: 'accent' | 'accent-2' | 'neutral' | 'outline';
+}
+const { text, variant = 'neutral' } = Astro.props;
+---
+<span class={`tag tag-${variant}`}>{text}</span>

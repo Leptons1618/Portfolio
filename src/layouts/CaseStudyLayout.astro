@@ -1,6 +1,6 @@
 ---
 import BaseLayout from './BaseLayout.astro';
-import Badge from '../components/Badge.astro';
+import Tag from '../components/Tag.astro';
 import { getCollection } from 'astro:content';
 import { formatDate } from '../lib/format';
 interface Props {
@@ -9,84 +9,135 @@ interface Props {
   stack: string[]; repoUrl?: string; demoUrl?: string; date: string; readTime?: string;
 }
 const { title, subtitle, slug, heroImage, heroVideo, problem, solution, architectureImage, achievements, stack, repoUrl, demoUrl, date, readTime } = Astro.props;
+
+const CATEGORY_LABELS: Record<string, string> = {
+  'ai-llm': 'AI / ML',
+  'ml-cv': 'Computer Vision',
+  'full-stack': 'Full-Stack',
+  devtools: 'DevTools',
+  systems: 'Systems',
+  simulation: 'Simulation',
+  other: 'Other',
+};
+
 const allCaseStudies = await getCollection('case-studies');
 const sorted = allCaseStudies.sort((a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime());
 const currentIdx = sorted.findIndex(cs => cs.slug === slug);
 const prev = sorted[currentIdx + 1] || null;
 const next = sorted[currentIdx - 1] || null;
+
+/* The design's eyebrow tag reads "{category} · {year}". Case studies carry
+   neither field, so both come from the project that links to this study. */
+const allProjects = await getCollection('projects');
+const linkedProject = allProjects.find(p => p.data.caseStudySlug === slug);
+const categoryLabel = linkedProject ? (CATEGORY_LABELS[linkedProject.data.category] ?? linkedProject.data.category) : null;
+const year = linkedProject?.data.year ?? new Date(date).getFullYear();
+const eyebrow = categoryLabel ? `${categoryLabel} · ${year}` : String(year);
 ---
 <BaseLayout title={title} description={subtitle}>
-  <article class="case-study">
-    <div class="cs-hero">
-      {heroVideo ? <video src={heroVideo} autoplay muted loop playsinline class="cs-media" /> : heroImage ? <img src={heroImage} alt={title} class="cs-media" /> : <div class="cs-media-placeholder" />}
-      <div class="container cs-hero-content">
-        <h1 class="cs-title">{title}</h1>
-        <p class="cs-subtitle">{subtitle}</p>
-        <div class="cs-meta"><span>{formatDate(date)}</span>{readTime && <span>· {readTime} read</span>}</div>
-        <div class="cs-links">
-          {repoUrl && <a href={repoUrl} class="btn btn-outline" target="_blank" rel="noopener">Repo ↗</a>}
-          {demoUrl && <a href={demoUrl} class="btn btn-primary" target="_blank" rel="noopener">Demo ↗</a>}
-        </div>
-      </div>
+  <article class="container container-mid case-study">
+    <a class="btn btn-ghost back-link" href="/projects">← Back to Projects</a>
+    <span class="tag tag-accent-2 cs-eyebrow">{eyebrow}</span>
+    <h1 class="cs-title">{title}</h1>
+    <p class="cs-subtitle">{subtitle}</p>
+    <p class="text-muted cs-meta">{formatDate(date)}{readTime && ` · ${readTime} read`}</p>
+
+    {heroVideo
+      ? <div class="grayscale cs-hero"><video src={heroVideo} autoplay muted loop playsinline></video></div>
+      : heroImage
+        ? <div class="grayscale cs-hero"><img src={heroImage} alt={title} /></div>
+        : null}
+
+    <h3>The Problem</h3>
+    <p class="cs-copy">{problem}</p>
+
+    <h3>The Solution</h3>
+    <p class="cs-copy">{solution}</p>
+
+    <div class="prose cs-content"><slot /></div>
+
+    {architectureImage && (
+      <>
+        <h3>Architecture</h3>
+        <figure class="grayscale cs-arch"><img src={architectureImage} alt="Architecture diagram" /></figure>
+      </>
+    )}
+
+    <h3>Achievements</h3>
+    <ul class="cs-list">
+      {achievements.map(a => <li>{a}</li>)}
+    </ul>
+
+    <h3>Stack</h3>
+    <div class="cs-stack">
+      {stack.map(s => <Tag text={s} variant="neutral" />)}
     </div>
-    <div class="container cs-body">
-      <div class="cs-grid">
-        <div class="cs-main">
-          <section class="cs-section"><h2>Problem</h2><p>{problem}</p></section>
-          <section class="cs-section"><h2>Solution</h2><p>{solution}</p></section>
-          <div class="cs-content"><slot /></div>
-          {architectureImage && <section class="cs-section"><h2>Architecture</h2><img src={architectureImage} alt="Architecture diagram" class="arch-img" /></section>}
-        </div>
-        <aside class="cs-sidebar">
-          <div class="card sidebar-card">
-            <h3>Achievements</h3>
-            <ul class="achievement-list">{achievements.map(a => <li>{a}</li>)}</ul>
-          </div>
-          <div class="card sidebar-card">
-            <h3>Stack</h3>
-            <div class="stack-chips">{stack.map(s => <Badge text={s} />)}</div>
-          </div>
-        </aside>
+
+    {(repoUrl || demoUrl) && (
+      <div class="cs-actions">
+        {repoUrl && <a class="btn btn-primary" href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>}
+        {demoUrl && <a class="btn btn-secondary" href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
       </div>
+    )}
+
+    {(prev || next) && (
       <nav class="cs-nav">
-        {prev && <a href={`/case-studies/${prev.slug}`} class="cs-nav-link prev"><span>← Previous</span><strong>{prev.data.title}</strong></a>}
-        {next && <a href={`/case-studies/${next.slug}`} class="cs-nav-link next"><span>Next →</span><strong>{next.data.title}</strong></a>}
+        {prev && (
+          <a href={`/case-studies/${prev.slug}`} class="cs-nav-link">
+            <span class="text-muted">← Previous</span>
+            <strong>{prev.data.title}</strong>
+          </a>
+        )}
+        {next && (
+          <a href={`/case-studies/${next.slug}`} class="cs-nav-link next">
+            <span class="text-muted">Next →</span>
+            <strong>{next.data.title}</strong>
+          </a>
+        )}
       </nav>
-    </div>
+    )}
   </article>
 </BaseLayout>
 <style>
-  .cs-hero { position: relative; overflow: hidden; background: var(--color-bg-secondary); }
-  .cs-media { width: 100%; height: 400px; object-fit: cover; opacity: 0.6; }
-  .cs-media-placeholder { height: 300px; background: var(--color-bg-tertiary); }
-  .cs-hero-content { position: relative; padding: 3rem 1.5rem; }
-  .cs-title { font-size: clamp(1.5rem, 4vw, 2.5rem); margin-bottom: 0.5rem; }
-  .cs-subtitle { font-size: 1.1rem; color: var(--color-text-muted); margin-bottom: 1rem; }
-  .cs-meta { font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem; }
-  .cs-links { display: flex; gap: 0.75rem; }
-  .cs-body { padding: 3rem 1.5rem; }
-  .cs-grid { display: grid; grid-template-columns: 1fr 300px; gap: 3rem; }
-  .cs-main { min-width: 0; }
-  .cs-section { margin-bottom: 2.5rem; }
-  .cs-section h2 { font-size: 1.25rem; margin-bottom: 0.75rem; color: var(--color-accent); }
-  .cs-section p { color: var(--color-text-muted); line-height: 1.7; }
-  .cs-content { line-height: 1.7; }
-  .cs-content :global(h2) { font-size: 1.25rem; color: var(--color-accent); margin: 2rem 0 0.75rem; }
-  .cs-content :global(h3) { font-size: 1.05rem; margin: 1.5rem 0 0.5rem; }
-  .cs-content :global(p) { color: var(--color-text-muted); margin-bottom: 1rem; }
-  .cs-content :global(ul) { color: var(--color-text-muted); padding-left: 1.5rem; margin-bottom: 1rem; }
-  .cs-content :global(code) { background: var(--color-bg-tertiary); padding: 0.1em 0.4em; border-radius: 3px; font-size: 0.9em; }
-  .arch-img { width: 100%; border-radius: var(--radius-md); border: 1px solid var(--color-border); }
-  .sidebar-card { margin-bottom: 1.5rem; }
-  .sidebar-card h3 { font-size: 0.9rem; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem; }
-  .achievement-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
-  .achievement-list li { font-size: 0.875rem; color: var(--color-text); padding-left: 1rem; position: relative; }
-  .achievement-list li::before { content: '→'; position: absolute; left: 0; color: var(--color-accent); }
-  .stack-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-  .cs-nav { display: flex; justify-content: space-between; gap: 1rem; padding-top: 3rem; border-top: 1px solid var(--color-border); margin-top: 3rem; }
-  .cs-nav-link { display: flex; flex-direction: column; gap: 0.25rem; color: var(--color-text-muted); font-size: 0.875rem; max-width: 45%; }
-  .cs-nav-link:hover { color: var(--color-accent); }
-  .cs-nav-link strong { font-size: 1rem; color: var(--color-text); }
+  .case-study { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
+  .cs-eyebrow { margin-bottom: var(--space-3); }
+  .cs-title { margin-bottom: var(--space-2); }
+  .cs-subtitle { font-size: 17px; opacity: 0.85; max-width: 56ch; margin-bottom: var(--space-2); }
+  .cs-meta { font-size: 13px; margin-bottom: var(--space-4); }
+
+  .cs-hero { margin-bottom: var(--space-6); }
+  .cs-hero img, .cs-hero video { width: 100%; height: 360px; object-fit: cover; }
+
+  .cs-copy { opacity: 0.85; margin-bottom: var(--space-4); }
+  .cs-content:empty { display: none; }
+
+  .cs-arch { margin-bottom: var(--space-4); }
+
+  .cs-list { list-style: disc; opacity: 0.85; padding-left: 20px; margin: 0 0 var(--space-4); }
+  .cs-list li { margin-bottom: 6px; }
+
+  .cs-stack { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-6); }
+  .cs-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+
+  .cs-nav {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-top: var(--space-8);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-divider);
+  }
+  .cs-nav-link { display: flex; flex-direction: column; gap: 2px; max-width: 45%; text-decoration: none; font-size: 13px; }
+  .cs-nav-link span { font-size: 12px; }
+  .cs-nav-link strong { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 15px; color: var(--color-text); }
+  .cs-nav-link:hover strong { color: var(--color-accent); }
   .cs-nav-link.next { text-align: right; margin-left: auto; }
-  @media (max-width: 768px) { .cs-grid { grid-template-columns: 1fr; } .cs-sidebar { order: -1; } }
+
+  @media (max-width: 640px) {
+    .cs-hero img, .cs-hero video { height: 220px; }
+    .cs-nav { flex-direction: column; }
+    .cs-nav-link { max-width: none; }
+    .cs-nav-link.next { text-align: left; margin-left: 0; }
+  }
 </style>
