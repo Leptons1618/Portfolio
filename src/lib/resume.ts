@@ -1,7 +1,13 @@
 /**
  * Resume content, shared by the public /resume page and the admin editor that
  * seeds its form from it. Editing here changes what the site renders.
+ *
+ * Identity fields come from `site.ts`; this module owns only the resume body.
+ * The admin editor's "Export Changes" regenerates this whole file — keep the
+ * exported names in sync with `src/pages/admin/resume.astro`.
  */
+
+import { site } from './site';
 
 export interface ExperienceEntry {
   title: string;
@@ -23,13 +29,13 @@ export interface EducationEntry {
 }
 
 export const person = {
-  name: 'Anish Giri',
-  role: 'Software Engineer',
-  location: 'Bengaluru, Karnataka, India',
-  address: 'Nanjappa Layout, Adugodi, Bengaluru, Karnataka, 560030',
-  email: 'anishgiri163@gmail.com',
-  phone: '6294957979',
-  linkedin: 'https://www.linkedin.com/in/anish-giri-a4031723a',
+  name: site.name,
+  role: site.role,
+  location: site.location,
+  address: site.address,
+  email: site.email,
+  phone: site.phone,
+  linkedin: site.linkedin,
   summary:
     "As a curious, skeptical, and agnostic carbon-based bipedal, I thrive on delving into the depths of knowledge and discovering the world's treasures. With a strong interest in technology, I find peace in the Linux environment and enjoy deciphering its complexities. As an AI, ML, and Data Science enthusiast, I am eager to realize these areas' full potential and leverage their transformative impact. With an unshakable passion for coding, I am always looking for new ways to broaden my programming language vocabulary. My unquenchable curiosity drives my ambition to explore the fields of AI, ML, and Data Science, where I hope to make a significant contribution.",
 };

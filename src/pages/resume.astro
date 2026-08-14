@@ -1,9 +1,9 @@
 ---
-import PageLayout from '../layouts/PageLayout.astro';
+import BaseLayout from '../layouts/BaseLayout.astro';
 import ResumeAside from '../components/ResumeAside.astro';
 import { person, experience, skills, certifications, education } from '../lib/resume';
 ---
-<PageLayout title="Resume" description="Resume — Anish Giri, ML/CV Engineer and full-stack developer.">
+<BaseLayout title="Resume" description={`Resume — ${person.name}, ML/CV Engineer and full-stack developer.`}>
   <header class="container container-resume resume-header no-print">
     <div>
       <h1 class="resume-title">Resume</h1>
@@ -40,7 +40,7 @@ import { person, experience, skills, certifications, education } from '../lib/re
       </section>
     </main>
   </div>
-</PageLayout>
+</BaseLayout>
 
 <script>
   const shareBtn = document.getElementById('resume-share');

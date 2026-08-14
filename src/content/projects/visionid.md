@@ -1,6 +1,5 @@
 ---
 title: "VisionID"
-slug: "visionid"
 summary: "Computer vision system for real-time object identification and tracking using YOLO and DeepSort."
 category: "ml-cv"
 tags: ["object-detection", "tracking", "computer-vision", "yolo", "real-time"]
@@ -15,5 +14,3 @@ highlights:
   - "Built REST API with FastAPI for programmatic access to detection pipeline."
   - "Added configurable confidence and NMS thresholds for precision/recall tuning."
 ---
-
-Project metadata entry.

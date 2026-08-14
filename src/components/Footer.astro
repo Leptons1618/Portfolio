@@ -1,12 +1,14 @@
 ---
+import { site } from '../lib/site';
+
 const year = new Date().getFullYear();
 ---
 <footer class="site-footer container">
-  <span class="text-muted footer-copy">© {year} Anish Giri // Built with precision</span>
+  <span class="text-muted footer-copy">© {year} {site.name} // Built with precision</span>
   <div class="footer-links">
-    <a href="https://github.com/Leptons1618" target="_blank" rel="noopener">GitHub</a>
-    <a href="https://www.linkedin.com/in/anish-giri-a4031723a" target="_blank" rel="noopener">LinkedIn</a>
-    <a href="https://github.com/Leptons1618/Portfolio" target="_blank" rel="noopener">Source</a>
+    <a href={site.github} target="_blank" rel="noopener">GitHub</a>
+    <a href={site.linkedin} target="_blank" rel="noopener">LinkedIn</a>
+    <a href={site.repo} target="_blank" rel="noopener">Source</a>
   </div>
 </footer>
 <style>

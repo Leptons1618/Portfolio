@@ -1,6 +1,5 @@
 ---
 title: "MetaStream Mobile"
-slug: "metastream-mobile"
 summary: "Cross-platform mobile watch-party app with realtime room sync, queue, and chat."
 category: "other"
 tags: ["mobile", "watch-party", "react-native", "sync", "chat"]
@@ -13,5 +12,3 @@ highlights:
   - "Supports shared media queue and in-room chat over a self-hostable signal server."
   - "Includes Android APK CI workflow and tag-based release publishing."
 ---
-
-Project metadata entry.

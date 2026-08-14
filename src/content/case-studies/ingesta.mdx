@@ -1,6 +1,5 @@
 ---
 title: "Ingesta"
-slug: "ingesta"
 subtitle: "High-throughput data ingestion pipeline with reliable batch processing and DLQ."
 problem: "Ingesting high-volume event streams into a relational database is error-prone when individual record failures cause entire batch failures. Retry logic without backoff causes thundering herd problems under load."
 solution: "Built a Kafka consumer pipeline with configurable batch sizes, transactional batch inserts, dead-letter queue routing for failed records, and exponential backoff retry."

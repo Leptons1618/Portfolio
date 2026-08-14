@@ -1,6 +1,5 @@
 ---
 title: "StreamSQL"
-slug: "streamsql"
 subtitle: "Real-time SQL Server CDC streaming through Debezium/Kafka into MQTT subscribers."
 problem: "Operational analytics pipelines often need low-latency change propagation from transactional databases to event-driven consumers, but direct polling introduces delay and consistency issues."
 solution: "Implemented a CDC-first architecture using Debezium + Kafka Connect for SQL Server change capture, with Kafka topics bridged to MQTT for low-latency downstream consumption and monitoring."

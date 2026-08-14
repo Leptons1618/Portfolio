@@ -1,6 +1,5 @@
 ---
 title: "dwg2svg"
-slug: "dwg2svg"
 summary: "CAD conversion toolkit for SVG↔DXF workflows with block attributes and coordinate mapping."
 category: "other"
 tags: ["cad", "dwg", "dxf", "svg", "conversion"]
@@ -13,5 +12,3 @@ highlights:
   - "Handles SVG-to-DXF block generation with ATTDEF/ATTRIB support and base-point selection."
   - "Includes DXF↔SVG conversion improvements for geometry fidelity and hatch rendering."
 ---
-
-Project metadata entry.

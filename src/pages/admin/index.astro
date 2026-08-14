@@ -3,6 +3,7 @@ import '@fontsource/archivo/400.css';
 import '@fontsource/archivo/600.css';
 import '@fontsource/archivo/800.css';
 import '../../styles/global.css';
+import { site } from '../../lib/site';
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -22,7 +23,7 @@ import '../../styles/global.css';
 
     <div>
       <h6 class="login-eyebrow">Admin Access</h6>
-      <p class="login-copy">Sign in with the owner's GitHub account to manage projects, the journal, and resume content.</p>
+      <p class="login-copy">Sign in with @{site.githubUser} to manage projects, the journal, and resume content.</p>
     </div>
 
     <a class="btn btn-primary btn-block login-cta" href="/admin/dashboard">Sign in with GitHub</a>

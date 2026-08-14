@@ -1,6 +1,5 @@
 ---
 title: "Vehicle Speed Estimation"
-slug: "vehicle-speed-estimation"
 summary: "Computer vision pipeline for estimating vehicle speed from traffic video."
 category: "ml-cv"
 tags: ["computer-vision", "tracking", "speed", "yolo", "traffic"]
@@ -13,5 +12,3 @@ highlights:
   - "Maintained object identity with multi-object tracking across occlusions."
   - "Added smoothing and confidence thresholds for stable speed outputs."
 ---
-
-Project metadata entry.

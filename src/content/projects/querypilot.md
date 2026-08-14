@@ -1,6 +1,5 @@
 ---
 title: "QueryPilot"
-slug: "querypilot"
 summary: "Natural-language-to-SQL assistant with schema-aware query generation."
 category: "ai-llm"
 tags: ["nlp", "sql", "llm", "text-to-sql", "databases"]
@@ -14,5 +13,3 @@ highlights:
   - "Added SQL validation stage before execution to reduce invalid queries."
   - "Exposed both query output and SQL explanation for review workflows."
 ---
-
-Project metadata entry.

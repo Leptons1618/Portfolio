@@ -1,6 +1,5 @@
 ---
 title: "StreamSQL"
-slug: "streamsql"
 summary: "Real-time CDC pipeline from SQL Server through Debezium/Kafka to MQTT consumers."
 category: "systems"
 tags: ["sql", "streaming", "kafka", "real-time", "analytics"]
@@ -15,5 +14,3 @@ highlights:
   - "Bridges Kafka change events to HiveMQ MQTT topics for low-latency subscribers."
   - "Ships with Docker-based local stack and operational monitoring via Kafka UI/Connect."
 ---
-
-Project metadata entry.

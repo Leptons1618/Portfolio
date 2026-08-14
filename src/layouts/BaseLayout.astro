@@ -5,10 +5,17 @@ import '@fontsource/archivo/400.css';
 import '@fontsource/archivo/600.css';
 import '@fontsource/archivo/800.css';
 import '../styles/global.css';
+import { site, absoluteUrl } from '../lib/site';
+
 interface Props { title?: string; description?: string; image?: string; }
-const { title = 'Anish Giri Portfolio', description = 'ML/CV engineer and full-stack developer portfolio.', image = '/images/ui/og-default.png' } = Astro.props;
-const fullTitle = title === 'Anish Giri Portfolio' ? title : `${title} | Anish Giri Portfolio`;
-const canonicalURL = new URL(Astro.url.pathname, Astro.site || 'https://leptons1618.github.io');
+const siteTitle = `${site.name} Portfolio`;
+const { title = siteTitle, description = site.tagline, image = site.ogImage } = Astro.props;
+const fullTitle = title === siteTitle ? title : `${title} | ${siteTitle}`;
+const origin = Astro.site ?? site.url;
+const canonicalURL = absoluteUrl(Astro.url.pathname, origin);
+/* Open Graph requires absolute URLs — a site-relative path is not resolved
+   by every scraper. */
+const imageURL = absoluteUrl(image, origin);
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -21,12 +28,12 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site || 'https://leptons1
   <meta property="og:type" content="website" />
   <meta property="og:title" content={fullTitle} />
   <meta property="og:description" content={description} />
-  <meta property="og:image" content={image} />
+  <meta property="og:image" content={imageURL} />
   <meta property="og:url" content={canonicalURL} />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content={fullTitle} />
   <meta name="twitter:description" content={description} />
-  <meta name="twitter:image" content={image} />
+  <meta name="twitter:image" content={imageURL} />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta name="theme-color" content="#f3f2f2" />
 </head>

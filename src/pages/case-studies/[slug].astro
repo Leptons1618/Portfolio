@@ -1,16 +1,31 @@
 ---
 import CaseStudyLayout from '../../layouts/CaseStudyLayout.astro';
-import { getCollection } from 'astro:content';
+import { caseStudyNeighbours, categoryLabel, getCaseStudies, projectForCaseStudy } from '../../lib/content';
 
 export async function getStaticPaths() {
-  const caseStudies = await getCollection('case-studies');
+  const caseStudies = await getCaseStudies();
   return caseStudies.map(cs => ({ params: { slug: cs.slug }, props: { entry: cs } }));
 }
 
 const { entry } = Astro.props;
 const { Content } = await entry.render();
 const { title, subtitle, heroImage, heroVideo, problem, solution, architectureImage, achievements, stack, repoUrl, demoUrl, date, readTime } = entry.data;
+
+/* The eyebrow reads "{category} · {year}" — a case study carries neither, so
+   both come from the project that links to it. */
+const project = await projectForCaseStudy(entry.slug);
+const year = project?.data.year ?? new Date(date).getFullYear();
+const eyebrow = project ? `${categoryLabel(project.data.category)} · ${year}` : String(year);
+
+const { prev, next } = await caseStudyNeighbours(entry.slug);
+const neighbour = (cs: typeof prev) => (cs ? { slug: cs.slug, title: cs.data.title } : null);
 ---
-<CaseStudyLayout title={title} subtitle={subtitle} slug={entry.slug} heroImage={heroImage} heroVideo={heroVideo} problem={problem} solution={solution} architectureImage={architectureImage} achievements={achievements} stack={stack} repoUrl={repoUrl} demoUrl={demoUrl} date={date} readTime={readTime}>
+<CaseStudyLayout
+  title={title} subtitle={subtitle} heroImage={heroImage} heroVideo={heroVideo}
+  problem={problem} solution={solution} architectureImage={architectureImage}
+  achievements={achievements} stack={stack} repoUrl={repoUrl} demoUrl={demoUrl}
+  date={date} readTime={readTime}
+  eyebrow={eyebrow} prev={neighbour(prev)} next={neighbour(next)}
+>
   <Content />
 </CaseStudyLayout>

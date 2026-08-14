@@ -1,6 +1,5 @@
 ---
 title: "Ingesta"
-slug: "ingesta"
 summary: "High-throughput data ingestion pipeline with configurable batch processing and dead-letter queuing."
 category: "full-stack"
 tags: ["data-pipeline", "ingestion", "batch-processing", "kafka", "python"]
@@ -15,5 +14,3 @@ highlights:
   - "Kafka consumer groups with manual offset commit for at-least-once delivery."
   - "Monitoring dashboard via Prometheus metrics and Grafana."
 ---
-
-Project metadata entry.

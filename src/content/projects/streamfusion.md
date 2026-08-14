@@ -1,6 +1,5 @@
 ---
 title: "StreamFusion"
-slug: "streamfusion"
 summary: "Cross-platform synchronized watch-party app with realtime playback, queue, and chat."
 category: "other"
 tags: ["watch-party", "realtime", "webrtc", "mobile", "streaming"]
@@ -14,5 +13,3 @@ highlights:
   - "Includes chat and shared queue management for multi-user sessions."
   - "Ships with a Node.js signal server and Expo-based mobile client architecture."
 ---
-
-Project metadata entry.

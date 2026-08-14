@@ -1,13 +1,10 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
-import { getCollection } from 'astro:content';
+import { getProjects } from '../../lib/content';
+import { site } from '../../lib/site';
 
-const projects = (await getCollection('projects')).sort((a, b) => {
-  const rank = (a.data.featuredRank ?? 99) - (b.data.featuredRank ?? 99);
-  return rank !== 0 ? rank : b.data.year - a.data.year;
-});
-
-const GITHUB_USER = 'Leptons1618';
+const projects = await getProjects();
+const GITHUB_USER = site.githubUser;
 
 const rows = projects.map(p => ({
   slug: p.slug,
@@ -47,8 +44,8 @@ const withRepo = rows.filter(r => r.repoName).length;
           </div>
         </div>
         <div class="admin-actions">
-          <a class="btn btn-secondary" href={`https://github.com/settings/installations`} target="_blank" rel="noopener">Authorize Repositories</a>
-          <button type="button" class="btn btn-primary" id="import-repos">Import from GitHub</button>
+          <a class="btn btn-secondary" href="https://github.com/settings/installations" target="_blank" rel="noopener">Authorize Repositories</a>
+          <button type="button" class="btn btn-primary" id="import-repos" data-user={GITHUB_USER}>Import from GitHub</button>
         </div>
       </div>
       <p class="text-muted admin-note" id="import-status"></p>
@@ -106,7 +103,9 @@ const withRepo = rows.filter(r => r.repoName).length;
 </AdminLayout>
 
 <script>
-  const KEY = 'om-admin-project-visibility';
+  import { ADMIN_KEYS } from '../../lib/admin';
+
+  const KEY = ADMIN_KEYS.projectVisibility;
   const toggles = Array.from(document.querySelectorAll<HTMLButtonElement>('.toggle[data-slug]'));
 
   function readState(): Record<string, boolean> {
@@ -159,7 +158,8 @@ const withRepo = rows.filter(r => r.repoName).length;
     status.textContent = 'Fetching public repositories…';
     results.innerHTML = '';
     try {
-      const res = await fetch('https://api.github.com/users/Leptons1618/repos?per_page=100&sort=updated');
+      const user = importBtn.dataset.user!;
+      const res = await fetch(`https://api.github.com/users/${encodeURIComponent(user)}/repos?per_page=100&sort=updated`);
       if (!res.ok) throw new Error(`GitHub responded ${res.status}`);
       const repos = (await res.json()) as { name: string; html_url: string; description: string | null }[];
       const missing = repos.filter(r => !known.has(r.name.toLowerCase()));
