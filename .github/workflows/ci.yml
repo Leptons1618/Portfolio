@@ -1,0 +1,30 @@
+name: Check
+
+# Fast feedback before code reaches `main`. Deploys are gated separately by the
+# typecheck step in deploy.yml, so `main` pushes are deliberately excluded here
+# rather than running the same check twice.
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run check
