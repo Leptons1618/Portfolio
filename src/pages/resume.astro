@@ -1,101 +1,190 @@
 ---
 import PageLayout from '../layouts/PageLayout.astro';
+import ResumeAside from '../components/ResumeAside.astro';
+
+const person = {
+  name: 'Anish Giri',
+  role: 'Software Engineer',
+  location: 'Bengaluru, Karnataka, India',
+  address: 'Nanjappa Layout, Adugodi, Bengaluru, Karnataka, 560030',
+  email: 'anishgiri163@gmail.com',
+  phone: '6294957979',
+  linkedin: 'https://www.linkedin.com/in/anish-giri-a4031723a',
+  summary:
+    "As a curious, skeptical, and agnostic carbon-based bipedal, I thrive on delving into the depths of knowledge and discovering the world's treasures. With a strong interest in technology, I find peace in the Linux environment and enjoy deciphering its complexities. As an AI, ML, and Data Science enthusiast, I am eager to realize these areas' full potential and leverage their transformative impact. With an unshakable passion for coding, I am always looking for new ways to broaden my programming language vocabulary. My unquenchable curiosity drives my ambition to explore the fields of AI, ML, and Data Science, where I hope to make a significant contribution.",
+};
+
+const experience = [
+  {
+    title: 'Software Engineer',
+    company: 'Axcend Automation and Software Solutions pvt.Ltd',
+    dates: 'July 2024 - Present (1 year 10 months)',
+    location: 'Bengaluru, Karnataka, India',
+    description:
+      'As a Trainee Engineer at Axcend Automation and Software Solutions, I am responsible for developing and maintaining software for industrial automation projects. My role involves working with network protocols to ensure seamless communication between devices and systems. I collaborate on designing and managing control systems and SCADA systems, gaining hands-on experience with PLCs, HMIs, and other automation components. Additionally, I integrate hardware and software components to ensure efficient and reliable operation.',
+  },
+  {
+    title: 'Subject Matter Expert',
+    company: 'Chegg India',
+    dates: 'June 2023 - September 2024 (1 year 4 months)',
+    location: '',
+    description: '',
+  },
+  {
+    title: 'Intern',
+    company: 'Axcend Automation and Software Solutions pvt.Ltd',
+    dates: 'January 2024 - May 2024 (5 months)',
+    location: 'Bengaluru, Karnataka, India',
+    description: '',
+  },
+];
+
+const skills = [
+  { category: 'Top Skills', items: ['Next.js', 'React.js', 'TypeScript'] },
+  { category: 'ML / CV', items: ['PyTorch', 'TensorFlow', 'OpenCV', 'scikit-learn', 'YOLO'] },
+  { category: 'Languages', items: ['Python', 'TypeScript', 'Go', 'Rust', 'SQL'] },
+  { category: 'Web', items: ['Astro', 'React', 'FastAPI', 'Node.js', 'Tailwind'] },
+  { category: 'Data', items: ['PostgreSQL', 'Redis', 'Apache Kafka', 'DuckDB'] },
+  { category: 'Infra', items: ['Docker', 'GitHub Actions', 'Cloudflare', 'Vercel'] },
+];
+
+const certifications = [
+  'Artificial Intelligence Fundamentals',
+  'Problem Solving (Basic)',
+  'SQL (Intermediate)',
+  'Data Fundamentals',
+  'SQL (Basic)',
+];
+
+const education = [
+  {
+    school: 'Pondicherry University, Puducherry',
+    degree: "Master's degree, Computer Science",
+    dates: 'December 2022 - July 2024',
+  },
+];
 ---
 <PageLayout title="Resume" description="Resume — Anish Giri, ML/CV Engineer and full-stack developer.">
-  <div class="container">
-    <div class="resume-header">
-      <h1>Resume</h1>
-      <p class="resume-note">Anish Giri — Software Engineer, Bengaluru, Karnataka, India</p>
+  <header class="container container-resume resume-header no-print">
+    <div>
+      <h1 class="resume-title">Resume</h1>
+      <p class="text-muted resume-note">{person.name} — {person.role}, {person.location}</p>
     </div>
-    <div class="resume-body">
-      <section class="resume-section">
-        <h2>Contact</h2>
-        <div class="contact-list">
-          <p>Nanjappa Layout, Adugodi, Bengaluru, Karnataka, 560030</p>
-          <p><a href="tel:+916294957979">6294957979</a> (Mobile)</p>
-          <p><a href="mailto:anishgiri163@gmail.com">anishgiri163@gmail.com</a></p>
-          <p><a href="https://www.linkedin.com/in/anish-giri-a4031723a" target="_blank" rel="noopener">www.linkedin.com/in/anish-giri-a4031723a</a> (LinkedIn)</p>
-        </div>
-      </section>
-      <section class="resume-section">
-        <h2>Summary</h2>
-        <p class="muted">As a curious, skeptical, and agnostic carbon-based bipedal, I thrive on delving into the depths of knowledge and discovering the world's treasures. With a strong interest in technology, I find peace in the Linux environment and enjoy deciphering its complexities. As an AI, ML, and Data Science enthusiast, I am eager to realize these areas' full potential and leverage their transformative impact. With an unshakable passion for coding, I am always looking for new ways to broaden my programming language vocabulary. My unquenchable curiosity drives my ambition to explore the fields of AI, ML, and Data Science, where I hope to make a significant contribution.</p>
-      </section>
-      <section class="resume-section">
-        <h2>Experience</h2>
-        <div class="experience-list">
-          <article class="experience-item">
-            <h3>Axcend Automation and Software Solutions pvt.Ltd</h3>
-            <p class="role">Software Engineer</p>
-            <p class="meta">July 2024 - Present (1 year 10 months) · Bengaluru, Karnataka, India</p>
-            <p class="muted">As a Trainee Engineer at Axcend Automation and Software Solutions, I am responsible for developing and maintaining software for industrial automation projects. My role involves working with network protocols to ensure seamless communication between devices and systems. I collaborate on designing and managing control systems and SCADA systems, gaining hands-on experience with PLCs, HMIs, and other automation components. Additionally, I integrate hardware and software components to ensure efficient and reliable operation.</p>
-          </article>
-          <article class="experience-item">
-            <h3>Chegg India</h3>
-            <p class="role">Subject Matter Expert</p>
-            <p class="meta">June 2023 - September 2024 (1 year 4 months)</p>
-          </article>
-          <article class="experience-item">
-            <h3>Axcend Automation and Software Solutions pvt.Ltd</h3>
-            <p class="role">Intern</p>
-            <p class="meta">January 2024 - May 2024 (5 months) · Bengaluru, Karnataka, India</p>
-          </article>
-        </div>
-      </section>
-      <section class="resume-section">
-        <h2>Top Skills</h2>
-        <div class="skill-rows">
-          <div class="skill-row"><span class="skill-label">Frameworks</span><span class="skill-val">Next.js, React.js, TypeScript</span></div>
-        </div>
-      </section>
-      <section class="resume-section">
-        <h2>Additional Skills</h2>
-        <div class="skill-rows">
-          <div class="skill-row"><span class="skill-label">ML / CV</span><span class="skill-val">PyTorch, TensorFlow, OpenCV, scikit-learn, YOLO</span></div>
-          <div class="skill-row"><span class="skill-label">Languages</span><span class="skill-val">Python, TypeScript, Go, Rust, SQL</span></div>
-          <div class="skill-row"><span class="skill-label">Web</span><span class="skill-val">Astro, React, FastAPI, Node.js, Tailwind</span></div>
-          <div class="skill-row"><span class="skill-label">Data</span><span class="skill-val">PostgreSQL, Redis, Apache Kafka, DuckDB</span></div>
-          <div class="skill-row"><span class="skill-label">Infra</span><span class="skill-val">Docker, GitHub Actions, Cloudflare, Vercel</span></div>
-        </div>
-      </section>
-      <section class="resume-section">
-        <h2>Certifications</h2>
-        <ul class="resume-list">
-          <li>Artificial Intelligence Fundamentals</li>
-          <li>Problem Solving (Basic)</li>
-          <li>SQL (Intermediate)</li>
-          <li>Data Fundamentals</li>
-          <li>SQL (Basic)</li>
-        </ul>
-      </section>
-      <section class="resume-section">
-        <h2>Education</h2>
-        <article class="experience-item">
-          <h3>Pondicherry University, Puducherry</h3>
-          <p class="role">Master's degree, Computer Science</p>
-          <p class="meta">December 2022 - July 2024</p>
-        </article>
-      </section>
+    <div class="resume-actions">
+      <button type="button" class="btn btn-secondary" id="resume-share">Share</button>
+      <button type="button" class="btn btn-primary" id="resume-export">Export PDF</button>
     </div>
+  </header>
+
+  <div class="container container-resume resume-grid">
+    <ResumeAside person={person} skills={skills} certifications={certifications} education={education} />
+
+    <main class="resume-main">
+      <section class="resume-section">
+        <h6 class="section-heading">Summary</h6>
+        <p class="summary-copy">{person.summary}</p>
+      </section>
+
+      <section>
+        <h6 class="section-heading experience-heading">Experience</h6>
+        {experience.map(item => (
+          <div class="experience-item">
+            <div class="experience-top">
+              <h4 class="experience-title">{item.title}</h4>
+              <span class="text-muted experience-dates">{item.dates}</span>
+            </div>
+            <p class="experience-company">{item.company}</p>
+            {item.location && <p class="text-muted experience-location">{item.location}</p>}
+            {item.description && <p class="experience-description">{item.description}</p>}
+          </div>
+        ))}
+      </section>
+    </main>
   </div>
 </PageLayout>
+
+<script>
+  const shareBtn = document.getElementById('resume-share');
+  const exportBtn = document.getElementById('resume-export');
+
+  exportBtn?.addEventListener('click', () => window.print());
+
+  shareBtn?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard?.writeText(window.location.href);
+      shareBtn.textContent = 'Copied!';
+    } catch {
+      shareBtn.textContent = 'Copy failed';
+    }
+    setTimeout(() => { shareBtn.textContent = 'Share'; }, 1500);
+  });
+</script>
+
 <style>
-  .container { max-width: 800px; margin: 0 auto; padding: 4rem 1.5rem; }
-  .resume-header { margin-bottom: 3rem; }
-  .resume-header h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
-  .resume-note { color: var(--color-text-muted); }
-  .resume-section { margin-bottom: 2.5rem; }
-  .resume-section h2 { font-size: 1.25rem; color: var(--color-accent); margin-bottom: 1rem; border-bottom: 1px solid var(--color-border); padding-bottom: 0.5rem; }
-  .resume-section h3 { margin: 0 0 0.25rem; font-size: 1rem; }
-  .contact-list p { margin: 0.2rem 0; color: var(--color-text-muted); }
-  .experience-list { display: flex; flex-direction: column; gap: 1.5rem; }
-  .experience-item .role { margin: 0; font-weight: 600; }
-  .experience-item .meta { margin: 0.25rem 0 0.6rem; color: var(--color-text-muted); font-size: 0.9rem; }
-  .muted { color: var(--color-text-muted); }
-  .skill-rows { display: flex; flex-direction: column; gap: 0.75rem; }
-  .skill-row { display: flex; gap: 1rem; align-items: baseline; }
-  .skill-label { font-weight: 600; font-size: 0.875rem; min-width: 100px; }
-  .skill-val { color: var(--color-text-muted); font-size: 0.875rem; }
-  .resume-list { color: var(--color-text-muted); padding-left: 1.25rem; margin: 0; }
-  .resume-list li { margin-bottom: 0.35rem; }
+  .resume-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    padding-top: var(--space-6);
+    padding-bottom: var(--space-4);
+  }
+  .resume-title { margin-bottom: 2px; }
+  .resume-note { font-size: 13px; margin: 0; }
+  .resume-actions { display: flex; gap: var(--space-2); }
+
+  .resume-grid {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    gap: var(--space-8);
+    padding-bottom: var(--space-8);
+  }
+  .resume-main { min-width: 0; }
+  .resume-section { margin-bottom: var(--space-6); }
+  .section-heading { color: var(--color-accent-700); margin-bottom: var(--space-2); }
+  .experience-heading { margin-bottom: var(--space-3); }
+  .summary-copy { font-size: 14px; line-height: 1.7; opacity: 0.85; margin: 0; }
+
+  .experience-item {
+    margin-bottom: var(--space-4);
+    padding-bottom: var(--space-4);
+    border-bottom: 1px solid var(--color-divider);
+  }
+  .experience-item:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+  .experience-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .experience-title { margin: 0; }
+  .experience-dates { font-size: 12px; }
+  .experience-company { font-size: 13px; font-weight: 600; color: var(--color-accent-700); margin: 2px 0 6px; }
+  .experience-location { font-size: 12px; margin: 0 0 6px; }
+  .experience-description { font-size: 13px; line-height: 1.65; opacity: 0.85; margin: 0; }
+
+  @media (max-width: 720px) {
+    .resume-grid { grid-template-columns: 1fr; gap: var(--space-6); }
+  }
+</style>
+
+<style is:global>
+  @media print {
+    .no-print,
+    .nav,
+    .site-footer { display: none !important; }
+
+    body { background: #fff; }
+
+    .container,
+    .container-resume { max-width: 100%; padding-left: 0; padding-right: 0; }
+
+    .resume-grid { padding-bottom: 0; }
+
+    .experience-item { break-inside: avoid; }
+
+    @page { size: letter; margin: 0.6in; }
+  }
 </style>

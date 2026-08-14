@@ -14,94 +14,158 @@ const featuredCaseStudies = [...allProjects]
   .slice(0, 12);
 const skillSet = new Set<string>();
 allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
+const profilePhoto = 'https://github.com/user-attachments/assets/ac0a8a77-f1eb-45fa-8670-9b13cefd85e4';
 ---
 <PageLayout title="Home" description="ML/CV engineer and full-stack developer portfolio.">
-  <section class="hero">
-    <div class="container">
-      <div class="hero-content">
-        <span class="hero-status anim-fade-up"><span class="status-dot"></span>Open to opportunities</span>
-        <span class="hero-label anim-fade-up anim-delay-1">SOFTWARE ENGINEER</span>
-        <h1 class="hero-title anim-fade-up anim-delay-1">Building <span class="gradient-text">ML systems</span>,<br />full-stack apps &amp; dev tools</h1>
-        <p class="hero-desc anim-fade-up anim-delay-2">I work at the intersection of machine learning, computer vision, and software engineering. I build practical systems that ship.</p>
-        <div class="hero-actions anim-fade-up anim-delay-3">
-          <a href="/projects" class="btn btn-primary">View Projects</a>
-          <a href="/resume" class="btn btn-outline">Resume</a>
-          <a href="https://github.com/Leptons1618" class="btn btn-outline" target="_blank" rel="noopener">GitHub ↗</a>
-        </div>
+  <header class="hero container">
+    <div class="hero-copy">
+      <span class="tag tag-accent-2 hero-status">Open to opportunities</span>
+      <h6 class="eyebrow">Software Engineer</h6>
+      <h1 class="hero-title">Building ML systems, <span class="nowrap">full-stack</span> apps &amp; dev tools</h1>
+      <p class="hero-desc">I work at the intersection of machine learning, computer vision, and software engineering. I build practical systems that ship.</p>
+      <div class="hero-actions">
+        <a href="/projects" class="btn btn-primary">View Projects</a>
+        <a href="https://github.com/Leptons1618" class="btn btn-secondary" target="_blank" rel="noopener">GitHub</a>
       </div>
     </div>
-  </section>
-  <section class="section-case-studies">
-    <div class="container">
-      <h2 class="section-title">Featured Case Studies</h2>
-      <div class="cs-grid">
-        {featuredCaseStudies.map(project => (
-          <a href={project.data.caseStudySlug ? `/case-studies/${encodeURIComponent(project.data.caseStudySlug)}` : `/projects/${encodeURIComponent(project.slug)}`} class="cs-card card">
-            <div class="cs-card-body">
-              <h3 class="cs-card-title">{project.data.title}</h3>
-              <p class="cs-card-subtitle">{project.data.summary}</p>
-            </div>
-            <span class="cs-card-cta">{project.data.caseStudySlug ? 'Read case study →' : 'View project →'}</span>
-          </a>
-        ))}
+    <div class="hero-figure">
+      <img class="grayscale hero-photo" src={profilePhoto} alt="Anish Giri" width="480" height="480" />
+    </div>
+  </header>
+
+  <section class="container home-section">
+    <div class="section-head">
+      <div>
+        <h6 class="eyebrow">Case Studies</h6>
+        <h2>Deep dives</h2>
       </div>
     </div>
-  </section>
-  <section class="section-projects">
-    <div class="container">
-      <h2 class="section-title">Featured Projects</h2>
-      <div class="project-grid">
-        {featured.slice(0, 6).map(project => (
-          <ProjectCard title={project.data.title} slug={project.slug} summary={project.data.summary} tags={project.data.tags} stack={project.data.stack} status={project.data.status} year={project.data.year} repoUrl={project.data.repoUrl} demoUrl={project.data.demoUrl} caseStudySlug={project.data.caseStudySlug} heroImage={project.data.heroImage} />
-        ))}
-      </div>
-      <div class="view-all"><a href="/projects" class="btn btn-outline">View all projects →</a></div>
+    <div class="grid-3">
+      {featuredCaseStudies.map(project => (
+        <a
+          href={project.data.caseStudySlug ? `/case-studies/${encodeURIComponent(project.data.caseStudySlug)}` : `/projects/${encodeURIComponent(project.slug)}`}
+          class="card elev-sm cs-card"
+        >
+          <span class="card-kicker">{project.data.year} · {project.data.category}</span>
+          <h3 class="card-title">{project.data.title}</h3>
+          <p class="card-body">{project.data.summary}</p>
+          <span class="card-meta cs-card-cta">{project.data.caseStudySlug ? 'Read case study →' : 'View project →'}</span>
+        </a>
+      ))}
     </div>
   </section>
-  <section class="section-skills">
-    <div class="container">
-      <h2 class="section-title">Skills &amp; Stack</h2>
-      <div class="skill-chips">
-        {Array.from(skillSet).sort().map(s => <span class="skill-chip">{s}</span>)}
+
+  <section class="container home-section">
+    <div class="section-head">
+      <div>
+        <h6 class="eyebrow">Featured Projects</h6>
+        <h2>Recent work</h2>
       </div>
+      <a class="btn btn-ghost" href="/projects">View all projects →</a>
+    </div>
+    <div class="grid-2">
+      {featured.slice(0, 6).map(project => (
+        <ProjectCard title={project.data.title} slug={project.slug} summary={project.data.summary} tags={project.data.tags} stack={project.data.stack} status={project.data.status} year={project.data.year} repoUrl={project.data.repoUrl} demoUrl={project.data.demoUrl} caseStudySlug={project.data.caseStudySlug} heroImage={project.data.heroImage} />
+      ))}
     </div>
   </section>
-  <section class="section-cta">
-    <div class="container">
-      <div class="cta-box card">
-        <h2>Let's work together</h2>
-        <p>Open to interesting ML/CV, full-stack, and systems projects.</p>
-        <div class="cta-actions">
-          <a href="https://github.com/Leptons1618" class="btn btn-primary" target="_blank" rel="noopener">GitHub ↗</a>
-          <a href="/resume" class="btn btn-outline">Resume</a>
-        </div>
+
+  <section class="container home-section">
+    <h6 class="eyebrow">Skills &amp; Stack</h6>
+    <h2 class="skills-title">What I build with</h2>
+    <div class="tag-row">
+      {Array.from(skillSet).sort().map(s => <span class="tag tag-neutral">{s}</span>)}
+    </div>
+  </section>
+
+  <section class="closing-banner">
+    <div class="container closing-inner">
+      <div>
+        <h2 class="closing-title">Let's work together</h2>
+        <p class="closing-desc">Open to interesting ML/CV, full-stack, and systems projects.</p>
+      </div>
+      <div class="closing-actions">
+        <a href="mailto:anishgiri163@gmail.com" class="btn btn-on-accent">Hire Me</a>
+        <a href="/resume" class="btn btn-on-accent-outline">Resume</a>
       </div>
     </div>
   </section>
 </PageLayout>
 <style>
-  .hero { padding: 6rem 0 4rem; border-bottom: 1px solid var(--color-border); }
-  .hero-content { max-width: 700px; }
-  .hero-status { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.78rem; font-family: var(--font-mono); color: var(--color-success); border: 1px solid var(--color-border); background: var(--color-bg-secondary); border-radius: var(--chip-radius); padding: 0.25rem 0.8rem; margin-bottom: 1.25rem; }
-  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-success); box-shadow: 0 0 8px var(--color-success); animation: pulse-dot 2s ease-in-out infinite; }
-  .hero-label { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.15em; color: var(--color-accent); display: block; margin-bottom: 1rem; }
-  .hero-title { font-size: clamp(2rem, 5vw, 3.5rem); line-height: 1.15; margin-bottom: 1.5rem; }
-  .hero-desc { font-size: 1.1rem; color: var(--color-text-muted); max-width: 560px; line-height: 1.6; margin-bottom: 2rem; }
-  .hero-actions { display: flex; gap: 0.75rem; flex-wrap: wrap; }
-  .cs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1.5rem; }
-  .cs-card { display: flex; flex-direction: column; justify-content: space-between; text-decoration: none; color: var(--color-text); min-height: 160px; }
-  .cs-card:hover { color: var(--color-text); }
-  .cs-card-title { font-size: 1.05rem; margin-bottom: 0.5rem; }
-  .cs-card-subtitle { font-size: 0.875rem; color: var(--color-text-muted); }
-  .cs-card-cta { font-size: 0.8rem; color: var(--color-accent); margin-top: 1rem; }
-  .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; }
-  .view-all { text-align: center; margin-top: 2rem; }
-  .skill-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-  .skill-chip { padding: 0.3rem 0.75rem; border-radius: var(--chip-radius); border: 1px solid var(--color-border); background: var(--color-bg-secondary); font-size: 0.8rem; color: var(--color-text-muted); font-family: var(--font-mono); transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease; cursor: default; }
-  .skill-chip:hover { color: var(--color-accent); border-color: var(--color-accent); transform: translateY(-1px); }
-  .cta-box { text-align: center; padding: 3rem; overflow: hidden; }
-  .cta-box::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse 70% 90% at 50% -20%, var(--color-glow), transparent 70%); pointer-events: none; }
-  .cta-box h2 { font-size: 1.75rem; margin-bottom: 0.75rem; }
-  .cta-box p { color: var(--color-text-muted); margin-bottom: 1.5rem; }
-  .cta-actions { display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap; }
+  .eyebrow { color: var(--color-accent-700); margin-bottom: var(--space-2); }
+
+  /* — hero — */
+  .hero {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr;
+    gap: var(--space-8);
+    align-items: center;
+    padding-top: var(--space-8);
+    padding-bottom: var(--space-8);
+  }
+  .hero-status { margin-bottom: var(--space-3); }
+  .hero-title { font-size: clamp(32px, 5.4vw, 52px); max-width: 12ch; margin-bottom: var(--space-4); }
+  .nowrap { white-space: nowrap; }
+  .hero-desc { font-size: 17px; max-width: 52ch; opacity: 0.85; margin-bottom: var(--space-4); }
+  .hero-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+  .hero-figure { border-left: 2px solid var(--color-divider); padding-left: var(--space-6); }
+  .hero-photo { width: 100%; aspect-ratio: 1; object-fit: cover; object-position: center 20%; }
+
+  /* — sections — */
+  .home-section { padding-bottom: var(--space-8); }
+  .section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-4);
+    margin-bottom: var(--space-4);
+    flex-wrap: wrap;
+  }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+
+  .cs-card { text-decoration: none; color: inherit; }
+  .cs-card:hover { color: inherit; }
+  .cs-card:hover .card-title { color: var(--color-accent); }
+  .cs-card-cta { color: var(--color-accent-700); margin-top: var(--space-2); }
+
+  .skills-title { margin-bottom: var(--space-3); }
+  .tag-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  /* — closing banner: the one place the accent runs as a field — */
+  .closing-banner {
+    background: var(--color-accent);
+    color: var(--color-bg);
+    padding: var(--space-8) 0;
+    margin-bottom: var(--space-8);
+  }
+  .closing-inner {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-6);
+    flex-wrap: wrap;
+  }
+  .closing-title { font-size: clamp(28px, 4vw, 42px); margin-bottom: var(--space-2); }
+  .closing-desc { margin: 0; opacity: 0.9; }
+  .closing-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+  .btn-on-accent { background: var(--color-bg); color: var(--color-accent-700); }
+  .btn-on-accent:hover { background: var(--color-accent-100); color: var(--color-accent-800); }
+  .btn-on-accent-outline { border-color: var(--color-bg); color: var(--color-bg); }
+  .btn-on-accent-outline:hover { background: color-mix(in srgb, var(--color-bg) 18%, transparent); color: var(--color-bg); }
+
+  @media (max-width: 900px) {
+    .grid-3 { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 760px) {
+    .hero { grid-template-columns: 1fr; gap: var(--space-6); }
+    .hero-figure {
+      border-left: 0;
+      border-top: 2px solid var(--color-divider);
+      padding-left: 0;
+      padding-top: var(--space-6);
+      max-width: 320px;
+    }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
 </style>

@@ -1,0 +1,81 @@
+---
+import PageLayout from '../../layouts/PageLayout.astro';
+import { getCollection } from 'astro:content';
+import { formatShortDate, formatTag } from '../../lib/format';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('journal');
+  return posts.map(post => ({ params: { slug: post.slug }, props: { post } }));
+}
+
+const { post } = Astro.props;
+const { title, summary, date, tags, readTime, videoDuration, heroImage } = post.data;
+const { Content } = await post.render();
+
+const meta = [formatShortDate(date), readTime && `${readTime} read`, videoDuration && `${videoDuration} video`]
+  .filter(Boolean)
+  .join(' · ');
+---
+<PageLayout title={title} description={summary}>
+  <article class="container container-prose journal-post">
+    <a class="btn btn-ghost back-link" href="/journal">← Back to Journal</a>
+
+    <div class="tag-row">
+      {tags.map((tag, i) => (
+        <span class={`tag ${i % 2 === 0 ? 'tag-accent' : 'tag-accent-2'}`}>{formatTag(tag)}</span>
+      ))}
+    </div>
+
+    <h1 class="post-title">{title}</h1>
+    <p class="text-muted post-meta">{meta}</p>
+
+    {heroImage && (
+      <div class="post-figure">
+        <div class="grayscale"><img src={heroImage} alt={title} /></div>
+        {videoDuration && <span class="tag tag-neutral post-duration">{videoDuration}</span>}
+      </div>
+    )}
+
+    <p class="post-summary">{summary}</p>
+
+    <div class="prose"><Content /></div>
+
+    <div class="post-footer">
+      <span class="text-muted share-label">Share this post</span>
+      <a
+        class="btn btn-secondary"
+        href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(new URL(Astro.url.pathname, Astro.site ?? 'https://leptons1618.github.io').href)}`}
+        target="_blank"
+        rel="noopener"
+      >Share on LinkedIn</a>
+    </div>
+  </article>
+</PageLayout>
+<style>
+  .journal-post { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
+  .tag-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-3); }
+  .post-title { margin-bottom: var(--space-2); }
+  .post-meta { font-size: 13px; margin-bottom: var(--space-4); }
+
+  .post-figure { position: relative; margin-bottom: var(--space-6); }
+  .post-figure img { width: 100%; height: 340px; object-fit: cover; }
+  .post-duration { position: absolute; bottom: 12px; left: 12px; font-family: var(--font-mono); }
+
+  .post-summary { opacity: 0.85; margin-bottom: var(--space-6); }
+
+  .post-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--color-divider);
+  }
+  .share-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+
+  @media (max-width: 640px) {
+    .post-figure img { height: 220px; }
+  }
+</style>

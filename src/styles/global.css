@@ -3,17 +3,24 @@
 @tailwind components;
 @tailwind utilities;
 
-/* The <html> element always carries data-theme="pixel" or "paper":
-   it is server-rendered as pixel and the head script resolves the real
-   choice (including the System option) before first paint. */
+/* ==========================================================================
+   Modernist component layer.
 
-* {
+   Ported from the design system's `styles.css`. Plain CSS on plain HTML —
+   no per-page restyling of these classes. Hovers and pressed states come
+   from the accent ramp, keyboard focus is the 2px accent :focus-visible
+   ring, ::selection is an accent tint, disabled controls drop to 45%.
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
 html {
-  font-family: var(--font-display);
-  background-color: var(--color-bg);
+  font-family: var(--font-body);
+  background: var(--color-bg);
   color: var(--color-text);
   scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
@@ -21,89 +28,99 @@ html {
 }
 
 body {
-  min-height: 100vh;
   margin: 0;
-  position: relative;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.55;
+  font-weight: 400;
 }
 
-/* ---------------------------------------------------------------------------
-   Background art (fixed, sits behind everything)
-   --------------------------------------------------------------------------- */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
+body > main {
+  flex: 1;
 }
 
-/* Pixel: arcade grid + neon corner glows */
-html[data-theme="pixel"] body::before {
-  background-image:
-    radial-gradient(ellipse 60% 45% at 10% -5%, rgba(0, 231, 86, 0.09), transparent 65%),
-    radial-gradient(ellipse 60% 45% at 95% 105%, rgba(255, 46, 151, 0.1), transparent 65%),
-    linear-gradient(rgba(238, 230, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(238, 230, 255, 0.045) 1px, transparent 1px);
-  background-size: 100% 100%, 100% 100%, 24px 24px, 24px 24px;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+  margin: 0 0 var(--space-2);
 }
 
-/* Pixel: CRT scanline overlay */
-html[data-theme="pixel"] body::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: 9990;
-  pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg,
-    rgba(0, 0, 0, 0.09) 0px,
-    rgba(0, 0, 0, 0.09) 1px,
-    transparent 1px,
-    transparent 3px
-  );
+h1 { font-size: 42px; }
+h2 { font-size: 32px; }
+h3 { font-size: 25px; }
+h4 { font-size: 20px; }
+h5 { font-size: 16px; }
+
+h6 {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-/* Paper: graph-paper grid + subtle fiber noise */
-html[data-theme="paper"] body::before {
-  background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E"),
-    linear-gradient(rgba(41, 83, 122, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(41, 83, 122, 0.07) 1px, transparent 1px);
-  background-size: 240px 240px, 26px 26px, 26px 26px;
+p {
+  margin: 0 0 var(--space-3);
 }
 
-/* ---------------------------------------------------------------------------
-   Base elements
-   --------------------------------------------------------------------------- */
+/* The system's base link color is the raw accent, which only clears 3:1
+   against this ground. Every design page overrides it to the deep ramp
+   step for paragraph-size text, so that is the site-wide default here. */
 a {
-  color: var(--color-accent);
-  text-decoration: none;
+  color: var(--color-accent-700);
+  text-underline-offset: 3px;
   transition: color 0.15s ease;
 }
 
 a:hover {
-  color: var(--color-accent-hover);
+  color: var(--color-accent-600);
 }
 
-code, pre {
+img {
+  display: block;
+  max-width: 100%;
+}
+
+figure {
+  margin: 0;
+}
+
+figcaption {
+  font-size: 11px;
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+}
+
+code,
+pre {
   font-family: var(--font-mono);
 }
 
-h1, h2, h3, h4 {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  line-height: 1.25;
+.text-muted {
+  color: var(--color-text-muted);
 }
 
-::selection {
-  background: var(--color-accent);
-  color: var(--color-accent-fg);
+:focus {
+  outline: none;
 }
 
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
-  border-radius: var(--radius-sm);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 30%, transparent);
 }
 
 ::-webkit-scrollbar {
@@ -116,418 +133,421 @@ h1, h2, h3, h4 {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border: 2px solid var(--color-bg);
+  background: var(--color-neutral-400);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
+  background: var(--color-neutral-600);
 }
 
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 1.5rem;
+/* — imagery: every content photograph prints in pure black and white — */
+.grayscale {
+  filter: grayscale(1) contrast(1.08);
 }
 
-section {
-  padding: 4rem 0;
+/* — rules — */
+.hr {
+  height: 2px;
+  border: 0;
+  margin: var(--space-4) 0;
+  background: var(--color-divider);
 }
 
-/* ---------------------------------------------------------------------------
-   Buttons
-   --------------------------------------------------------------------------- */
+/* — buttons — */
 .btn {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 1.25rem;
-  border-radius: var(--radius-sm);
-  font-weight: 500;
-  font-size: 0.875rem;
-  font-family: var(--font-display);
-  transition: all 0.18s ease;
+  justify-content: center;
+  gap: 6px;
   cursor: pointer;
-  border: var(--border-width) solid transparent;
+  text-decoration: none;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 14px;
+  line-height: 1.2;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: var(--space-2) calc(var(--space-3) * 1.2);
+  border-radius: var(--radius-md);
+}
+
+.btn svg {
+  display: block;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .btn-primary {
   background: var(--color-accent);
-  color: var(--color-accent-fg);
-  border-color: var(--color-accent);
+  color: var(--color-bg);
 }
 
 .btn-primary:hover {
-  background: var(--color-accent-hover);
-  border-color: var(--color-accent-hover);
-  color: var(--color-accent-fg);
+  background: var(--color-accent-600);
+  color: var(--color-bg);
 }
 
-.btn-outline {
-  background: transparent;
+.btn-primary:active {
+  background: var(--color-accent-700);
+}
+
+.btn-secondary {
+  border-color: var(--color-divider);
+}
+
+.btn-secondary:hover {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+  color: var(--color-text);
+}
+
+.btn-secondary:active {
+  background: color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+
+.btn-ghost {
   color: var(--color-accent);
-  border-color: var(--color-border);
+  padding-inline: var(--space-1);
 }
 
-.btn-outline:hover {
-  border-color: var(--color-accent);
-  background: var(--color-tag-bg);
+.btn-ghost:hover {
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--color-accent);
 }
 
-/* ---------------------------------------------------------------------------
-   Cards
-   --------------------------------------------------------------------------- */
-.card {
-  background: var(--color-card-bg);
-  border: var(--border-width) solid var(--color-card-border);
+.btn-ghost:active {
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+
+.btn-icon {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+}
+
+/* A button wider than its label starts the text at the left padding edge —
+   labels are never centered in a stretched button. */
+.btn-block {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+/* — forms — */
+.field > label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 5px;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+
+.input {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--color-text);
+  caret-color: var(--color-accent);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
   border-radius: var(--radius-md);
-  padding: 1.5rem;
-  transition: box-shadow 0.22s ease, border-color 0.22s ease, transform 0.22s ease;
-  box-shadow: var(--shadow-card);
-  position: relative;
 }
 
-.card:hover {
-  box-shadow: var(--shadow-hover);
+.input:hover {
+  border-color: color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+
+.input:focus-visible {
   border-color: var(--color-accent);
+  outline-offset: 0;
 }
 
-/* ---------------------------------------------------------------------------
-   Badges & chips
-   --------------------------------------------------------------------------- */
-.badge {
+textarea.input {
+  min-height: 90px;
+  resize: vertical;
+}
+
+.radio {
   display: inline-flex;
   align-items: center;
-  padding: 0.2rem 0.65rem;
-  border-radius: var(--chip-radius);
-  font-size: 0.75rem;
-  font-weight: 500;
-  background: var(--color-tag-bg);
-  color: var(--color-tag-text);
-  border: 1px solid var(--color-border);
-  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
 }
 
-.badge:hover {
+.radio input,
+.seg-opt input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.radio .dot {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-divider);
+}
+
+.radio:hover .dot {
   border-color: var(--color-accent);
 }
 
-/* ---------------------------------------------------------------------------
-   Section titles — theme marker + fading rule
-   --------------------------------------------------------------------------- */
-.section-title {
-  font-size: 1.5rem;
-  color: var(--color-text);
-  margin-bottom: 2rem;
+.radio input:checked + .dot {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  box-shadow: inset 0 0 0 4px var(--color-bg);
+}
+
+.radio input:focus-visible + .dot {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* — cards — */
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.card-kicker {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.card-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 17px;
+  line-height: 1.2;
+}
+
+.card-body {
+  margin: 0;
+  font-size: 13px;
+  opacity: 0.8;
+  flex: 1;
+}
+
+.card-meta {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-text-faint);
 }
 
-.section-title::before {
-  content: var(--section-marker);
+.elev-sm { box-shadow: var(--shadow-sm); }
+.elev-md { box-shadow: var(--shadow-md); }
+.elev-lg { box-shadow: var(--shadow-lg); }
+
+/* — tags — */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  padding: 3px 10px;
+  border-radius: calc(var(--radius-md) * 0.75);
+}
+
+/* A tag rendered as a filter control — same chip, no button chrome. */
+.tag-button {
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+.tag-accent {
+  background: var(--color-accent-100);
+  color: var(--color-accent-800);
+}
+
+.tag-accent-2 {
+  background: var(--color-accent-2-100);
+  color: var(--color-accent-2-800);
+}
+
+.tag-neutral {
+  background: var(--color-neutral-100);
+  color: var(--color-neutral-800);
+}
+
+.tag-outline {
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+}
+
+.tag-button:hover {
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+  color: var(--color-accent-800);
+}
+
+/* — navigation — */
+.nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 2px solid var(--color-divider);
+}
+
+.nav-brand {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 18px;
+  margin-right: auto;
+}
+
+.nav a {
+  color: inherit;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.nav a:hover,
+.nav a[aria-current='page'] {
+  color: var(--color-accent);
+}
+
+.nav a.btn-primary,
+.nav a.btn-primary:hover {
+  color: var(--color-bg);
+}
+
+/* ==========================================================================
+   Page shell — the wrappers the design's pages lay content out in.
+   ========================================================================== */
+
+.container {
+  width: 100%;
+  max-width: var(--wrap-wide);
+  margin: 0 auto;
+  padding-left: var(--space-4);
+  padding-right: var(--space-4);
+}
+
+.container-mid { max-width: var(--wrap-mid); }
+.container-resume { max-width: var(--wrap-resume); }
+.container-prose { max-width: var(--wrap-prose); }
+
+/* ==========================================================================
+   Long-form copy — the design's article body treatment, shared by the case
+   studies and the journal posts. Tailwind's preflight strips list rendering,
+   so bullets and numbers are restored explicitly here.
+   ========================================================================== */
+
+.prose p {
+  font-size: 16px;
+  line-height: 1.7;
+  opacity: 0.9;
+  margin-bottom: var(--space-4);
+}
+
+.prose h2 {
+  font-size: 25px;
+  margin-top: var(--space-8);
+}
+
+.prose h3 {
+  margin-top: var(--space-6);
+}
+
+.prose h4 {
+  margin-top: var(--space-4);
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 20px;
+  margin: 0 0 var(--space-4);
+}
+
+.prose ul { list-style: disc; }
+.prose ol { list-style: decimal; }
+
+.prose li {
+  font-size: 16px;
+  line-height: 1.6;
+  margin-bottom: var(--space-2);
+  opacity: 0.9;
+}
+
+.prose blockquote {
+  margin: 0 0 var(--space-4);
+  padding-left: var(--space-4);
+  border-left: 2px solid var(--color-divider);
+  opacity: 0.85;
+}
+
+.prose pre {
+  background: var(--color-surface);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  overflow-x: auto;
   font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 var(--space-4);
+}
+
+.prose :not(pre) > code {
+  background: var(--color-surface);
+  padding: 0.1em 0.4em;
   font-size: 0.9em;
-  font-weight: 600;
-  color: var(--color-accent);
 }
 
-.section-title::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, var(--color-border), transparent);
+.prose img {
+  margin-bottom: var(--space-4);
 }
 
-/* ---------------------------------------------------------------------------
-   Gradient text helper (hero accent, etc.)
-   --------------------------------------------------------------------------- */
-.gradient-text {
-  background: var(--gradient-text);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: var(--color-accent);
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  margin-bottom: var(--space-4);
 }
 
-/* ---------------------------------------------------------------------------
-   Shared animations
-   --------------------------------------------------------------------------- */
-@keyframes fade-up {
-  from {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.prose th {
+  text-align: left;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  padding: var(--space-2);
+  border-bottom: 2px solid var(--color-divider);
 }
 
-@keyframes pulse-dot {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+.prose td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
 }
-
-.anim-fade-up {
-  animation: fade-up 0.6s ease both;
-}
-
-.anim-delay-1 { animation-delay: 0.08s; }
-.anim-delay-2 { animation-delay: 0.16s; }
-.anim-delay-3 { animation-delay: 0.24s; }
-.anim-delay-4 { animation-delay: 0.32s; }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+
   html {
     scroll-behavior: auto;
   }
-}
-
-/* ===========================================================================
-   PIXEL THEME — chunky borders, hard shadows, CRT boot, blinking cursor
-   =========================================================================== */
-html[data-theme="pixel"] {
-  font-size: 17px; /* VT323 renders small; scale the whole rem system up a notch */
-}
-
-html[data-theme="pixel"] body {
-  letter-spacing: 0.01em;
-}
-
-html[data-theme="pixel"] h1,
-html[data-theme="pixel"] h2,
-html[data-theme="pixel"] h3,
-html[data-theme="pixel"] h4 {
-  letter-spacing: 0;
-  line-height: 1.5;
-}
-
-/* CRT power-on: page content snaps in over a few discrete frames */
-@keyframes pixel-boot {
-  0% {
-    opacity: 0;
-    transform: scale(0.997);
-    filter: brightness(2.2) contrast(1.6) saturate(0.4);
-  }
-  60% {
-    opacity: 1;
-    filter: brightness(1.25) contrast(1.15) saturate(0.85);
-  }
-  100% {
-    opacity: 1;
-    transform: none;
-    filter: none;
-  }
-}
-
-@keyframes pixel-blink {
-  0%, 49% { opacity: 1; }
-  50%, 100% { opacity: 0; }
-}
-
-html[data-theme="pixel"] main {
-  animation: pixel-boot 0.45s steps(5, end) both;
-}
-
-/* Staggered elements tick in on discrete frames, sprite-style */
-html[data-theme="pixel"] .anim-fade-up {
-  animation-timing-function: steps(6, end);
-}
-
-/* Blinking terminal cursor after the hero headline */
-html[data-theme="pixel"] .hero-title::after {
-  content: '▌';
-  margin-left: 0.12em;
-  color: var(--color-accent);
-  animation: pixel-blink 1.1s step-end infinite;
-}
-
-html[data-theme="pixel"] .hero-title {
-  font-size: clamp(1.25rem, 3.4vw, 2.1rem);
-  line-height: 1.55;
-}
-
-html[data-theme="pixel"] .section-title {
-  font-size: 1rem;
-}
-
-html[data-theme="pixel"] .card-title,
-html[data-theme="pixel"] .cs-card-title {
-  font-size: 0.8rem;
-  line-height: 1.6;
-}
-
-html[data-theme="pixel"] .status-dot {
-  border-radius: 0;
-  animation: pulse-dot 1s steps(2, jump-none) infinite;
-}
-
-html[data-theme="pixel"] .btn {
-  border-radius: 0;
-  border: 2px solid var(--color-text);
-  box-shadow: 3px 3px 0 rgba(0, 0, 0, 0.6);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-family: var(--font-display);
-}
-
-html[data-theme="pixel"] .btn:hover {
-  transform: translate(-1px, -1px);
-  box-shadow: 5px 5px 0 rgba(0, 0, 0, 0.6);
-}
-
-html[data-theme="pixel"] .btn:active {
-  transform: translate(2px, 2px);
-  box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.6);
-}
-
-html[data-theme="pixel"] .btn-outline {
-  border-color: var(--color-border);
-}
-
-html[data-theme="pixel"] .card:hover {
-  transform: translate(-2px, -2px);
-  border-color: var(--color-accent);
-}
-
-/* Chips invert like a selected menu item */
-html[data-theme="pixel"] .badge:hover,
-html[data-theme="pixel"] .chip:hover,
-html[data-theme="pixel"] .skill-chip:hover,
-html[data-theme="pixel"] .stack-chip:hover {
-  background: var(--color-accent);
-  color: var(--color-accent-fg);
-  border-color: var(--color-accent);
-}
-
-html[data-theme="pixel"] img {
-  image-rendering: pixelated;
-}
-
-/* ===========================================================================
-   PAPER THEME — torn-out sheets, scattered scraps, settle-on-desk motion
-   =========================================================================== */
-html[data-theme="paper"] body {
-  line-height: 1.65;
-}
-
-html[data-theme="paper"] .section-title::after {
-  height: 2px;
-  background: repeating-linear-gradient(
-    90deg,
-    var(--color-border) 0 8px,
-    transparent 8px 16px
-  );
-}
-
-/* --- Torn-out sheet cards ------------------------------------------------ */
-/* Top and bottom edges are ragged SVG tears in the card's paper color;
-   sides stay cut-straight, like a strip torn off a pad. */
-html[data-theme="paper"] .card {
-  border: none;
-  border-radius: 0;
-  background-image: linear-gradient(rgba(41, 83, 122, 0.035) 1px, transparent 1px);
-  background-size: 100% 1.7em;
-  box-shadow: 0 2px 5px rgba(80, 60, 20, 0.16), 0 10px 22px rgba(80, 60, 20, 0.09);
-  transform: rotate(-0.35deg);
-}
-
-html[data-theme="paper"] .card:nth-child(even) {
-  transform: rotate(0.4deg);
-}
-
-html[data-theme="paper"] .card::before,
-html[data-theme="paper"] .card::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 9px;
-  background-repeat: repeat-x;
-  background-size: 160px 9px;
-  pointer-events: none;
-}
-
-html[data-theme="paper"] .card::before {
-  top: -8px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='9' preserveAspectRatio='none'%3E%3Cpath d='M0 9 V5 L9 3 L15 6 L27 1 L39 5 L53 2 L65 7 L79 3 L93 6 L105 1 L119 5 L133 2 L147 6 L160 4 V9 Z' fill='%23fbf7ec'/%3E%3C/svg%3E");
-}
-
-html[data-theme="paper"] .card::after {
-  bottom: -8px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='9' preserveAspectRatio='none'%3E%3Cpath d='M0 0 V4 L11 6 L23 2 L37 7 L51 3 L63 8 L77 4 L91 7 L103 2 L117 6 L131 3 L145 7 L160 4 V0 Z' fill='%23fbf7ec'/%3E%3C/svg%3E");
-}
-
-html[data-theme="paper"] .card:hover {
-  transform: rotate(0deg) translateY(-3px);
-  box-shadow: 0 6px 14px rgba(80, 60, 20, 0.18), 0 16px 32px rgba(80, 60, 20, 0.12);
-}
-
-/* The CTA box would clip its torn edges — its glow layer is dropped too */
-html[data-theme="paper"] .cta-box {
-  overflow: visible;
-}
-
-/* --- Paper-scrap chips ---------------------------------------------------- */
-html[data-theme="paper"] .badge,
-html[data-theme="paper"] .skill-chip,
-html[data-theme="paper"] .stack-chip,
-html[data-theme="paper"] .chip {
-  border-style: dashed;
-  transform: rotate(-0.7deg);
-}
-
-html[data-theme="paper"] .badge:nth-child(even),
-html[data-theme="paper"] .skill-chip:nth-child(even),
-html[data-theme="paper"] .stack-chip:nth-child(even),
-html[data-theme="paper"] .chip:nth-child(even) {
-  transform: rotate(0.8deg);
-}
-
-html[data-theme="paper"] .badge:hover,
-html[data-theme="paper"] .skill-chip:hover,
-html[data-theme="paper"] .stack-chip:hover,
-html[data-theme="paper"] .chip:hover {
-  transform: rotate(0deg);
-}
-
-/* --- Paper motion: sheets settle onto the desk ---------------------------- */
-@keyframes paper-settle {
-  0% {
-    opacity: 0;
-    transform: translateY(-12px) rotate(-0.6deg);
-  }
-  70% {
-    opacity: 1;
-    transform: translateY(2px) rotate(0.15deg);
-  }
-  100% {
-    opacity: 1;
-    transform: none;
-  }
-}
-
-html[data-theme="paper"] main {
-  animation: paper-settle 0.5s cubic-bezier(0.22, 0.8, 0.36, 1) both;
-}
-
-html[data-theme="paper"] .anim-fade-up {
-  animation-name: paper-settle;
-  animation-duration: 0.55s;
-  animation-timing-function: cubic-bezier(0.22, 0.8, 0.36, 1);
-}
-
-html[data-theme="paper"] .btn {
-  font-family: var(--font-heading);
-  letter-spacing: 0.02em;
-}
-
-html[data-theme="paper"] .btn:hover {
-  transform: translateY(-1px) rotate(-0.4deg);
 }

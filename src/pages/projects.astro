@@ -5,7 +5,25 @@ import { getCollection } from 'astro:content';
 
 const allProjects = await getCollection('projects');
 
-const categories = [...new Set(allProjects.map(p => p.data.category))].filter(c => c !== 'other').sort();
+/* Category labels, in the order the design lists them. `featured` is not a
+   category value in the content schema — it filters on featuredRank. */
+const CATEGORY_LABELS: Record<string, string> = {
+  'ai-llm': 'AI / ML',
+  'ml-cv': 'Computer Vision',
+  'full-stack': 'Full-Stack',
+  devtools: 'DevTools',
+  systems: 'Systems',
+  simulation: 'Simulation',
+  other: 'Other',
+};
+const presentCategories = new Set(allProjects.map(p => p.data.category));
+const categories = [
+  { key: 'all', label: 'All' },
+  { key: 'featured', label: 'Featured' },
+  ...Object.entries(CATEGORY_LABELS)
+    .filter(([key]) => presentCategories.has(key as any))
+    .map(([key, label]) => ({ key, label })),
+];
 
 const tagCounts: Record<string, number> = {};
 allProjects.forEach(p => {
@@ -23,6 +41,7 @@ const projectsData = allProjects.map(p => ({
   slug: p.slug,
   summary: p.data.summary,
   category: p.data.category,
+  categoryLabel: CATEGORY_LABELS[p.data.category] ?? p.data.category,
   tags: p.data.tags,
   stack: p.data.stack,
   status: p.data.status,
@@ -34,109 +53,105 @@ const projectsData = allProjects.map(p => ({
 }));
 ---
 <PageLayout title="Projects" description="All projects — filterable by category, tag, and stack.">
+  <header class="container page-header">
+    <h1>Project Library</h1>
+    <p class="page-desc">A comprehensive index of engineering works, experiments, and production systems.</p>
+  </header>
+
   <div class="container">
-    <div class="page-header">
-      <h1>Project Library</h1>
-      <p class="page-desc">All projects, filterable by category and tag.</p>
-    </div>
-
     <FilterBar categories={categories} topTags={topTags} />
+  </div>
 
-    <div id="results-count" class="results-count"></div>
+  <section class="container results">
     <div class="project-grid" id="project-grid">
       {projectsData.map(project => (
         <article
-          class="project-card card"
+          class="card elev-sm project-card"
           data-title={project.title.toLowerCase()}
           data-summary={project.summary.toLowerCase()}
           data-category={project.category}
           data-tags={project.tags.join(',')}
+          data-stack={project.stack.join(',').toLowerCase()}
           data-year={project.year}
           data-featured-rank={project.featuredRank ?? 9999}
         >
-          <div class="card-header">
-            <div class="card-meta">
-              <span class="card-year">{project.year}</span>
-              <span class="card-category">{project.category}</span>
-            </div>
-            <h3 class="card-title">
-              <a href={`/projects/${project.slug}`}>{project.title}</a>
-            </h3>
-          </div>
-          <p class="card-summary">{project.summary}</p>
-          <div class="card-tags">
-            {project.tags.slice(0, 4).map(tag => (
-              <span class="badge">{tag}</span>
-            ))}
-          </div>
+          <span class="card-kicker">{project.year} · {project.categoryLabel}</span>
+          <h3 class="card-title"><a href={`/projects/${project.slug}`}>{project.title}</a></h3>
+          <p class="card-body">{project.summary}</p>
           <div class="card-stack">
-            {project.stack.slice(0, 5).map(s => (
-              <span class="stack-chip">{s}</span>
-            ))}
+            {project.stack.slice(0, 5).map(s => <span class="tag tag-outline">{s}</span>)}
           </div>
-          <div class="card-actions">
-            <a href={`/projects/${project.slug}`} class="btn btn-primary btn-xs">Details</a>
-            {project.caseStudySlug && (
-              <a href={`/case-studies/${project.caseStudySlug}`} class="btn btn-outline btn-xs">Case Study</a>
-            )}
-            <a href={project.repoUrl} class="btn btn-outline btn-xs" target="_blank" rel="noopener">Repo ↗</a>
-            {project.demoUrl && (
-              <a href={project.demoUrl} class="btn btn-outline btn-xs" target="_blank" rel="noopener">Demo ↗</a>
-            )}
+          <div class="card-meta card-links">
+            <a href={project.repoUrl} target="_blank" rel="noopener">Repo ↗</a>
+            {project.caseStudySlug
+              ? <a href={`/case-studies/${project.caseStudySlug}`}>Case Study</a>
+              : <a href={`/projects/${project.slug}`}>Details</a>}
           </div>
         </article>
       ))}
     </div>
     <p id="no-results" class="no-results hidden">No projects match your filters.</p>
-  </div>
+  </section>
 </PageLayout>
 
 <script>
   const grid = document.getElementById('project-grid')!;
   const cards = Array.from(grid.querySelectorAll<HTMLElement>('.project-card'));
   const searchInput = document.getElementById('filter-search') as HTMLInputElement;
-  const sortSelect = document.getElementById('filter-sort') as HTMLSelectElement;
+  const featuredToggle = document.getElementById('filter-featured-first') as HTMLInputElement;
   const categoryChips = document.querySelectorAll<HTMLElement>('[data-filter="category"]');
   const tagChips = document.querySelectorAll<HTMLElement>('[data-filter="tag"]');
   const noResults = document.getElementById('no-results')!;
   const resultsCount = document.getElementById('results-count')!;
 
-  let activeCategory = '';
+  let activeCategory = 'all';
   let activeTags: string[] = [];
   let query = '';
-  let sort = 'featured';
+  let featuredFirst = true;
 
   function syncFromURL() {
     const params = new URLSearchParams(window.location.search);
     query = params.get('q') || '';
-    activeCategory = params.get('category') || '';
+    activeCategory = params.get('category') || 'all';
     activeTags = params.get('tags')?.split(',').filter(Boolean) || [];
-    sort = params.get('sort') || 'featured';
+    featuredFirst = params.get('featured') !== '0';
     if (searchInput) searchInput.value = query;
-    if (sortSelect) sortSelect.value = sort;
+    if (featuredToggle) featuredToggle.checked = featuredFirst;
   }
 
   function updateURL() {
     const params = new URLSearchParams();
     if (query) params.set('q', query);
-    if (activeCategory) params.set('category', activeCategory);
+    if (activeCategory && activeCategory !== 'all') params.set('category', activeCategory);
     if (activeTags.length) params.set('tags', activeTags.join(','));
-    if (sort !== 'featured') params.set('sort', sort);
+    if (!featuredFirst) params.set('featured', '0');
     const qs = params.toString();
     history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
   }
 
+  function setChipState(chip: HTMLElement, active: boolean, activeClass: string) {
+    chip.classList.toggle(activeClass, active);
+    chip.classList.toggle('tag-neutral', !active);
+    chip.setAttribute('aria-pressed', String(active));
+  }
+
   function applyFilters() {
-    let visible: HTMLElement[] = [];
+    const visible: HTMLElement[] = [];
+    const q = query.trim().toLowerCase();
     for (const card of cards) {
       const title = card.dataset.title || '';
       const summary = card.dataset.summary || '';
       const category = card.dataset.category || '';
+      const stack = card.dataset.stack || '';
       const tags = card.dataset.tags?.split(',') || [];
-      const q = query.toLowerCase();
-      const matchesQ = !q || title.includes(q) || summary.includes(q) || tags.some(t => t.includes(q));
-      const matchesCat = !activeCategory || category === activeCategory;
+      const isFeatured = (card.dataset.featuredRank || '9999') !== '9999';
+
+      const matchesQ = !q || title.includes(q) || summary.includes(q) || stack.includes(q) || tags.some(t => t.toLowerCase().includes(q));
+      const matchesCat =
+        activeCategory === 'all' ||
+        (activeCategory === 'featured' ? isFeatured : category === activeCategory);
       const matchesTags = activeTags.length === 0 || activeTags.every(t => tags.includes(t));
+
       if (matchesQ && matchesCat && matchesTags) {
         card.style.display = '';
         visible.push(card);
@@ -144,23 +159,28 @@ const projectsData = allProjects.map(p => ({
         card.style.display = 'none';
       }
     }
+
     visible.sort((a, b) => {
-      if (sort === 'newest') return parseInt(b.dataset.year || '0') - parseInt(a.dataset.year || '0');
-      if (sort === 'az') return (a.dataset.title || '').localeCompare(b.dataset.title || '');
-      return parseInt(a.dataset.featuredRank || '9999') - parseInt(b.dataset.featuredRank || '9999');
+      if (featuredFirst) {
+        const fa = parseInt(a.dataset.featuredRank || '9999');
+        const fb = parseInt(b.dataset.featuredRank || '9999');
+        if (fa !== fb) return fa - fb;
+      }
+      return parseInt(b.dataset.year || '0') - parseInt(a.dataset.year || '0');
     });
     visible.forEach(card => grid.appendChild(card));
+
     noResults.classList.toggle('hidden', visible.length > 0);
-    resultsCount.textContent = `${visible.length} project${visible.length === 1 ? '' : 's'}`;
-    categoryChips.forEach(chip => chip.classList.toggle('chip-active', chip.dataset.value === activeCategory));
-    tagChips.forEach(chip => chip.classList.toggle('chip-tag-active', activeTags.includes(chip.dataset.value || '')));
+    resultsCount.textContent = `Showing ${visible.length} project${visible.length === 1 ? '' : 's'}`;
+    categoryChips.forEach(chip => setChipState(chip, chip.dataset.value === activeCategory, 'tag-accent'));
+    tagChips.forEach(chip => setChipState(chip, activeTags.includes(chip.dataset.value || ''), 'tag-accent-2'));
   }
 
   syncFromURL();
   searchInput?.addEventListener('input', e => { query = (e.target as HTMLInputElement).value; updateURL(); applyFilters(); });
-  sortSelect?.addEventListener('change', e => { sort = (e.target as HTMLSelectElement).value; updateURL(); applyFilters(); });
+  featuredToggle?.addEventListener('change', e => { featuredFirst = (e.target as HTMLInputElement).checked; updateURL(); applyFilters(); });
   categoryChips.forEach(chip => chip.addEventListener('click', () => {
-    activeCategory = chip.dataset.value === activeCategory ? '' : (chip.dataset.value || '');
+    activeCategory = chip.dataset.value || 'all';
     updateURL(); applyFilters();
   }));
   tagChips.forEach(chip => chip.addEventListener('click', () => {
@@ -172,24 +192,21 @@ const projectsData = allProjects.map(p => ({
 </script>
 
 <style>
-  .container { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem; }
-  .page-header { padding: 3rem 0 2rem; }
-  .page-header h1 { font-size: 2.5rem; margin-bottom: 0.5rem; }
-  .page-desc { color: var(--color-text-muted); }
-  .results-count { font-size: 0.85rem; color: var(--color-text-muted); margin-bottom: 1rem; }
-  .no-results { text-align: center; padding: 3rem; color: var(--color-text-muted); }
-  .hidden { display: none; }
-  .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; }
-  .project-card { display: flex; flex-direction: column; gap: 0.75rem; }
-  .card-header { display: flex; flex-direction: column; gap: 0.25rem; }
-  .card-meta { display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; color: var(--color-text-muted); }
-  .card-title { font-size: 1.05rem; margin: 0; }
-  .card-title a { color: var(--color-text); text-decoration: none; }
+  .page-header { padding-top: var(--space-6); padding-bottom: var(--space-4); }
+  .page-desc { opacity: 0.8; max-width: 60ch; margin: 0; }
+  .results { padding-bottom: var(--space-8); }
+  .project-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+  .card-title a { color: inherit; text-decoration: none; }
   .card-title a:hover { color: var(--color-accent); }
-  .card-summary { font-size: 0.875rem; color: var(--color-text-muted); line-height: 1.5; margin: 0; }
-  .card-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-  .card-stack { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-  .stack-chip { font-size: 0.7rem; padding: 0.15rem 0.5rem; border-radius: var(--chip-radius); border: 1px solid var(--color-border); color: var(--color-text-muted); font-family: var(--font-mono); }
-  .card-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: auto; padding-top: 0.5rem; }
-  .btn-xs { padding: 0.25rem 0.6rem; font-size: 0.75rem; }
+  .card-stack { display: flex; flex-wrap: wrap; gap: 6px; }
+  .card-links { justify-content: space-between; margin-top: var(--space-2); }
+  .no-results { padding: var(--space-8) 0; color: var(--color-text-muted); }
+  .hidden { display: none; }
+
+  @media (max-width: 900px) {
+    .project-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 640px) {
+    .project-grid { grid-template-columns: 1fr; }
+  }
 </style>
