@@ -1,0 +1,329 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { person, experience, skills } from '../../lib/resume';
+
+/* The editor seeds from the same module the public page renders, so what you
+   see here is the live content rather than a mock. */
+const seed = { summary: person.summary, experience, skills };
+---
+<AdminLayout title="Resume Editor" section="resume">
+  <div class="admin-head">
+    <div>
+      <h1 class="admin-title-sm">Resume Editor.spec</h1>
+      <span class="text-muted admin-stamp" id="resume-stamp">[ status: editing // seeded from src/lib/resume.ts ]</span>
+    </div>
+    <div class="admin-actions">
+      <a class="btn btn-secondary" href="/resume" target="_blank" rel="noopener">Live Preview ↗</a>
+      <button type="button" class="btn btn-secondary" id="discard">Discard</button>
+      <button type="button" class="btn btn-primary" id="export-resume">Export Changes</button>
+    </div>
+  </div>
+
+  <div class="admin-grid-2">
+    <div class="editor-col">
+      <div class="card elev-sm">
+        <div class="card-head">
+          <h6 class="admin-eyebrow">Summary</h6>
+          <label class="radio visible-toggle">
+            <input type="checkbox" id="summary-visible" checked />
+            <span class="dot"></span>
+            Visible
+          </label>
+        </div>
+        <textarea class="input summary-input" id="summary"></textarea>
+      </div>
+
+      <div class="card elev-sm">
+        <div class="card-head">
+          <h6 class="admin-eyebrow">Experience</h6>
+          <label class="radio visible-toggle">
+            <input type="checkbox" id="experience-visible" checked />
+            <span class="dot"></span>
+            Visible
+          </label>
+        </div>
+        <div id="experience-list" class="entry-list"></div>
+        <button type="button" class="btn btn-secondary btn-block" id="add-experience">Add New Experience Entry</button>
+      </div>
+
+      <div class="card elev-sm">
+        <h6 class="admin-eyebrow">Skills Array</h6>
+        <div id="skills-groups" class="skill-groups"></div>
+      </div>
+    </div>
+
+    <div>
+      <h6 class="admin-eyebrow preview-heading">Live Preview</h6>
+      <div class="card elev-md preview-card">
+        <h2 class="preview-name">{person.name}</h2>
+        <div id="preview-summary">
+          <h6 class="admin-eyebrow preview-label">Summary</h6>
+          <p class="preview-copy" id="preview-summary-text"></p>
+        </div>
+        <div id="preview-experience">
+          <h6 class="admin-eyebrow preview-label">Experience</h6>
+          <div id="preview-experience-list"></div>
+        </div>
+        <div>
+          <h6 class="admin-eyebrow preview-label">Skills</h6>
+          <div id="preview-skills" class="preview-skills"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="text-muted admin-note export-note">
+    Export downloads a <code>resume.ts</code> you can drop over <code>src/lib/resume.ts</code> —
+    the module both this editor and the public page read from.
+  </p>
+
+  <script is:inline type="application/json" id="resume-seed" set:html={JSON.stringify(seed)}></script>
+</AdminLayout>
+
+<script>
+  const KEY = 'om-admin-resume-draft';
+  const seed = JSON.parse(document.getElementById('resume-seed')!.textContent || '{}');
+
+  type Entry = { title: string; company: string; dates: string; location: string; description: string };
+  type Group = { category: string; items: string[] };
+
+  let state: { summary: string; experience: Entry[]; skills: Group[] } = structuredClone(seed);
+  let summaryVisible = true;
+  let experienceVisible = true;
+
+  const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  const summaryInput = $<HTMLTextAreaElement>('summary');
+  const expList = $('experience-list');
+  const skillGroups = $('skills-groups');
+
+  function persist() {
+    localStorage.setItem(KEY, JSON.stringify(state));
+    $('resume-stamp').textContent = `[ status: editing // draft saved ${new Date().toLocaleTimeString()} ]`;
+  }
+
+  function renderExperience() {
+    expList.innerHTML = '';
+    state.experience.forEach((entry, i) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'admin-subcard';
+
+      const mk = (key: keyof Entry, placeholder: string, multiline = false) => {
+        const el = document.createElement(multiline ? 'textarea' : 'input') as HTMLInputElement | HTMLTextAreaElement;
+        el.className = 'input';
+        el.placeholder = placeholder;
+        el.value = entry[key];
+        if (multiline) el.classList.add('entry-description');
+        el.addEventListener('input', () => {
+          state.experience[i][key] = el.value;
+          persist();
+          renderPreview();
+        });
+        return el;
+      };
+
+      wrap.append(
+        mk('title', 'Title'),
+        mk('company', 'Company'),
+        mk('dates', 'Dates'),
+        mk('location', 'Location'),
+        mk('description', 'Description', true)
+      );
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn btn-secondary entry-remove';
+      remove.textContent = 'Remove entry';
+      remove.addEventListener('click', () => {
+        state.experience.splice(i, 1);
+        persist();
+        renderExperience();
+        renderPreview();
+      });
+      wrap.appendChild(remove);
+
+      expList.appendChild(wrap);
+    });
+  }
+
+  function renderSkills() {
+    skillGroups.innerHTML = '';
+    state.skills.forEach((group, gi) => {
+      const wrap = document.createElement('div');
+      wrap.className = 'skill-group';
+
+      const label = document.createElement('p');
+      label.className = 'skill-label';
+      label.textContent = group.category;
+      wrap.appendChild(label);
+
+      const chips = document.createElement('div');
+      chips.className = 'skill-chips';
+      group.items.forEach((item, ii) => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'tag tag-button tag-neutral';
+        chip.textContent = `${item} ×`;
+        chip.setAttribute('aria-label', `Remove ${item}`);
+        chip.addEventListener('click', () => {
+          state.skills[gi].items.splice(ii, 1);
+          persist();
+          renderSkills();
+          renderPreview();
+        });
+        chips.appendChild(chip);
+      });
+      wrap.appendChild(chips);
+
+      const row = document.createElement('div');
+      row.className = 'skill-add';
+      const input = document.createElement('input');
+      input.className = 'input';
+      input.placeholder = `Add to ${group.category}…`;
+      const insert = document.createElement('button');
+      insert.type = 'button';
+      insert.className = 'btn btn-secondary';
+      insert.textContent = 'Insert';
+      const commit = () => {
+        const value = input.value.trim();
+        if (!value) return;
+        state.skills[gi].items.push(value);
+        input.value = '';
+        persist();
+        renderSkills();
+        renderPreview();
+      };
+      insert.addEventListener('click', commit);
+      input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
+      row.append(input, insert);
+      wrap.appendChild(row);
+
+      skillGroups.appendChild(wrap);
+    });
+  }
+
+  function renderPreview() {
+    $('preview-summary').hidden = !summaryVisible;
+    $('preview-experience').hidden = !experienceVisible;
+    $('preview-summary-text').textContent = state.summary;
+
+    const list = $('preview-experience-list');
+    list.innerHTML = '';
+    state.experience.forEach(entry => {
+      const item = document.createElement('div');
+      item.className = 'preview-entry';
+      item.innerHTML = `
+        <p class="preview-entry-title"></p>
+        <p class="preview-entry-company"></p>
+        <p class="preview-entry-desc"></p>`;
+      item.querySelector('.preview-entry-title')!.textContent = `${entry.title} · ${entry.dates}`;
+      item.querySelector('.preview-entry-company')!.textContent = entry.company;
+      item.querySelector('.preview-entry-desc')!.textContent = entry.description;
+      list.appendChild(item);
+    });
+
+    const skillsOut = $('preview-skills');
+    skillsOut.innerHTML = '';
+    state.skills.flatMap(g => g.items).forEach(name => {
+      const tag = document.createElement('span');
+      tag.className = 'tag tag-neutral';
+      tag.textContent = name;
+      skillsOut.appendChild(tag);
+    });
+  }
+
+  function renderAll() {
+    summaryInput.value = state.summary;
+    renderExperience();
+    renderSkills();
+    renderPreview();
+  }
+
+  summaryInput.addEventListener('input', () => {
+    state.summary = summaryInput.value;
+    persist();
+    renderPreview();
+  });
+
+  $<HTMLInputElement>('summary-visible').addEventListener('change', e => {
+    summaryVisible = (e.target as HTMLInputElement).checked;
+    renderPreview();
+  });
+  $<HTMLInputElement>('experience-visible').addEventListener('change', e => {
+    experienceVisible = (e.target as HTMLInputElement).checked;
+    renderPreview();
+  });
+
+  $<HTMLButtonElement>('add-experience').addEventListener('click', () => {
+    state.experience.push({ title: '', company: '', dates: '', location: '', description: '' });
+    persist();
+    renderExperience();
+    renderPreview();
+  });
+
+  $<HTMLButtonElement>('discard').addEventListener('click', () => {
+    localStorage.removeItem(KEY);
+    state = structuredClone(seed);
+    $('resume-stamp').textContent = '[ status: editing // reset to published content ]';
+    renderAll();
+  });
+
+  $<HTMLButtonElement>('export-resume').addEventListener('click', () => {
+    const j = (v: unknown) => JSON.stringify(v, null, 2);
+    const file = `// Generated by the admin resume editor. Replace src/lib/resume.ts with this file.
+export const summary = ${j(state.summary)};
+
+export const experience = ${j(state.experience)};
+
+export const skills = ${j(state.skills)};
+`;
+    const blob = new Blob([file], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'resume.ts';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (saved?.experience && saved?.skills) {
+      state = saved;
+      $('resume-stamp').textContent = '[ status: editing // draft restored from this browser ]';
+    }
+  } catch {
+    /* ignore a corrupt draft */
+  }
+
+  renderAll();
+</script>
+
+<style>
+  .editor-col { display: flex; flex-direction: column; gap: var(--space-4); }
+  .card-head { display: flex; justify-content: space-between; align-items: center; }
+  .visible-toggle { font-size: 12px; }
+  .summary-input { min-height: 100px; }
+
+  .entry-list { display: flex; flex-direction: column; gap: var(--space-2); }
+  .entry-list :global(.entry-description) { min-height: 60px; }
+  .entry-list :global(.entry-remove) { align-self: flex-start; font-size: 12px; padding: 4px 8px; }
+
+  .skill-groups { display: flex; flex-direction: column; gap: var(--space-3); }
+  .skill-groups :global(.skill-label) { font-size: 12px; font-weight: 600; margin: 0 0 4px; }
+  .skill-groups :global(.skill-chips) { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .skill-groups :global(.skill-add) { display: flex; gap: 8px; }
+
+  .preview-heading { margin-bottom: var(--space-2); }
+  .preview-card { min-height: 520px; }
+  .preview-name { margin: 0; }
+  .preview-label { margin-bottom: 2px; }
+  .preview-copy { font-size: 13px; opacity: 0.85; margin: 0; }
+  #preview-experience-list :global(.preview-entry) { margin-bottom: 8px; }
+  #preview-experience-list :global(.preview-entry-title) { margin: 0; font-weight: 600; font-size: 13px; }
+  #preview-experience-list :global(.preview-entry-company) { margin: 0; font-size: 12px; color: var(--color-accent-700); }
+  #preview-experience-list :global(.preview-entry-desc) { margin: 2px 0 0; font-size: 12px; opacity: 0.8; }
+  .preview-skills { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  .export-note { margin-top: var(--space-4); max-width: 70ch; }
+  .export-note code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+</style>

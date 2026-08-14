@@ -1,0 +1,131 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { person } from '../../lib/resume';
+
+const defaults = {
+  name: person.name,
+  role: 'Software Engineer (ML/CV + Full-Stack)',
+  bio: 'I work at the intersection of machine learning, computer vision, and software engineering. I build practical systems that ship.',
+  github: 'https://github.com/Leptons1618',
+  linkedin: person.linkedin,
+  email: person.email,
+};
+---
+<AdminLayout title="Settings" section="settings">
+  <div class="admin-main-narrow">
+    <h1 class="settings-title">Settings</h1>
+
+    <section class="card elev-sm settings-card">
+      <h6 class="admin-eyebrow">Identity Management</h6>
+      <div class="field">
+        <label for="s-name">Name</label>
+        <input class="input" id="s-name" value={defaults.name} />
+      </div>
+      <div class="field">
+        <label for="s-role">Role</label>
+        <input class="input" id="s-role" value={defaults.role} />
+      </div>
+      <div class="field">
+        <label for="s-bio">Bio</label>
+        <textarea class="input bio-input" id="s-bio">{defaults.bio}</textarea>
+      </div>
+      <div class="field">
+        <label for="s-github">GitHub</label>
+        <input class="input" id="s-github" value={defaults.github} />
+      </div>
+      <div class="field">
+        <label for="s-linkedin">LinkedIn</label>
+        <input class="input" id="s-linkedin" value={defaults.linkedin} />
+      </div>
+      <div class="field">
+        <label for="s-email">Email</label>
+        <input class="input" id="s-email" value={defaults.email} />
+      </div>
+      <div class="settings-actions">
+        <button type="button" class="btn btn-primary" id="save-settings">Save Changes</button>
+        <button type="button" class="btn btn-secondary" id="export-settings">Export JSON</button>
+      </div>
+      <p class="text-muted admin-note">
+        Saved to this browser. Export and apply the values to the components that render them —
+        the header, footer, about page and <code>src/lib/resume.ts</code>.
+      </p>
+    </section>
+
+    <section class="card elev-sm">
+      <h6 class="admin-eyebrow">Theme Engine</h6>
+      <div class="field">
+        <label>Color Mode</label>
+        <div class="seg">
+          <label class="seg-opt"><input type="radio" name="mode" value="light" checked />Light</label>
+          <label class="seg-opt"><input type="radio" name="mode" value="dark" />Dark</label>
+          <label class="seg-opt"><input type="radio" name="mode" value="system" />System</label>
+        </div>
+      </div>
+      <p class="text-muted admin-note">
+        The public site ships one theme (Modernist, light). Mode preference is stored here for a
+        future dark palette and has no effect today.
+      </p>
+    </section>
+  </div>
+</AdminLayout>
+
+<script>
+  const KEY = 'om-admin-settings';
+  const ids = ['s-name', 's-role', 's-bio', 's-github', 's-linkedin', 's-email'] as const;
+  const fields = Object.fromEntries(
+    ids.map(id => [id, document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement])
+  ) as Record<(typeof ids)[number], HTMLInputElement | HTMLTextAreaElement>;
+  const modeInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="mode"]'));
+
+  function snapshot() {
+    return {
+      name: fields['s-name'].value,
+      role: fields['s-role'].value,
+      bio: fields['s-bio'].value,
+      github: fields['s-github'].value,
+      linkedin: fields['s-linkedin'].value,
+      email: fields['s-email'].value,
+      mode: modeInputs.find(i => i.checked)?.value ?? 'light',
+    };
+  }
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+    if (saved) {
+      if (saved.name) fields['s-name'].value = saved.name;
+      if (saved.role) fields['s-role'].value = saved.role;
+      if (saved.bio) fields['s-bio'].value = saved.bio;
+      if (saved.github) fields['s-github'].value = saved.github;
+      if (saved.linkedin) fields['s-linkedin'].value = saved.linkedin;
+      if (saved.email) fields['s-email'].value = saved.email;
+      modeInputs.forEach(i => { i.checked = i.value === (saved.mode ?? 'light'); });
+    }
+  } catch {
+    /* ignore corrupt settings */
+  }
+
+  const saveBtn = document.getElementById('save-settings') as HTMLButtonElement;
+  saveBtn.addEventListener('click', () => {
+    localStorage.setItem(KEY, JSON.stringify(snapshot()));
+    saveBtn.textContent = 'Saved ✓';
+    setTimeout(() => { saveBtn.textContent = 'Save Changes'; }, 1500);
+  });
+
+  document.getElementById('export-settings')?.addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(snapshot(), null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'site-identity.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+</script>
+
+<style>
+  .settings-title { margin-bottom: var(--space-6); }
+  .settings-card { margin-bottom: var(--space-6); }
+  .bio-input { min-height: 80px; }
+  .settings-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+  code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+</style>

@@ -1,0 +1,298 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { getCollection } from 'astro:content';
+import { formatShortDate } from '../../lib/format';
+
+const existing = (await getCollection('journal')).sort(
+  (a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime()
+);
+const today = new Date().toISOString().slice(0, 10);
+---
+<AdminLayout title="Journal Editor" section="journal">
+  <div class="admin-head">
+    <div>
+      <h1 class="admin-title-sm">[dev.identity] Create New Journal Entry</h1>
+      <span class="text-muted admin-stamp" id="save-stamp">Draft mode. Not saved yet.</span>
+    </div>
+    <div class="admin-actions">
+      <button type="button" class="btn btn-secondary" id="focus-toggle">Focus</button>
+      <button type="button" class="btn btn-secondary" id="save-draft">Save Draft</button>
+      <button type="button" class="btn btn-primary" id="export-md">Export .md</button>
+    </div>
+  </div>
+
+  <div class="admin-grid-2">
+    <div class="editor-col">
+      <input class="input editor-title" id="f-title" placeholder="Post Title..." />
+
+      <div class="card elev-sm focus-hide">
+        <h6 class="admin-eyebrow">Metadata</h6>
+        <div class="field">
+          <label for="f-summary">Summary</label>
+          <textarea class="input summary-input" id="f-summary" placeholder="One line for the card and the meta description."></textarea>
+        </div>
+        <div class="field">
+          <label for="f-date">Publish Date</label>
+          <input class="input" type="date" id="f-date" value={today} />
+        </div>
+        <div class="field">
+          <label for="f-tags">Tags (comma separated)</label>
+          <input class="input" id="f-tags" placeholder="e.g. Design Systems, Astro" />
+        </div>
+        <div class="field field-row">
+          <div>
+            <label for="f-readtime">Read time</label>
+            <input class="input" id="f-readtime" placeholder="5 min" />
+          </div>
+          <div>
+            <label for="f-duration">Video duration</label>
+            <input class="input" id="f-duration" placeholder="14:23" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="f-hero">Featured image URL</label>
+          <input class="input" id="f-hero" placeholder="https://… (optional)" />
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <div class="seg">
+            <label class="seg-opt"><input type="radio" name="status" value="draft" checked />Draft</label>
+            <label class="seg-opt"><input type="radio" name="status" value="published" />Published</label>
+          </div>
+        </div>
+        <p class="text-muted admin-note">
+          Filename: <code id="f-slug">untitled.md</code>
+        </p>
+      </div>
+
+      <div class="card elev-sm focus-hide">
+        <h6 class="admin-eyebrow">AI Tools</h6>
+        <div class="ai-tools">
+          <button type="button" class="btn btn-secondary" disabled>Auto-generate Transcript</button>
+          <button type="button" class="btn btn-secondary" disabled>Gen Social Snippets</button>
+        </div>
+        <p class="text-muted admin-note">Requires a backend service — unavailable on a static build.</p>
+      </div>
+
+      <textarea class="input editor-body" id="f-body" placeholder="Write your post description using Markdown..."></textarea>
+    </div>
+
+    <div>
+      <h6 class="admin-eyebrow preview-heading">Live Preview</h6>
+      <div class="card elev-md preview-card">
+        <h3 class="preview-title" id="preview-title">Post Title...</h3>
+        <div class="preview-md" id="preview-body"></div>
+      </div>
+    </div>
+  </div>
+
+  {existing.length > 0 && (
+    <section class="focus-hide existing">
+      <h6 class="admin-eyebrow">Published Entries ({existing.length})</h6>
+      <div class="card elev-sm existing-card">
+        {existing.map(entry => (
+          <a class="existing-row" href={`/journal/${entry.slug}`}>
+            <span class="cell-strong">{entry.data.title}</span>
+            <span class="text-muted cell-mono">{formatShortDate(entry.data.date)}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+  )}
+</AdminLayout>
+
+<script>
+  const KEY = 'om-admin-journal-draft';
+  const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+  const fields = {
+    title: $<HTMLInputElement>('f-title'),
+    summary: $<HTMLTextAreaElement>('f-summary'),
+    date: $<HTMLInputElement>('f-date'),
+    tags: $<HTMLInputElement>('f-tags'),
+    readTime: $<HTMLInputElement>('f-readtime'),
+    duration: $<HTMLInputElement>('f-duration'),
+    hero: $<HTMLInputElement>('f-hero'),
+    body: $<HTMLTextAreaElement>('f-body'),
+  };
+  const statusInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="status"]'));
+  const slugOut = $('f-slug');
+  const previewTitle = $('preview-title');
+  const previewBody = $('preview-body');
+  const stamp = $('save-stamp');
+
+  const slugify = (s: string) =>
+    s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled';
+
+  const escapeHtml = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  /* A deliberately small Markdown subset — enough for an accurate preview
+     without pulling a parser into the bundle. */
+  function renderMarkdown(src: string): string {
+    const blocks = escapeHtml(src).split(/\n{2,}/);
+    return blocks
+      .map(block => {
+        const trimmed = block.trim();
+        if (!trimmed) return '';
+
+        if (trimmed.startsWith('```')) {
+          const code = trimmed.replace(/^```[^\n]*\n?/, '').replace(/```$/, '');
+          return `<pre><code>${code}</code></pre>`;
+        }
+        const heading = trimmed.match(/^(#{1,3})\s+(.*)$/);
+        if (heading) {
+          const level = heading[1].length;
+          return `<h${level}>${inline(heading[2])}</h${level}>`;
+        }
+        if (/^>\s/.test(trimmed)) {
+          return `<blockquote>${inline(trimmed.replace(/^>\s?/gm, ''))}</blockquote>`;
+        }
+        if (/^[-*]\s/.test(trimmed)) {
+          const items = trimmed.split('\n').map(l => `<li>${inline(l.replace(/^[-*]\s+/, ''))}</li>`).join('');
+          return `<ul>${items}</ul>`;
+        }
+        if (/^\d+\.\s/.test(trimmed)) {
+          const items = trimmed.split('\n').map(l => `<li>${inline(l.replace(/^\d+\.\s+/, ''))}</li>`).join('');
+          return `<ol>${items}</ol>`;
+        }
+        return `<p>${inline(trimmed.replace(/\n/g, ' '))}</p>`;
+      })
+      .join('');
+  }
+
+  function inline(s: string): string {
+    return s
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  }
+
+  function currentStatus() {
+    return statusInputs.find(i => i.checked)?.value ?? 'draft';
+  }
+
+  function render() {
+    previewTitle.textContent = fields.title.value || 'Post Title...';
+    previewBody.innerHTML = renderMarkdown(fields.body.value);
+    slugOut.textContent = `${slugify(fields.title.value)}.md`;
+  }
+
+  function snapshot() {
+    return {
+      title: fields.title.value,
+      summary: fields.summary.value,
+      date: fields.date.value,
+      tags: fields.tags.value,
+      readTime: fields.readTime.value,
+      duration: fields.duration.value,
+      hero: fields.hero.value,
+      body: fields.body.value,
+      status: currentStatus(),
+    };
+  }
+
+  function restore() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (!saved) return;
+      fields.title.value = saved.title ?? '';
+      fields.summary.value = saved.summary ?? '';
+      if (saved.date) fields.date.value = saved.date;
+      fields.tags.value = saved.tags ?? '';
+      fields.readTime.value = saved.readTime ?? '';
+      fields.duration.value = saved.duration ?? '';
+      fields.hero.value = saved.hero ?? '';
+      fields.body.value = saved.body ?? '';
+      statusInputs.forEach(i => { i.checked = i.value === (saved.status ?? 'draft'); });
+      stamp.textContent = 'Draft mode. Restored from this browser.';
+    } catch {
+      /* ignore a corrupt draft */
+    }
+  }
+
+  // YAML double-quoted scalars: JSON string escaping is a valid subset.
+  const yaml = (s: string) => JSON.stringify(s);
+
+  function buildMarkdown() {
+    const s = snapshot();
+    const tags = s.tags.split(',').map(t => t.trim()).filter(Boolean);
+    const lines = [
+      '---',
+      `title: ${yaml(s.title || 'Untitled')}`,
+      `summary: ${yaml(s.summary)}`,
+      `date: ${yaml(s.date)}`,
+      `tags: [${tags.map(yaml).join(', ')}]`,
+    ];
+    if (s.readTime) lines.push(`readTime: ${yaml(s.readTime)}`);
+    if (s.duration) lines.push(`videoDuration: ${yaml(s.duration)}`);
+    if (s.hero) lines.push(`heroImage: ${yaml(s.hero)}`);
+    lines.push(`draft: ${s.status === 'draft'}`);
+    lines.push('---', '', s.body.trim(), '');
+    return lines.join('\n');
+  }
+
+  Object.values(fields).forEach(el => el.addEventListener('input', render));
+  statusInputs.forEach(i => i.addEventListener('change', render));
+
+  $<HTMLButtonElement>('save-draft').addEventListener('click', () => {
+    localStorage.setItem(KEY, JSON.stringify(snapshot()));
+    const btn = $<HTMLButtonElement>('save-draft');
+    btn.textContent = 'Saved ✓';
+    stamp.textContent = `Draft mode. Last saved: ${new Date().toLocaleTimeString()}`;
+    setTimeout(() => { btn.textContent = 'Save Draft'; }, 1200);
+  });
+
+  $<HTMLButtonElement>('export-md').addEventListener('click', () => {
+    const blob = new Blob([buildMarkdown()], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${slugify(fields.title.value)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  const shell = document.getElementById('admin-shell')!;
+  const focusBtn = $<HTMLButtonElement>('focus-toggle');
+  focusBtn.addEventListener('click', () => {
+    const on = shell.classList.toggle('is-focus');
+    focusBtn.textContent = on ? 'Exit Focus' : 'Focus';
+    focusBtn.setAttribute('aria-pressed', String(on));
+  });
+
+  restore();
+  render();
+</script>
+
+<style>
+  .editor-col { display: flex; flex-direction: column; gap: var(--space-4); }
+  .editor-title { font-size: 20px; font-family: var(--font-heading); height: 48px; }
+  .summary-input { min-height: 56px; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+  .field-row label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+  .ai-tools { display: flex; gap: 8px; flex-wrap: wrap; }
+  .editor-body { min-height: 220px; font-family: var(--font-mono); font-size: 13px; }
+
+  .preview-heading { margin-bottom: var(--space-2); }
+  .preview-card { min-height: 520px; }
+  .preview-title { margin: 0; }
+
+  .existing { margin-top: var(--space-6); }
+  .existing-card { gap: 0; }
+  .existing-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-divider);
+    text-decoration: none;
+    color: inherit;
+    font-size: 14px;
+  }
+  .existing-row:last-child { border-bottom: 0; }
+  .existing-row:hover { color: var(--color-accent); }
+
+  code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+</style>
