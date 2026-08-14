@@ -1,0 +1,217 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { getCollection } from 'astro:content';
+
+const projects = (await getCollection('projects')).sort((a, b) => {
+  const rank = (a.data.featuredRank ?? 99) - (b.data.featuredRank ?? 99);
+  return rank !== 0 ? rank : b.data.year - a.data.year;
+});
+
+const GITHUB_USER = 'Leptons1618';
+
+const rows = projects.map(p => ({
+  slug: p.slug,
+  title: p.data.title,
+  repoUrl: p.data.repoUrl,
+  repoName: p.data.repoUrl.replace(/\/+$/, '').split('/').pop() ?? '',
+  year: p.data.year,
+  status: p.data.status,
+  caseStudySlug: p.data.caseStudySlug,
+  /* wip work is the design's default-hidden case */
+  defaultVisible: p.data.status !== 'wip',
+}));
+
+const STATUS_VARIANT: Record<string, string> = {
+  active: 'tag-accent-2',
+  stable: 'tag-accent-2',
+  wip: 'tag-accent',
+  archived: 'tag-neutral',
+};
+
+const withRepo = rows.filter(r => r.repoName).length;
+---
+<AdminLayout title="Project Manager" section="projects">
+  <div class="admin-main-wide">
+    <h6 class="admin-eyebrow-mono">MODULE: PROJECT_MGMT</h6>
+    <h1 class="pm-title">Project Portfolio</h1>
+    <p class="pm-desc">Manage project visibility, sync with remote repositories, and edit case study slugs.</p>
+
+    <section class="card elev-sm source-control">
+      <h6 class="admin-eyebrow">Source Control</h6>
+      <div class="source-row">
+        <div>
+          <p class="source-account">Connected Account: @{GITHUB_USER}</p>
+          <div class="source-tags">
+            <span class="tag tag-accent-2">{projects.length} projects tracked</span>
+            <span class="tag tag-accent-2">{withRepo} with repositories</span>
+          </div>
+        </div>
+        <div class="admin-actions">
+          <a class="btn btn-secondary" href={`https://github.com/settings/installations`} target="_blank" rel="noopener">Authorize Repositories</a>
+          <button type="button" class="btn btn-primary" id="import-repos">Import from GitHub</button>
+        </div>
+      </div>
+      <p class="text-muted admin-note" id="import-status"></p>
+      <div id="import-results" class="import-results"></div>
+    </section>
+
+    <h6 class="admin-eyebrow table-heading">Repository Sync ({rows.length})</h6>
+    <div class="card elev-sm table-card">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Project</th>
+            <th>Repository</th>
+            <th>Year</th>
+            <th>Slug</th>
+            <th>Status</th>
+            <th>Visible</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr>
+              <td class="cell-strong">{r.title}</td>
+              <td class="text-muted cell-mono">{GITHUB_USER}/{r.repoName}</td>
+              <td class="text-muted cell-mono">{r.year}</td>
+              <td class="text-muted cell-mono">/{r.slug}</td>
+              <td><span class={`tag ${STATUS_VARIANT[r.status] ?? 'tag-neutral'}`}>{r.status}</span></td>
+              <td>
+                <button
+                  type="button"
+                  class="toggle"
+                  role="switch"
+                  data-slug={r.slug}
+                  aria-checked={r.defaultVisible ? 'true' : 'false'}
+                  aria-label={`Toggle visibility for ${r.title}`}
+                ><span></span></button>
+              </td>
+              <td class="cell-nowrap">
+                <a class="row-action" href={r.repoUrl} target="_blank" rel="noopener">Repo ↗</a>
+                <a class="row-action" href={r.caseStudySlug ? `/case-studies/${r.caseStudySlug}` : `/projects/${r.slug}`}>View</a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+
+    <p class="text-muted admin-note visibility-note">
+      Visibility toggles are stored in this browser. Export them below and apply the result to
+      <code>src/content/projects/*.md</code> to change what the public site renders.
+    </p>
+    <button type="button" class="btn btn-secondary" id="export-visibility">Export Visibility JSON</button>
+  </div>
+</AdminLayout>
+
+<script>
+  const KEY = 'om-admin-project-visibility';
+  const toggles = Array.from(document.querySelectorAll<HTMLButtonElement>('.toggle[data-slug]'));
+
+  function readState(): Record<string, boolean> {
+    try {
+      return JSON.parse(localStorage.getItem(KEY) || '{}');
+    } catch {
+      return {};
+    }
+  }
+
+  const state = readState();
+  toggles.forEach(t => {
+    const slug = t.dataset.slug!;
+    if (slug in state) t.setAttribute('aria-checked', String(state[slug]));
+    t.addEventListener('click', () => {
+      const next = t.getAttribute('aria-checked') !== 'true';
+      t.setAttribute('aria-checked', String(next));
+      const current = readState();
+      current[slug] = next;
+      localStorage.setItem(KEY, JSON.stringify(current));
+    });
+  });
+
+  // Export the current visibility map as a file the author can act on.
+  document.getElementById('export-visibility')?.addEventListener('click', () => {
+    const map: Record<string, boolean> = {};
+    toggles.forEach(t => { map[t.dataset.slug!] = t.getAttribute('aria-checked') === 'true'; });
+    const blob = new Blob([JSON.stringify(map, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'project-visibility.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // Real, unauthenticated read of the owner's public repositories, so the
+  // table can be checked against what actually exists on GitHub.
+  const importBtn = document.getElementById('import-repos') as HTMLButtonElement | null;
+  const status = document.getElementById('import-status')!;
+  const results = document.getElementById('import-results')!;
+  const known = new Set(
+    Array.from(document.querySelectorAll('.cell-mono'))
+      .map(el => el.textContent?.split('/')[1]?.trim().toLowerCase())
+      .filter(Boolean) as string[]
+  );
+
+  importBtn?.addEventListener('click', async () => {
+    importBtn.disabled = true;
+    status.textContent = 'Fetching public repositories…';
+    results.innerHTML = '';
+    try {
+      const res = await fetch('https://api.github.com/users/Leptons1618/repos?per_page=100&sort=updated');
+      if (!res.ok) throw new Error(`GitHub responded ${res.status}`);
+      const repos = (await res.json()) as { name: string; html_url: string; description: string | null }[];
+      const missing = repos.filter(r => !known.has(r.name.toLowerCase()));
+      status.textContent = `${repos.length} public repositories · ${missing.length} not yet in the content collection`;
+      if (missing.length) {
+        const list = document.createElement('div');
+        list.className = 'import-list';
+        missing.slice(0, 30).forEach(r => {
+          const row = document.createElement('a');
+          row.className = 'import-row';
+          row.href = r.html_url;
+          row.target = '_blank';
+          row.rel = 'noopener';
+          row.textContent = `${r.name}${r.description ? ` — ${r.description}` : ''}`;
+          list.appendChild(row);
+        });
+        results.appendChild(list);
+      }
+    } catch (err) {
+      status.textContent = `Could not reach GitHub: ${(err as Error).message}. The public API allows 60 requests an hour per IP.`;
+    } finally {
+      importBtn.disabled = false;
+    }
+  });
+</script>
+
+<style>
+  .pm-title { margin-bottom: 4px; }
+  .pm-desc { opacity: 0.8; max-width: 60ch; margin-bottom: var(--space-6); }
+  .source-control { margin-bottom: var(--space-6); }
+  .source-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+  .source-account { margin: 0; font-weight: 600; font-size: 14px; }
+  .source-tags { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+
+  .import-results :global(.import-list) { display: flex; flex-direction: column; }
+  .import-results :global(.import-row) {
+    font-size: 13px;
+    padding: 6px 0;
+    border-top: 1px solid var(--color-divider);
+    text-decoration: none;
+  }
+
+  .table-heading { margin-bottom: var(--space-2); }
+  .table-card { padding: 0; overflow-x: auto; }
+  .row-action { font-size: 12px; margin-right: 10px; }
+  .row-action:last-child { margin-right: 0; }
+  .visibility-note { margin-top: var(--space-4); max-width: 70ch; }
+  .visibility-note code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+</style>

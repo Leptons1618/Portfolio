@@ -4,7 +4,7 @@ import { getCollection } from 'astro:content';
 import { formatShortDate, formatTag } from '../../lib/format';
 
 export async function getStaticPaths() {
-  const posts = await getCollection('journal');
+  const posts = await getCollection('journal', ({ data }) => (import.meta.env.PROD ? !data.draft : true));
   return posts.map(post => ({ params: { slug: post.slug }, props: { post } }));
 }
 

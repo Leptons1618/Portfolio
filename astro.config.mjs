@@ -9,6 +9,7 @@ export default defineConfig({
   integrations: [
     mdx(),
     tailwind({ applyBaseStyles: false }),
-    sitemap(),
+    // The admin surface is an authoring tool, not public content.
+    sitemap({ filter: page => !/\/admin(\/|$)/.test(new URL(page).pathname) }),
   ],
 });
