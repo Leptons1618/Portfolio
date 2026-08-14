@@ -48,6 +48,8 @@ const journal = defineCollection({
     readTime: z.string().optional(),
     videoDuration: z.string().optional(),
     heroImage: z.string().optional(),
+    /* Drafts are authored in the admin editor and kept out of production builds. */
+    draft: z.boolean().default(false),
   }),
 });
 

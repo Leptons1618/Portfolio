@@ -1,0 +1,135 @@
+---
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { getCollection } from 'astro:content';
+import { formatShortDate } from '../../lib/format';
+
+const projects = await getCollection('projects');
+const caseStudies = await getCollection('case-studies');
+const journal = await getCollection('journal');
+
+const featuredCount = projects.filter(p => p.data.featuredRank !== undefined).length;
+const linkedCaseStudies = projects.filter(p => p.data.caseStudySlug).length;
+const latestJournal = [...journal].sort(
+  (a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime()
+)[0];
+
+/* The activity log is the real content stream, newest first — the only
+   history a static site actually has. */
+const activity = [
+  ...caseStudies.map(cs => ({
+    title: `Case study: ${cs.data.title}`,
+    detail: cs.data.subtitle,
+    date: cs.data.date,
+    href: `/case-studies/${cs.slug}`,
+  })),
+  ...journal.map(entry => ({
+    title: `Journal: ${entry.data.title}`,
+    detail: entry.data.summary,
+    date: entry.data.date,
+    href: `/journal/${entry.slug}`,
+  })),
+]
+  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  .slice(0, 6);
+
+const buildDate = new Date().toISOString().slice(0, 10);
+---
+<AdminLayout title="Overview" section="dashboard">
+  <div class="admin-head">
+    <div>
+      <h1 class="admin-title">[dev.identity] Overview</h1>
+      <span class="text-muted admin-stamp">content_build · {buildDate}</span>
+    </div>
+    <div class="admin-actions">
+      <a class="btn btn-secondary" href="/admin/projects">Manage Projects</a>
+      <a class="btn btn-primary" href="/admin/journal">New Journal Entry</a>
+    </div>
+  </div>
+
+  <div class="admin-grid-3 stats">
+    <div class="card elev-sm">
+      <span class="card-kicker">Total Projects</span>
+      <h2 class="stat-value">{projects.length}</h2>
+      <span class="text-muted stat-note">{featuredCount} marked featured</span>
+    </div>
+    <div class="card elev-sm">
+      <span class="card-kicker">Case Studies</span>
+      <h2 class="stat-value">{caseStudies.length}</h2>
+      <span class="text-muted stat-note">{linkedCaseStudies} linked from a project</span>
+    </div>
+    <div class="card elev-sm">
+      <span class="card-kicker">Journal Entries</span>
+      <h2 class="stat-value">{journal.length}</h2>
+      <span class="text-muted stat-note">
+        {latestJournal ? `latest: ${formatShortDate(latestJournal.data.date)}` : 'none published yet'}
+      </span>
+    </div>
+  </div>
+
+  <div class="admin-grid-main">
+    <section>
+      <h6 class="admin-eyebrow section-heading">Recent Content</h6>
+      <div class="card elev-sm activity-card">
+        {activity.map(item => (
+          <a class="activity-row" href={item.href}>
+            <div class="activity-copy">
+              <p class="activity-title">{item.title}</p>
+              <p class="text-muted activity-detail">{item.detail}</p>
+            </div>
+            <span class="text-muted activity-date">{formatShortDate(item.date)}</span>
+          </a>
+        ))}
+      </div>
+    </section>
+
+    <section>
+      <h6 class="admin-eyebrow section-heading">Quick Actions</h6>
+      <div class="quick-actions">
+        <a class="btn btn-secondary btn-block" href="/admin/resume">Update Resume</a>
+        <a class="btn btn-secondary btn-block" href="/admin/projects">Manage Tags</a>
+        <a class="btn btn-secondary btn-block" href="/admin/settings">Site Identity</a>
+        <button type="button" class="btn btn-secondary btn-block" id="clear-drafts">Clear Local Drafts</button>
+      </div>
+      <p class="text-muted admin-note drafts-note">
+        Drafts from the journal and resume editors are held in this browser only.
+      </p>
+    </section>
+  </div>
+</AdminLayout>
+
+<script>
+  const btn = document.getElementById('clear-drafts') as HTMLButtonElement | null;
+  btn?.addEventListener('click', () => {
+    ['om-admin-journal-draft', 'om-admin-resume-draft', 'om-admin-settings', 'om-admin-project-visibility']
+      .forEach(key => localStorage.removeItem(key));
+    btn.textContent = 'Cleared ✓';
+    setTimeout(() => { btn.textContent = 'Clear Local Drafts'; }, 1500);
+  });
+</script>
+
+<style>
+  .stats { margin-bottom: var(--space-6); }
+  .stat-value { margin: 0; }
+  .stat-note { font-size: 12px; }
+  .section-heading { margin-bottom: var(--space-3); }
+
+  .activity-card { gap: 0; }
+  .activity-row {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-divider);
+    text-decoration: none;
+    color: inherit;
+  }
+  .activity-row:last-child { border-bottom: 0; }
+  .activity-row:hover .activity-title { color: var(--color-accent); }
+  .activity-copy { min-width: 0; }
+  .activity-title { margin: 0; font-weight: 600; font-size: 14px; }
+  .activity-detail { margin: 2px 0 0; font-size: 12px; }
+  .activity-date { font-size: 11px; white-space: nowrap; }
+
+  .quick-actions { display: flex; flex-direction: column; gap: 8px; }
+  .drafts-note { margin-top: var(--space-3); }
+</style>
