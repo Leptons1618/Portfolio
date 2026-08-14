@@ -5,7 +5,10 @@ const projects = defineCollection({
   schema: z.object({
     title: z.string(),
     summary: z.string(),
-    category: z.enum(['featured', 'ml-cv', 'ai-llm', 'full-stack', 'devtools', 'systems', 'simulation', 'other']),
+    /* "Featured" is a rank, not a category — see `featuredRank` below. Keeping
+       it out of this enum stops the projects filter bar from having two
+       different meanings for the same key. */
+    category: z.enum(['ml-cv', 'ai-llm', 'full-stack', 'devtools', 'systems', 'simulation', 'other']),
     tags: z.array(z.string()),
     stack: z.array(z.string()),
     repoUrl: z.string().url(),

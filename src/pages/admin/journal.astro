@@ -1,11 +1,11 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
-import { getCollection } from 'astro:content';
+import { getPosts } from '../../lib/content';
 import { formatShortDate } from '../../lib/format';
 
-const existing = (await getCollection('journal')).sort(
-  (a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime()
-);
+/* Drafts are listed here — they are exactly what this screen exists to
+   manage — but marked, because they do not reach a production build. */
+const existing = await getPosts(true);
 const today = new Date().toISOString().slice(0, 10);
 ---
 <AdminLayout title="Journal Editor" section="journal">
@@ -88,11 +88,14 @@ const today = new Date().toISOString().slice(0, 10);
 
   {existing.length > 0 && (
     <section class="focus-hide existing">
-      <h6 class="admin-eyebrow">Published Entries ({existing.length})</h6>
+      <h6 class="admin-eyebrow">Existing Entries ({existing.length})</h6>
       <div class="card elev-sm existing-card">
         {existing.map(entry => (
           <a class="existing-row" href={`/journal/${entry.slug}`}>
-            <span class="cell-strong">{entry.data.title}</span>
+            <span class="cell-strong">
+              {entry.data.title}
+              {entry.data.draft && <span class="tag tag-accent draft-flag">draft</span>}
+            </span>
             <span class="text-muted cell-mono">{formatShortDate(entry.data.date)}</span>
           </a>
         ))}
@@ -102,7 +105,9 @@ const today = new Date().toISOString().slice(0, 10);
 </AdminLayout>
 
 <script>
-  const KEY = 'om-admin-journal-draft';
+  import { ADMIN_KEYS } from '../../lib/admin';
+
+  const KEY = ADMIN_KEYS.journalDraft;
   const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
   const fields = {
@@ -124,8 +129,15 @@ const today = new Date().toISOString().slice(0, 10);
   const slugify = (s: string) =>
     s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled';
 
+  // Quotes matter: link hrefs below are interpolated into an attribute, and an
+  // unescaped `"` would close it and inject markup of the author's own typing.
   const escapeHtml = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  /* Only schemes a published post could actually use — keeps `javascript:`
+     out of the preview's hrefs. */
+  const safeHref = (url: string) =>
+    /^(https?:|mailto:|[/#.])/i.test(url.trim()) ? url.trim() : '#';
 
   /* A deliberately small Markdown subset — enough for an accurate preview
      without pulling a parser into the bundle. */
@@ -166,7 +178,7 @@ const today = new Date().toISOString().slice(0, 10);
       .replace(/`([^`]+)`/g, '<code>$1</code>')
       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
       .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, url) => `<a href="${safeHref(url)}">${label}</a>`);
   }
 
   function currentStatus() {
@@ -293,6 +305,7 @@ const today = new Date().toISOString().slice(0, 10);
   }
   .existing-row:last-child { border-bottom: 0; }
   .existing-row:hover { color: var(--color-accent); }
+  .draft-flag { margin-left: var(--space-2); vertical-align: middle; }
 
   code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
 </style>

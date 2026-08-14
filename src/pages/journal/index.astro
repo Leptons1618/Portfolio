@@ -1,20 +1,12 @@
 ---
-import PageLayout from '../../layouts/PageLayout.astro';
-import { getCollection } from 'astro:content';
-import { formatShortDate, formatTag } from '../../lib/format';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getPosts } from '../../lib/content';
+import { formatShortDate, formatTag, metaLine } from '../../lib/format';
 
-const posts = (
-  await getCollection('journal', ({ data }) => (import.meta.env.PROD ? !data.draft : true))
-).sort((a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime());
+const posts = await getPosts();
 const [featured, ...archive] = posts;
-
-function metaLine(data: { date: string; readTime?: string; videoDuration?: string }) {
-  return [formatShortDate(data.date), data.readTime && `${data.readTime} read`, data.videoDuration && `${data.videoDuration} video`]
-    .filter(Boolean)
-    .join(' · ');
-}
 ---
-<PageLayout title="Journal" description="Field notes from building things — write-ups and the occasional video log.">
+<BaseLayout title="Journal" description="Field notes from building things — write-ups and the occasional video log.">
   <header class="container container-mid page-header">
     <h1>Journal</h1>
     <p class="page-desc">Field notes from building things — write-ups and the occasional video log.</p>
@@ -55,7 +47,7 @@ function metaLine(data: { date: string; readTime?: string; videoDuration?: strin
       <p class="text-muted">No entries published yet.</p>
     </section>
   )}
-</PageLayout>
+</BaseLayout>
 <style>
   .page-header { padding-top: var(--space-6); padding-bottom: var(--space-4); }
   .page-desc { opacity: 0.8; max-width: 56ch; margin: 0; }

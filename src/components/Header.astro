@@ -1,4 +1,6 @@
 ---
+import { site } from '../lib/site';
+
 const navLinks = [
   { href: '/', label: 'Home' },
   { href: '/projects', label: 'Projects' },
@@ -11,13 +13,13 @@ const isCurrent = (href: string) =>
   href === '/' ? currentPath === '/' : currentPath === href || currentPath.startsWith(`${href}/`);
 ---
 <nav class="nav container" aria-label="Main navigation">
-  <a class="nav-brand" href="/">Anish Giri</a>
+  <a class="nav-brand" href="/">{site.name}</a>
   <div class="nav-links">
     {navLinks.map(link => (
       <a href={link.href} aria-current={isCurrent(link.href) ? 'page' : undefined}>{link.label}</a>
     ))}
   </div>
-  <a class="btn btn-primary nav-cta" href="mailto:anishgiri163@gmail.com">Hire Me</a>
+  <a class="btn btn-primary nav-cta" href={`mailto:${site.email}`}>Hire Me</a>
 </nav>
 <style>
   .nav-brand { text-decoration: none; color: inherit; }

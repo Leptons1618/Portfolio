@@ -1,6 +1,5 @@
 ---
 title: "NiceChatAI"
-slug: "nicechatai"
 summary: "Conversational AI frontend with multi-model support and conversation management."
 category: "ai-llm"
 tags: ["chatbot", "llm", "openai", "conversation", "react"]
@@ -14,5 +13,3 @@ highlights:
   - "Streaming response rendering with token-by-token display."
   - "System prompt editor with template library."
 ---
-
-Project metadata entry.

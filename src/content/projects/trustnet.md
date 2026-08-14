@@ -1,6 +1,5 @@
 ---
 title: "TrustNet"
-slug: "trustnet"
 summary: "Explainable and trust-aware image classification prototype with uncertainty and OOD analysis."
 category: "other"
 tags: ["trust-ai", "xai", "uncertainty", "ood-detection", "computer-vision"]
@@ -13,5 +12,3 @@ highlights:
   - "Adds OOD detection via ODIN and Mahalanobis methods for trust-aware decisions."
   - "Provides Grad-CAM visual explanations through an interactive Streamlit interface."
 ---
-
-Project metadata entry.

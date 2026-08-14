@@ -1,37 +1,26 @@
 ---
-import PageLayout from '../../layouts/PageLayout.astro';
+import BaseLayout from '../../layouts/BaseLayout.astro';
 import Tag from '../../components/Tag.astro';
-import { getCollection } from 'astro:content';
+import { categoryLabel, getProjects } from '../../lib/content';
 
 export async function getStaticPaths() {
-  const projects = await getCollection('projects');
+  const projects = await getProjects();
   return projects.map(p => ({ params: { slug: p.slug }, props: { project: p } }));
 }
 
 const { project } = Astro.props;
 const { title, summary, category, tags, stack, status, year, highlights, repoUrl, demoUrl, caseStudySlug } = project.data;
 
-const CATEGORY_LABELS: Record<string, string> = {
-  'ai-llm': 'AI / ML',
-  'ml-cv': 'Computer Vision',
-  'full-stack': 'Full-Stack',
-  devtools: 'DevTools',
-  systems: 'Systems',
-  simulation: 'Simulation',
-  other: 'Other',
-};
-
-const allProjects = await getCollection('projects');
-const related = allProjects
+const related = (await getProjects())
   .filter(p => p.slug !== project.slug && p.data.tags.some(t => tags.includes(t)))
   .slice(0, 8);
 ---
-<PageLayout title={title} description={summary}>
+<BaseLayout title={title} description={summary}>
   <div class="container detail">
     <a class="btn btn-ghost back-link" href="/projects">← Back to Projects</a>
     <div class="detail-grid">
       <div class="detail-main">
-        <span class="tag tag-accent-2 detail-tag">{CATEGORY_LABELS[category] ?? category} · {year}</span>
+        <span class="tag tag-accent-2 detail-tag">{categoryLabel(category)} · {year}</span>
         <h1>{title}</h1>
         <p class="detail-summary">{summary}</p>
         <p class="detail-status text-muted">Status: {status}</p>
@@ -80,7 +69,7 @@ const related = allProjects
       </aside>
     </div>
   </div>
-</PageLayout>
+</BaseLayout>
 <style>
   .detail { padding-top: var(--space-6); padding-bottom: var(--space-8); }
   .back-link { padding-inline: 0; margin-bottom: var(--space-3); }

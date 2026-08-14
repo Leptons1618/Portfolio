@@ -1,6 +1,5 @@
 ---
 title: "Menu OCR"
-slug: "menu-ocr"
 summary: "OCR pipeline for extracting structured restaurant menu content from images."
 category: "ml-cv"
 tags: ["ocr", "computer-vision", "text-extraction", "image-processing", "nlp"]
@@ -15,5 +14,3 @@ highlights:
   - "Added column detection with DBSCAN plus hierarchy enforcement using FSM + Viterbi decoding."
   - "Used Hungarian matching for robust global item-price association across noisy menus."
 ---
-
-Project metadata entry.

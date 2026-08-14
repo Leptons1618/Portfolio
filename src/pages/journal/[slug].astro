@@ -1,22 +1,22 @@
 ---
-import PageLayout from '../../layouts/PageLayout.astro';
-import { getCollection } from 'astro:content';
-import { formatShortDate, formatTag } from '../../lib/format';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { getPosts } from '../../lib/content';
+import { formatTag, metaLine } from '../../lib/format';
+import { absoluteUrl, site } from '../../lib/site';
 
 export async function getStaticPaths() {
-  const posts = await getCollection('journal', ({ data }) => (import.meta.env.PROD ? !data.draft : true));
+  const posts = await getPosts();
   return posts.map(post => ({ params: { slug: post.slug }, props: { post } }));
 }
 
 const { post } = Astro.props;
-const { title, summary, date, tags, readTime, videoDuration, heroImage } = post.data;
+const { title, summary, tags, videoDuration, heroImage } = post.data;
 const { Content } = await post.render();
 
-const meta = [formatShortDate(date), readTime && `${readTime} read`, videoDuration && `${videoDuration} video`]
-  .filter(Boolean)
-  .join(' · ');
+const meta = metaLine(post.data);
+const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
 ---
-<PageLayout title={title} description={summary}>
+<BaseLayout title={title} description={summary}>
   <article class="container container-prose journal-post">
     <a class="btn btn-ghost back-link" href="/journal">← Back to Journal</a>
 
@@ -44,13 +44,13 @@ const meta = [formatShortDate(date), readTime && `${readTime} read`, videoDurati
       <span class="text-muted share-label">Share this post</span>
       <a
         class="btn btn-secondary"
-        href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(new URL(Astro.url.pathname, Astro.site ?? 'https://leptons1618.github.io').href)}`}
+        href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`}
         target="_blank"
         rel="noopener"
       >Share on LinkedIn</a>
     </div>
   </article>
-</PageLayout>
+</BaseLayout>
 <style>
   .journal-post { padding-top: var(--space-6); padding-bottom: var(--space-8); }
   .back-link { padding-inline: 0; margin-bottom: var(--space-3); }

@@ -1,6 +1,5 @@
 ---
 title: "EchoNode"
-slug: "echonode"
 summary: "Distributed event-driven node framework for building fault-tolerant microservices."
 category: "systems"
 tags: ["distributed-systems", "event-driven", "microservices", "nodejs", "fault-tolerance"]
@@ -13,5 +12,3 @@ highlights:
   - "Automatic service health checks and circuit breaker via Redis TTL."
   - "Event replay from RabbitMQ dead-letter exchange for debugging."
 ---
-
-Project metadata entry.

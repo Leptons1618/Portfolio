@@ -1,47 +1,27 @@
 ---
-import PageLayout from '../layouts/PageLayout.astro';
+import BaseLayout from '../layouts/BaseLayout.astro';
 import FilterBar from '../components/FilterBar.astro';
-import { getCollection } from 'astro:content';
+import { CATEGORY_LABELS, categoryLabel, getProjects, topTags } from '../lib/content';
 
-const allProjects = await getCollection('projects');
+const allProjects = await getProjects();
 
-/* Category labels, in the order the design lists them. `featured` is not a
-   category value in the content schema — it filters on featuredRank. */
-const CATEGORY_LABELS: Record<string, string> = {
-  'ai-llm': 'AI / ML',
-  'ml-cv': 'Computer Vision',
-  'full-stack': 'Full-Stack',
-  devtools: 'DevTools',
-  systems: 'Systems',
-  simulation: 'Simulation',
-  other: 'Other',
-};
-const presentCategories = new Set(allProjects.map(p => p.data.category));
+/* "Featured" is a pseudo-category: it filters on featuredRank, not on the
+   schema's category field, so it is prepended rather than derived. */
+const presentCategories = new Set<string>(allProjects.map(p => p.data.category));
 const categories = [
   { key: 'all', label: 'All' },
   { key: 'featured', label: 'Featured' },
   ...Object.entries(CATEGORY_LABELS)
-    .filter(([key]) => presentCategories.has(key as any))
+    .filter(([key]) => presentCategories.has(key))
     .map(([key, label]) => ({ key, label })),
 ];
-
-const tagCounts: Record<string, number> = {};
-allProjects.forEach(p => {
-  p.data.tags.forEach(tag => {
-    tagCounts[tag] = (tagCounts[tag] || 0) + 1;
-  });
-});
-const topTags = Object.entries(tagCounts)
-  .sort((a, b) => b[1] - a[1])
-  .slice(0, 16)
-  .map(([tag]) => tag);
 
 const projectsData = allProjects.map(p => ({
   title: p.data.title,
   slug: p.slug,
   summary: p.data.summary,
   category: p.data.category,
-  categoryLabel: CATEGORY_LABELS[p.data.category] ?? p.data.category,
+  categoryLabel: categoryLabel(p.data.category),
   tags: p.data.tags,
   stack: p.data.stack,
   status: p.data.status,
@@ -52,14 +32,14 @@ const projectsData = allProjects.map(p => ({
   featuredRank: p.data.featuredRank,
 }));
 ---
-<PageLayout title="Projects" description="All projects — filterable by category, tag, and stack.">
+<BaseLayout title="Projects" description="All projects — filterable by category, tag, and stack.">
   <header class="container page-header">
     <h1>Project Library</h1>
     <p class="page-desc">A comprehensive index of engineering works, experiments, and production systems.</p>
   </header>
 
   <div class="container">
-    <FilterBar categories={categories} topTags={topTags} />
+    <FilterBar categories={categories} topTags={topTags(allProjects)} />
   </div>
 
   <section class="container results">
@@ -92,7 +72,7 @@ const projectsData = allProjects.map(p => ({
     </div>
     <p id="no-results" class="no-results hidden">No projects match your filters.</p>
   </section>
-</PageLayout>
+</BaseLayout>
 
 <script>
   const grid = document.getElementById('project-grid')!;

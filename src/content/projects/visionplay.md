@@ -1,6 +1,5 @@
 ---
 title: "VisionPlay"
-slug: "visionplay"
 summary: "Browser-based computer vision playground using TensorFlow.js for in-browser inference."
 category: "ml-cv"
 tags: ["tensorflow.js", "computer-vision", "browser-ml", "webcam", "real-time"]
@@ -14,5 +13,3 @@ highlights:
   - "Supports model hot-swap at runtime without page reload."
   - "Mobile-compatible with MediaDevices API for camera access."
 ---
-
-Project metadata entry.
