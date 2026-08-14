@@ -1,12 +1,9 @@
 ---
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
-import '@fontsource-variable/jetbrains-mono';
-import '@fontsource/press-start-2p';
-import '@fontsource/vt323';
-import '@fontsource/special-elite';
-import '@fontsource/ibm-plex-serif/400.css';
-import '@fontsource/ibm-plex-serif/600.css';
+import '@fontsource/archivo/400.css';
+import '@fontsource/archivo/600.css';
+import '@fontsource/archivo/800.css';
 import '../styles/global.css';
 interface Props { title?: string; description?: string; image?: string; }
 const { title = 'Anish Giri Portfolio', description = 'ML/CV engineer and full-stack developer portfolio.', image = '/images/ui/og-default.png' } = Astro.props;
@@ -14,7 +11,7 @@ const fullTitle = title === 'Anish Giri Portfolio' ? title : `${title} | Anish G
 const canonicalURL = new URL(Astro.url.pathname, Astro.site || 'https://leptons1618.github.io');
 ---
 <!DOCTYPE html>
-<html lang="en" data-theme="pixel">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -31,20 +28,7 @@ const canonicalURL = new URL(Astro.url.pathname, Astro.site || 'https://leptons1
   <meta name="twitter:description" content={description} />
   <meta name="twitter:image" content={image} />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <script is:inline>
-    (function() {
-      const stored = localStorage.getItem('portfolio-theme');
-      let selected = stored || 'system';
-      // Migrate retired themes: light -> paper, dark ones -> pixel.
-      if (stored === 'science-light') selected = 'paper';
-      if (['science-dark', 'science', 'aurora', 'punk'].includes(stored)) selected = 'pixel';
-      if (!['system', 'pixel', 'paper'].includes(selected)) selected = 'system';
-      const resolved = selected === 'system'
-        ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'paper' : 'pixel')
-        : selected;
-      document.documentElement.setAttribute('data-theme', resolved);
-    })();
-  </script>
+  <meta name="theme-color" content="#f3f2f2" />
 </head>
 <body>
   <Header />

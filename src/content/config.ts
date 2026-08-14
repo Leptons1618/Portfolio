@@ -38,4 +38,17 @@ const caseStudies = defineCollection({
   }),
 });
 
-export const collections = { projects, 'case-studies': caseStudies };
+const journal = defineCollection({
+  type: 'content',
+  schema: z.object({
+    title: z.string(),
+    summary: z.string(),
+    date: z.string(),
+    tags: z.array(z.string()),
+    readTime: z.string().optional(),
+    videoDuration: z.string().optional(),
+    heroImage: z.string().optional(),
+  }),
+});
+
+export const collections = { projects, 'case-studies': caseStudies, journal };

@@ -1,43 +1,35 @@
 ---
-import ThemeToggle from './ThemeToggle.astro';
 const navLinks = [
   { href: '/', label: 'Home' },
   { href: '/projects', label: 'Projects' },
+  { href: '/journal', label: 'Journal' },
   { href: '/about', label: 'About' },
   { href: '/resume', label: 'Resume' },
 ];
-const currentPath = Astro.url.pathname;
+const currentPath = Astro.url.pathname.replace(/(.)\/$/, '$1');
+const isCurrent = (href: string) =>
+  href === '/' ? currentPath === '/' : currentPath === href || currentPath.startsWith(`${href}/`);
 ---
-<header class="site-header">
-  <div class="container">
-    <div class="header-inner">
-      <a href="/" class="logo"><span class="logo-bracket">[</span><span class="logo-text">Anish Giri</span><span class="logo-bracket">]</span></a>
-      <nav class="main-nav" aria-label="Main navigation">
-        {navLinks.map(link => (
-          <a href={link.href} class={`nav-link ${currentPath === link.href ? 'active' : ''}`}>{link.label}</a>
-        ))}
-      </nav>
-      <div class="header-actions">
-        <a href="https://github.com/Leptons1618" class="btn btn-outline btn-sm" target="_blank" rel="noopener">GitHub ↗</a>
-        <a href="https://www.linkedin.com/in/anish-giri-a4031723a/" class="btn btn-outline btn-sm" target="_blank" rel="noopener">LinkedIn ↗</a>
-        <ThemeToggle />
-      </div>
-    </div>
+<nav class="nav container" aria-label="Main navigation">
+  <a class="nav-brand" href="/">Anish Giri</a>
+  <div class="nav-links">
+    {navLinks.map(link => (
+      <a href={link.href} aria-current={isCurrent(link.href) ? 'page' : undefined}>{link.label}</a>
+    ))}
   </div>
-</header>
+  <a class="btn btn-primary nav-cta" href="mailto:anishgiri163@gmail.com">Hire Me</a>
+</nav>
 <style>
-  .site-header { position: sticky; top: 0; z-index: 100; background: var(--color-header-bg); border-bottom: 1px solid var(--color-border); backdrop-filter: blur(14px) saturate(1.4); -webkit-backdrop-filter: blur(14px) saturate(1.4); }
-  .header-inner { display: flex; align-items: center; gap: 2rem; height: 60px; }
-  .logo { font-family: var(--font-mono); font-size: 1.1rem; font-weight: 700; color: var(--color-text); text-decoration: none; white-space: nowrap; transition: text-shadow 0.2s; }
-  .logo:hover { text-shadow: 0 0 18px var(--color-glow); }
-  .logo-bracket { color: var(--color-accent); }
-  .main-nav { display: flex; gap: 1.5rem; flex: 1; }
-  .nav-link { position: relative; font-size: 0.875rem; color: var(--color-text-muted); text-decoration: none; transition: color 0.15s; padding: 0.25rem 0; }
-  .nav-link::after { content: ''; position: absolute; left: 0; bottom: -2px; width: 100%; height: 2px; background: var(--gradient-text); transform: scaleX(0); transform-origin: left; transition: transform 0.22s ease; border-radius: 2px; }
-  .nav-link:hover, .nav-link.active { color: var(--color-text); }
-  .nav-link:hover::after, .nav-link.active::after { transform: scaleX(1); }
-  .nav-link.active { font-weight: 600; }
-  .header-actions { display: flex; align-items: center; gap: 0.75rem; }
-  .btn-sm { padding: 0.3rem 0.75rem; font-size: 0.8rem; }
-  @media (max-width: 640px) { .main-nav { display: none; } }
+  .nav-brand { text-decoration: none; color: inherit; }
+  .nav-links { display: flex; align-items: center; gap: var(--space-4); }
+
+  /* Below the wide breakpoint the bar keeps the brand and the primary
+     action on one line and lets the links flow onto a second row, rather
+     than hiding navigation behind a drawer. */
+  @media (max-width: 640px) {
+    .nav { flex-wrap: wrap; row-gap: var(--space-3); }
+    .nav-brand { margin-right: auto; }
+    .nav-links { order: 3; width: 100%; flex-wrap: wrap; gap: var(--space-3) var(--space-4); }
+    .nav-cta { flex: none; }
+  }
 </style>
