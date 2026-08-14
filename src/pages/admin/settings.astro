@@ -1,14 +1,16 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
-import { person } from '../../lib/resume';
+import { site } from '../../lib/site';
 
+/* Seeded from `src/lib/site.ts` — the module these fields are exported back
+   into by hand. */
 const defaults = {
-  name: person.name,
-  role: 'Software Engineer (ML/CV + Full-Stack)',
-  bio: 'I work at the intersection of machine learning, computer vision, and software engineering. I build practical systems that ship.',
-  github: 'https://github.com/Leptons1618',
-  linkedin: person.linkedin,
-  email: person.email,
+  name: site.name,
+  role: site.roleLong,
+  bio: site.bio,
+  github: site.github,
+  linkedin: site.linkedin,
+  email: site.email,
 };
 ---
 <AdminLayout title="Settings" section="settings">
@@ -46,8 +48,8 @@ const defaults = {
         <button type="button" class="btn btn-secondary" id="export-settings">Export JSON</button>
       </div>
       <p class="text-muted admin-note">
-        Saved to this browser. Export and apply the values to the components that render them —
-        the header, footer, about page and <code>src/lib/resume.ts</code>.
+        Saved to this browser. Export and apply the values to <code>src/lib/site.ts</code> —
+        the single module the header, footer, about page and resume all read from.
       </p>
     </section>
 
@@ -70,7 +72,9 @@ const defaults = {
 </AdminLayout>
 
 <script>
-  const KEY = 'om-admin-settings';
+  import { ADMIN_KEYS } from '../../lib/admin';
+
+  const KEY = ADMIN_KEYS.settings;
   const ids = ['s-name', 's-role', 's-bio', 's-github', 's-linkedin', 's-email'] as const;
   const fields = Object.fromEntries(
     ids.map(id => [id, document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement])

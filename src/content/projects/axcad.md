@@ -1,6 +1,5 @@
 ---
 title: "AXCAD"
-slug: "axcad"
 summary: "Web-based 2D CAD editor with parametric constraints and DXF export support."
 category: "devtools"
 tags: ["cad", "parametric", "constraints", "dxf", "typescript"]
@@ -15,5 +14,3 @@ highlights:
   - "Implemented an AutoCAD-style command parser for geometry creation/editing workflows."
   - "Added multi-format export pathways (DXF, SVG, PDF, JSON, and Excel) from the web editor."
 ---
-
-Project metadata entry.

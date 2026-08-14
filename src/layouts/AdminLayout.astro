@@ -4,6 +4,7 @@ import '@fontsource/archivo/600.css';
 import '@fontsource/archivo/800.css';
 import '../styles/global.css';
 import '../styles/admin.css';
+import { SIDEBAR_KEY } from '../lib/admin';
 
 interface Props {
   title: string;
@@ -27,10 +28,10 @@ const navItems = [
   <meta name="robots" content="noindex, nofollow" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta name="theme-color" content="#f3f2f2" />
-  <script is:inline>
+  <script is:inline define:vars={{ SIDEBAR_KEY }}>
     // Restore the sidebar state before first paint so it doesn't flash open.
     (function () {
-      if (localStorage.getItem('om-admin-sidebar-collapsed') === '1') {
+      if (localStorage.getItem(SIDEBAR_KEY) === '1') {
         document.documentElement.dataset.adminCollapsed = '1';
       }
     })();
@@ -62,9 +63,10 @@ const navItems = [
   </div>
 
   <script>
+    import { SIDEBAR_KEY as KEY } from '../lib/admin';
+
     const shell = document.getElementById('admin-shell')!;
     const btn = document.getElementById('admin-collapse')!;
-    const KEY = 'om-admin-sidebar-collapsed';
 
     function apply(collapsed: boolean) {
       shell.classList.toggle('is-collapsed', collapsed);

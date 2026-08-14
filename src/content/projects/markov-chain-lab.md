@@ -1,6 +1,5 @@
 ---
 title: "Markov Chain Lab"
-slug: "markov-chain-lab"
 summary: "Interactive learning platform for Markov chains, automata, and grammar conversion."
 category: "simulation"
 tags: ["markov-chains", "automata", "simulation", "education", "interactive"]
@@ -16,5 +15,3 @@ highlights:
   - "Implemented grammar-to-automata and automata-to-grammar conversion utilities."
   - "Integrated Supabase-backed persistence for saved workspaces and user settings."
 ---
-
-Project metadata entry.

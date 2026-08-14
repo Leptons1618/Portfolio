@@ -1,6 +1,5 @@
 ---
 title: "Menu OCR"
-slug: "menu-ocr"
 subtitle: "Layout-aware OCR pipeline for extracting structured menu items and prices from noisy restaurant photos."
 problem: "Restaurant menu images are highly inconsistent in layout, font quality, and lighting, which makes raw OCR output unreliable for downstream structured use."
 solution: "Built a modular OCR system combining PaddleOCR and OpenCV preprocessing, then applied DBSCAN-based column grouping, FSM/Viterbi hierarchy enforcement, and Hungarian matching for robust item-price pairing."

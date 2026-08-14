@@ -1,17 +1,17 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
-import { getCollection } from 'astro:content';
+import { getCaseStudies, getPosts, getProjects } from '../../lib/content';
 import { formatShortDate } from '../../lib/format';
 
-const projects = await getCollection('projects');
-const caseStudies = await getCollection('case-studies');
-const journal = await getCollection('journal');
+const projects = await getProjects();
+const caseStudies = await getCaseStudies();
+/* The admin surface sees drafts; the public journal pages do not. */
+const journal = await getPosts(true);
 
 const featuredCount = projects.filter(p => p.data.featuredRank !== undefined).length;
 const linkedCaseStudies = projects.filter(p => p.data.caseStudySlug).length;
-const latestJournal = [...journal].sort(
-  (a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime()
-)[0];
+const draftCount = journal.filter(p => p.data.draft).length;
+const latestJournal = journal[0];
 
 /* The activity log is the real content stream, newest first — the only
    history a static site actually has. */
@@ -61,7 +61,8 @@ const buildDate = new Date().toISOString().slice(0, 10);
       <span class="card-kicker">Journal Entries</span>
       <h2 class="stat-value">{journal.length}</h2>
       <span class="text-muted stat-note">
-        {latestJournal ? `latest: ${formatShortDate(latestJournal.data.date)}` : 'none published yet'}
+        {latestJournal ? `latest: ${formatShortDate(latestJournal.data.date)}` : 'none written yet'}
+        {draftCount > 0 && ` · ${draftCount} draft${draftCount === 1 ? '' : 's'}`}
       </span>
     </div>
   </div>
@@ -98,10 +99,11 @@ const buildDate = new Date().toISOString().slice(0, 10);
 </AdminLayout>
 
 <script>
+  import { ALL_ADMIN_KEYS } from '../../lib/admin';
+
   const btn = document.getElementById('clear-drafts') as HTMLButtonElement | null;
   btn?.addEventListener('click', () => {
-    ['om-admin-journal-draft', 'om-admin-resume-draft', 'om-admin-settings', 'om-admin-project-visibility']
-      .forEach(key => localStorage.removeItem(key));
+    ALL_ADMIN_KEYS.forEach(key => localStorage.removeItem(key));
     btn.textContent = 'Cleared ✓';
     setTimeout(() => { btn.textContent = 'Clear Local Drafts'; }, 1500);
   });

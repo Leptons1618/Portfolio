@@ -1,6 +1,5 @@
 ---
 title: "EchoScript"
-slug: "echoscript"
 summary: "YouTube transcription and AI note-taking app with synchronized playback and search."
 category: "ai-llm"
 tags: ["speech-recognition", "youtube", "transcription", "whisper", "summarization"]
@@ -16,5 +15,3 @@ highlights:
   - "Generates AI notes/summaries and supports export to PDF, TXT, and Notion."
   - "Provides searchable job history with transcript filtering and keyboard-driven navigation."
 ---
-
-Project metadata entry.

@@ -1,38 +1,24 @@
 ---
 import BaseLayout from './BaseLayout.astro';
 import Tag from '../components/Tag.astro';
-import { getCollection } from 'astro:content';
 import { formatDate } from '../lib/format';
+
+/** A neighbouring case study in the prev/next footer. */
+export interface Neighbour { slug: string; title: string }
+
 interface Props {
-  title: string; subtitle: string; slug: string; heroImage?: string; heroVideo?: string;
+  title: string; subtitle: string; heroImage?: string; heroVideo?: string;
   problem: string; solution: string; architectureImage?: string; achievements: string[];
   stack: string[]; repoUrl?: string; demoUrl?: string; date: string; readTime?: string;
+  /* Resolved by the page: the design's eyebrow reads "{category} · {year}",
+     neither of which a case study carries. */
+  eyebrow: string;
+  prev?: Neighbour | null; next?: Neighbour | null;
 }
-const { title, subtitle, slug, heroImage, heroVideo, problem, solution, architectureImage, achievements, stack, repoUrl, demoUrl, date, readTime } = Astro.props;
-
-const CATEGORY_LABELS: Record<string, string> = {
-  'ai-llm': 'AI / ML',
-  'ml-cv': 'Computer Vision',
-  'full-stack': 'Full-Stack',
-  devtools: 'DevTools',
-  systems: 'Systems',
-  simulation: 'Simulation',
-  other: 'Other',
-};
-
-const allCaseStudies = await getCollection('case-studies');
-const sorted = allCaseStudies.sort((a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime());
-const currentIdx = sorted.findIndex(cs => cs.slug === slug);
-const prev = sorted[currentIdx + 1] || null;
-const next = sorted[currentIdx - 1] || null;
-
-/* The design's eyebrow tag reads "{category} · {year}". Case studies carry
-   neither field, so both come from the project that links to this study. */
-const allProjects = await getCollection('projects');
-const linkedProject = allProjects.find(p => p.data.caseStudySlug === slug);
-const categoryLabel = linkedProject ? (CATEGORY_LABELS[linkedProject.data.category] ?? linkedProject.data.category) : null;
-const year = linkedProject?.data.year ?? new Date(date).getFullYear();
-const eyebrow = categoryLabel ? `${categoryLabel} · ${year}` : String(year);
+const {
+  title, subtitle, heroImage, heroVideo, problem, solution, architectureImage,
+  achievements, stack, repoUrl, demoUrl, date, readTime, eyebrow, prev = null, next = null,
+} = Astro.props;
 ---
 <BaseLayout title={title} description={subtitle}>
   <article class="container container-mid case-study">
@@ -85,13 +71,13 @@ const eyebrow = categoryLabel ? `${categoryLabel} · ${year}` : String(year);
         {prev && (
           <a href={`/case-studies/${prev.slug}`} class="cs-nav-link">
             <span class="text-muted">← Previous</span>
-            <strong>{prev.data.title}</strong>
+            <strong>{prev.title}</strong>
           </a>
         )}
         {next && (
           <a href={`/case-studies/${next.slug}`} class="cs-nav-link next">
             <span class="text-muted">Next →</span>
-            <strong>{next.data.title}</strong>
+            <strong>{next.title}</strong>
           </a>
         )}
       </nav>

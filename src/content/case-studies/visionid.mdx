@@ -1,6 +1,5 @@
 ---
 title: "VisionID"
-slug: "visionid"
 subtitle: "Real-time multi-object detection and tracking with YOLOv8 and DeepSort."
 problem: "Tracking multiple objects across video frames requires balancing detection accuracy with tracking continuity. YOLO alone loses object identity across frames, while naive IoU tracking fails under occlusion."
 solution: "Combined YOLOv8 for per-frame detection with DeepSort for appearance-based re-identification, exposed through a FastAPI interface supporting both batch video and live stream inputs."
