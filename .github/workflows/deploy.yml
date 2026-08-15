@@ -19,7 +19,13 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      SITE_URL: ${{ vars.SITE_URL != '' && vars.SITE_URL || 'https://leptons1618.github.io' }}
+      # Empty unless the repo sets SITE_URL, and empty is the supported state:
+      # `astro.config.mjs` falls back to the live origin, which
+      # `scripts/check-content.mjs` holds equal to public/CNAME. A literal
+      # origin here would silently outrank all of that at build time — which is
+      # how every canonical URL and OG tag in production ended up pointing at
+      # github.io while the site served from anishgiri.dev.
+      SITE_URL: ${{ vars.SITE_URL }}
       # Admin GitHub sign-in. Both are public values, so they are repository
       # *variables*, not secrets — the only secret is GITHUB_CLIENT_SECRET, and
       # it lives in the Cloudflare Worker. Actions refuses variable names
@@ -34,7 +40,10 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22.18+ runs TypeScript directly by stripping types, which is how
+          # `scripts/test-frontmatter.mjs` imports `src/lib/frontmatter.ts`
+          # without a build step. On 20 that import is a hard error.
+          node-version: 24
           cache: npm
 
       - name: Setup Pages
