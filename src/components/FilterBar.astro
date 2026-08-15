@@ -6,24 +6,28 @@ interface Props {
 const { categories, topTags } = Astro.props;
 ---
 <section class="filter-bar" id="filter-bar">
-  <input
-    type="search"
-    id="filter-search"
-    class="input filter-search"
-    placeholder="Search projects..."
-    aria-label="Search projects"
-    autocomplete="off"
-  />
+  <div class="filter-controls">
+    <input
+      type="search"
+      id="filter-search"
+      class="input filter-search"
+      placeholder="Search projects..."
+      aria-label="Search projects"
+      autocomplete="off"
+    />
+    <select class="input filter-sort" id="filter-sort" aria-label="Sort projects">
+      <option value="featured">Featured First</option>
+      <option value="newest">Newest</option>
+      <option value="oldest">Oldest</option>
+    </select>
+  </div>
+
+  <hr class="rule" />
 
   <div class="filter-row">
     {categories.map(cat => (
       <button type="button" class="tag tag-button tag-neutral" data-filter="category" data-value={cat.key}>{cat.label}</button>
     ))}
-    <label class="radio featured-toggle">
-      <input type="checkbox" id="filter-featured-first" checked />
-      <span class="dot"></span>
-      Featured First
-    </label>
   </div>
 
   <div class="filter-row" id="tag-chips">
@@ -41,13 +45,15 @@ const { categories, topTags } = Astro.props;
     gap: var(--space-3);
     padding-bottom: var(--space-4);
   }
+  .filter-controls { display: flex; gap: var(--space-3); align-items: center; }
   .filter-search { max-width: 360px; }
+  .filter-sort { width: auto; margin-left: auto; font-family: var(--font-mono); font-size: 12px; }
   .filter-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-  .featured-toggle { margin-left: auto; }
-  .results-count { font-size: 12px; margin: 0; }
+  .results-count { font-size: 12px; margin: 0; font-family: var(--font-mono); }
 
   @media (max-width: 640px) {
+    .filter-controls { flex-direction: column; align-items: stretch; }
     .filter-search { max-width: none; }
-    .featured-toggle { margin-left: 0; width: 100%; }
+    .filter-sort { width: 100%; margin-left: 0; }
   }
 </style>

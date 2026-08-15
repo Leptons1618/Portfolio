@@ -34,10 +34,20 @@ localStorage key names live in `src/lib/admin.ts` (`ADMIN_KEYS`, `SIDEBAR_KEY`) 
 | --- | --- | --- | --- |
 | `journal` | `journalDraft` | export **and commit** | `src/content/journal/<slug>.md` |
 | `resume` | `resumeDraft` | export **and commit** | `src/lib/resume.ts` |
+| `projects` | `projectVisibility` | **commit** signed in, export signed out | `src/content/projects/<slug>.md` frontmatter |
 | `settings` | `settings` | export only | `site-identity.json`, hand-applied to `src/lib/site.ts` |
-| `projects` | `projectVisibility` | export only | `project-visibility.json`, hand-applied to `src/content/projects/*.md` |
 
-`settings` and `projects` stay export-only on purpose: their JSON has to be merged into *other* files by hand, so committing it verbatim would drop junk into the repo. Do not "finish the job" by wiring `commitFile` to them without changing what they emit.
+`settings` stays export-only on purpose: its JSON has to be merged into `src/lib/site.ts` by hand, so committing it verbatim would drop junk into the repo. Do not "finish the job" by wiring `commitFile` to it without changing what it emits.
+
+## Writing to a file that already exists
+
+The journal and resume editors own everything they write, so they regenerate the whole file. `admin/projects` does not — it changes one frontmatter field of a hand-authored file whose body it never shows. That path has three parts and none of them is optional:
+
+- **`src/lib/frontmatter.ts`** patches the single line. It is not a YAML parser and must not become one: multi-line values, block scalars and indented keys throw `FrontmatterError` rather than being rewritten. `scripts/test-frontmatter.mjs` (part of `npm run check`) pins that, plus body preservation, quoting and CRLF.
+- **`readFile()` → `commitFile({ sha })`.** Read-modify-write must send back the SHA it read, so GitHub rejects the commit if the file moved in between. Calling `commitFile` without a `sha` makes it look the SHA up itself, which races the edit — correct for a whole-file write, wrong here.
+- **`deleteFile()`** needs the same SHA and is guarded by a two-click confirm in the page. The file stays in git history, so this is recoverable; do not add a harder gate, and do not remove the confirm.
+
+`hidden: true` on a project removes it from every listing *and* from `getStaticPaths`, so the detail page stops being built. Admin screens call `getProjects(true)` to see hidden entries — a plain `getProjects()` in an admin page is a bug.
 
 **The resume template must stay in sync with `src/lib/resume.ts`.** `buildModule()` in `src/pages/admin/resume.astro` regenerates the *whole* module — the `site` import, all three interfaces, and every export (`person`, `experience`, `skills`, `certifications`, `education`) — because `resume.astro`, `ResumeAside.astro` and the editor itself import from it, so a partial file breaks the build. The editor only edits summary, experience and skills; certifications and education ride through the seed untouched. Add an export to `resume.ts` and you must add it to `buildModule()` in the same change. Both the download and the commit call `buildModule()`, so there is one template, not two — keep it that way.
 

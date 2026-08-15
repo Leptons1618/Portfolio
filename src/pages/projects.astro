@@ -56,17 +56,21 @@ const projectsData = allProjects.map(p => ({
           data-year={project.year}
           data-featured-rank={project.featuredRank ?? 9999}
         >
-          <span class="card-kicker">{project.year} · {project.categoryLabel}</span>
+          <div class="card-top">
+            <span class="card-year">{project.year}</span>
+            <span class="tag tag-accent-2">{project.categoryLabel}</span>
+          </div>
           <h3 class="card-title"><a href={`/projects/${project.slug}`}>{project.title}</a></h3>
           <p class="card-body">{project.summary}</p>
+          <hr class="rule" />
           <div class="card-stack">
-            {project.stack.slice(0, 5).map(s => <span class="tag tag-outline">{s}</span>)}
+            {project.stack.slice(0, 5).map(s => <span class="tag tag-neutral">{s}</span>)}
           </div>
-          <div class="card-meta card-links">
-            <a href={project.repoUrl} target="_blank" rel="noopener">Repo ↗</a>
-            {project.caseStudySlug
-              ? <a href={`/case-studies/${project.caseStudySlug}`}>Case Study</a>
-              : <a href={`/projects/${project.slug}`}>Details</a>}
+          <div class="card-actions">
+            <a class="btn btn-primary btn-sm" href={project.caseStudySlug ? `/case-studies/${project.caseStudySlug}` : `/projects/${project.slug}`}>
+              {project.caseStudySlug ? 'Case Study' : 'Details'}
+            </a>
+            <a class="btn btn-secondary btn-sm" href={project.repoUrl} target="_blank" rel="noopener">Repo ↗</a>
           </div>
         </article>
       ))}
@@ -82,25 +86,29 @@ const projectsData = allProjects.map(p => ({
   const grid = document.getElementById('project-grid')!;
   const cards = Array.from(grid.querySelectorAll<HTMLElement>('.project-card'));
   const searchInput = document.getElementById('filter-search') as HTMLInputElement;
-  const featuredToggle = document.getElementById('filter-featured-first') as HTMLInputElement;
+  const sortSelect = document.getElementById('filter-sort') as HTMLSelectElement;
   const categoryChips = document.querySelectorAll<HTMLElement>('[data-filter="category"]');
   const tagChips = document.querySelectorAll<HTMLElement>('[data-filter="tag"]');
   const noResults = document.getElementById('no-results')!;
   const resultsCount = document.getElementById('results-count')!;
 
+  type Sort = 'featured' | 'newest' | 'oldest';
+  const SORTS: Sort[] = ['featured', 'newest', 'oldest'];
+
   let activeCategory = 'all';
   let activeTags: string[] = [];
   let query = '';
-  let featuredFirst = true;
+  let sort: Sort = 'featured';
 
   function syncFromURL() {
     const params = new URLSearchParams(window.location.search);
     query = params.get('q') || '';
     activeCategory = params.get('category') || 'all';
     activeTags = params.get('tags')?.split(',').filter(Boolean) || [];
-    featuredFirst = params.get('featured') !== '0';
+    const requested = params.get('sort') as Sort | null;
+    sort = requested && SORTS.includes(requested) ? requested : 'featured';
     if (searchInput) searchInput.value = query;
-    if (featuredToggle) featuredToggle.checked = featuredFirst;
+    if (sortSelect) sortSelect.value = sort;
   }
 
   function updateURL() {
@@ -108,7 +116,7 @@ const projectsData = allProjects.map(p => ({
     if (query) params.set('q', query);
     if (activeCategory && activeCategory !== 'all') params.set('category', activeCategory);
     if (activeTags.length) params.set('tags', activeTags.join(','));
-    if (!featuredFirst) params.set('featured', '0');
+    if (sort !== 'featured') params.set('sort', sort);
     const qs = params.toString();
     history.replaceState(null, '', qs ? `?${qs}` : window.location.pathname);
   }
@@ -145,12 +153,15 @@ const projectsData = allProjects.map(p => ({
     }
 
     visible.sort((a, b) => {
-      if (featuredFirst) {
+      const ya = parseInt(a.dataset.year || '0');
+      const yb = parseInt(b.dataset.year || '0');
+      if (sort === 'oldest') return ya - yb;
+      if (sort === 'featured') {
         const fa = parseInt(a.dataset.featuredRank || '9999');
         const fb = parseInt(b.dataset.featuredRank || '9999');
         if (fa !== fb) return fa - fb;
       }
-      return parseInt(b.dataset.year || '0') - parseInt(a.dataset.year || '0');
+      return yb - ya;
     });
     visible.forEach(card => grid.appendChild(card));
 
@@ -162,7 +173,7 @@ const projectsData = allProjects.map(p => ({
 
   syncFromURL();
   searchInput?.addEventListener('input', e => { query = (e.target as HTMLInputElement).value; updateURL(); applyFilters(); });
-  featuredToggle?.addEventListener('change', e => { featuredFirst = (e.target as HTMLInputElement).checked; updateURL(); applyFilters(); });
+  sortSelect?.addEventListener('change', e => { sort = (e.target as HTMLSelectElement).value as Sort; updateURL(); applyFilters(); });
   categoryChips.forEach(chip => chip.addEventListener('click', () => {
     activeCategory = chip.dataset.value || 'all';
     updateURL(); applyFilters();
@@ -180,10 +191,12 @@ const projectsData = allProjects.map(p => ({
   .page-desc { opacity: 0.8; max-width: 60ch; margin: 0; }
   .results { padding-bottom: var(--space-8); }
   .project-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+  .card-top { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
+  .card-year { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-muted); }
   .card-title a { color: inherit; text-decoration: none; }
   .card-title a:hover { color: var(--color-accent); }
   .card-stack { display: flex; flex-wrap: wrap; gap: 6px; }
-  .card-links { justify-content: space-between; margin-top: var(--space-2); }
+  .card-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-1); }
   .no-results {
     display: flex;
     flex-direction: column;

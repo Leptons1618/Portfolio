@@ -21,50 +21,70 @@ const {
 } = Astro.props;
 ---
 <BaseLayout title={title} description={subtitle}>
-  <article class="container container-mid case-study">
+  <article class="container case-study">
     <a class="btn btn-ghost back-link" href="/projects">← Back to Projects</a>
-    <span class="tag tag-accent-2 cs-eyebrow">{eyebrow}</span>
-    <h1 class="cs-title">{title}</h1>
-    <p class="cs-subtitle">{subtitle}</p>
-    <p class="text-muted cs-meta">{formatDate(date)}{readTime && ` · ${readTime} read`}</p>
 
-    {heroVideo
-      ? <div class="grayscale cs-hero"><video src={heroVideo} autoplay muted loop playsinline></video></div>
-      : heroImage
-        ? <div class="grayscale cs-hero"><img src={heroImage} alt={title} /></div>
-        : null}
+    <header class="cs-head">
+      {heroVideo
+        ? <div class="grayscale cs-hero"><video src={heroVideo} autoplay muted loop playsinline></video></div>
+        : heroImage
+          ? <div class="grayscale cs-hero"><img src={heroImage} alt={title} /></div>
+          : null}
+      <div class="cs-chips">
+        {eyebrow.split(' · ').map(part => <span class="tag tag-neutral">{part}</span>)}
+        <span class="tag tag-neutral">{formatDate(date)}</span>
+        {readTime && <span class="tag tag-neutral">{readTime} read</span>}
+      </div>
+      <h1 class="cs-title">{title}</h1>
+      <p class="cs-subtitle">{subtitle}</p>
+    </header>
+    <hr class="rule cs-head-rule" />
 
-    <h3>The Problem</h3>
-    <p class="cs-copy">{problem}</p>
+    <section class="cs-split">
+      <h3 class="cs-split-head">The Problem</h3>
+      <div class="card elev-sm cs-split-body"><p class="cs-copy">{problem}</p></div>
+    </section>
 
-    <h3>The Solution</h3>
-    <p class="cs-copy">{solution}</p>
+    <section class="cs-split">
+      <h3 class="cs-split-head">The Solution</h3>
+      <div class="card elev-sm cs-split-body"><p class="cs-copy">{solution}</p></div>
+    </section>
 
-    <div class="prose cs-content"><slot /></div>
-
-    {architectureImage && (
-      <>
-        <h3>Architecture</h3>
-        <figure class="grayscale cs-arch"><img src={architectureImage} alt="Architecture diagram" /></figure>
-      </>
-    )}
-
-    <h3>Achievements</h3>
-    <ul class="cs-list">
-      {achievements.map(a => <li>{a}</li>)}
-    </ul>
-
-    <h3>Stack</h3>
-    <div class="cs-stack">
-      {stack.map(s => <Tag text={s} variant="neutral" />)}
+    <div class="cs-split">
+      <div></div>
+      <div class="prose cs-content"><slot /></div>
     </div>
 
-    {(repoUrl || demoUrl) && (
-      <div class="cs-actions">
-        {repoUrl && <a class="btn btn-primary" href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>}
-        {demoUrl && <a class="btn btn-secondary" href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
-      </div>
+    {architectureImage && (
+      <section class="cs-split">
+        <h3 class="cs-split-head">Architecture</h3>
+        <figure class="grayscale cs-arch"><img src={architectureImage} alt="Architecture diagram" /></figure>
+      </section>
     )}
+
+    <section class="cs-split">
+      <h3 class="cs-split-head">Achievements</h3>
+      <div class="card elev-sm cs-split-body">
+        <ul class="cs-list">
+          {achievements.map(a => <li>{a}</li>)}
+        </ul>
+      </div>
+    </section>
+
+    <section class="cs-split">
+      <h3 class="cs-split-head">Stack</h3>
+      <div class="cs-split-body">
+        <div class="cs-stack">
+          {stack.map(s => <Tag text={s} variant="neutral" />)}
+        </div>
+        {(repoUrl || demoUrl) && (
+          <div class="cs-actions">
+            {repoUrl && <a class="btn btn-primary" href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>}
+            {demoUrl && <a class="btn btn-secondary" href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
+          </div>
+        )}
+      </div>
+    </section>
 
     {(prev || next) && (
       <nav class="cs-nav">
@@ -87,23 +107,39 @@ const {
 <style>
   .case-study { padding-top: var(--space-6); padding-bottom: var(--space-8); }
   .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
-  .cs-eyebrow { margin-bottom: var(--space-3); }
-  .cs-title { margin-bottom: var(--space-2); }
-  .cs-subtitle { font-size: 17px; opacity: 0.85; max-width: 56ch; margin-bottom: var(--space-2); }
-  .cs-meta { font-size: 13px; margin-bottom: var(--space-4); }
 
-  .cs-hero { margin-bottom: var(--space-6); }
+  /* The hero is one block: image, then the identifying chips, title and
+     lead sitting on it — the study's cover sheet. */
+  .cs-head { margin-bottom: var(--space-4); }
+  .cs-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-3); }
+  .cs-title { margin-bottom: var(--space-2); }
+  .cs-subtitle { font-size: 18px; line-height: 1.6; opacity: 0.85; max-width: 62ch; margin: 0; }
+  .cs-head-rule { margin-bottom: var(--space-8); }
+
+  .cs-hero { margin-bottom: var(--space-4); }
   .cs-hero img, .cs-hero video { width: 100%; height: 360px; object-fit: cover; }
 
-  .cs-copy { opacity: 0.85; margin-bottom: var(--space-4); }
+  /* Heading left, body right — the mockup's specification layout. */
+  .cs-split {
+    display: grid;
+    grid-template-columns: 4fr 8fr;
+    gap: var(--space-6);
+    margin-bottom: var(--space-8);
+  }
+  .cs-split-head { margin: 0; }
+  .cs-split-body { min-width: 0; }
+  .cs-split-body.card { gap: var(--space-3); }
+
+  .cs-copy { opacity: 0.85; margin: 0; }
   .cs-content:empty { display: none; }
 
-  .cs-arch { margin-bottom: var(--space-4); }
+  .cs-arch { margin: 0; }
 
-  .cs-list { list-style: disc; opacity: 0.85; padding-left: 20px; margin: 0 0 var(--space-4); }
+  .cs-list { list-style: disc; opacity: 0.85; padding-left: 20px; margin: 0; }
   .cs-list li { margin-bottom: 6px; }
+  .cs-list li:last-child { margin-bottom: 0; }
 
-  .cs-stack { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-6); }
+  .cs-stack { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-4); }
   .cs-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
 
   .cs-nav {
@@ -119,6 +155,11 @@ const {
   .cs-nav-link strong { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 15px; color: var(--color-text); }
   .cs-nav-link:hover strong { color: var(--color-accent); }
   .cs-nav-link.next { text-align: right; margin-left: auto; }
+
+  @media (max-width: 860px) {
+    .cs-split { grid-template-columns: 1fr; gap: var(--space-3); margin-bottom: var(--space-6); }
+    .cs-split > div:empty { display: none; }
+  }
 
   @media (max-width: 640px) {
     .cs-hero img, .cs-hero video { height: 220px; }
