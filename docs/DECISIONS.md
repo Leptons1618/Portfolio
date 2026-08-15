@@ -20,7 +20,7 @@ Short records of the choices that are not obvious from the code. Newest last.
 
 ## 2. `/admin` is an authoring surface, not a CMS
 
-**Status:** accepted
+**Status:** superseded in part by decision 6 — the export path still exists, but the editors can also commit directly now.
 
 **Context.** The design called for a content-management UI. Decision 1 means nothing can be persisted server-side, and there is no session to authenticate.
 
@@ -71,3 +71,45 @@ Short records of the choices that are not obvious from the code. Newest last.
 **Why not leave it.** Not because indirection is virtuous — at 21 projects the direct calls were perfectly fast. Because the *rules* were duplicated, and duplicated rules diverge. The admin dashboard counting drafts as published entries was that divergence, already shipped.
 
 **Consequences.** `CATEGORY_LABELS` is typed against the schema enum, so a new category fails the typecheck until it is labelled. Adding a content query means adding it here, not in the page.
+
+---
+
+## 6. Admin signs in with GitHub OAuth and commits through the API
+
+**Status:** accepted. Supersedes the "rejected alternatives" note in decision 2.
+
+**Context.** Decision 2 rejected a serverless commit path because it meant holding a credential. The cost of that call was the export-and-commit-by-hand loop for every edit. The owner asked for real sign-in and real persistence, accepting the deployment cost.
+
+**Decision.** A GitHub OAuth App, with one Cloudflare Worker (`workers/github-oauth/`) whose entire job is the code→token exchange. The browser half is `src/lib/github.ts`. Signed in, the journal and resume editors `PUT` through the Contents API.
+
+**Why a Worker at all.** GitHub's OAuth web flow requires a client secret at the exchange step, and GitHub does not support PKCE, so a public client cannot complete the flow alone. The device flow is the other secret-free option, but its endpoints send no CORS headers and cannot be called from a browser. A ~150-line stateless Worker is the smallest thing that closes the gap.
+
+**Security posture, and its limits.**
+
+- No secret ships to the browser. Only the client ID and the Worker origin.
+- The token lives in `sessionStorage`, so it dies with the tab. Never `localStorage`.
+- CSRF `state` is 256 random bits, single-use, compared without early exit. It is checked in the browser because the Worker is stateless by design.
+- The authorization code travels in a request body and the token in a response body — neither reaches a URL, a history entry, or a `Referer`.
+- Scope is `public_repo`: enough to commit to this public repo, not enough to read a private one.
+- After the exchange, `login` must equal `site.githubUser`. *Any* GitHub user can complete the flow; only the owner keeps the token.
+- The Worker allowlists `Origin` and pins `redirect_uri` to the calling origin, so it is not a general-purpose exchange oracle.
+- **`/admin/*` is still prerendered public HTML.** The pre-paint redirect hides the editors, it does not protect them. What is protected is the *repository* — GitHub rejects a write without a token. Do not add anything to an admin page that would be a secret if read.
+- Not mitigated: an XSS on an admin page could read the token. There is no server to bind it to. The journal preview's escaping and link-scheme allowlist are load-bearing for this reason.
+
+**Consequences.** The build needs `PUBLIC_GITHUB_CLIENT_ID` and `PUBLIC_GITHUB_OAUTH_WORKER`. When they are unset the sign-in button explains itself and `AdminLayout` does not gate, so a fork still works. `settings` and `projects` keep their export-only flow: their JSON has to be hand-applied to other files, so committing it verbatim would create junk. Setup lives in `workers/github-oauth/README.md`.
+
+**Revisit if** the token needs to outlive a tab, which would mean a real session and therefore a real backend.
+
+---
+
+## 7. A second theme, added as token overrides rather than a second stylesheet
+
+**Status:** accepted
+
+**Context.** The Modernist system is one theme with no switcher. A second look ("Blueprint Technical", spec in `DESIGN.md`) had to coexist without forking the component layer or every page.
+
+**Decision.** `src/styles/themes/blueprint.css` redefines the same token names under `:root[data-theme='blueprint']`, plus the handful of overrides tokens cannot express — the 24px grid ground, dashed rules, hard offset shadows, monospaced metadata. `src/lib/theme.ts` owns the id list and the storage key; the layouts restore the choice in an `is:inline` head script.
+
+**Why this shape.** Every component already read `var(--color-*)`, `var(--font-*)`, `var(--radius-*)`, so rebinding tokens carried most of the theme for free. The alternative — a parallel component stylesheet — doubles the surface that has to stay in step, and the two copies drift the first time someone edits only one.
+
+**Consequences.** Theme rules win on specificity, not source order, so the `@import` position in `global.css` is not load-bearing. A page must never reference a theme; it knows tokens and the classes in `global.css`. Blueprint's three font families are declared on every page but only downloaded when text actually resolves to them, so Modernist visitors pay nothing.

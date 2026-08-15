@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import Illustration from '../components/Illustration.astro';
 import { site } from '../lib/site';
 ---
 <BaseLayout title="About" description={`About ${site.name} — ML/CV engineer and full-stack developer.`}>
@@ -31,6 +32,8 @@ import { site } from '../lib/site';
       <p>I like building and sharing projects publicly, learning through experimentation, and continuously improving engineering quality through better tooling and workflows.</p>
     </div>
 
+    <div class="about-art"><Illustration name="developer-activity" /></div>
+
     <div class="about-links">
       <a href={site.github} class="btn btn-primary" target="_blank" rel="noopener">GitHub ↗</a>
       <a href="/resume" class="btn btn-secondary">Resume</a>
@@ -55,6 +58,13 @@ import { site } from '../lib/site';
   }
   .about-photo img { width: 100%; aspect-ratio: 1; object-fit: cover; object-position: center 20%; }
   .about-profile p { font-size: 16px; line-height: 1.7; opacity: 0.9; margin: 0; }
+
+  .about-art {
+    width: min(420px, 100%);
+    margin: var(--space-6) auto 0;
+    padding-top: var(--space-6);
+    border-top: 2px solid var(--color-divider);
+  }
 
   .about-links { display: flex; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-6); }
 

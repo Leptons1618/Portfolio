@@ -1,0 +1,19 @@
+name = "portfolio-github-oauth"
+main = "src/worker.js"
+compatibility_date = "2026-01-01"
+
+# The site calls the workers.dev URL directly, so that route stays on. Preview
+# URLs do not: every deployed version would get its own public hostname, and
+# this Worker holds a credential. One address is enough surface.
+workers_dev = true
+preview_urls = false
+
+[vars]
+# Public values. GITHUB_CLIENT_ID must equal PUBLIC_GITHUB_CLIENT_ID in the
+# site build, and every entry in ALLOWED_ORIGINS must be an origin the admin
+# is actually served from — including the dev origin while you are working.
+GITHUB_CLIENT_ID = "Ov23lieXFwRfCMIUk8bh"
+ALLOWED_ORIGINS = "https://anishgiri.dev,http://localhost:4321"
+
+# GITHUB_CLIENT_SECRET is NOT set here. It is a secret:
+#   wrangler secret put GITHUB_CLIENT_SECRET

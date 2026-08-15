@@ -111,6 +111,9 @@ dist
 # Serverless directories
 .serverless/
 
+# Wrangler local state (workers/github-oauth)
+.wrangler/
+
 # FuseBox cache
 .fusebox/
 
