@@ -2,6 +2,9 @@
   "name": "portfolio",
   "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "dev": "astro dev",
     "check": "node scripts/check-content.mjs && node scripts/test-frontmatter.mjs && node workers/github-oauth/test.mjs && astro check",

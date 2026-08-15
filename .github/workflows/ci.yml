@@ -20,7 +20,9 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Must match deploy.yml: `npm run check` imports a `.ts` module from a
+          # plain Node script, which needs 22.18+ type stripping.
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
