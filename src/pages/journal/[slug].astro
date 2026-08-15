@@ -40,17 +40,33 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
 
     <div class="prose"><Content /></div>
 
+    <hr class="rule post-footer-rule" />
     <div class="post-footer">
       <span class="text-muted share-label">Share this post</span>
-      <a
-        class="btn btn-secondary"
-        href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`}
-        target="_blank"
-        rel="noopener"
-      >Share on LinkedIn</a>
+      <div class="share-actions">
+        <button type="button" class="btn btn-secondary" id="copy-link" data-url={shareUrl}>Copy link</button>
+        <a
+          class="btn btn-secondary"
+          href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`}
+          target="_blank"
+          rel="noopener"
+        >Share on LinkedIn</a>
+      </div>
     </div>
   </article>
 </BaseLayout>
+
+<script>
+  import { copyText } from '../../lib/clipboard';
+
+  const btn = document.getElementById('copy-link') as HTMLButtonElement | null;
+  btn?.addEventListener('click', async () => {
+    const copied = await copyText(btn.dataset.url || window.location.href);
+    btn.textContent = copied ? 'Copied!' : 'Copy failed';
+    setTimeout(() => { btn.textContent = 'Copy link'; }, 1500);
+  });
+</script>
+
 <style>
   .journal-post { padding-top: var(--space-6); padding-bottom: var(--space-8); }
   .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
@@ -64,6 +80,7 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
 
   .post-summary { opacity: 0.85; margin-bottom: var(--space-6); }
 
+  .post-footer-rule { margin-top: var(--space-8); }
   .post-footer {
     display: flex;
     justify-content: space-between;
@@ -71,9 +88,9 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
     gap: var(--space-3);
     flex-wrap: wrap;
     padding-top: var(--space-4);
-    border-top: 1px solid var(--color-divider);
   }
   .share-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .share-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
   @media (max-width: 640px) {
     .post-figure img { height: 220px; }

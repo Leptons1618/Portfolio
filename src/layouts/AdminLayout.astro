@@ -27,7 +27,8 @@ const navItems = [
   { key: 'dashboard', label: 'Dashboard', href: '/admin/dashboard', code: '01' },
   { key: 'projects', label: 'Projects', href: '/admin/projects', code: '02' },
   { key: 'journal', label: 'Journal', href: '/admin/journal', code: '03' },
-  { key: 'settings', label: 'Settings', href: '/admin/settings', code: '04' },
+  { key: 'resume', label: 'Resume', href: '/admin/resume', code: '04' },
+  { key: 'settings', label: 'Settings', href: '/admin/settings', code: '05' },
 ];
 ---
 <!DOCTYPE html>
@@ -78,7 +79,13 @@ const navItems = [
         ))}
       </nav>
       <div class="admin-sidebar-foot">
-        <span class="collapsible" id="admin-identity">Admin User · <a href="/">public site ↗</a></span>
+        <a class="btn btn-primary btn-block admin-new-post" href="/admin/journal">
+          <span class="admin-new-post-mark">+</span><span class="collapsible">New Post</span>
+        </a>
+        <span class="admin-identity-row">
+          <img class="admin-avatar" id="admin-avatar" alt="" width="24" height="24" hidden />
+          <span class="collapsible" id="admin-identity">Admin User · <a href="/">public site ↗</a></span>
+        </span>
         <span class="collapsible admin-foot-actions">
           <ThemeToggle />
           <button type="button" class="btn btn-ghost admin-signout" id="admin-signout" hidden>Sign out</button>
@@ -111,6 +118,13 @@ const navItems = [
       link.textContent = 'public site ↗';
       identity.replaceChildren(document.createTextNode(`@${user.login} · `), link);
       signOutButton.hidden = false;
+
+      /* Avatar comes back from GitHub, so it is set as a src rather than
+         written into markup — same reason the login above is a text node. */
+      const avatar = document.getElementById('admin-avatar') as HTMLImageElement;
+      avatar.src = user.avatarUrl;
+      avatar.alt = `@${user.login}`;
+      avatar.hidden = false;
     }
 
     signOutButton.addEventListener('click', () => {

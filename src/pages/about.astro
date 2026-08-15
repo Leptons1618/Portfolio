@@ -15,6 +15,7 @@ import { site } from '../lib/site';
       </div>
       <p>I build systems at the intersection of data, inference, and user experience. My work spans research prototypes to production systems, with a bias towards clean code and measurable results.</p>
     </div>
+    <hr class="rule about-rule" />
 
     <div class="prose">
       <p>I enjoy turning complex ideas into practical products, especially in AI-powered applications where model performance and user experience both matter. I focus on writing maintainable code, designing scalable architecture, and shipping features that create clear impact.</p>
@@ -32,6 +33,7 @@ import { site } from '../lib/site';
       <p>I like building and sharing projects publicly, learning through experimentation, and continuously improving engineering quality through better tooling and workflows.</p>
     </div>
 
+    <hr class="rule about-rule" />
     <div class="about-art"><Illustration name="developer-activity" /></div>
 
     <div class="about-links">
@@ -52,18 +54,14 @@ import { site } from '../lib/site';
     grid-template-columns: 220px 1fr;
     gap: var(--space-6);
     align-items: start;
-    padding-bottom: var(--space-6);
-    margin-bottom: var(--space-6);
-    border-bottom: 2px solid var(--color-divider);
   }
+  .about-rule { margin: var(--space-6) 0; }
   .about-photo img { width: 100%; aspect-ratio: 1; object-fit: cover; object-position: center 20%; }
   .about-profile p { font-size: 16px; line-height: 1.7; opacity: 0.9; margin: 0; }
 
   .about-art {
     width: min(420px, 100%);
-    margin: var(--space-6) auto 0;
-    padding-top: var(--space-6);
-    border-top: 2px solid var(--color-divider);
+    margin: 0 auto;
   }
 
   .about-links { display: flex; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-6); }
