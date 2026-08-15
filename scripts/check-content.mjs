@@ -98,6 +98,21 @@ function check() {
     }
   }
 
+  /* 5. ...and the deploy workflow does not quietly overrule it. `SITE_URL` in
+     the environment beats both files above, so a literal origin hard-coded
+     into the workflow bypasses check 4 entirely: the build stays green and
+     every canonical URL, OG tag and sitemap entry in production points at the
+     wrong host. That is exactly what shipped once. */
+  const workflow = p('.github/workflows/deploy.yml');
+  if (existsSync(workflow)) {
+    const text = readFileSync(workflow, 'utf8');
+    for (const [, origin] of text.matchAll(/SITE_URL:.*?'(https?:\/\/[^']+)'/g)) {
+      if (new URL(origin).hostname !== cname) {
+        fail('.github/workflows/deploy.yml', `SITE_URL hard-codes "${origin}", which is not public/CNAME ("${cname}")`);
+      }
+    }
+  }
+
   return { errors, counts: { projects: projects.length, caseStudies: caseStudies.length, journal: journal.length } };
 }
 
