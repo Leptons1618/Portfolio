@@ -1,0 +1,48 @@
+---
+/**
+ * Inlines one of the vector illustrations in `src/assets/illustrations/`.
+ *
+ * Inlined rather than served from `public/` because the artwork's fills were
+ * rewritten to `var(--color-*)` tokens — an `<img src>` renders in its own
+ * document and cannot see the page's custom properties, so it would fall back
+ * to black. Inline, the illustration re-colors with the active theme for free.
+ *
+ * Decorative by definition: the wrapper is `aria-hidden`, so every usage must
+ * carry its meaning in adjacent text.
+ *
+ * Size it from a wrapper element in the calling page, not with a class passed
+ * in here — a class on a component root does not receive the caller's
+ * `data-astro-cid`, so the caller's scoped rule would silently never match.
+ */
+interface Props {
+  /** File name without the extension, e.g. `no-data`. */
+  name: string;
+}
+
+const sources = import.meta.glob<string>('../assets/illustrations/*.svg', {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+});
+
+const { name } = Astro.props;
+const key = `../assets/illustrations/${name}.svg`;
+const svg = sources[key];
+
+if (!svg) {
+  const known = Object.keys(sources).map(k => k.replace(/.*\/|\.svg$/g, '')).join(', ');
+  throw new Error(`Illustration "${name}" not found. Available: ${known}`);
+}
+---
+<div class="illustration" aria-hidden="true" set:html={svg} />
+
+<style>
+  /* The artwork carries a viewBox and no intrinsic size, so it fills the
+     width it is given and takes its height from the aspect ratio. `:global`
+     is required: `set:html` content does not receive the scope attribute. */
+  .illustration :global(svg) {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+</style>

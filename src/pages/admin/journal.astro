@@ -17,7 +17,8 @@ const today = new Date().toISOString().slice(0, 10);
     <div class="admin-actions">
       <button type="button" class="btn btn-secondary" id="focus-toggle">Focus</button>
       <button type="button" class="btn btn-secondary" id="save-draft">Save Draft</button>
-      <button type="button" class="btn btn-primary" id="export-md">Export .md</button>
+      <button type="button" class="btn btn-secondary" id="export-md">Export .md</button>
+      <button type="button" class="btn btn-primary" id="commit-md">Commit to GitHub</button>
     </div>
   </div>
 
@@ -106,6 +107,7 @@ const today = new Date().toISOString().slice(0, 10);
 
 <script>
   import { ADMIN_KEYS } from '../../lib/admin';
+  import { commitFile, getToken } from '../../lib/github';
 
   const KEY = ADMIN_KEYS.journalDraft;
   const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -264,6 +266,50 @@ const today = new Date().toISOString().slice(0, 10);
     a.download = `${slugify(fields.title.value)}.md`;
     a.click();
     URL.revokeObjectURL(url);
+  });
+
+  /* Commit straight to the repository. The export above stays: it is the only
+     path that works when you are not signed in, or when you want to review the
+     file before it lands. */
+  const commitBtn = $<HTMLButtonElement>('commit-md');
+
+  if (!getToken()) {
+    commitBtn.disabled = true;
+    commitBtn.title = 'Sign in with GitHub to commit.';
+  }
+
+  commitBtn.addEventListener('click', async () => {
+    const slug = slugify(fields.title.value);
+    const path = `src/content/journal/${slug}.md`;
+
+    commitBtn.disabled = true;
+    commitBtn.textContent = 'Committing…';
+    stamp.textContent = `Writing ${path}…`;
+
+    try {
+      const { url, created } = await commitFile({
+        path,
+        content: buildMarkdown(),
+        message: `content(journal): ${slug}`,
+      });
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = 'view commit ↗';
+      stamp.replaceChildren(
+        document.createTextNode(`${created ? 'Created' : 'Updated'} ${path} — `),
+        link
+      );
+      commitBtn.textContent = 'Committed ✓';
+    } catch (error) {
+      stamp.textContent = error instanceof Error ? error.message : 'Commit failed.';
+      commitBtn.textContent = 'Commit to GitHub';
+    } finally {
+      commitBtn.disabled = false;
+      setTimeout(() => { commitBtn.textContent = 'Commit to GitHub'; }, 2000);
+    }
   });
 
   const shell = document.getElementById('admin-shell')!;

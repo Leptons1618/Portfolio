@@ -1,0 +1,55 @@
+---
+/**
+ * Two-state theme switch. Server-rendered in the default (Modernist) state;
+ * the inline head script in the layouts has already set `data-theme` before
+ * paint, so this script only has to relabel the control and handle clicks.
+ */
+import { DEFAULT_THEME, THEMES } from '../lib/theme';
+
+const next = THEMES.find(t => t.id !== DEFAULT_THEME)!;
+---
+<button
+  type="button"
+  class="btn theme-toggle"
+  id="theme-toggle"
+  aria-label={`Switch to the ${next.label} theme`}
+>
+  <span class="theme-toggle-swatch" aria-hidden="true"></span>
+  <span id="theme-toggle-label">{next.label}</span>
+</button>
+
+<script>
+  import { DEFAULT_THEME, THEME_KEY, THEMES, type ThemeId } from '../lib/theme';
+
+  const button = document.getElementById('theme-toggle')!;
+  const label = document.getElementById('theme-toggle-label')!;
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+
+  const isTheme = (value: string | null): value is ThemeId =>
+    THEMES.some(t => t.id === value);
+
+  function current(): ThemeId {
+    const attr = document.documentElement.dataset.theme ?? null;
+    return isTheme(attr) ? attr : DEFAULT_THEME;
+  }
+
+  function apply(id: ThemeId) {
+    const theme = THEMES.find(t => t.id === id)!;
+    const target = THEMES.find(t => t.id !== id)!;
+
+    if (id === DEFAULT_THEME) delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = id;
+
+    if (meta) meta.content = theme.themeColor;
+    label.textContent = target.label;
+    button.setAttribute('aria-label', `Switch to the ${target.label} theme`);
+  }
+
+  apply(current());
+
+  button.addEventListener('click', () => {
+    const next = THEMES.find(t => t.id !== current())!;
+    localStorage.setItem(THEME_KEY, next.id);
+    apply(next.id);
+  });
+</script>

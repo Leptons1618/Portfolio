@@ -1,4 +1,7 @@
 @import './theme.css';
+/* Alternate themes. Each file is inert until `<html>` carries its
+   `data-theme`, and each wins on specificity rather than on source order. */
+@import './themes/blueprint.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -181,18 +184,100 @@ pre {
   cursor: not-allowed;
 }
 
+/* The primary action is an angled panel: an ink ground with an accent
+   parallelogram that sweeps in from the left on hover, plus a tick in the
+   top-left and bottom-right corners.
+
+   The slanted edge is a hard-stop `linear-gradient` rather than the SVG
+   data-URI the pattern is usually written with, because a data-URI cannot
+   read `var(--color-accent)` — this way the sweep re-colors with the theme.
+   120deg puts the stop boundary 30° off vertical, matching the source shape.
+   The gradient is 220% wide and parked off the right edge, so animating
+   `background-position-x` alone drives the sweep. */
 .btn-primary {
-  background: var(--color-accent);
+  position: relative;
   color: var(--color-bg);
+  background-color: var(--color-text);
+  background-image: linear-gradient(120deg, var(--color-accent) 0 50%, transparent 50%);
+  background-size: 220% 100%;
+  background-position: 100% 0;
+  background-repeat: no-repeat;
+  border-color: var(--color-text);
+  padding: var(--space-3) var(--space-8);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: background-position 0.3s ease-in-out, border-color 0.3s ease-in-out;
+}
+
+/* Corner ticks. They read as ink against the resting ground and flip to the
+   page ground once the accent has swept underneath them. */
+.btn-primary::before,
+.btn-primary::after {
+  content: '';
+  position: absolute;
+  transition: background-color 0.15s ease-in-out;
+}
+
+.btn-primary::before {
+  top: -1px;
+  left: -1px;
+  width: 0.2rem;
+  height: 0.2rem;
+  background-color: var(--color-text);
+}
+
+.btn-primary::after {
+  right: -1px;
+  bottom: -1px;
+  width: 0.3rem;
+  height: 0.3rem;
+  background-color: var(--color-accent);
 }
 
 .btn-primary:hover {
-  background: var(--color-accent-600);
   color: var(--color-bg);
+  background-position: 40% 0;
+  border-color: var(--color-accent);
+}
+
+.btn-primary:hover::before,
+.btn-primary:hover::after {
+  background-color: var(--color-bg);
 }
 
 .btn-primary:active {
-  background: var(--color-accent-700);
+  background-position: 28% 0;
+}
+
+/* Optional bracket frame around a primary action — two half-height rules
+   that leave a gap at the vertical midpoint, so the button reads as a target
+   in a reticle. Wrap the button in `<span class="button-borders">`. */
+.button-borders {
+  position: relative;
+  width: fit-content;
+  height: fit-content;
+}
+
+.button-borders::before,
+.button-borders::after {
+  content: '';
+  position: absolute;
+  left: -0.3em;
+  width: calc(100% + 0.5em);
+  height: 50%;
+  border: 1px solid var(--color-text);
+  pointer-events: none;
+}
+
+.button-borders::before {
+  top: -0.3em;
+  border-bottom: 0;
+}
+
+.button-borders::after {
+  bottom: -0.3em;
+  border-top: 0;
 }
 
 .btn-secondary {
@@ -226,6 +311,36 @@ pre {
   width: 36px;
   height: 36px;
   padding: 0;
+}
+
+/* The theme switch. Quiet by design — it is chrome, not an action, so it sits
+   below the nav links in weight and only picks up the accent on hover. */
+.theme-toggle {
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  border-color: var(--color-divider);
+  padding: 5px 10px;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.theme-toggle:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* Status square in the live accent — it recolors on switch, which is the
+   cheapest confirmation that the click landed. The label names the theme the
+   click will take you to. */
+.theme-toggle-swatch {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  background: var(--color-accent);
 }
 
 /* A button wider than its label starts the text at the left padding edge —

@@ -1,0 +1,222 @@
+/* ==========================================================================
+   Blueprint Technical — the second theme.
+
+   Ported from Stitch project 15389477938522710269; the written spec is
+   `DESIGN.md` at the repo root. Selected at runtime by `data-theme="blueprint"`
+   on `<html>` (see `src/lib/theme.ts`), which is why every rule here is scoped
+   to that attribute — with no attribute the file contributes nothing and
+   Modernist renders untouched.
+
+   Two parts, in this order:
+
+   1. Token overrides. Because every component in `global.css` already reads
+      `var(--color-*)` / `var(--font-*)` / `var(--radius-*)`, rebinding the
+      tokens carries most of the theme on its own.
+   2. The signature overrides tokens cannot express: the 24px pencil grid, the
+      dashed rules, the hard offset shadows, the monospaced metadata, and the
+      bracketed wordmark.
+
+   Nothing here may be referenced by a page. Pages know about tokens and about
+   the component classes in `global.css`; they never know which theme is on.
+   ========================================================================== */
+
+:root[data-theme='blueprint'] {
+  color-scheme: light;
+
+  --color-bg: #f9f9ff;
+  --color-surface: #e7eeff;
+  --color-text: #121c2c;
+  --color-accent: #b52426;
+  --color-accent-2: #1e3a5f;
+  --color-divider: #c4c6cf;
+
+  /* Neutral ramp — the system's surface tiers and outlines, in the same
+     100 (lightest) → 900 (ink) order the Modernist ramps use. */
+  --color-neutral-100: #ffffff;
+  --color-neutral-200: #f0f3ff;
+  --color-neutral-300: #e7eeff;
+  --color-neutral-400: #d9e3f9;
+  --color-neutral-500: #c4c6cf;
+  --color-neutral-600: #74777f;
+  --color-neutral-700: #43474e;
+  --color-neutral-800: #273141;
+  --color-neutral-900: #121c2c;
+
+  /* Rust — the single interaction accent. 700 is the step body-size links
+     use, and it clears 4.5:1 on this ground. */
+  --color-accent-100: #fff2f1;
+  --color-accent-200: #ffdad6;
+  --color-accent-300: #ffb3ad;
+  --color-accent-400: #ff8b84;
+  --color-accent-500: #ff5a55;
+  --color-accent-600: #d93a35;
+  --color-accent-700: #b52426;
+  --color-accent-800: #920212;
+  --color-accent-900: #600008;
+
+  /* Navy — secondary emphasis, and the ink the hard shadows are cast in. */
+  --color-accent-2-100: #eef3ff;
+  --color-accent-2-200: #d5e3ff;
+  --color-accent-2-300: #adc8f5;
+  --color-accent-2-400: #8aa4cf;
+  --color-accent-2-500: #455f87;
+  --color-accent-2-600: #2d486d;
+  --color-accent-2-700: #1e3a5f;
+  --color-accent-2-800: #022448;
+  --color-accent-2-900: #001c3b;
+
+  --font-heading: 'Space Grotesk Variable', 'Space Grotesk', system-ui, sans-serif;
+  --font-heading-weight: 700;
+  --font-body: 'Manrope Variable', 'Manrope', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+
+  /* Hard offset shadows — a solid block with no blur, so a card reads as a
+     sheet of paper lying on the desk rather than as a floating panel. */
+  --shadow-sm: 2px 2px 0 0 var(--color-neutral-500);
+  --shadow-md: 2px 2px 0 0 var(--color-neutral-800);
+  --shadow-lg: 4px 4px 0 0 var(--color-accent-2-800);
+
+  --color-text-muted: color-mix(in srgb, var(--color-text) 65%, transparent);
+  --color-text-faint: color-mix(in srgb, var(--color-text) 55%, transparent);
+
+  /* The 24px grid the whole system is drawn on. Kept as a token so the
+     background rule below and any future motif stay in step. */
+  --grid-step: 24px;
+  --grid-ink: color-mix(in srgb, var(--color-text) 5%, transparent);
+}
+
+/* — the pencil grid ————————————————————————————————————————————————————
+   Fixed, so it reads as the drafting surface the page sits on rather than as
+   texture printed onto the content. */
+[data-theme='blueprint'] body {
+  font-size: 16px;
+  background-image:
+    linear-gradient(to right, var(--grid-ink) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-ink) 1px, transparent 1px);
+  background-size: var(--grid-step) var(--grid-step);
+  background-attachment: fixed;
+}
+
+[data-theme='blueprint'] h1 {
+  font-size: 48px;
+  letter-spacing: -0.02em;
+}
+
+/* — metadata is monospaced, without exception ————————————————————————— */
+[data-theme='blueprint'] .tag,
+[data-theme='blueprint'] .card-kicker,
+[data-theme='blueprint'] .card-meta,
+[data-theme='blueprint'] .field > label,
+[data-theme='blueprint'] figcaption {
+  font-family: var(--font-mono);
+}
+
+[data-theme='blueprint'] .input::placeholder {
+  font-family: var(--font-mono);
+  color: var(--color-text-faint);
+}
+
+/* — section marks and the bracketed wordmark ——————————————————————————
+   `h6` is the eyebrow throughout the site. Long-form copy is exempt: a `§`
+   in front of a heading inside an article is noise, not structure. */
+[data-theme='blueprint'] h6::before {
+  content: '§ ';
+  color: var(--color-accent);
+}
+
+[data-theme='blueprint'] .prose h6::before {
+  content: none;
+}
+
+[data-theme='blueprint'] .nav-brand::before { content: '['; }
+[data-theme='blueprint'] .nav-brand::after { content: ']'; }
+
+/* — rules are dashed: a "cut here" line, not a border ————————————————— */
+[data-theme='blueprint'] .hr {
+  height: 0;
+  background: none;
+  border-top: 1px dashed var(--color-divider);
+}
+
+[data-theme='blueprint'] .nav {
+  border-bottom: 1px dashed var(--color-divider);
+}
+
+[data-theme='blueprint'] .prose blockquote {
+  border-left-style: dashed;
+}
+
+[data-theme='blueprint'] .prose th {
+  border-bottom: 1px dashed var(--color-divider);
+}
+
+[data-theme='blueprint'] .prose td {
+  border-bottom-style: dashed;
+}
+
+/* — cards are sheets of paper ——————————————————————————————————————————
+   White fill a step above the ground, a hairline outline, and a hard shadow.
+   Only a card that is itself a link lifts; a static card has nothing to
+   promise. */
+[data-theme='blueprint'] .card {
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-divider);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-sm);
+}
+
+[data-theme='blueprint'] a.card {
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+[data-theme='blueprint'] a.card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translate(-2px, -2px);
+}
+
+/* — buttons press into the page ————————————————————————————————————————
+   The offset shadow collapses and the button moves by the same 2px, so the
+   total displacement is conserved and the press reads as physical. */
+[data-theme='blueprint'] .btn-primary {
+  box-shadow: 2px 2px 0 0 var(--color-accent-2-900);
+  transition:
+    background-position 0.3s ease-in-out,
+    border-color 0.3s ease-in-out,
+    box-shadow 0.1s ease,
+    transform 0.1s ease;
+}
+
+[data-theme='blueprint'] .btn-secondary {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  background: var(--color-neutral-100);
+  border-color: var(--color-neutral-600);
+  box-shadow: 2px 2px 0 0 var(--color-neutral-500);
+  transition: box-shadow 0.1s ease, transform 0.1s ease, background-color 0.15s ease;
+}
+
+[data-theme='blueprint'] .btn-primary:active,
+[data-theme='blueprint'] .btn-secondary:active {
+  box-shadow: none;
+  transform: translate(2px, 2px);
+}
+
+/* — the bracket frame is a Modernist device; Blueprint frames with the
+     shadow instead, so it would double up — */
+[data-theme='blueprint'] .button-borders::before,
+[data-theme='blueprint'] .button-borders::after {
+  content: none;
+}
+
+/* — the theme switch itself ————————————————————————————————————————————
+   Declared here as well as in `global.css` so the control matches whichever
+   theme is showing. */
+[data-theme='blueprint'] .theme-toggle {
+  font-family: var(--font-mono);
+  border-color: var(--color-divider);
+}
