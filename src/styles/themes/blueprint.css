@@ -142,6 +142,10 @@
   border-top: 1px dashed var(--color-divider);
 }
 
+[data-theme='blueprint'] .rule {
+  border-top-style: dashed;
+}
+
 [data-theme='blueprint'] .nav {
   border-bottom: 1px dashed var(--color-divider);
 }

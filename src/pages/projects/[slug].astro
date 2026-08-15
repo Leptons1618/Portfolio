@@ -18,28 +18,44 @@ const related = (await getProjects())
 <BaseLayout title={title} description={summary}>
   <div class="container detail">
     <a class="btn btn-ghost back-link" href="/projects">← Back to Projects</a>
+
+    <header class="detail-head">
+      <div class="detail-chips">
+        <span class="tag tag-neutral">{categoryLabel(category)}</span>
+        <span class="tag tag-neutral">{year}</span>
+        <span class="tag tag-neutral">{status}</span>
+      </div>
+      <h1>{title}</h1>
+      <p class="detail-summary">{summary}</p>
+    </header>
+    <hr class="rule detail-head-rule" />
+
     <div class="detail-grid">
       <div class="detail-main">
-        <span class="tag tag-accent-2 detail-tag">{categoryLabel(category)} · {year}</span>
-        <h1>{title}</h1>
-        <p class="detail-summary">{summary}</p>
-        <p class="detail-status text-muted">Status: {status}</p>
-
         {highlights.length > 0 && (
           <section class="detail-section">
-            <h3>Highlights</h3>
-            <ul class="highlight-list">
-              {highlights.map(h => <li>{h}</li>)}
-            </ul>
+            <div class="section-head-rule detail-section-head">
+              <h3>Highlights</h3>
+              <hr class="rule" />
+            </div>
+            <div class="card elev-sm">
+              <ul class="highlight-list">
+                {highlights.map(h => <li>{h}</li>)}
+              </ul>
+            </div>
           </section>
         )}
 
         {related.length > 0 && (
           <section class="detail-section">
-            <h3>Related Projects</h3>
+            <div class="section-head-rule detail-section-head">
+              <h3>Related Projects</h3>
+              <hr class="rule" />
+            </div>
             <div class="related-list">
               {related.map(r => (
                 <a href={`/projects/${r.slug}`} class="card elev-sm related-card">
+                  <span class="card-kicker">{r.data.year}</span>
                   <h4 class="card-title">{r.data.title}</h4>
                   <p class="card-body">{r.data.summary}</p>
                 </a>
@@ -75,12 +91,16 @@ const related = (await getProjects())
   .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
   .detail-grid { display: grid; grid-template-columns: 1fr 280px; gap: var(--space-8); }
   .detail-main { min-width: 0; }
-  .detail-tag { margin-bottom: var(--space-3); }
+
+  .detail-head { margin-bottom: var(--space-4); }
+  .detail-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-3); }
   h1 { margin-bottom: var(--space-2); }
-  .detail-summary { font-size: 17px; opacity: 0.85; max-width: 56ch; margin-bottom: var(--space-2); }
-  .detail-status { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: var(--space-6); }
+  .detail-summary { font-size: 18px; line-height: 1.6; opacity: 0.85; max-width: 62ch; margin: 0; }
+  .detail-head-rule { margin-bottom: var(--space-6); }
 
   .detail-section { margin-bottom: var(--space-6); }
+  .detail-section-head { margin-bottom: var(--space-3); }
+  .detail-section-head h3 { margin: 0; }
   .highlight-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-2); }
   .highlight-list li { padding-left: var(--space-4); position: relative; opacity: 0.85; font-size: 14px; }
   .highlight-list li::before { content: '→'; position: absolute; left: 0; color: var(--color-accent); }

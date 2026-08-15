@@ -3,20 +3,36 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 import { getProjects } from '../../lib/content';
 import { site } from '../../lib/site';
 
-const projects = await getProjects();
+/* Hidden projects are exactly what this screen manages, so it asks for them. */
+const projects = await getProjects(true);
 const GITHUB_USER = site.githubUser;
 
-const rows = projects.map(p => ({
-  slug: p.slug,
-  title: p.data.title,
-  repoUrl: p.data.repoUrl,
-  repoName: p.data.repoUrl.replace(/\/+$/, '').split('/').pop() ?? '',
-  year: p.data.year,
-  status: p.data.status,
-  caseStudySlug: p.data.caseStudySlug,
-  /* wip work is the design's default-hidden case */
-  defaultVisible: p.data.status !== 'wip',
-}));
+/** `https://github.com/owner/repo` → the two halves the GitHub API needs. */
+function splitRepo(url: string): { owner: string; name: string } {
+  const [owner = GITHUB_USER, name = ''] = new URL(url).pathname
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\.git$/, '')
+    .split('/');
+  return { owner, name };
+}
+
+const rows = projects.map(p => {
+  const { owner, name } = splitRepo(p.data.repoUrl);
+  return {
+    slug: p.slug,
+    /* The file this card commits to. Astro derives the slug from the filename,
+       so the path is the slug — see `docs/DECISIONS.md`. */
+    path: `src/content/projects/${p.slug}.md`,
+    title: p.data.title,
+    repoUrl: p.data.repoUrl,
+    owner,
+    repoName: name,
+    year: p.data.year,
+    status: p.data.status,
+    caseStudySlug: p.data.caseStudySlug,
+    hidden: p.data.hidden,
+  };
+});
 
 const STATUS_VARIANT: Record<string, string> = {
   active: 'tag-accent-2',
@@ -25,78 +41,119 @@ const STATUS_VARIANT: Record<string, string> = {
   archived: 'tag-neutral',
 };
 
-const withRepo = rows.filter(r => r.repoName).length;
+const hiddenCount = rows.filter(r => r.hidden).length;
+const linkedCount = rows.filter(r => r.caseStudySlug).length;
 ---
 <AdminLayout title="Project Manager" section="projects">
   <div class="admin-main-wide">
     <h6 class="admin-eyebrow-mono">MODULE: PROJECT_MGMT</h6>
     <h1 class="pm-title">Project Portfolio</h1>
-    <p class="pm-desc">Manage project visibility, sync with remote repositories, and edit case study slugs.</p>
+    <p class="pm-desc">
+      Manage project visibility, sync with remote repositories, and edit case study links.
+      Every change here is a commit to <code>src/content/projects/</code> on the default
+      branch, which is what triggers a rebuild.
+    </p>
 
     <section class="card elev-sm source-control">
-      <h6 class="admin-eyebrow">Source Control</h6>
-      <div class="source-row">
-        <div>
-          <p class="source-account">Connected Account: @{GITHUB_USER}</p>
-          <div class="source-tags">
-            <span class="tag tag-accent-2">{projects.length} projects tracked</span>
-            <span class="tag tag-accent-2">{withRepo} with repositories</span>
-          </div>
-        </div>
+      <div class="source-head">
+        <h6 class="admin-eyebrow">Source Control</h6>
         <div class="admin-actions">
           <a class="btn btn-secondary" href="https://github.com/settings/installations" target="_blank" rel="noopener">Authorize Repositories</a>
-          <button type="button" class="btn btn-primary" id="import-repos" data-user={GITHUB_USER}>Import from GitHub</button>
+          <button type="button" class="btn btn-secondary" id="import-repos" data-user={GITHUB_USER}>Import from GitHub</button>
+          <a class="btn btn-primary" href="/admin/" id="connect-github">Connect to GitHub</a>
+        </div>
+      </div>
+      <hr class="rule" />
+      <div class="source-row">
+        <div class="source-identity">
+          <img class="source-avatar" id="source-avatar" alt="" width="40" height="40" hidden />
+          <div>
+            <p class="source-account" id="source-account">Connected Account: @{GITHUB_USER}</p>
+            <div class="source-tags">
+              <span class="tag tag-neutral" id="session-pill">not signed in · read only</span>
+              <span class="tag tag-accent-2">{rows.length} projects tracked</span>
+              <span class="tag tag-accent-2">{linkedCount} linked to a case study</span>
+              {hiddenCount > 0 && <span class="tag tag-neutral">{hiddenCount} hidden</span>}
+            </div>
+          </div>
         </div>
       </div>
       <p class="text-muted admin-note" id="import-status"></p>
       <div id="import-results" class="import-results"></div>
     </section>
 
-    <h6 class="admin-eyebrow table-heading">Repository Sync ({rows.length})</h6>
-    <div class="card elev-sm table-card">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>Project</th>
-            <th>Repository</th>
-            <th>Year</th>
-            <th>Slug</th>
-            <th>Status</th>
-            <th>Visible</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(r => (
-            <tr>
-              <td class="cell-strong">{r.title}</td>
-              <td class="text-muted cell-mono">{GITHUB_USER}/{r.repoName}</td>
-              <td class="text-muted cell-mono">{r.year}</td>
-              <td class="text-muted cell-mono">/{r.slug}</td>
-              <td><span class={`tag ${STATUS_VARIANT[r.status] ?? 'tag-neutral'}`}>{r.status}</span></td>
-              <td>
-                <button
-                  type="button"
-                  class="toggle"
-                  role="switch"
-                  data-slug={r.slug}
-                  aria-checked={r.defaultVisible ? 'true' : 'false'}
-                  aria-label={`Toggle visibility for ${r.title}`}
-                ><span></span></button>
-              </td>
-              <td class="cell-nowrap">
-                <a class="row-action" href={r.repoUrl} target="_blank" rel="noopener">Repo ↗</a>
-                <a class="row-action" href={r.caseStudySlug ? `/case-studies/${r.caseStudySlug}` : `/projects/${r.slug}`}>View</a>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div class="section-head-rule pm-grid-head">
+      <h6 class="admin-eyebrow">Repository Sync ({rows.length})</h6>
+      <hr class="rule" />
     </div>
 
-    <p class="text-muted admin-note visibility-note">
-      Visibility toggles are stored in this browser. Export them below and apply the result to
-      <code>src/content/projects/*.md</code> to change what the public site renders.
+    <div class="pm-grid">
+      {rows.map(r => (
+        <article
+          class="card elev-sm pm-card"
+          data-slug={r.slug}
+          data-path={r.path}
+          data-owner={r.owner}
+          data-repo={r.repoName}
+          data-case-study={r.caseStudySlug ?? ''}
+        >
+          <div class="pm-card-head">
+            <div class="pm-card-id">
+              <h3 class="pm-card-title">{r.title}</h3>
+              <p class="pm-card-meta">
+                <span class="pm-branch">branch: —</span> · <span class="pm-sync">last sync: not fetched</span>
+              </p>
+            </div>
+            <div class="pm-visibility">
+              <span class="pm-field-label">Visibility</span>
+              <button
+                type="button"
+                class="toggle"
+                role="switch"
+                data-slug={r.slug}
+                aria-checked={r.hidden ? 'false' : 'true'}
+                aria-label={`Toggle visibility for ${r.title}`}
+              ><span></span></button>
+            </div>
+          </div>
+
+          <hr class="rule" />
+
+          <div class="pm-fields">
+            <div>
+              <span class="pm-field-label">Mapped Repository</span>
+              <a class="pm-field-value" href={r.repoUrl} target="_blank" rel="noopener">{r.owner}/{r.repoName} ↗</a>
+            </div>
+            <div>
+              <span class="pm-field-label">Year · Status</span>
+              <span class="pm-field-value">{r.year} <span class={`tag ${STATUS_VARIANT[r.status] ?? 'tag-neutral'}`}>{r.status}</span></span>
+            </div>
+            <div>
+              <span class="pm-field-label">Slug</span>
+              <a class="pm-field-value" href={`/projects/${r.slug}`}>/{r.slug}</a>
+            </div>
+            <div>
+              <span class="pm-field-label">Case Study</span>
+              {r.caseStudySlug
+                ? <a class="pm-field-value" href={`/case-studies/${r.caseStudySlug}`}>linked · {r.caseStudySlug}</a>
+                : <span class="pm-field-value text-muted">none</span>}
+            </div>
+          </div>
+
+          <p class="text-muted admin-note pm-status" data-role="status"></p>
+
+          <div class="pm-actions">
+            <button type="button" class="btn btn-secondary btn-sm" data-action="fetch">Fetch</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-action="unlink" disabled={!r.caseStudySlug}>Unlink</button>
+            <button type="button" class="btn btn-secondary btn-sm pm-danger" data-action="delete">Delete</button>
+          </div>
+        </article>
+      ))}
+    </div>
+
+    <p class="text-muted admin-note visibility-note" id="write-note">
+      Signed out, the visibility switches are held in this browser only — export them and apply
+      the result to <code>src/content/projects/*.md</code> by hand.
     </p>
     <button type="button" class="btn btn-secondary" id="export-visibility">Export Visibility JSON</button>
   </div>
@@ -104,11 +161,69 @@ const withRepo = rows.filter(r => r.repoName).length;
 
 <script>
   import { ADMIN_KEYS } from '../../lib/admin';
+  import { removeFrontmatterField, setFrontmatterField } from '../../lib/frontmatter';
+  import { commitFile, deleteFile, fetchRepoMeta, getToken, getUser, readFile } from '../../lib/github';
 
   const KEY = ADMIN_KEYS.projectVisibility;
-  const toggles = Array.from(document.querySelectorAll<HTMLButtonElement>('.toggle[data-slug]'));
+  const signedIn = Boolean(getToken() && getUser());
 
-  function readState(): Record<string, boolean> {
+  /* Signed in, a switch is a commit; signed out it is a note to yourself. The
+     screen says which of the two it is doing rather than looking the same in
+     both states. */
+  const account = getUser();
+  if (signedIn && account) {
+    document.getElementById('source-account')!.textContent = `Connected Account: @${account.login}`;
+    const pill = document.getElementById('session-pill')!;
+    pill.textContent = 'signed in · commits enabled';
+    pill.className = 'tag tag-accent';
+    const avatar = document.getElementById('source-avatar') as HTMLImageElement;
+    avatar.src = account.avatarUrl;
+    avatar.alt = `@${account.login}`;
+    avatar.hidden = false;
+    document.getElementById('connect-github')!.remove();
+    document.getElementById('write-note')!.textContent =
+      'Visibility, unlink and delete commit straight to the default branch. Deploy follows the push.';
+  }
+
+  const cards = Array.from(document.querySelectorAll<HTMLElement>('.pm-card'));
+
+  function say(card: HTMLElement, message: string, tone: 'info' | 'error' = 'info') {
+    const line = card.querySelector<HTMLElement>('[data-role="status"]')!;
+    line.textContent = message;
+    line.dataset.tone = tone;
+  }
+
+  function link(card: HTMLElement, message: string, url: string) {
+    const line = card.querySelector<HTMLElement>('[data-role="status"]')!;
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.target = '_blank';
+    anchor.rel = 'noopener';
+    anchor.textContent = 'view commit ↗';
+    line.dataset.tone = 'info';
+    line.replaceChildren(document.createTextNode(`${message} — `), anchor);
+  }
+
+  const message = (error: unknown) => (error instanceof Error ? error.message : 'Request failed.');
+
+  /**
+   * Read the file, change one field, write it back under the SHA we just read.
+   * Anything else in the file — the body, fields this screen never shows — is
+   * carried through untouched, and a concurrent edit makes GitHub reject the
+   * write rather than lose it.
+   */
+  async function patchField(path: string, key: string, value: string | boolean | undefined, commitMessage: string) {
+    const file = await readFile(path);
+    const next =
+      value === undefined
+        ? removeFrontmatterField(file.text, key)
+        : setFrontmatterField(file.text, key, value);
+    if (next === file.text) return null;
+    return commitFile({ path, content: next, message: commitMessage, sha: file.sha });
+  }
+
+  /* — visibility — */
+  function readLocal(): Record<string, boolean> {
     try {
       return JSON.parse(localStorage.getItem(KEY) || '{}');
     } catch {
@@ -116,20 +231,49 @@ const withRepo = rows.filter(r => r.repoName).length;
     }
   }
 
-  const state = readState();
-  toggles.forEach(t => {
-    const slug = t.dataset.slug!;
-    if (slug in state) t.setAttribute('aria-checked', String(state[slug]));
-    t.addEventListener('click', () => {
-      const next = t.getAttribute('aria-checked') !== 'true';
-      t.setAttribute('aria-checked', String(next));
-      const current = readState();
-      current[slug] = next;
-      localStorage.setItem(KEY, JSON.stringify(current));
+  const toggles = Array.from(document.querySelectorAll<HTMLButtonElement>('.toggle[data-slug]'));
+  const local = readLocal();
+
+  toggles.forEach(toggle => {
+    const card = toggle.closest<HTMLElement>('.pm-card')!;
+    const slug = toggle.dataset.slug!;
+
+    /* The file is the truth when signed in. The local map is only consulted
+       for the export-only path, where nothing has been committed. */
+    if (!signedIn && slug in local) toggle.setAttribute('aria-checked', String(local[slug]));
+
+    toggle.addEventListener('click', async () => {
+      const next = toggle.getAttribute('aria-checked') !== 'true';
+      toggle.setAttribute('aria-checked', String(next));
+
+      if (!signedIn) {
+        const map = readLocal();
+        map[slug] = next;
+        localStorage.setItem(KEY, JSON.stringify(map));
+        say(card, next ? 'Marked visible in this browser. Export to apply.' : 'Marked hidden in this browser. Export to apply.');
+        return;
+      }
+
+      toggle.disabled = true;
+      say(card, next ? 'Publishing…' : 'Hiding…');
+      try {
+        const result = await patchField(
+          card.dataset.path!,
+          'hidden',
+          !next,
+          `content(projects): ${next ? 'show' : 'hide'} ${slug}`
+        );
+        if (result) link(card, next ? 'Visible after the next build' : 'Hidden after the next build', result.url);
+        else say(card, 'Already in that state on the default branch.');
+      } catch (error) {
+        toggle.setAttribute('aria-checked', String(!next));
+        say(card, message(error), 'error');
+      } finally {
+        toggle.disabled = false;
+      }
     });
   });
 
-  // Export the current visibility map as a file the author can act on.
   document.getElementById('export-visibility')?.addEventListener('click', () => {
     const map: Record<string, boolean> = {};
     toggles.forEach(t => { map[t.dataset.slug!] = t.getAttribute('aria-checked') === 'true'; });
@@ -142,16 +286,107 @@ const withRepo = rows.filter(r => r.repoName).length;
     URL.revokeObjectURL(url);
   });
 
-  // Real, unauthenticated read of the owner's public repositories, so the
-  // table can be checked against what actually exists on GitHub.
+  /* — per-card actions — */
+  const rel = (iso: string) => {
+    const hours = (Date.now() - new Date(iso).getTime()) / 36e5;
+    if (hours < 1) return 'under an hour ago';
+    if (hours < 48) return `${Math.round(hours)}h ago`;
+    return `${Math.round(hours / 24)}d ago`;
+  };
+
+  cards.forEach(card => {
+    const button = (action: string) => card.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)!;
+
+    /* Fetch is the only action that works signed out — the public API answers
+       an unauthenticated read, and the branch and push time are public facts. */
+    button('fetch').addEventListener('click', async () => {
+      const fetchButton = button('fetch');
+      fetchButton.disabled = true;
+      say(card, 'Reading the repository…');
+      try {
+        const meta = await fetchRepoMeta(card.dataset.owner!, card.dataset.repo!);
+        card.querySelector('.pm-branch')!.textContent = `branch: ${meta.defaultBranch}`;
+        card.querySelector('.pm-sync')!.textContent = `last push: ${rel(meta.pushedAt)}`;
+        const notes = [`${meta.stars} ★`];
+        if (meta.archived) notes.push('archived on GitHub');
+        say(card, notes.join(' · '));
+      } catch (error) {
+        say(card, message(error), 'error');
+      } finally {
+        fetchButton.disabled = false;
+      }
+    });
+
+    button('unlink').addEventListener('click', async () => {
+      if (!signedIn) return say(card, 'Sign in to change the case-study link.', 'error');
+      const unlink = button('unlink');
+      unlink.disabled = true;
+      say(card, 'Removing the case-study link…');
+      try {
+        const result = await patchField(
+          card.dataset.path!,
+          'caseStudySlug',
+          undefined,
+          `content(projects): unlink case study from ${card.dataset.slug}`
+        );
+        if (result) {
+          link(card, 'Unlinked', result.url);
+          card.dataset.caseStudy = '';
+        } else {
+          say(card, 'No case-study link to remove.');
+        }
+      } catch (error) {
+        unlink.disabled = false;
+        say(card, message(error), 'error');
+      }
+    });
+
+    /* Two clicks, because the first one is the one people mean to take back.
+       The file stays in the history either way — this is a commit, not an
+       erasure — which is why a confirm is enough and a typed name is not. */
+    let armed = false;
+    let disarm: ReturnType<typeof setTimeout>;
+    button('delete').addEventListener('click', async () => {
+      const del = button('delete');
+      if (!signedIn) return say(card, 'Sign in to delete a project file.', 'error');
+
+      if (!armed) {
+        armed = true;
+        del.textContent = 'Confirm delete';
+        say(card, `This commits a deletion of ${card.dataset.path}. Click again to confirm.`, 'error');
+        disarm = setTimeout(() => {
+          armed = false;
+          del.textContent = 'Delete';
+          say(card, '');
+        }, 5000);
+        return;
+      }
+
+      clearTimeout(disarm);
+      armed = false;
+      del.textContent = 'Delete';
+      del.disabled = true;
+      say(card, 'Deleting…');
+      try {
+        const result = await deleteFile({
+          path: card.dataset.path!,
+          message: `content(projects): remove ${card.dataset.slug}`,
+        });
+        card.classList.add('is-removed');
+        card.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        link(card, 'Deleted — gone after the next build', result.url);
+      } catch (error) {
+        del.disabled = false;
+        say(card, message(error), 'error');
+      }
+    });
+  });
+
+  /* — import: what exists on GitHub but not in the collection — */
   const importBtn = document.getElementById('import-repos') as HTMLButtonElement | null;
   const status = document.getElementById('import-status')!;
   const results = document.getElementById('import-results')!;
-  const known = new Set(
-    Array.from(document.querySelectorAll('.cell-mono'))
-      .map(el => el.textContent?.split('/')[1]?.trim().toLowerCase())
-      .filter(Boolean) as string[]
-  );
+  const known = new Set(cards.map(card => card.dataset.repo!.toLowerCase()).filter(Boolean));
 
   importBtn?.addEventListener('click', async () => {
     importBtn.disabled = true;
@@ -188,15 +423,15 @@ const withRepo = rows.filter(r => r.repoName).length;
 
 <style>
   .pm-title { margin-bottom: 4px; }
-  .pm-desc { opacity: 0.8; max-width: 60ch; margin-bottom: var(--space-6); }
+  .pm-desc { opacity: 0.8; max-width: 70ch; margin-bottom: var(--space-6); }
+  .pm-desc code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+
   .source-control { margin-bottom: var(--space-6); }
-  .source-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-  }
+  .source-head { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+  .source-head h6 { margin: 0; }
+  .source-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--space-3); }
+  .source-identity { display: flex; align-items: center; gap: var(--space-3); }
+  .source-avatar { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--color-divider); flex: none; }
   .source-account { margin: 0; font-weight: 600; font-size: 14px; }
   .source-tags { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
 
@@ -208,10 +443,41 @@ const withRepo = rows.filter(r => r.repoName).length;
     text-decoration: none;
   }
 
-  .table-heading { margin-bottom: var(--space-2); }
-  .table-card { padding: 0; overflow-x: auto; }
-  .row-action { font-size: 12px; margin-right: 10px; }
-  .row-action:last-child { margin-right: 0; }
-  .visibility-note { margin-top: var(--space-4); max-width: 70ch; }
+  .pm-grid-head { margin-bottom: var(--space-3); }
+  .pm-grid-head h6 { margin: 0; }
+  .pm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+
+  .pm-card.is-removed { opacity: 0.5; }
+  .pm-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
+  .pm-card-title { font-size: 18px; margin: 0 0 4px; }
+  .pm-card-meta { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); margin: 0; }
+  .pm-visibility { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+
+  .pm-fields { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+  .pm-field-label {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-faint);
+    margin-bottom: 3px;
+  }
+  .pm-field-value { font-family: var(--font-mono); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+
+  .pm-status { min-height: 16px; }
+  .pm-status[data-tone='error'] { color: var(--color-accent-700); }
+
+  .pm-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+  .pm-danger { color: var(--color-accent-700); }
+
+  .visibility-note { margin-top: var(--space-6); max-width: 70ch; }
   .visibility-note code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+
+  @media (max-width: 1100px) {
+    .pm-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 640px) {
+    .pm-fields { grid-template-columns: 1fr; }
+  }
 </style>

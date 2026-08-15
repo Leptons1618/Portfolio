@@ -259,6 +259,86 @@ async function existingSha(path: string): Promise<string | null> {
   }
 }
 
+/** Decode the Contents API's base64 payload back to text. */
+function fromBase64(encoded: string): string {
+  const binary = atob(encoded.replace(/\n/g, ''));
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+export interface RepoFile {
+  text: string;
+  /** Pass back to `commitFile`/`deleteFile` so a concurrent edit cannot be lost. */
+  sha: string;
+}
+
+/**
+ * Read one file from the default branch.
+ *
+ * Editing existing content is read-modify-write, and the SHA that comes back
+ * here is what makes the write half safe: hand it to `commitFile` and GitHub
+ * rejects the commit if anything changed in between, instead of overwriting
+ * a change made from another tab, another machine, or a plain `git push`.
+ */
+export async function readFile(path: string): Promise<RepoFile> {
+  const file = await request<{ content: string; sha: string; encoding: string }>(
+    `/repos/${REPO_OWNER}/${REPO_NAME}/contents/${encodeURI(path)}`
+  );
+  if (file.encoding !== 'base64') {
+    throw new GitHubError(`GitHub returned ${path} as "${file.encoding}", which is not supported.`);
+  }
+  return { text: fromBase64(file.content), sha: file.sha };
+}
+
+/** Public metadata for a repository — what the admin's Fetch button reads. */
+export interface RepoMeta {
+  fullName: string;
+  defaultBranch: string;
+  description: string | null;
+  pushedAt: string;
+  stars: number;
+  archived: boolean;
+  htmlUrl: string;
+}
+
+/**
+ * Repository metadata, unauthenticated when there is no session.
+ *
+ * The admin's project cards claim a branch and a last-sync time; this is where
+ * those come from, rather than from a field nobody maintains. Public reads work
+ * signed out (60/hour per IP), so the screen is useful before sign-in too.
+ */
+export async function fetchRepoMeta(owner: string, repo: string): Promise<RepoMeta> {
+  const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  const token = getToken();
+
+  const response = token
+    ? await request<Record<string, unknown>>(path)
+    : await fetch(`https://api.github.com${path}`, {
+        headers: { Accept: 'application/vnd.github+json' },
+      }).then(async res => {
+        if (!res.ok) {
+          throw new GitHubError(
+            res.status === 403
+              ? 'GitHub rate-limited this IP. Sign in, or try again in an hour.'
+              : `GitHub responded ${res.status}.`,
+            res.status
+          );
+        }
+        return (await res.json()) as Record<string, unknown>;
+      });
+
+  return {
+    fullName: String(response.full_name ?? `${owner}/${repo}`),
+    defaultBranch: String(response.default_branch ?? 'main'),
+    description: (response.description as string | null) ?? null,
+    pushedAt: String(response.pushed_at ?? ''),
+    stars: Number(response.stargazers_count ?? 0),
+    archived: Boolean(response.archived),
+    htmlUrl: String(response.html_url ?? `https://github.com/${owner}/${repo}`),
+  };
+}
+
 export interface CommitResult {
   /** Link to the commit on github.com. */
   url: string;
@@ -277,8 +357,11 @@ export async function commitFile(options: {
   path: string;
   content: string;
   message: string;
+  /** From `readFile`. Omit to look the SHA up now — fine for a whole-file write,
+      wrong for read-modify-write, where the lookup would race the edit. */
+  sha?: string;
 }): Promise<CommitResult> {
-  const sha = await existingSha(options.path);
+  const sha = options.sha ?? (await existingSha(options.path));
 
   const result = await request<{ commit: { html_url: string } }>(
     `/repos/${REPO_OWNER}/${REPO_NAME}/contents/${encodeURI(options.path)}`,
@@ -294,4 +377,31 @@ export async function commitFile(options: {
   );
 
   return { url: result.commit.html_url, created: sha === null };
+}
+
+/**
+ * Delete one file from the default branch.
+ *
+ * The Contents API requires the current SHA, so a delete cannot be issued
+ * blind. Nothing here is unrecoverable — the file stays in the history and a
+ * revert brings it back — but the caller is expected to confirm first.
+ */
+export async function deleteFile(options: {
+  path: string;
+  message: string;
+  sha?: string;
+}): Promise<CommitResult> {
+  const sha = options.sha ?? (await existingSha(options.path));
+  if (!sha) throw new GitHubError(`${options.path} does not exist.`, 404);
+
+  const result = await request<{ commit: { html_url: string } }>(
+    `/repos/${REPO_OWNER}/${REPO_NAME}/contents/${encodeURI(options.path)}`,
+    {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: options.message, sha }),
+    }
+  );
+
+  return { url: result.commit.html_url, created: false };
 }

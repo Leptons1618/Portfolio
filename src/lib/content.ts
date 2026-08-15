@@ -41,9 +41,17 @@ function byRankThenYear(a: Project, b: Project): number {
 const byDateDesc = (a: { data: { date: string } }, b: { data: { date: string } }) =>
   new Date(b.data.date).getTime() - new Date(a.data.date).getTime();
 
-/** Every project, in the site's canonical order. */
-export async function getProjects(): Promise<Project[]> {
-  return (await getCollection('projects')).sort(byRankThenYear);
+/**
+ * Every project, in the site's canonical order.
+ *
+ * Hidden projects are excluded everywhere the public site looks — listings and
+ * detail pages alike — so `hidden: true` retires a project without deleting
+ * it. The admin screens pass `includeHidden` because hiding is the thing they
+ * exist to manage.
+ */
+export async function getProjects(includeHidden = false): Promise<Project[]> {
+  const keep = ({ data }: Project) => includeHidden || !data.hidden;
+  return (await getCollection('projects', keep)).sort(byRankThenYear);
 }
 
 /** Only projects the author marked with a `featuredRank`. */

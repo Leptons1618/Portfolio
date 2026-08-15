@@ -19,6 +19,10 @@ const projects = defineCollection({
     year: z.number(),
     heroImage: z.string().optional(),
     highlights: z.array(z.string()),
+    /* Written by the admin's visibility switch. A hidden project keeps its
+       file and its history but drops out of every listing and stops getting a
+       detail page — the way to retire work without deleting it. */
+    hidden: z.boolean().default(false),
   }),
 });
 

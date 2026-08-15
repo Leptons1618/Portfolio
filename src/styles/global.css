@@ -156,6 +156,25 @@ pre {
   background: var(--color-divider);
 }
 
+/* A hairline rule: under a section head, between a card's header and its
+   body, along the foot of a hero. Thinner and quieter than `.hr`, and the
+   one a theme restyles — Blueprint draws it dashed. */
+.rule {
+  height: 0;
+  border: 0;
+  border-top: 1px solid var(--color-divider);
+  margin: 0;
+}
+
+/* A section head that runs its rule out to the end of the line. */
+.section-head-rule {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.section-head-rule > .rule { flex: 1; }
+
 /* — buttons — */
 .btn {
   display: inline-flex;
@@ -349,6 +368,13 @@ pre {
   width: 100%;
   justify-content: flex-start;
   text-align: left;
+}
+
+/* Compact action for a card footer, where a full-size button would out-weigh
+   the card's own type. */
+.btn-sm {
+  font-size: 12px;
+  padding: 5px 12px;
 }
 
 /* — forms — */

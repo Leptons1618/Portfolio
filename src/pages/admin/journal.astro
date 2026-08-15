@@ -22,11 +22,30 @@ const today = new Date().toISOString().slice(0, 10);
     </div>
   </div>
 
-  <div class="admin-grid-2">
+  <div class="editor-grid">
     <div class="editor-col">
       <input class="input editor-title" id="f-title" placeholder="Post Title..." />
 
-      <div class="card elev-sm focus-hide">
+      <div class="md-toolbar" role="toolbar" aria-label="Markdown formatting">
+        <button type="button" class="btn btn-secondary md-btn" data-before="**" data-after="**" title="Bold"><strong>B</strong></button>
+        <button type="button" class="btn btn-secondary md-btn" data-before="*" data-after="*" title="Italic"><em>I</em></button>
+        <button type="button" class="btn btn-secondary md-btn" data-before="`" data-after="`" title="Inline code">&lt;/&gt;</button>
+        <button type="button" class="btn btn-secondary md-btn" data-before="[" data-after="](https://)" title="Link">link</button>
+        <button type="button" class="btn btn-secondary md-btn" data-before="![" data-after="](/images/)" title="Image">image</button>
+      </div>
+      <textarea class="input editor-body" id="f-body" placeholder="Write your post description using Markdown..."></textarea>
+
+      <div class="focus-hide">
+        <h6 class="admin-eyebrow preview-heading">Live Preview</h6>
+        <div class="card elev-md preview-card">
+          <h3 class="preview-title" id="preview-title">Post Title...</h3>
+          <div class="preview-md" id="preview-body"></div>
+        </div>
+      </div>
+    </div>
+
+    <aside class="editor-side focus-hide">
+      <div class="card elev-sm">
         <h6 class="admin-eyebrow">Metadata</h6>
         <div class="field">
           <label for="f-summary">Summary</label>
@@ -51,10 +70,6 @@ const today = new Date().toISOString().slice(0, 10);
           </div>
         </div>
         <div class="field">
-          <label for="f-hero">Featured image URL</label>
-          <input class="input" id="f-hero" placeholder="https://… (optional)" />
-        </div>
-        <div class="field">
           <label>Status</label>
           <div class="seg">
             <label class="seg-opt"><input type="radio" name="status" value="draft" checked />Draft</label>
@@ -66,7 +81,22 @@ const today = new Date().toISOString().slice(0, 10);
         </p>
       </div>
 
-      <div class="card elev-sm focus-hide">
+      <div class="card elev-sm">
+        <h6 class="admin-eyebrow">Thumbnail</h6>
+        <div class="field">
+          <label for="f-hero">Featured image</label>
+          <input class="input" id="f-hero" placeholder="/images/post.jpg or https://…" />
+        </div>
+        <div class="thumb-frame" id="thumb-frame" hidden>
+          <img id="thumb-preview" alt="" />
+        </div>
+        <p class="text-muted admin-note">
+          A path under <code>public/</code>, or an absolute URL. There is no upload here —
+          the file has to be in the repository for the build to find it.
+        </p>
+      </div>
+
+      <div class="card elev-sm">
         <h6 class="admin-eyebrow">AI Tools</h6>
         <div class="ai-tools">
           <button type="button" class="btn btn-secondary" disabled>Auto-generate Transcript</button>
@@ -74,17 +104,7 @@ const today = new Date().toISOString().slice(0, 10);
         </div>
         <p class="text-muted admin-note">Requires a backend service — unavailable on a static build.</p>
       </div>
-
-      <textarea class="input editor-body" id="f-body" placeholder="Write your post description using Markdown..."></textarea>
-    </div>
-
-    <div>
-      <h6 class="admin-eyebrow preview-heading">Live Preview</h6>
-      <div class="card elev-md preview-card">
-        <h3 class="preview-title" id="preview-title">Post Title...</h3>
-        <div class="preview-md" id="preview-body"></div>
-      </div>
-    </div>
+    </aside>
   </div>
 
   {existing.length > 0 && (
@@ -187,10 +207,20 @@ const today = new Date().toISOString().slice(0, 10);
     return statusInputs.find(i => i.checked)?.value ?? 'draft';
   }
 
+  const thumbFrame = $<HTMLElement>('thumb-frame');
+  const thumbPreview = $<HTMLImageElement>('thumb-preview');
+
   function render() {
     previewTitle.textContent = fields.title.value || 'Post Title...';
     previewBody.innerHTML = renderMarkdown(fields.body.value);
     slugOut.textContent = `${slugify(fields.title.value)}.md`;
+
+    /* Same scheme rule the preview's links use: the thumbnail is a value the
+       author just typed, and it ends up in an attribute. */
+    const hero = safeHref(fields.hero.value);
+    const show = Boolean(fields.hero.value.trim()) && hero !== '#';
+    thumbFrame.hidden = !show;
+    if (show) thumbPreview.src = hero;
   }
 
   function snapshot() {
@@ -249,6 +279,19 @@ const today = new Date().toISOString().slice(0, 10);
 
   Object.values(fields).forEach(el => el.addEventListener('input', render));
   statusInputs.forEach(i => i.addEventListener('change', render));
+
+  /* Formatting buttons wrap the selection. `setRangeText` keeps the undo stack
+     intact, which reassigning `.value` would throw away. */
+  document.querySelectorAll<HTMLButtonElement>('.md-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const body = fields.body;
+      const { selectionStart: start, selectionEnd: end } = body;
+      const wrapped = `${btn.dataset.before}${body.value.slice(start, end)}${btn.dataset.after}`;
+      body.setRangeText(wrapped, start, end, 'end');
+      body.focus();
+      render();
+    });
+  });
 
   $<HTMLButtonElement>('save-draft').addEventListener('click', () => {
     localStorage.setItem(KEY, JSON.stringify(snapshot()));
@@ -325,8 +368,17 @@ const today = new Date().toISOString().slice(0, 10);
 </script>
 
 <style>
+  /* The mockup's bento: writing surface left, everything that describes the
+     post right. Focus mode hides the right column outright. */
+  .editor-grid { display: grid; grid-template-columns: 8fr 4fr; gap: var(--space-4); align-items: start; }
   .editor-col { display: flex; flex-direction: column; gap: var(--space-4); }
-  .editor-title { font-size: 20px; font-family: var(--font-heading); height: 48px; }
+  .editor-side { display: flex; flex-direction: column; gap: var(--space-4); }
+  .editor-title { font-size: 20px; font-family: var(--font-heading); height: 48px; border-left: 3px solid var(--color-accent); }
+
+  .thumb-frame { aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--color-divider); }
+  .thumb-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .md-toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
+  .md-toolbar .md-btn { font-size: 12px; padding: 4px 10px; font-family: var(--font-mono); }
   .summary-input { min-height: 56px; }
   .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
   .field-row label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
@@ -334,8 +386,12 @@ const today = new Date().toISOString().slice(0, 10);
   .editor-body { min-height: 220px; font-family: var(--font-mono); font-size: 13px; }
 
   .preview-heading { margin-bottom: var(--space-2); }
-  .preview-card { min-height: 520px; }
+  .preview-card { min-height: 320px; }
   .preview-title { margin: 0; }
+
+  @media (max-width: 1000px) {
+    .editor-grid { grid-template-columns: 1fr; }
+  }
 
   .existing { margin-top: var(--space-6); }
   .existing-card { gap: 0; }

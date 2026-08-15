@@ -20,9 +20,9 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
 <BaseLayout title="Home" description={site.tagline}>
   <header class="hero container">
     <div class="hero-copy">
-      <span class="tag tag-accent-2 hero-status">Open to opportunities</span>
+      <span class="tag tag-accent-2 hero-status"><span class="status-dot" aria-hidden="true"></span>Open to opportunities</span>
       <h6 class="eyebrow">Software Engineer</h6>
-      <h1 class="hero-title">Building ML systems, <span class="nowrap">full-stack</span> apps &amp; dev tools</h1>
+      <h1 class="hero-title">Building <span class="highlight">ML systems</span>, <span class="nowrap">full-stack</span> apps &amp; dev tools</h1>
       <p class="hero-desc">{site.bio}</p>
       <div class="hero-actions">
         <span class="button-borders"><a href="/projects" class="btn btn-primary">View Projects</a></span>
@@ -40,6 +40,7 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
         <h6 class="eyebrow">Case Studies</h6>
         <h2>Deep dives</h2>
       </div>
+      <hr class="rule section-line" />
     </div>
     <div class="grid-3">
       {caseStudies.map(cs => {
@@ -65,6 +66,7 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
         <h6 class="eyebrow">Featured Projects</h6>
         <h2>Recent work</h2>
       </div>
+      <hr class="rule section-line" />
       <a class="btn btn-ghost" href="/projects">View all projects →</a>
     </div>
     <div class="grid-2">
@@ -75,8 +77,13 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
   </section>
 
   <section class="container home-section">
-    <h6 class="eyebrow">Skills &amp; Stack</h6>
-    <h2 class="skills-title">What I build with</h2>
+    <div class="section-head">
+      <div>
+        <h6 class="eyebrow">Skills &amp; Stack</h6>
+        <h2 class="skills-title">What I build with</h2>
+      </div>
+      <hr class="rule section-line" />
+    </div>
     <div class="tag-row">
       {Array.from(skillSet).sort().map(s => <span class="tag tag-neutral">{s}</span>)}
     </div>
@@ -107,8 +114,35 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
     padding-top: var(--space-8);
     padding-bottom: var(--space-8);
   }
-  .hero-status { margin-bottom: var(--space-3); }
+  .hero-status { margin-bottom: var(--space-3); gap: 8px; }
+
+  /* Availability light. It is the only thing on the page that moves on its
+     own, so it stops entirely when the visitor asks for less motion. */
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    flex: none;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .status-dot { animation: status-pulse 2s ease-in-out infinite; }
+  }
+  @keyframes status-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.35; }
+  }
+
   .hero-title { font-size: clamp(32px, 5.4vw, 52px); max-width: 12ch; margin-bottom: var(--space-4); }
+
+  /* The one phrase the hero argues for, marked the way a spec marks the term
+     it is defining. */
+  .highlight {
+    color: var(--color-accent-800);
+    background: var(--color-accent-100);
+    border: 1px dashed var(--color-accent);
+    padding: 0 8px;
+  }
   .nowrap { white-space: nowrap; }
   .hero-desc { font-size: 17px; max-width: 52ch; opacity: 0.85; margin-bottom: var(--space-4); }
   .hero-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
@@ -125,6 +159,8 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
     margin-bottom: var(--space-4);
     flex-wrap: wrap;
   }
+  /* The rule runs from the heading out to the section action. */
+  .section-line { flex: 1; min-width: 40px; align-self: center; }
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
   .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
 

@@ -31,7 +31,7 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
           <label class="radio visible-toggle">
             <input type="checkbox" id="summary-visible" checked />
             <span class="dot"></span>
-            Visible
+            Show in preview
           </label>
         </div>
         <textarea class="input summary-input" id="summary"></textarea>
@@ -43,7 +43,7 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
           <label class="radio visible-toggle">
             <input type="checkbox" id="experience-visible" checked />
             <span class="dot"></span>
-            Visible
+            Show in preview
           </label>
         </div>
         <div id="experience-list" class="entry-list"></div>
@@ -149,17 +149,38 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
         mk('description', 'Description', true)
       );
 
-      const remove = document.createElement('button');
-      remove.type = 'button';
-      remove.className = 'btn btn-secondary entry-remove';
-      remove.textContent = 'Remove entry';
-      remove.addEventListener('click', () => {
-        state.experience.splice(i, 1);
-        persist();
-        renderExperience();
-        renderPreview();
-      });
-      wrap.appendChild(remove);
+      /* Order is what the public page renders, so it is editable here rather
+         than only in the file. */
+      const controls = document.createElement('div');
+      controls.className = 'entry-controls';
+
+      const action = (label: string, title: string, run: () => void, disabled = false) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-secondary entry-action';
+        button.textContent = label;
+        button.title = title;
+        button.disabled = disabled;
+        button.addEventListener('click', () => {
+          run();
+          persist();
+          renderExperience();
+          renderPreview();
+        });
+        return button;
+      };
+
+      const move = (to: number) => {
+        const [entry] = state.experience.splice(i, 1);
+        state.experience.splice(to, 0, entry);
+      };
+
+      controls.append(
+        action('↑', 'Move earlier', () => move(i - 1), i === 0),
+        action('↓', 'Move later', () => move(i + 1), i === state.experience.length - 1),
+        action('Remove entry', 'Delete this entry', () => { state.experience.splice(i, 1); })
+      );
+      wrap.appendChild(controls);
 
       expList.appendChild(wrap);
     });
@@ -412,7 +433,8 @@ export const education: EducationEntry[] = ${j(state.education)};
 
   .entry-list { display: flex; flex-direction: column; gap: var(--space-2); }
   .entry-list :global(.entry-description) { min-height: 60px; }
-  .entry-list :global(.entry-remove) { align-self: flex-start; font-size: 12px; padding: 4px 8px; }
+  .entry-list :global(.entry-controls) { display: flex; gap: 6px; }
+  .entry-list :global(.entry-action) { font-size: 12px; padding: 4px 8px; }
 
   .skill-groups { display: flex; flex-direction: column; gap: var(--space-3); }
   .skill-groups :global(.skill-label) { font-size: 12px; font-weight: 600; margin: 0 0 4px; }

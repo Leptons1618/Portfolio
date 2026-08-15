@@ -3,12 +3,14 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 import { getCaseStudies, getPosts, getProjects } from '../../lib/content';
 import { formatShortDate } from '../../lib/format';
 
-const projects = await getProjects();
+/* The admin sees hidden projects and draft posts; the public site sees neither. */
+const projects = await getProjects(true);
 const caseStudies = await getCaseStudies();
 /* The admin surface sees drafts; the public journal pages do not. */
 const journal = await getPosts(true);
 
 const featuredCount = projects.filter(p => p.data.featuredRank !== undefined).length;
+const hiddenCount = projects.filter(p => p.data.hidden).length;
 const linkedCaseStudies = projects.filter(p => p.data.caseStudySlug).length;
 const draftCount = journal.filter(p => p.data.draft).length;
 const latestJournal = journal[0];
@@ -50,16 +52,22 @@ const buildDate = new Date().toISOString().slice(0, 10);
     <div class="card elev-sm">
       <span class="card-kicker">Total Projects</span>
       <h2 class="stat-value">{projects.length}</h2>
-      <span class="text-muted stat-note">{featuredCount} marked featured</span>
+      <hr class="rule" />
+      <span class="text-muted stat-note">
+        {featuredCount} marked featured
+        {hiddenCount > 0 && ` · ${hiddenCount} hidden`}
+      </span>
     </div>
     <div class="card elev-sm">
       <span class="card-kicker">Case Studies</span>
       <h2 class="stat-value">{caseStudies.length}</h2>
+      <hr class="rule" />
       <span class="text-muted stat-note">{linkedCaseStudies} linked from a project</span>
     </div>
     <div class="card elev-sm">
       <span class="card-kicker">Journal Entries</span>
       <h2 class="stat-value">{journal.length}</h2>
+      <hr class="rule" />
       <span class="text-muted stat-note">
         {latestJournal ? `latest: ${formatShortDate(latestJournal.data.date)}` : 'none written yet'}
         {draftCount > 0 && ` · ${draftCount} draft${draftCount === 1 ? '' : 's'}`}

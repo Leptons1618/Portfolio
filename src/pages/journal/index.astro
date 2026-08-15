@@ -8,7 +8,7 @@ const posts = await getPosts();
 const [featured, ...archive] = posts;
 ---
 <BaseLayout title="Journal" description="Field notes from building things — write-ups and the occasional video log.">
-  <header class="container container-mid page-header">
+  <header class="container page-header">
     <div>
       <h1>Journal</h1>
       <p class="page-desc">Field notes from building things — write-ups and the occasional video log.</p>
@@ -17,8 +17,14 @@ const [featured, ...archive] = posts;
   </header>
 
   {featured && (
-    <section class="container container-mid featured-section">
+    <section class="container featured-section">
       <a href={`/journal/${featured.slug}`} class="card elev-md featured-card">
+        {featured.data.heroImage && (
+          <div class="post-media featured-media">
+            <div class="grayscale media-frame"><img src={featured.data.heroImage} alt={featured.data.title} /></div>
+            {featured.data.videoDuration && <span class="tag tag-neutral media-duration">{featured.data.videoDuration}</span>}
+          </div>
+        )}
         <div class="tag-row">
           {featured.data.tags.slice(0, 3).map((tag, i) => (
             <span class={`tag ${i % 2 === 0 ? 'tag-accent' : 'tag-accent-2'}`}>{formatTag(tag)}</span>
@@ -32,14 +38,24 @@ const [featured, ...archive] = posts;
   )}
 
   {archive.length > 0 && (
-    <section class="container container-mid archive-section">
-      <h6 class="eyebrow">Archive</h6>
-      <div class="archive-list">
+    <section class="container archive-section">
+      <div class="section-head-rule archive-head">
+        <h6 class="eyebrow">Archive</h6>
+        <hr class="rule" />
+      </div>
+      <div class="archive-grid">
         {archive.map(post => (
-          <a href={`/journal/${post.slug}`} class="archive-row">
+          <a href={`/journal/${post.slug}`} class="card elev-sm archive-card">
+            {post.data.heroImage && (
+              <div class="post-media">
+                <div class="grayscale media-frame"><img src={post.data.heroImage} alt={post.data.title} loading="lazy" /></div>
+                {(post.data.videoDuration ?? post.data.readTime) && (
+                  <span class="tag tag-neutral media-duration">{post.data.videoDuration ?? post.data.readTime}</span>
+                )}
+              </div>
+            )}
             <span class="text-muted archive-date">{formatShortDate(post.data.date)}</span>
-            <span class="archive-title">{post.data.title}</span>
-            <span class="text-muted archive-duration">{post.data.videoDuration ?? post.data.readTime ?? ''}</span>
+            <h3 class="card-title archive-title">{post.data.title}</h3>
           </a>
         ))}
       </div>
@@ -47,7 +63,7 @@ const [featured, ...archive] = posts;
   )}
 
   {posts.length === 0 && (
-    <section class="container container-mid archive-section">
+    <section class="container archive-section">
       <p class="text-muted">No entries published yet.</p>
     </section>
   )}
@@ -70,30 +86,36 @@ const [featured, ...archive] = posts;
   .featured-title { font-size: 26px; }
   .tag-row { display: flex; flex-wrap: wrap; gap: 8px; }
 
-  .archive-section { padding-bottom: var(--space-8); }
-  .eyebrow { color: var(--color-accent-700); margin-bottom: var(--space-3); }
-  .archive-list { display: flex; flex-direction: column; }
-  .archive-row {
-    display: flex;
-    gap: var(--space-4);
-    align-items: baseline;
-    padding: var(--space-3) 0;
-    border-bottom: 1px solid var(--color-divider);
-    text-decoration: none;
-    color: inherit;
-  }
-  .archive-row:hover .archive-title { color: var(--color-accent); }
-  .archive-date { font-size: 12px; width: 96px; flex: none; }
-  .archive-title { flex: 1; }
-  .archive-duration { font-size: 12px; font-family: var(--font-mono); }
+  /* Thumbnail block: 16:9 frame, duration stamped in the corner. Photographs
+     are black and white until the card is hovered — the same reveal the
+     mockup uses to mark which entry you are pointing at. */
+  .post-media { position: relative; }
+  .media-frame { aspect-ratio: 16 / 9; overflow: hidden; background: var(--color-neutral-200); }
+  .media-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .media-duration { position: absolute; bottom: 8px; right: 8px; font-family: var(--font-mono); }
+  .featured-media { margin-bottom: var(--space-2); }
 
+  a.card:hover .grayscale { filter: none; }
+  @media (prefers-reduced-motion: no-preference) {
+    .media-frame img { transition: filter 0.4s ease; }
+  }
+
+  .archive-section { padding-bottom: var(--space-8); }
+  .eyebrow { color: var(--color-accent-700); margin: 0; }
+  .archive-head { margin-bottom: var(--space-4); }
+  .archive-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+  .archive-card { text-decoration: none; color: inherit; }
+  .archive-card:hover { color: inherit; }
+  .archive-card:hover .archive-title { color: var(--color-accent); }
+  .archive-date { font-size: 12px; font-family: var(--font-mono); }
+  .archive-title { font-size: 16px; }
+
+  @media (max-width: 900px) {
+    .archive-grid { grid-template-columns: repeat(2, 1fr); }
+  }
   @media (max-width: 640px) {
     .page-header { grid-template-columns: 1fr; gap: var(--space-4); }
     .page-header-art { max-width: 200px; }
-  }
-  @media (max-width: 560px) {
-    .archive-row { flex-wrap: wrap; gap: var(--space-1) var(--space-3); }
-    .archive-date { width: auto; }
-    .archive-title { flex: 1 1 100%; order: 3; }
+    .archive-grid { grid-template-columns: 1fr; }
   }
 </style>

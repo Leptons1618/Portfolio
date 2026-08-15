@@ -6,10 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 There is no test suite or linter. Three commands catch breakage, and they catch different things:
 
-- **`npm run check`** runs `scripts/check-content.mjs`, then the OAuth Worker self-test, then `astro check`. This is the gate CI runs.
+- **`npm run check`** runs `scripts/check-content.mjs`, the frontmatter patcher self-test, the OAuth Worker self-test, then `astro check`. This is the gate CI runs.
 - **`astro check`** is the type gate. `astro build` does **not** typecheck — it transpiles through esbuild — so this is the only thing that validates types across `.astro` frontmatter, client `<script>` blocks, and `src/lib/`. Deprecation *hints* (e.g. the deliberate `document.execCommand` clipboard fallback in `src/pages/resume.astro`) do not fail it.
 - **`npm run build`** validates every content file against the Zod schemas in `src/content/config.ts`, so a bad frontmatter field fails the build. It does not check types.
 - **`npm run check:worker`** (`workers/github-oauth/test.mjs`) exercises the token exchanger's security branches — origin allowlist, route surface, code shape, `redirect_uri` pinning, fail-closed on a missing secret — without ever calling GitHub. Plain `node:assert`, no framework.
+- **`npm run check:frontmatter`** (`scripts/test-frontmatter.mjs`) exercises `src/lib/frontmatter.ts`, the in-place frontmatter patcher the project manager commits through — body preservation, quoting, CRLF, and the cases it refuses. Node strips the TS types on import; no test framework.
 - **`npm run check:content`** (`scripts/check-content.mjs`) validates the relationships *between* files, which neither Astro command does: every `caseStudySlug` resolves to a case study, every site-relative `heroImage`/`architectureImage` exists in `public/`, the default OG image exists, and the build origin agrees with `public/CNAME`. `node scripts/check-content.mjs --self-test` checks its own frontmatter parser.
 
 Run `npm run check` and `npm run build`.
@@ -30,7 +31,7 @@ Astro 5, `output: 'static'`. Every page is prerendered — there is no server at
 
 `src/content/` holds three collections defined in `src/content/config.ts`:
 
-- **`projects`** (`.md`) — the primary index. Drives the home page, `/projects`, and `/projects/[slug]`. **Frontmatter only** — no page renders a project body.
+- **`projects`** (`.md`) — the primary index. Drives the home page, `/projects`, and `/projects/[slug]`. **Frontmatter only** — no page renders a project body. `hidden: true` (written by the admin's visibility switch) drops a project from every listing *and* from `getStaticPaths`; `getProjects(true)` is how the admin screens see them.
 - **`case-studies`** (`.mdx`) — long-form write-ups, rendered through `CaseStudyLayout`.
 - **`journal`** (`.md`) — posts; `draft: true` entries are filtered out only when `import.meta.env.PROD`, so drafts are visible in `dev` and to the admin screens.
 
@@ -46,13 +47,15 @@ Do not add a `slug:` frontmatter field. Astro derives the slug from the filename
 - **`format.ts`** — dates, journal tag labels, post meta lines.
 - **`admin.ts`** — localStorage key names.
 - **`theme.ts`** — the theme id list, their `theme-color` values, and the storage key. Nothing else may name a theme.
-- **`github.ts`** — admin sign-in and repository writes. The only module that talks to the GitHub API or holds the token. Read its header comment before changing anything in it.
+- **`github.ts`** — admin sign-in and repository reads/writes (`readFile`, `commitFile`, `deleteFile`, `fetchRepoMeta`). The only module that talks to the GitHub API or holds the token. Read its header comment before changing anything in it.
+- **`frontmatter.ts`** — patches one frontmatter field in place, preserving the rest of the file byte for byte. Used by the project manager; refuses anything it cannot do losslessly. Not a YAML parser, and must not grow into one.
+- **`clipboard.ts`** — `copyText()`, with the selection fallback for insecure contexts.
 
 `CATEGORY_LABELS` is typed `Record<Project['data']['category'], string>`, so adding a value to the schema enum fails the typecheck until it is labelled. "Featured" is deliberately *not* a category — it is a `featuredRank`, and the projects filter bar prepends it as a pseudo-category.
 
 ### The `/admin` surface signs in with GitHub
 
-`src/pages/admin/*` is an authoring surface. It runs in the browser; the only server in the system is `workers/github-oauth/`, a stateless Cloudflare Worker that does the OAuth code→token exchange and nothing else. Signed in, the journal and resume editors commit through the GitHub Contents API; `settings` and `projects` stay export-only because their JSON has to be hand-merged into other files.
+`src/pages/admin/*` is an authoring surface. It runs in the browser; the only server in the system is `workers/github-oauth/`, a stateless Cloudflare Worker that does the OAuth code→token exchange and nothing else. Signed in, the journal and resume editors commit whole files through the GitHub Contents API, and the project manager commits frontmatter patches (visibility, case-study unlink) or deletes a project file outright. `settings` stays export-only because its JSON has to be hand-merged into `src/lib/site.ts`.
 
 Details live in `.claude/rules/admin-surface.md`, which loads when you touch those files. Two rules worth repeating here:
 
