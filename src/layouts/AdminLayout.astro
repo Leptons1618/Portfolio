@@ -2,9 +2,20 @@
 import '@fontsource/archivo/400.css';
 import '@fontsource/archivo/600.css';
 import '@fontsource/archivo/800.css';
+import '@fontsource-variable/space-grotesk';
+import '@fontsource-variable/manrope';
+import '@fontsource-variable/jetbrains-mono';
 import '../styles/global.css';
 import '../styles/admin.css';
+import ThemeToggle from '../components/ThemeToggle.astro';
 import { SIDEBAR_KEY } from '../lib/admin';
+import { TOKEN_KEY, isConfigured } from '../lib/github';
+import { DEFAULT_THEME, THEME_KEY, THEMES } from '../lib/theme';
+
+/* Only gate when the build actually has an OAuth App wired up. An
+   unconfigured build (a local checkout, a fork) keeps the screens reachable
+   rather than bouncing to a sign-in that cannot succeed. */
+const GATE = isConfigured();
 
 interface Props {
   title: string;
@@ -27,12 +38,26 @@ const navItems = [
   <title>{title} | Admin</title>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <meta name="theme-color" content="#f3f2f2" />
-  <script is:inline define:vars={{ SIDEBAR_KEY }}>
-    // Restore the sidebar state before first paint so it doesn't flash open.
+  <meta name="theme-color" content={THEMES.find(t => t.id === DEFAULT_THEME)!.themeColor} />
+  <script is:inline define:vars={{ SIDEBAR_KEY, THEME_KEY, TOKEN_KEY, GATE, DEFAULT_THEME, THEME_IDS: THEMES.map(t => t.id) }}>
+    // Runs before first paint: bounce an unauthenticated visitor before any
+    // editor chrome renders, and restore the sidebar and theme so neither
+    // flashes the wrong way.
+    //
+    // This hides the screens; it does not protect them. `/admin/*` is
+    // prerendered public HTML. The repository is what is protected, and that
+    // is enforced by GitHub when a write is attempted without a token.
     (function () {
+      if (GATE && !sessionStorage.getItem(TOKEN_KEY)) {
+        window.location.replace('/admin/');
+        return;
+      }
       if (localStorage.getItem(SIDEBAR_KEY) === '1') {
         document.documentElement.dataset.adminCollapsed = '1';
+      }
+      var stored = localStorage.getItem(THEME_KEY);
+      if (stored && stored !== DEFAULT_THEME && THEME_IDS.indexOf(stored) !== -1) {
+        document.documentElement.dataset.theme = stored;
       }
     })();
   </script>
@@ -53,7 +78,11 @@ const navItems = [
         ))}
       </nav>
       <div class="admin-sidebar-foot">
-        <span class="collapsible">Admin User · <a href="/">public site ↗</a></span>
+        <span class="collapsible" id="admin-identity">Admin User · <a href="/">public site ↗</a></span>
+        <span class="collapsible admin-foot-actions">
+          <ThemeToggle />
+          <button type="button" class="btn btn-ghost admin-signout" id="admin-signout" hidden>Sign out</button>
+        </span>
       </div>
     </aside>
 
@@ -64,9 +93,30 @@ const navItems = [
 
   <script>
     import { SIDEBAR_KEY as KEY } from '../lib/admin';
+    import { getUser, signOut } from '../lib/github';
 
     const shell = document.getElementById('admin-shell')!;
     const btn = document.getElementById('admin-collapse')!;
+
+    /* Identity. Built with DOM nodes rather than innerHTML: the login comes
+       back from GitHub, and it is never worth trusting a remote string with a
+       parser. */
+    const identity = document.getElementById('admin-identity')!;
+    const signOutButton = document.getElementById('admin-signout') as HTMLButtonElement;
+    const user = getUser();
+
+    if (user) {
+      const link = document.createElement('a');
+      link.href = '/';
+      link.textContent = 'public site ↗';
+      identity.replaceChildren(document.createTextNode(`@${user.login} · `), link);
+      signOutButton.hidden = false;
+    }
+
+    signOutButton.addEventListener('click', () => {
+      signOut();
+      window.location.replace('/admin/');
+    });
 
     function apply(collapsed: boolean) {
       shell.classList.toggle('is-collapsed', collapsed);

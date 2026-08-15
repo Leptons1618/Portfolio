@@ -4,8 +4,16 @@ import Footer from '../components/Footer.astro';
 import '@fontsource/archivo/400.css';
 import '@fontsource/archivo/600.css';
 import '@fontsource/archivo/800.css';
+/* Blueprint's faces. Declaring the @font-face rules costs nothing until a
+   rendered element actually resolves to one of these families, which only
+   happens under `data-theme="blueprint"` — so Modernist visitors never
+   download them. */
+import '@fontsource-variable/space-grotesk';
+import '@fontsource-variable/manrope';
+import '@fontsource-variable/jetbrains-mono';
 import '../styles/global.css';
 import { site, absoluteUrl } from '../lib/site';
+import { DEFAULT_THEME, THEME_KEY, THEMES } from '../lib/theme';
 
 interface Props { title?: string; description?: string; image?: string; }
 const siteTitle = `${site.name} Portfolio`;
@@ -35,7 +43,17 @@ const imageURL = absoluteUrl(image, origin);
   <meta name="twitter:description" content={description} />
   <meta name="twitter:image" content={imageURL} />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <meta name="theme-color" content="#f3f2f2" />
+  <meta name="theme-color" content={THEMES.find(t => t.id === DEFAULT_THEME)!.themeColor} />
+  <script is:inline define:vars={{ THEME_KEY, DEFAULT_THEME, THEME_IDS: THEMES.map(t => t.id) }}>
+    // Restore the stored theme before first paint, so the page never renders
+    // in the default theme and then flips.
+    (function () {
+      var stored = localStorage.getItem(THEME_KEY);
+      if (stored && stored !== DEFAULT_THEME && THEME_IDS.indexOf(stored) !== -1) {
+        document.documentElement.dataset.theme = stored;
+      }
+    })();
+  </script>
 </head>
 <body>
   <Header />

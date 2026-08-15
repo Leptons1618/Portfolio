@@ -2,8 +2,13 @@
 import '@fontsource/archivo/400.css';
 import '@fontsource/archivo/600.css';
 import '@fontsource/archivo/800.css';
+import '@fontsource-variable/space-grotesk';
+import '@fontsource-variable/manrope';
+import '@fontsource-variable/jetbrains-mono';
 import '../../styles/global.css';
+import Illustration from '../../components/Illustration.astro';
 import { site } from '../../lib/site';
+import { DEFAULT_THEME, THEME_KEY, THEMES } from '../../lib/theme';
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -13,7 +18,15 @@ import { site } from '../../lib/site';
   <title>Admin Access</title>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <meta name="theme-color" content="#f3f2f2" />
+  <meta name="theme-color" content={THEMES.find(t => t.id === DEFAULT_THEME)!.themeColor} />
+  <script is:inline define:vars={{ THEME_KEY, DEFAULT_THEME, THEME_IDS: THEMES.map(t => t.id) }}>
+    (function () {
+      var stored = localStorage.getItem(THEME_KEY);
+      if (stored && stored !== DEFAULT_THEME && THEME_IDS.indexOf(stored) !== -1) {
+        document.documentElement.dataset.theme = stored;
+      }
+    })();
+  </script>
 </head>
 <body class="login-body">
   <div class="login-panel">
@@ -21,21 +34,81 @@ import { site } from '../../lib/site';
       <h1 class="login-wordmark">[dev.identity]</h1>
     </div>
 
+    <div class="login-art"><Illustration name="github-profile" /></div>
+
     <div>
       <h6 class="login-eyebrow">Admin Access</h6>
       <p class="login-copy">Sign in with @{site.githubUser} to manage projects, the journal, and resume content.</p>
     </div>
 
-    <a class="btn btn-primary btn-block login-cta" href="/admin/dashboard">Sign in with GitHub</a>
+    <button type="button" class="btn btn-primary btn-block login-cta" id="gh-signin">
+      Sign in with GitHub
+    </button>
+
+    <p class="login-status" id="gh-status" hidden></p>
 
     <p class="text-muted login-disclaimer">
-      This site is statically hosted, so there is no server to authenticate against — the
-      admin screens are an authoring surface that runs entirely in your browser and never
-      publishes on its own. Everything you write here is exported as files you commit.
+      Signing in uses a GitHub OAuth App. The token is held in this browser tab only,
+      never on disk, and is used to commit content straight to the repository. The site
+      itself is static — <code>/admin</code> is public HTML, so this gate hides the
+      editors rather than protecting them. What is protected is the repository: a write
+      needs a token GitHub issued to the owner.
     </p>
 
     <a class="login-back" href="/">← Back to the public site</a>
   </div>
+
+  <script>
+    import { GitHubError, beginSignIn, completeSignIn, getUser, isConfigured } from '../../lib/github';
+
+    const button = document.getElementById('gh-signin') as HTMLButtonElement;
+    const status = document.getElementById('gh-status') as HTMLParagraphElement;
+
+    function show(message: string, tone: 'error' | 'info') {
+      status.textContent = message;
+      status.dataset.tone = tone;
+      status.hidden = false;
+    }
+
+    function toDashboard() {
+      // `replace`, so the browser back button does not land on the callback URL.
+      window.location.replace('/admin/dashboard');
+    }
+
+    button.addEventListener('click', () => {
+      button.disabled = true;
+      try {
+        beginSignIn();
+      } catch (error) {
+        button.disabled = false;
+        show(error instanceof GitHubError ? error.message : 'Could not start sign-in.', 'error');
+      }
+    });
+
+    (async () => {
+      if (!isConfigured()) {
+        button.disabled = true;
+        show(
+          'Sign-in is not configured for this build: PUBLIC_GITHUB_CLIENT_ID and PUBLIC_GITHUB_OAUTH_WORKER are unset.',
+          'error'
+        );
+        return;
+      }
+
+      try {
+        if (await completeSignIn()) {
+          show('Signed in. Redirecting…', 'info');
+          toDashboard();
+          return;
+        }
+      } catch (error) {
+        show(error instanceof GitHubError ? error.message : 'Sign-in failed.', 'error');
+        return;
+      }
+
+      if (getUser()) toDashboard();
+    })();
+  </script>
 </body>
 </html>
 <style>
@@ -68,9 +141,14 @@ import { site } from '../../lib/site';
     display: inline-block;
     margin: 0;
   }
+  .login-art { width: min(220px, 60vw); }
   .login-eyebrow { color: var(--color-accent-700); margin-bottom: var(--space-2); }
   .login-copy { opacity: 0.8; font-size: 14px; margin: 0; }
   .login-cta { max-width: 260px; }
+  .login-status { font-size: 13px; margin: 0; }
+  .login-status[data-tone='error'] { color: var(--color-accent-700); }
+  .login-status[data-tone='info'] { color: var(--color-text-muted); }
   .login-disclaimer { font-size: 12px; line-height: 1.5; margin: 0; text-align: left; }
+  .login-disclaimer code { font-size: 11px; }
   .login-back { font-size: 13px; }
 </style>

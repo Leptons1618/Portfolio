@@ -1,4 +1,5 @@
 ---
+import ThemeToggle from './ThemeToggle.astro';
 import { site } from '../lib/site';
 
 const navLinks = [
@@ -19,6 +20,7 @@ const isCurrent = (href: string) =>
       <a href={link.href} aria-current={isCurrent(link.href) ? 'page' : undefined}>{link.label}</a>
     ))}
   </div>
+  <ThemeToggle />
   <a class="btn btn-primary nav-cta" href={`mailto:${site.email}`}>Hire Me</a>
 </nav>
 <style>

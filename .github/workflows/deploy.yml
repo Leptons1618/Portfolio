@@ -20,6 +20,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SITE_URL: ${{ vars.SITE_URL != '' && vars.SITE_URL || 'https://leptons1618.github.io' }}
+      # Admin GitHub sign-in. Both are public values, so they are repository
+      # *variables*, not secrets — the only secret is GITHUB_CLIENT_SECRET, and
+      # it lives in the Cloudflare Worker. Actions refuses variable names
+      # starting with GITHUB_, hence the shorter names here.
+      # Leave them unset and the admin screens fall back to export-only.
+      PUBLIC_GITHUB_CLIENT_ID: ${{ vars.OAUTH_CLIENT_ID }}
+      PUBLIC_GITHUB_OAUTH_WORKER: ${{ vars.OAUTH_WORKER_URL }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
