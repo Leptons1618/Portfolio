@@ -19,42 +19,28 @@ const next = THEMES.find(t => t.id !== DEFAULT_THEME)!;
 </button>
 
 <script>
-  import { DEFAULT_THEME, THEME_KEY, THEMES, type ThemeId } from '../lib/theme';
+  import { THEMES, THEME_EVENT, applyTheme, currentTheme, selectTheme } from '../lib/theme';
 
   const button = document.getElementById('theme-toggle')!;
   const label = document.getElementById('theme-toggle-label')!;
 
-  /* Looked up per call, not once: in the admin this control lives inside the
-     persisted sidebar, and a view transition replaces the whole `<head>` — a
-     reference taken at module scope would point at a detached tag. */
-  const themeColorMeta = () => document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
-
-  const isTheme = (value: string | null): value is ThemeId =>
-    THEMES.some(t => t.id === value);
-
-  function current(): ThemeId {
-    const attr = document.documentElement.dataset.theme ?? null;
-    return isTheme(attr) ? attr : DEFAULT_THEME;
-  }
-
-  function apply(id: ThemeId) {
-    const theme = THEMES.find(t => t.id === id)!;
-    const target = THEMES.find(t => t.id !== id)!;
-
-    if (id === DEFAULT_THEME) delete document.documentElement.dataset.theme;
-    else document.documentElement.dataset.theme = id;
-
-    const meta = themeColorMeta();
-    if (meta) meta.content = theme.themeColor;
+  /* The control says where it *goes*, not where it is, so the label is the
+     other theme's name. Re-read on the theme event because the identity modal
+     can change the theme while this button is on screen. */
+  function relabel() {
+    const target = THEMES.find(t => t.id !== currentTheme())!;
     label.textContent = target.label;
     button.setAttribute('aria-label', `Switch to the ${target.label} theme`);
   }
 
-  apply(current());
+  document.addEventListener(THEME_EVENT, relabel);
+
+  /* The pre-paint script has already set `data-theme` from storage, but the
+     `<meta>` is still rendered with the default theme's colour — applying the
+     current theme once here is what corrects it, and relabels on the way. */
+  applyTheme(currentTheme());
 
   button.addEventListener('click', () => {
-    const next = THEMES.find(t => t.id !== current())!;
-    localStorage.setItem(THEME_KEY, next.id);
-    apply(next.id);
+    selectTheme(THEMES.find(t => t.id !== currentTheme())!.id);
   });
 </script>

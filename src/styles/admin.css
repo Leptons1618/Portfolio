@@ -21,7 +21,10 @@
    are always on screen, and the nav in the middle is the only part that ever
    scrolls. */
 .admin-sidebar {
-  width: 220px;
+  /* Wide enough for the session line — `@handle · 8h left` — to sit on one row
+     next to the avatar. At 220px it wrapped, which read as a layout bug on the
+     one piece of text that says whether you can commit at all. */
+  width: 260px;
   flex: none;
   background: var(--color-surface);
   border-right: 1px solid var(--color-divider);
@@ -31,7 +34,7 @@
   height: 100dvh;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  gap: var(--space-5);
+  gap: var(--space-6);
   transition: width 0.15s;
 }
 
@@ -45,12 +48,17 @@
 
 :root[data-admin-collapsed] .collapsible { display: none; }
 
+/* Who you are is its own band, closed with a rule: the nav below is a list of
+   destinations, and running the two together made the identity block read as a
+   fifth one. */
 .admin-sidebar-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
   min-width: 0;
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
 }
 
 /* At 64px the avatar and the chevron do not fit on one row — stacking them is
@@ -61,7 +69,8 @@
 }
 
 :root[data-admin-collapsed] .admin-nav-link,
-:root[data-admin-collapsed] .admin-new-post {
+:root[data-admin-collapsed] .admin-new-post,
+:root[data-admin-collapsed] .admin-identity-btn {
   justify-content: center;
   padding-inline: 0;
 }
@@ -88,13 +97,18 @@
   white-space: nowrap;
 }
 
+/* One line, always: this is where the session's remaining hours are, and a
+   wrapped or clipped-in-half handle is worse than an ellipsis. */
 .admin-whoami-role {
   display: block;
   font-family: var(--font-mono);
   font-size: 10px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--color-accent-700);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .admin-nav {
@@ -169,7 +183,8 @@
   flex-wrap: wrap;
 }
 
-.admin-new-post {
+.admin-new-post,
+.admin-identity-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -265,6 +280,41 @@
 .toggle[aria-checked='true'] { background: var(--color-accent); }
 .toggle[aria-checked='true'] span { left: 18px; }
 
+/* — the project screens —
+
+   Shared by the list at `/admin/projects` and a project's own page: the same
+   switch, the same field captions, the same one red affordance. */
+.pm-visibility { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+
+.pm-field-label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  margin-bottom: 3px;
+}
+
+.pm-field-value { font-family: var(--font-mono); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+.pm-danger { color: var(--color-accent-700); }
+
+/* — the project form —
+
+   One field list, two surfaces: the import modal fills it in from a repository,
+   the detail page edits it with more room. */
+.pf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+.pf-wide { grid-column: 1 / -1; }
+.pf-grid label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+.pf-summary { min-height: 60px; }
+.pf-highlights { min-height: 110px; font-family: var(--font-mono); font-size: 13px; }
+.pf-message { min-height: 18px; font-size: 12px; margin: var(--space-3) 0 0; }
+.pf-message[data-tone='error'] { color: var(--color-accent-700); }
+
+@media (max-width: 640px) {
+  .pf-grid { grid-template-columns: 1fr; }
+}
+
 /* — design-system table — */
 .table {
   width: 100%;
@@ -342,6 +392,114 @@
 .preview-md pre { background: var(--color-neutral-200); padding: var(--space-3); overflow-x: auto; font-size: 12px; margin: 0 0 0.6em; }
 .preview-md pre code { background: none; padding: 0; }
 
+/* — dialogs —
+
+   Native `<dialog>`: the top layer, focus trapping and Escape are all the
+   platform's job, so none of them is reimplemented anywhere that uses this.
+   Lives here rather than in a page because four surfaces share it now — the
+   import list, the project form, the identity modal and the case-study
+   scaffold. */
+.modal {
+  width: min(760px, 92vw);
+  max-height: 88dvh;
+  overflow-y: auto;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  padding: var(--space-5);
+}
+
+.modal-narrow { width: min(560px, 92vw); }
+
+.modal::backdrop { background: color-mix(in srgb, var(--color-neutral-900) 45%, transparent); }
+.modal-close-form { display: flex; justify-content: flex-end; }
+.modal-close { margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0 0; }
+.modal-title { font-size: 20px; margin: 0 0 4px; }
+.modal-lede { margin-bottom: var(--space-4); }
+.modal-lede code { font-size: 11px; background: var(--color-surface); padding: 1px 5px; }
+.modal-controls { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-3); }
+.modal-search { width: 240px; font-size: 13px; padding: 6px 10px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
+.modal-list { display: flex; flex-direction: column; margin-bottom: var(--space-3); }
+
+/* — empty states —
+
+   A screen with nothing on it should say what would put something there.
+   Shared, because "no projects tracked", "nothing matched that search" and
+   "no entries yet" are the same component with different copy. */
+.admin-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-4);
+  color: var(--color-text-muted);
+}
+
+.admin-empty[hidden] { display: none; }
+
+/* `currentColor` is unDraw's accent slot, and the artwork should stay quieter
+   than the action underneath it. */
+.admin-empty-art { width: min(260px, 55vw); color: var(--color-accent-400); }
+.admin-empty-art-sm { width: min(180px, 45vw); }
+.admin-empty-title { font-size: 18px; margin: 0; color: var(--color-text); }
+.admin-empty-copy { margin: 0; max-width: 46ch; font-size: 13px; }
+.admin-empty-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: center; }
+
+/* — row menu —
+
+   The kebab on a list row. Anchored to the row rather than to the viewport, so
+   no repositioning script: `<details>` does the open/close and the summary is
+   the button. */
+.menu { position: relative; }
+.menu > summary { list-style: none; cursor: pointer; }
+.menu > summary::-webkit-details-marker { display: none; }
+
+.menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 5;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1);
+  background: var(--color-bg);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-md);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+  color: var(--color-text);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.menu-item:hover:not(:disabled) { background: var(--color-accent-100); color: var(--color-text); }
+.menu-item:disabled { opacity: 0.45; cursor: default; }
+.menu-item[aria-current='true'] { font-weight: 600; }
+.menu-item-danger { color: var(--color-accent-700); }
+.menu-sep { height: 0; border: 0; border-top: 1px solid var(--color-divider); margin: var(--space-1) 0; }
+.menu-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  padding: 6px 10px 2px;
+}
+
 /* — focus mode on the journal editor — */
 .admin-shell.is-focus .admin-sidebar,
 .admin-shell.is-focus .focus-hide { display: none; }
@@ -361,6 +519,9 @@
     padding-inline: var(--space-4);
     gap: var(--space-3);
   }
+  /* Stacked, the head is already separated from the nav by the banner's own
+     flow — a second rule there is just a line across the page. */
+  .admin-sidebar-head { padding-bottom: 0; border-bottom: 0; }
   :root[data-admin-collapsed] .collapsible { display: revert; }
   :root[data-admin-collapsed] .admin-sidebar-head { flex-direction: row; }
   .admin-collapse { display: none; }

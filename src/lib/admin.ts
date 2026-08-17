@@ -19,6 +19,75 @@ export const ALL_ADMIN_KEYS = Object.values(ADMIN_KEYS);
 export const SIDEBAR_KEY = 'om-admin-sidebar-collapsed';
 
 /**
+ * The error boundary's host element, rendered once per page by `AdminLayout`.
+ *
+ * Named here rather than in the component because both halves need it and the
+ * reporting half lives in this module — the same reason the storage keys do.
+ */
+export const ERROR_BOUNDARY_ID = 'admin-error-boundary';
+
+const errorMessage = (cause: unknown): string => {
+  if (cause instanceof Error) return cause.message || cause.name;
+  if (typeof cause === 'string' && cause) return cause;
+  return 'Something in this screen stopped working.';
+};
+
+/**
+ * Show a failure instead of leaving a screen that silently does nothing.
+ *
+ * Every admin screen is a page of controls wired up by one `<script>`. If that
+ * script throws — a renamed element, a GitHub response in a shape it did not
+ * expect — the markup still renders and every button quietly does nothing,
+ * which is the worst possible failure for a surface whose buttons write to a
+ * repository. This turns it into something visible and legible instead.
+ *
+ * Built out of text nodes: the message can come from a thrown `Error` whose
+ * text originated at GitHub, and it never goes near an HTML parser.
+ */
+export function showAdminError(cause: unknown, context?: string): void {
+  console.error(context ? `[admin: ${context}]` : '[admin]', cause);
+
+  const host = document.getElementById(ERROR_BOUNDARY_ID);
+  if (!host) return;
+
+  const line = host.querySelector<HTMLElement>('[data-role="message"]');
+  const where = host.querySelector<HTMLElement>('[data-role="context"]');
+  if (line) line.textContent = errorMessage(cause);
+  if (where) where.textContent = context ?? window.location.pathname;
+  host.hidden = false;
+}
+
+let boundaryMounted = false;
+
+/**
+ * Catch what a `try` around each handler cannot: a throw inside an event
+ * listener, and a rejected promise nobody awaited.
+ *
+ * Mounted once per session — `AdminLayout`'s script, like every admin script,
+ * is evaluated a single time even though the layout's DOM is rebuilt on each
+ * navigation. `showAdminError` therefore looks the host up per call rather than
+ * holding a reference to a node that a view transition has since replaced.
+ */
+export function mountAdminErrorBoundary(): void {
+  if (boundaryMounted) return;
+  boundaryMounted = true;
+
+  window.addEventListener('error', event => {
+    showAdminError(event.error ?? event.message, 'uncaught error');
+  });
+  window.addEventListener('unhandledrejection', event => {
+    showAdminError(event.reason, 'unhandled rejection');
+  });
+
+  /* A navigation is a fresh screen, so last screen's failure should not follow
+     it. The listener is registered here, once, for the same reason. */
+  document.addEventListener('astro:page-load', () => {
+    const host = document.getElementById(ERROR_BOUNDARY_ID);
+    if (host) host.hidden = true;
+  });
+}
+
+/**
  * Run an admin page's script now, and again after every navigation to it.
  *
  * `AdminLayout` mounts Astro's `<ClientRouter />` so the sidebar can persist
@@ -34,6 +103,10 @@ export const SIDEBAR_KEY = 'om-admin-sidebar-collapsed';
  * that registered it, so every screen would otherwise try to initialise every
  * other screen, and remembering which element was initialised keeps a first
  * visit from running twice.
+ *
+ * A throw out of `init` is reported through the error boundary rather than
+ * being left in the console: it means none of this screen's controls got wired
+ * up, and the page would otherwise look finished and do nothing.
  */
 export function onAdminPage(rootSelector: string, init: () => void): void {
   let initialised: Element | null = null;
@@ -42,7 +115,11 @@ export function onAdminPage(rootSelector: string, init: () => void): void {
     const root = document.querySelector(rootSelector);
     if (!root || root === initialised) return;
     initialised = root;
-    init();
+    try {
+      init();
+    } catch (error) {
+      showAdminError(error, `${rootSelector} failed to start`);
+    }
   };
 
   run();

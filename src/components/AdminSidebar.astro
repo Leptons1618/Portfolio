@@ -15,19 +15,26 @@
  *     after every transition, so the URL is the single source of truth.
  */
 import { Icon } from 'astro-icon/components';
+import AdminSettingsModal from './AdminSettingsModal.astro';
 import ThemeToggle from './ThemeToggle.astro';
 import { site } from '../lib/site';
 
+/* Identity is deliberately *not* here. It commits nothing — the JSON it
+   produces has to be hand-merged into `src/lib/site.ts` — so it is a dialog
+   opened from the foot rather than a fifth destination that looks like the
+   four screens that do write. */
 const NAV = [
   { label: 'Dashboard', href: '/admin/dashboard', icon: 'lucide:layout-dashboard' },
   { label: 'Projects', href: '/admin/projects', icon: 'lucide:folder-git-2' },
   { label: 'Journal', href: '/admin/journal', icon: 'lucide:pen-line' },
   { label: 'Resume', href: '/admin/resume', icon: 'lucide:file-text' },
-  { label: 'Settings', href: '/admin/settings', icon: 'lucide:settings' },
 ];
 
-/* Built and served paths differ by a trailing slash, so compare without one. */
+/* Built and served paths differ by a trailing slash, so compare without one.
+   A project's detail page is under `/admin/projects/…`, and it belongs to the
+   Projects section rather than to nothing — hence prefix, not equality. */
 const here = Astro.url.pathname.replace(/\/+$/, '');
+const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`);
 ---
 {/* The persist name is set here rather than by the caller: a transition
     directive on a component tag does not reach the element inside it, and this
@@ -61,7 +68,7 @@ const here = Astro.url.pathname.replace(/\/+$/, '');
         href={item.href}
         class="admin-nav-link"
         title={item.label}
-        aria-current={item.href === here ? 'page' : undefined}
+        aria-current={isCurrent(item.href) ? 'page' : undefined}
       >
         <Icon name={item.icon} class="admin-nav-icon" />
         <span class="collapsible">{item.label}</span>
@@ -73,6 +80,14 @@ const here = Astro.url.pathname.replace(/\/+$/, '');
     <a class="btn btn-primary btn-block admin-new-post" href="/admin/journal" title="New Post">
       <Icon name="lucide:plus" class="admin-nav-icon" /><span class="collapsible">New Post</span>
     </a>
+    <button
+      type="button"
+      class="btn btn-secondary btn-block admin-identity-btn"
+      title="Identity"
+      data-open-settings
+    >
+      <Icon name="lucide:user-round-cog" class="admin-nav-icon" /><span class="collapsible">Identity</span>
+    </button>
     <span class="collapsible admin-foot-actions">
       <ThemeToggle />
       <button type="button" class="btn btn-ghost admin-signout" id="admin-signout" hidden>Sign out</button>
@@ -81,6 +96,11 @@ const here = Astro.url.pathname.replace(/\/+$/, '');
       <Icon name="lucide:external-link" class="admin-nav-icon" />public site
     </a>
   </div>
+
+  {/* Inside the persisted `<aside>` on purpose: the dialog survives a
+      navigation along with the rail, so its script binds once at module scope
+      like the rest of this component. */}
+  <AdminSettingsModal />
 </aside>
 
 <script>

@@ -22,9 +22,10 @@
  * `astro:content` into the client bundle.
  */
 
-import type { Post, Project } from './content';
+import type { CaseStudy, Post, Project } from './content';
 import {
   removeFrontmatterField,
+  setBody,
   setFrontmatterField,
   setFrontmatterList,
   type Scalar,
@@ -114,7 +115,106 @@ export async function setPostStatus(slug: string, status: PostStatus): Promise<C
   return commitFile({ path, content: next, message: `content(journal): ${status} ${slug}`, sha: file.sha });
 }
 
+/** One journal file's frontmatter — the schema, as the editor writes it. */
+export interface PostFields {
+  title: string;
+  summary: string;
+  date: string;
+  tags: string[];
+  readTime?: string;
+  videoDuration?: string;
+  heroImage?: string;
+  status: PostStatus;
+}
+
 const quote = (value: string) => JSON.stringify(value);
+
+/**
+ * A complete journal file. Optional fields are omitted rather than written
+ * empty, which is what the hand-authored posts do.
+ */
+export function buildPostMarkdown(fields: PostFields, body: string): string {
+  const lines = [
+    '---',
+    `title: ${quote(fields.title || 'Untitled')}`,
+    `summary: ${quote(fields.summary)}`,
+    `date: ${quote(fields.date)}`,
+    `tags: [${fields.tags.map(quote).join(', ')}]`,
+  ];
+  if (fields.readTime) lines.push(`readTime: ${quote(fields.readTime)}`);
+  if (fields.videoDuration) lines.push(`videoDuration: ${quote(fields.videoDuration)}`);
+  if (fields.heroImage) lines.push(`heroImage: ${quote(fields.heroImage)}`);
+  lines.push(`status: ${quote(fields.status)}`, '---', '', body.trim(), '');
+  return lines.join('\n');
+}
+
+/**
+ * Write a journal post that does not exist yet.
+ *
+ * Refuses to overwrite for the same reason `createProject` does: the Contents
+ * API turns a create into an update given half a chance, and "new post" landing
+ * on an existing slug would replace a published file with an empty draft.
+ */
+export async function createPost(
+  slug: string,
+  fields: PostFields,
+  body: string
+): Promise<CommitResult> {
+  const path = postPath(slug);
+  if (await exists(path)) {
+    throw new GitHubError(`${path} already exists. Open it from the entries list to edit it.`);
+  }
+  return commitFile({
+    path,
+    content: buildPostMarkdown(fields, body),
+    message: `content(journal): add ${slug}`,
+  });
+}
+
+/**
+ * Rewrite a journal post that already exists.
+ *
+ * A patch, not a regeneration, even though the editor knows every field in the
+ * schema — because the file on the branch may not be one the editor wrote. A
+ * hand-authored post can carry a comment, a field ordering, or a key added
+ * since, and regenerating would quietly drop all three. The fields are set one
+ * line at a time and the body is swapped whole, so what changes is what the
+ * author changed.
+ *
+ * Returns `null` when the file already said exactly this.
+ */
+export async function updatePost(
+  slug: string,
+  fields: PostFields,
+  body: string
+): Promise<CommitResult | null> {
+  const path = postPath(slug);
+  const file = await readFile(path);
+
+  let next = file.text;
+  next = setFrontmatterField(next, 'title', fields.title);
+  next = setFrontmatterField(next, 'summary', fields.summary);
+  next = setFrontmatterField(next, 'date', fields.date);
+  next = setFrontmatterList(next, 'tags', fields.tags);
+  next = setFrontmatterField(next, 'status', fields.status);
+
+  /* Cleared optional fields are removed rather than written empty — an empty
+     `readTime: ""` would render as a blank meta line on the post. */
+  for (const key of ['readTime', 'videoDuration', 'heroImage'] as const) {
+    const value = fields[key];
+    next = value ? setFrontmatterField(next, key, value) : removeFrontmatterField(next, key);
+  }
+
+  next = setBody(next, body);
+
+  if (next === file.text) return null;
+  return commitFile({ path, content: next, message: `content(journal): update ${slug}`, sha: file.sha });
+}
+
+/** Delete a journal file. Recoverable — it stays in the history. */
+export function removePost(slug: string): Promise<CommitResult> {
+  return deleteFile({ path: postPath(slug), message: `content(journal): remove ${slug}` });
+}
 
 /**
  * A complete project file.
@@ -269,6 +369,38 @@ export async function createCaseStudy(slug: string, seed: CaseStudySeed): Promis
     content: lines.join('\n'),
     message: `content(case-studies): scaffold ${slug}`,
   });
+}
+
+/** A case study's frontmatter, as the schema defines it. */
+export type CaseStudyFields = CaseStudy['data'];
+
+/**
+ * Change some of a case study's structured fields.
+ *
+ * `patchProject`'s twin, and a patch for a stronger reason: a case study is
+ * MDX, its body is the whole point, and the admin never renders it. Only the
+ * frontmatter above the body is reachable from here — the prose stays a thing
+ * you write in git, which is decision 6 in `docs/DECISIONS.md`.
+ *
+ * Returns `null` when the file already said exactly this.
+ */
+export async function patchCaseStudy(
+  slug: string,
+  changes: Partial<CaseStudyFields>,
+  message: string
+): Promise<CommitResult | null> {
+  const path = caseStudyPath(slug);
+  const file = await readFile(path);
+
+  let next = file.text;
+  for (const [key, value] of Object.entries(changes)) {
+    if (value === undefined || value === '') next = removeFrontmatterField(next, key);
+    else if (Array.isArray(value)) next = setFrontmatterList(next, key, value);
+    else next = setFrontmatterField(next, key, value as Scalar);
+  }
+
+  if (next === file.text) return null;
+  return commitFile({ path, content: next, message, sha: file.sha });
 }
 
 /**

@@ -43,26 +43,28 @@ Do not add a `slug:` frontmatter field. Astro derives the slug from the filename
 
 - **`site.ts`** — identity and URLs. Name, role, bio, email, phone, address, GitHub, LinkedIn, repo, origin, OG image, portrait. **Nothing else may hard-code these.** If you find an email or a profile URL in a component, it belongs here.
 - **`content.ts`** — the only module that calls `getCollection`. Ordering (`featuredRank ?? 99`, then `year` descending), status filtering, `CATEGORY_LABELS`, the project↔case-study link, and tag counting all live here. Pages and layouts consume the functions; they do not query collections themselves.
-- **`content-store.ts`** — the write half of the same collections, and the only thing the admin commits content through: `createProject`, `patchProject`, `removeProject`, `createCaseStudy`, `setPostStatus`. Create builds a whole file from a generator; edit patches fields in place through `frontmatter.ts`. Browser-only, and it imports `content.ts` **type-only** so `astro:content` never reaches the client bundle.
+- **`content-store.ts`** — the write half of the same collections, and the only thing the admin commits content through: `createProject`, `patchProject`, `removeProject`, `createCaseStudy`, `patchCaseStudy`, `createPost`, `updatePost`, `removePost`, `setPostStatus`. Create builds a whole file from a generator; edit patches fields in place through `frontmatter.ts`. Browser-only, and it imports `content.ts` **type-only** so `astro:content` never reaches the client bundle.
 - **`resume.ts`** — resume body. Not a collection. Identity fields come from `site.ts`. Regenerated wholesale by the admin editor.
 - **`format.ts`** — dates, journal tag labels, post meta lines.
-- **`admin.ts`** — localStorage key names.
-- **`theme.ts`** — the theme id list, their `theme-color` values, and the storage key. Nothing else may name a theme.
+- **`admin.ts`** — localStorage key names, `onAdminPage()`, and the admin error boundary's reporting half.
+- **`theme.ts`** — the theme id list, their `theme-color` values, the storage key, and applying/selecting a theme. Nothing else may name a theme, and nothing else writes `data-theme`.
 - **`github.ts`** — admin sign-in and repository reads/writes (`readFile`, `commitFile`, `deleteFile`, `fetchRepoMeta`). The only module that talks to the GitHub API or holds the token. Read its header comment before changing anything in it.
-- **`frontmatter.ts`** — patches one frontmatter field in place, preserving the rest of the file byte for byte. Scalars via `setFrontmatterField`, lists via `setFrontmatterList` (which keeps whichever style the file already used). Refuses anything it cannot do losslessly. Not a YAML parser, and must not grow into one.
+- **`frontmatter.ts`** — patches one frontmatter field in place, preserving the rest of the file byte for byte. Scalars via `setFrontmatterField`, lists via `setFrontmatterList` (which keeps whichever style the file already used), the body via `setBody`/`readBody`. Refuses anything it cannot do losslessly. Not a YAML parser, and must not grow into one.
 - **`clipboard.ts`** — `copyText()`, with the selection fallback for insecure contexts.
 
 `CATEGORY_LABELS` is typed `Record<Project['data']['category'], string>`, so adding a value to the schema enum fails the typecheck until it is labelled. "Featured" is deliberately *not* a category — it is a `featuredRank`, and the projects filter bar prepends it as a pseudo-category.
 
 ### The `/admin` surface signs in with GitHub
 
-`src/pages/admin/*` is an authoring surface. It runs in the browser; the only server in the system is `workers/github-oauth/`, a stateless Cloudflare Worker that does the OAuth code→token exchange and nothing else. Signed in, the journal and resume editors commit whole files through the GitHub Contents API, and the project manager commits frontmatter patches (visibility, case-study unlink) or deletes a project file outright. `settings` stays export-only because its JSON has to be hand-merged into `src/lib/site.ts`.
+`src/pages/admin/*` is an authoring surface. It runs in the browser; the only server in the system is `workers/github-oauth/`, a stateless Cloudflare Worker that does the OAuth code→token exchange and nothing else. Four screens — `dashboard`, `projects` (a manifest, plus `projects/[slug]` for one project and its case study), `journal` and `resume` — and one dialog for site identity, which stays export-only because its JSON has to be hand-merged into `src/lib/site.ts`.
 
-Details live in `.claude/rules/admin-surface.md`, which loads when you touch those files. Three rules worth repeating here:
+Details live in `.claude/rules/admin-surface.md`, which loads when you touch those files. Five rules worth repeating here:
 
 - **`/admin/*` is prerendered public HTML.** The pre-paint redirect hides the editors, it does not protect them. The repository is what is protected, by GitHub, at write time.
 - **`buildModule()` in the resume editor regenerates all of `src/lib/resume.ts`**, so any export you add to that module must be added there in the same change.
 - **`AdminLayout` mounts `<ClientRouter />` and the sidebar is `transition:persist`.** A page `<script>` therefore executes at most once per session, so every admin page script goes through `onAdminPage()` in `src/lib/admin.ts`. Read decision 11 in `docs/DECISIONS.md` before changing anything in the admin shell.
+- **Anything rendered inside the persisted `<aside>` persists too** — the identity modal is there deliberately, so it survives a navigation and binds once.
+- **The journal editor writes an existing post by patching it**, and an open post keeps its filename however the title is edited. Astro derives the slug from the filename, so a rename would orphan a live URL.
 
 ### Styling: token themes, plain CSS
 
@@ -84,7 +86,7 @@ Rules when touching styles:
 
 ## Why things are the way they are
 
-`docs/DECISIONS.md` records the non-obvious choices: why the site is static, what `/admin` is and is not, why the resume is a module rather than a collection, why the origin is written down three times, why `content.ts` is the only caller of `getCollection`, why the OAuth flow needs a Worker and what its security posture does *not* cover, why sign-in is a GitHub App whose refresh token never reaches the browser, why journal state is one enum rather than two flags, why only the admin client-routes, and why the second theme is token overrides rather than a parallel stylesheet. Read it before proposing to change any of those.
+`docs/DECISIONS.md` records the non-obvious choices: why the site is static, what `/admin` is and is not, why the resume is a module rather than a collection, why the origin is written down three times, why `content.ts` is the only caller of `getCollection`, why the OAuth flow needs a Worker and what its security posture does *not* cover, why sign-in is a GitHub App whose refresh token never reaches the browser, why journal state is one enum rather than two flags, why only the admin client-routes, why the second theme is token overrides rather than a parallel stylesheet, and why a sidebar destination has to be something that writes. Read it before proposing to change any of those.
 
 `docs/FEATURES.md` tracks what exists, what is missing, and what was cut on purpose. `CHANGELOG.md` is the shipped history. `docs/ADMIN-REARCHITECTURE.md` is the admin plan of record — all four of its phases are done.
 

@@ -1,5 +1,6 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import Illustration from '../../components/Illustration.astro';
 import { Icon } from 'astro-icon/components';
 import { getCaseStudies, getProjects } from '../../lib/content';
 import { PROJECT_CATEGORIES, PROJECT_STATUSES, type ProjectFields } from '../../lib/content-store';
@@ -50,9 +51,10 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     <h6 class="admin-eyebrow-mono">MODULE: PROJECT_MGMT</h6>
     <h1 class="pm-title">Project Portfolio</h1>
     <p class="pm-desc">
-      Import repositories, edit project details, and manage case-study links. Every
-      change here is a commit to <code>src/content/</code> on the default branch, which
-      is what triggers a rebuild.
+      Import repositories and manage what is visible. <strong>Edit</strong> on a card
+      opens that project's own page, where the fields and its case study live. Every
+      change is a commit to <code>src/content/</code> on the default branch, which is
+      what triggers a rebuild.
     </p>
 
     <section class="card elev-sm source-control">
@@ -94,6 +96,28 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       <h6 class="admin-eyebrow">Repository Sync ({rows.length})</h6>
       <hr class="rule" />
     </div>
+
+    {/* Nothing tracked is a real state — a fresh checkout, or a portfolio
+        emptied out — and it is the one moment the screen can say exactly what
+        to do next instead of showing an empty grid and a rule. */}
+    {rows.length === 0 && (
+      <div class="card elev-sm">
+        <div class="admin-empty">
+          <div class="admin-empty-art"><Illustration name="the-void" /></div>
+          <h3 class="admin-empty-title">No projects tracked yet</h3>
+          <p class="admin-empty-copy">
+            Nothing in <code>src/content/projects/</code>. Import a repository and fill in
+            the two fields GitHub cannot answer — a category and the highlights — and it
+            lands on the site at the next build.
+          </p>
+          <div class="admin-empty-actions">
+            <button type="button" class="btn btn-primary btn-sm" id="import-open-empty">
+              <Icon name="lucide:git-branch" class="admin-nav-icon" />Import from GitHub
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     <div class="pm-grid">
       {rows.map(row => (
@@ -157,9 +181,13 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
           <p class="text-muted admin-note pm-status" data-role="status"></p>
 
           <div class="pm-actions">
-            <button type="button" class="btn btn-secondary btn-sm" data-action="edit">
+            {/* A link, not a button: editing a project that already exists is a
+                whole screen — every field, the repository's live state and the
+                case study in one place — and this card is a manifest row. The
+                modal below is what an *import* opens. */}
+            <a class="btn btn-secondary btn-sm" href={`/admin/projects/${row.slug}`}>
               <Icon name="lucide:pencil" class="admin-nav-icon" />Edit
-            </button>
+            </a>
             <button type="button" class="btn btn-secondary btn-sm" data-action="fetch">
               <Icon name="lucide:refresh-cw" class="admin-nav-icon" />Fetch
             </button>
@@ -210,6 +238,16 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
     <div class="modal-list" id="import-list"></div>
 
+    <template id="import-empty">
+      <div class="admin-empty">
+        <div class="admin-empty-art admin-empty-art-sm"><Illustration name="empty-mailbox" /></div>
+        <p class="admin-empty-copy">
+          No repository matches that search and filter. "Not granted" hides everything the
+          App can already write to — try All.
+        </p>
+      </div>
+    </template>
+
     <p class="text-muted admin-note">
       "Granted" means the GitHub App is installed on that repository, so this session can
       write to it. Anything else needs
@@ -218,11 +256,13 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     </p>
   </dialog>
 
-  {/* — project form —
+  {/* — import form —
 
-      One form, two commit paths. GitHub answers seven of the nine required
-      fields; `category` is an enum and `highlights` is prose, so an import can
-      never be one click if every file that lands is to be schema-valid. */}
+      Creation only. GitHub answers seven of the nine required fields;
+      `category` is an enum and `highlights` is prose, so an import can never be
+      one click if every file that lands is to be schema-valid. Editing a
+      project that already exists is `/admin/projects/<slug>`, which has room
+      for the case study too. */}
   <dialog class="modal" id="project-modal" aria-labelledby="project-form-title">
     <form method="dialog" class="modal-close-form">
       <button class="btn btn-icon modal-close" value="cancel" aria-label="Close">
@@ -230,7 +270,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       </button>
     </form>
 
-    <h2 class="modal-title" id="project-form-title">Edit project</h2>
+    <h2 class="modal-title" id="project-form-title">Import project</h2>
     <p class="text-muted admin-note modal-lede">
       Writes <code id="pf-path">src/content/projects/…</code>. Fields left blank are
       removed from the frontmatter when they are optional.
@@ -307,7 +347,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
     <div class="modal-actions">
       <form method="dialog"><button class="btn btn-secondary" value="cancel">Cancel</button></form>
-      <button type="button" class="btn btn-primary" id="pf-save">Commit</button>
+      <button type="button" class="btn btn-primary" id="pf-save">Create project</button>
     </div>
   </dialog>
 
@@ -386,7 +426,6 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     // ---------------------------------------------------------------- cards
 
     const cards = Array.from(document.querySelectorAll<HTMLElement>('.pm-card'));
-    const cardBySlug = new Map(cards.map(card => [card.dataset.slug!, card]));
     const statusOf = (card: HTMLElement) => card.querySelector<HTMLElement>('[data-role="status"]')!;
 
     /* Visibility. The file on the default branch is the only truth; signed out
@@ -440,10 +479,8 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       const line = statusOf(card);
       bindToggle(card.querySelector<HTMLButtonElement>('.toggle')!, line);
 
-      button('edit').addEventListener('click', () => {
-        const slug = card.dataset.slug!;
-        openForm({ mode: 'edit', slug, fields: seed.projects[slug] });
-      });
+      /* Edit is an anchor to `/admin/projects/<slug>`, so it needs nothing
+         here. */
 
       /* Fetch is the only action that works signed out — the public API answers
          an unauthenticated read, and the branch and push time are public facts. */
@@ -503,10 +540,9 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       });
     });
 
-    // ----------------------------------------------------------- the form
+    // -------------------------------------------------- the import form
 
     const projectModal = document.getElementById('project-modal') as HTMLDialogElement;
-    const formTitle = document.getElementById('project-form-title')!;
     const formPath = document.getElementById('pf-path')!;
     const formMessage = document.getElementById('pf-message')!;
     const saveButton = document.getElementById('pf-save') as HTMLButtonElement;
@@ -528,19 +564,22 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       caseStudy: field<HTMLSelectElement>('pf-case'),
     };
 
-    type FormTarget = { mode: 'create' | 'edit'; slug: string; fields: ProjectFields };
-    let target: FormTarget | null = null;
+    let target: ProjectFields | null = null;
 
     const csv = (value: string) => value.split(',').map(part => part.trim()).filter(Boolean);
     const lines = (value: string) => value.split('\n').map(part => part.trim()).filter(Boolean);
 
-    function openForm(next: FormTarget) {
-      target = next;
-      const { fields } = next;
+    /**
+     * Open the import form on a repository's metadata.
+     *
+     * Creation only — the slug is derived from the title on save, because the
+     * title is editable right up until the file is written and the filename is
+     * where Astro gets the slug from.
+     */
+    function openForm(slug: string, fields: ProjectFields) {
+      target = fields;
 
-      formTitle.textContent = next.mode === 'create' ? 'Import project' : `Edit ${next.slug}`;
-      formPath.textContent = projectPath(next.slug);
-      saveButton.textContent = next.mode === 'create' ? 'Create project' : 'Commit changes';
+      formPath.textContent = projectPath(slug);
       say(formMessage, '');
 
       inputs.title.value = fields.title ?? '';
@@ -633,29 +672,38 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       const fields = readForm();
       if (typeof fields === 'string') return say(formMessage, fields, 'error');
 
-      const slug = target.mode === 'create' ? slugify(fields.title) : target.slug;
+      const slug = slugify(fields.title);
       if (!slug) return say(formMessage, 'That title does not produce a usable filename.', 'error');
 
       saveButton.disabled = true;
-      say(formMessage, 'Committing…');
+      say(formMessage, 'Creating…');
 
       try {
         const caseStudySlug = await resolveCaseStudy(slug, fields);
 
-        /* `hidden` is deliberately not in the patch: it belongs to the
-           visibility switch, and writing it here would add a `hidden: false`
-           line to every hand-authored file the first time it is edited. */
-        const result =
-          target.mode === 'create'
-            ? await createProject(slug, { ...fields, caseStudySlug })
-            : await patchProject(slug, { ...fields, caseStudySlug }, `content(projects): update ${slug}`);
+        /* `hidden` is deliberately not written: it belongs to the visibility
+           switch, and a `hidden: false` line on every imported file would be
+           noise the hand-authored ones do not carry. */
+        const result = await createProject(slug, { ...fields, caseStudySlug });
+        afterCreate(slug, { ...fields, caseStudySlug });
 
-        if (!result) {
-          say(formMessage, 'Nothing changed — the file already says exactly this.');
-        } else {
-          sayLink(formMessage, 'Committed. It appears after the next build', result.url);
-          afterSave(slug, { ...fields, caseStudySlug, hidden: target.fields.hidden });
-        }
+        const commit = document.createElement('a');
+        commit.href = result.url;
+        commit.target = '_blank';
+        commit.rel = 'noopener';
+        commit.textContent = 'view commit ↗';
+
+        const detail = document.createElement('a');
+        detail.href = `/admin/projects/${slug}`;
+        detail.textContent = 'open its page →';
+
+        formMessage.dataset.tone = 'info';
+        formMessage.replaceChildren(
+          document.createTextNode('Created. It joins the grid at the next build — '),
+          commit,
+          document.createTextNode(' · '),
+          detail
+        );
       } catch (error) {
         say(formMessage, message(error), 'error');
       } finally {
@@ -663,38 +711,17 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       }
     });
 
-    /* The page is prerendered, so a commit does not change what is on screen.
-       Update the parts that would otherwise lie until the next build. */
-    function afterSave(slug: string, fields: ProjectFields) {
+    /* The page is prerendered, so a commit does not change what is on screen —
+       the new project has no card until the next build. What *can* be corrected
+       is the import list's idea of what exists, so the row it came from stops
+       offering to import it a second time. */
+    function afterCreate(slug: string, fields: ProjectFields) {
       seed.projects[slug] = fields;
-      /* The file exists now, so a second Commit is an edit. Left as `create`
-         it would come back with "already exists", which is true and useless. */
-      if (target) target = { mode: 'edit', slug, fields };
-      saveButton.textContent = 'Commit changes';
-      formTitle.textContent = `Edit ${slug}`;
-
-      /* A project created from the modal has no card until the next build, so
-         all that can be updated is the modal's own view of what exists. */
-      const card = cardBySlug.get(slug);
-      if (!card) {
-        importState.slugByRepo.set(repoKey(fields.repoUrl), slug);
-        if (importState.loaded) renderImportList();
-        return;
-      }
-
-      card.querySelector('.pm-card-title')!.textContent = fields.title;
-      const caseCell = card.querySelector<HTMLElement>('[data-role="case-study"]')!;
-      if (fields.caseStudySlug) {
-        const anchor = document.createElement('a');
-        anchor.href = `/case-studies/${fields.caseStudySlug}`;
-        anchor.textContent = `linked · ${fields.caseStudySlug}`;
-        caseCell.replaceChildren(anchor);
-      } else {
-        const none = document.createElement('span');
-        none.className = 'text-muted';
-        none.textContent = 'none';
-        caseCell.replaceChildren(none);
-      }
+      /* Clearing the target disarms the button: clicking Create twice would
+         come back with "already exists", which is true and useless. */
+      target = null;
+      importState.slugByRepo.set(repoKey(fields.repoUrl), slug);
+      if (importState.loaded) renderImportList();
     }
 
     // --------------------------------------------------------- import modal
@@ -748,11 +775,13 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
       importList.replaceChildren(...visible.map(repoRow));
 
+      /* Cloned from the markup rather than built here: the empty state carries
+         an inlined illustration, and duplicating that in a script would put a
+         second copy of the artwork in the bundle. */
       if (!visible.length) {
-        const empty = document.createElement('p');
-        empty.className = 'text-muted admin-note';
-        empty.textContent = 'No repositories match.';
-        importList.appendChild(empty);
+        importList.appendChild(
+          (document.getElementById('import-empty') as HTMLTemplateElement).content.cloneNode(true)
+        );
       }
     }
 
@@ -839,14 +868,12 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         bindToggle(toggle, line);
         host.appendChild(toggle);
 
-        const edit = document.createElement('button');
-        edit.type = 'button';
+        /* A link out to the project's own page, not a second form in a second
+           dialog on top of the first. */
+        const edit = document.createElement('a');
         edit.className = 'btn btn-secondary btn-sm';
+        edit.href = `/admin/projects/${slug}`;
         edit.textContent = 'Edit';
-        edit.addEventListener('click', () => {
-          importModal.close();
-          openForm({ mode: 'edit', slug, fields: seed.projects[slug] });
-        });
         host.appendChild(edit);
         return host;
       }
@@ -864,11 +891,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         add.disabled = false;
         add.textContent = 'Add';
         importModal.close();
-        openForm({
-          mode: 'create',
-          slug: slugify(repo.name),
-          fields: fieldsFromRepo(repo, languages),
-        });
+        openForm(slugify(repo.name), fieldsFromRepo(repo, languages));
       });
       host.appendChild(add);
       return host;
@@ -891,10 +914,14 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       }
     }
 
-    importOpen.addEventListener('click', () => {
+    function openImport() {
       importModal.showModal();
       if (!importState.loaded) loadRepositories();
-    });
+    }
+
+    importOpen.addEventListener('click', openImport);
+    /* The empty state's call to action is the same one as the header's. */
+    document.getElementById('import-open-empty')?.addEventListener('click', openImport);
 
     importSearch.addEventListener('input', renderImportList);
     importFilters.forEach(input => input.addEventListener('change', renderImportList));
@@ -931,54 +958,20 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
   .pm-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
   .pm-card-title { font-size: 18px; margin: 0 0 4px; }
   .pm-card-meta { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); margin: 0; }
-  .pm-visibility { display: flex; align-items: center; gap: var(--space-2); flex: none; }
 
   .pm-fields { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
-  .pm-field-label {
-    display: block;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--color-text-faint);
-    margin-bottom: 3px;
-  }
-  .pm-field-value { font-family: var(--font-mono); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
 
   .pm-status { min-height: 16px; }
   .pm-status[data-tone='error'] { color: var(--color-accent-700); }
 
   .pm-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-  .pm-danger { color: var(--color-accent-700); }
 
   .visibility-note { margin-top: var(--space-6); max-width: 70ch; }
   .visibility-note code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
 
-  /* — the two dialogs —
-
-     Native `<dialog>`: the top layer, focus trapping and Escape are all the
-     platform's job, so none of them is reimplemented here. */
-  .modal {
-    width: min(760px, 92vw);
-    max-height: 88dvh;
-    overflow-y: auto;
-    border: 1px solid var(--color-divider);
-    border-radius: var(--radius-md);
-    background: var(--color-bg);
-    color: var(--color-text);
-    padding: var(--space-5);
-  }
-  .modal::backdrop { background: color-mix(in srgb, var(--color-neutral-900) 45%, transparent); }
-  .modal-close-form { display: flex; justify-content: flex-end; }
-  .modal-close { margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0 0; }
-  .modal-title { font-size: 20px; margin: 0 0 4px; }
-  .modal-lede { margin-bottom: var(--space-4); }
-  .modal-lede code { font-size: 11px; background: var(--color-surface); padding: 1px 5px; }
-  .modal-controls { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-3); }
-  .modal-search { width: 240px; font-size: 13px; padding: 6px 10px; }
-  .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
-
-  .modal-list { display: flex; flex-direction: column; margin-bottom: var(--space-3); }
+  /* The dialogs, the field grid and the visibility switch's captions all live
+     in `admin.css` — this screen shares every one of them with a project's own
+     page. What is left here is this screen's own layout. */
 
   .repo-row {
     display: grid;
@@ -1013,21 +1006,11 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     color: var(--color-neutral-800);
   }
 
-  /* — the project form — */
-  .pf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
-  .pf-wide { grid-column: 1 / -1; }
-  .pf-grid label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
-  .pf-summary { min-height: 56px; }
-  .pf-highlights { min-height: 110px; font-family: var(--font-mono); font-size: 13px; }
-  .pf-message { min-height: 18px; font-size: 12px; margin: var(--space-3) 0 0; }
-  .pf-message[data-tone='error'] { color: var(--color-accent-700); }
-
   @media (max-width: 1100px) {
     .pm-grid { grid-template-columns: 1fr; }
   }
   @media (max-width: 640px) {
-    .pm-fields,
-    .pf-grid { grid-template-columns: 1fr; }
+    .pm-fields { grid-template-columns: 1fr; }
     .repo-row { grid-template-columns: 1fr; }
   }
 </style>

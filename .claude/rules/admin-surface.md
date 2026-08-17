@@ -3,7 +3,9 @@ paths:
   - "src/pages/admin/**"
   - "src/styles/admin.css"
   - "src/layouts/AdminLayout.astro"
+  - "src/components/Admin*.astro"
   - "src/lib/admin.ts"
+  - "src/lib/content-store.ts"
   - "src/lib/github.ts"
   - "workers/github-oauth/**"
 ---
@@ -32,18 +34,29 @@ paths:
 
 localStorage key names live in `src/lib/admin.ts` (`ADMIN_KEYS`, `SIDEBAR_KEY`) — never retype them in a page. Client `<script>` blocks import from it like any module; the pre-paint sidebar script is `is:inline` and receives the key through `define:vars`.
 
-| Page | Key | Writes | Target |
+| Screen | Key | Writes | Target |
 | --- | --- | --- | --- |
-| `journal` | `journalDraft` | export **and commit** | `src/content/journal/<slug>.md`; status changes patch existing files |
+| `journal` | `journalDraft` | export **and commit** | `src/content/journal/<slug>.md` — create, update-in-place, status patch, delete |
 | `resume` | `resumeDraft` | export **and commit** | `src/lib/resume.ts` |
-| `projects` | — | **commit** only | `src/content/projects/<slug>.md`, and `src/content/case-studies/<slug>.mdx` when scaffolding |
-| `settings` | `settings` | export only | `site-identity.json`, hand-applied to `src/lib/site.ts` |
+| `projects` | — | **commit** only | creates `src/content/projects/<slug>.md`; patches `hidden` |
+| `projects/[slug]` | — | **commit** only | `src/content/projects/<slug>.md` and `src/content/case-studies/<slug>.mdx` |
+| identity modal | `settings` | export only | `site-identity.json`, hand-applied to `src/lib/site.ts` |
+
+**Identity is a dialog, not a screen** — `AdminSettingsModal.astro`, rendered *inside* the persisted `<aside>` so it survives a navigation along with the rail, which is why its script can bind once at module scope. It is opened by anything carrying `data-open-settings`, through a delegated listener, so a page does not have to know the element exists. There is no `/admin/settings` route; do not add one back. It commits nothing, and a whole navigation for a form that only exports was the wrong shape.
+
+**Two project screens, and the split is the point.** `/admin/projects` is a manifest — cards, a visibility switch each, and an import modal. `/admin/projects/[slug]` is one project in full, plus its case study. The modal on the list screen is **creation only**; editing an existing project is the detail page. Do not give the modal an edit mode back: it was doing both jobs and doing the second one badly.
+
+**The journal editor edits existing posts, published ones included.** `editing` — the slug of the open post, or `null` — is the one piece of state that decides which path is written, whether an overwrite is allowed, and that **the filename does not follow the title**. Astro derives the slug from the filename, so renaming on a title edit would orphan a live URL. The entries list seeds frontmatter *and* `entry.body` from the build, so opening a post is a local read and works signed out; only committing needs a token.
 
 ## `src/lib/content-store.ts` is the write half
 
-`content.ts` reads the collections; `content-store.ts` is the only thing that writes them back. Every admin write goes through it — `createProject`, `patchProject`, `removeProject`, `createCaseStudy`, `setPostStatus` — so "what a valid content file looks like" is written down once. Its enum tables are `satisfies Record<…>` against the schema types, so adding a value in `src/content/config.ts` fails the typecheck here until it is listed.
+`content.ts` reads the collections; `content-store.ts` is the only thing that writes them back. Every admin write goes through it — `createProject`, `patchProject`, `removeProject`, `createCaseStudy`, `patchCaseStudy`, `createPost`, `updatePost`, `removePost`, `setPostStatus` — so "what a valid content file looks like" is written down once. Its enum tables are `satisfies Record<…>` against the schema types, so adding a value in `src/content/config.ts` fails the typecheck here until it is listed.
 
 Two write strategies, and the split is deliberate: **create** builds a whole file from a generator (nothing to preserve, and it is the only way to guarantee every required field is present), **edit** patches fields in place (the admin does not render a project body and does not know every field a hand-authored file carries). Do not collapse them into one.
+
+`updatePost` follows the edit strategy even though the editor knows every field in the journal schema, and that is on purpose: the file on the branch may not be one the editor wrote. Fields are set one line at a time and the body is swapped whole with `setBody`, so a comment, a field ordering or a key added since all survive. `scripts/test-frontmatter.mjs` pins the round trip.
+
+`patchCaseStudy` reaches the structured frontmatter only. The MDX body is still written in git — decision 6 — and nothing in the admin should start rendering or rewriting it.
 
 It imports `./content` **type-only**. A value import would drag `astro:content` into the client bundle.
 
@@ -75,7 +88,9 @@ Rows are built node by node with `createElement`. The name, description and URL 
 
 `site.githubUser` reaches the client through a `data-user` attribute — frontmatter constants are not visible to client scripts, so that attribute is the seam. Larger server data (the project seed) goes through `<script type="application/json">` with `<` escaped, the same pattern the resume editor uses.
 
-Both modals are native `<dialog>`. The top layer, focus trapping and Escape are the platform's job — do not reimplement any of them; only the backdrop click is wired up.
+Every modal is a native `<dialog>`, styled by `.modal*` in `src/styles/admin.css` — the import list, the import form and the identity dialog share it, so those rules do not belong to a page. The top layer, focus trapping and Escape are the platform's job: do not reimplement any of them; only the backdrop click is wired up. The journal's row menus are `<details>` for the same reason — the open/close and the button semantics come free, and all the script adds is closing the siblings.
+
+`.admin-empty` in `admin.css` is the one empty state, with different copy per use. When a screen can be empty, say what would fill it — a bare grid and a rule is not a state, it is a bug that has not been noticed yet.
 
 Admin pages are `noindex`, excluded from the sitemap by the filter in `astro.config.mjs`, and disallowed in the generated `robots.txt`. `AdminLayout` (not `BaseLayout`) wraps them and pulls in `src/styles/admin.css`. `admin/index.astro` is the one page with its own shell — a full-bleed login panel with no sidebar.
 
@@ -83,7 +98,7 @@ Admin pages are `noindex`, excluded from the sitemap by the filter in `astro.con
 
 `AdminLayout` mounts Astro's **`<ClientRouter />`**, and `AdminSidebar`'s root `<aside>` carries **`transition:persist`**, so navigating between admin screens moves that exact DOM node into the next page rather than rebuilding it. Public pages are plain MPA; this is the only layout with a router. Decision 11 in `docs/DECISIONS.md` has the reasoning. Three consequences, all of which have already bitten:
 
-- **A page's `<script>` executes at most once per session.** Astro re-inserts the same `src` when you return to a screen and the module registry declines to evaluate it again, so a naive top-level script is dead on the *second* visit. Every admin page script must go through **`onAdminPage(rootSelector, init)`** in `src/lib/admin.ts`. The selector has to be unique to that page: the listener outlives the page that registered it.
+- **A page's `<script>` executes at most once per session.** Astro re-inserts the same `src` when you return to a screen and the module registry declines to evaluate it again, so a naive top-level script is dead on the *second* visit. Every admin page script must go through **`onAdminPage(rootSelector, init)`** in `src/lib/admin.ts`. The selector has to be unique to that page: the listener outlives the page that registered it. It also wraps `init` and reports a throw through the error boundary, because a screen whose script died looks finished and does nothing.
 - **`astro:page-load` does not fire for the first, server-rendered page** (Astro 5.18 dispatches it only after a navigation). `onAdminPage` therefore calls through immediately *and* listens — do not "simplify" it down to the listener.
 - **A swap replaces every attribute on `<html>`.** `data-theme` and `data-admin-collapsed` are both set pre-paint from `localStorage`, so the head script's `restore()` is registered on `astro:after-swap`, which runs before paint.
 
@@ -91,7 +106,11 @@ The **sidebar script binds once, at module scope**, because it owns persisted DO
 
 `transition:persist` on a component *tag* does not reach the element inside it. It lives on the `<aside>` in `AdminSidebar.astro`, not on `<AdminSidebar />` in the layout.
 
-The sidebar is **pinned to the viewport**, not stretched to the document: `position: sticky; height: 100dvh` with `grid-template-rows: auto 1fr auto`. Head (identity + collapse) and foot (New Post, theme, sign out, public-site link) are always on screen; `.admin-nav` is the only part that scrolls. Collapsed state is `:root[data-admin-collapsed]`, never a class on `.admin-shell` — the pre-paint script has to set it before the sidebar element exists. At 64px the head stacks, because the avatar and the chevron do not fit on one row. The `<860px` rule undoes all of it and makes the rail a static banner — change one and check the other.
+The sidebar is **pinned to the viewport**, not stretched to the document: `position: sticky; height: 100dvh` with `grid-template-rows: auto 1fr auto`. Head (identity + collapse) and foot (New Post, Identity, theme, sign out, public-site link) are always on screen; `.admin-nav` is the only part that scrolls. Collapsed state is `:root[data-admin-collapsed]`, never a class on `.admin-shell` — the pre-paint script has to set it before the sidebar element exists. At 64px the head stacks, because the avatar and the chevron do not fit on one row. The `<860px` rule undoes all of it and makes the rail a static banner — change one and check the other.
+
+It is **260px**, and that number is load-bearing: the session line reads `@handle · 8h left`, and at 220px it wrapped. Only the tokens this system actually defines exist — `--space-1/2/3/4/6/8`. The rail's row gap was `var(--space-5)`, which resolved to nothing, which is why the nav sat flush against the identity block.
+
+**Errors are visible.** `AdminErrorBoundary` is rendered by `AdminLayout` above the content and stays hidden until `showAdminError()` fills it in; `mountAdminErrorBoundary()` wires `error` and `unhandledrejection` once per session and clears the panel on `astro:page-load`. Both look the host element up per call rather than holding a reference, because the layout's DOM is rebuilt on every navigation while these modules are evaluated once. The panel is written with text nodes — the message can have originated at GitHub.
 
 Identity lives in the **head**, seeded from `site.ts` and overwritten with the GitHub login and avatar once a session exists. There is no placeholder wordmark anywhere; `[dev.identity]` was one and it read as a bug.
 
