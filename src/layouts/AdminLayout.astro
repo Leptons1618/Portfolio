@@ -8,6 +8,7 @@ import '@fontsource-variable/jetbrains-mono';
 import '../styles/global.css';
 import '../styles/admin.css';
 import { ClientRouter } from 'astro:transitions';
+import AdminErrorBoundary from '../components/AdminErrorBoundary.astro';
 import AdminSidebar from '../components/AdminSidebar.astro';
 import { SIDEBAR_KEY } from '../lib/admin';
 import { EXPIRY_KEY, TOKEN_KEY, isConfigured } from '../lib/github';
@@ -80,6 +81,10 @@ const { title } = Astro.props;
     <AdminSidebar />
 
     <main class="admin-main">
+      {/* Above the content, not instead of it: the markup below still renders
+          and is still readable, it just cannot be trusted to *do* anything
+          once this is showing. */}
+      <AdminErrorBoundary />
       <slot />
     </main>
   </div>

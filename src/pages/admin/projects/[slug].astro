@@ -1,0 +1,795 @@
+---
+/**
+ * One project, in full — and the case study attached to it.
+ *
+ * The list screen at `/admin/projects` is a manifest: twenty cards, a
+ * visibility switch each, and a modal for the fields. That modal was doing two
+ * jobs badly — it is where an *imported* repository gets its missing fields
+ * filled in, which is a short one-off form, and it was also the only way to
+ * edit a project that has been in the portfolio for a year, which is not. This
+ * page is the second job: room for every field, the repository's live state
+ * beside them, and the case study in the same place rather than behind a
+ * select that only ever said "linked".
+ *
+ * Prerendered per project, hidden ones included — `getProjects(true)`, the
+ * same rule the list screen follows. Everything it commits goes through
+ * `content-store.ts`.
+ */
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import Illustration from '../../../components/Illustration.astro';
+import { Icon } from 'astro-icon/components';
+import { getCaseStudies, getProjects } from '../../../lib/content';
+import {
+  PROJECT_CATEGORIES,
+  PROJECT_STATUSES,
+  caseStudyPath,
+  projectPath,
+  type CaseStudyFields,
+  type ProjectFields,
+} from '../../../lib/content-store';
+import { parseRepoUrl } from '../../../lib/github';
+
+export async function getStaticPaths() {
+  const projects = await getProjects(true);
+  const caseStudies = await getCaseStudies();
+
+  return projects.map(project => ({
+    params: { slug: project.slug },
+    props: {
+      project,
+      /* The whole list, not just the linked one: the select below offers every
+         case study, and a page that only knew its own could not re-point. */
+      caseStudies,
+    },
+  }));
+}
+
+const { project, caseStudies } = Astro.props;
+const { slug } = Astro.params;
+const fields = project.data;
+
+const { owner, name: repoName } = parseRepoUrl(fields.repoUrl);
+const linked = caseStudies.find(entry => entry.slug === fields.caseStudySlug);
+
+/* Both forms prefill from the real frontmatter rather than from what the page
+   happens to display, so a field neither form shows still round-trips.
+   `<` is escaped because this lands inside a `<script>` element. */
+const seed = {
+  slug,
+  project: fields as ProjectFields,
+  caseStudy: linked ? { slug: linked.slug, data: linked.data as CaseStudyFields } : null,
+};
+const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
+
+const STATUS_VARIANT: Record<string, string> = {
+  active: 'tag-accent-2',
+  stable: 'tag-accent-2',
+  wip: 'tag-accent',
+  archived: 'tag-neutral',
+};
+---
+<AdminLayout title={`Project · ${fields.title}`}>
+  <div class="admin-main-wide" id="admin-project-detail">
+    <a class="pd-back" href="/admin/projects">
+      <Icon name="lucide:arrow-left" class="admin-nav-icon" />All projects
+    </a>
+
+    <div class="admin-head pd-head">
+      <div class="pd-id">
+        <h6 class="admin-eyebrow-mono">MODULE: PROJECT_DETAIL</h6>
+        <h1 class="admin-title">{fields.title}</h1>
+        <p class="pd-paths">
+          <code>{projectPath(slug)}</code>
+          {linked && <> · <code>{caseStudyPath(linked.slug)}</code></>}
+        </p>
+        <div class="pd-flags">
+          <span class={`tag ${STATUS_VARIANT[fields.status] ?? 'tag-neutral'}`}>{fields.status}</span>
+          <span class="tag tag-neutral">{fields.year}</span>
+          {fields.featuredRank !== undefined && (
+            <span class="tag tag-accent">featured · rank {fields.featuredRank}</span>
+          )}
+          <span class="tag tag-neutral" id="pd-visibility-flag">{fields.hidden ? 'hidden' : 'visible'}</span>
+        </div>
+      </div>
+
+      <div class="pd-head-actions">
+        <div class="pm-visibility">
+          <span class="pm-field-label">Visibility</span>
+          <button
+            type="button"
+            class="toggle"
+            role="switch"
+            id="pd-toggle"
+            data-slug={slug}
+            aria-checked={fields.hidden ? 'false' : 'true'}
+            aria-label={`Toggle visibility for ${fields.title}`}
+          ><span></span></button>
+        </div>
+        <div class="admin-actions">
+          <a class="btn btn-secondary btn-sm" href={fields.repoUrl} target="_blank" rel="noopener">
+            <Icon name="lucide:github" class="admin-nav-icon" />{owner}/{repoName}
+          </a>
+          {/* A hidden project has no detail page in the build, so the link
+              would 404 — say so instead of handing one out. */}
+          {fields.hidden
+            ? <span class="text-muted cell-mono pd-nopage">no public page</span>
+            : (
+              <a class="btn btn-secondary btn-sm" href={`/projects/${slug}`} target="_blank" rel="noopener">
+                <Icon name="lucide:external-link" class="admin-nav-icon" />/projects/{slug}
+              </a>
+            )}
+        </div>
+      </div>
+    </div>
+
+    <p class="admin-note pd-message" id="pd-message"></p>
+
+    <div class="pd-grid">
+      <section class="card elev-sm">
+        <h6 class="admin-eyebrow">Project Frontmatter</h6>
+        <p class="text-muted admin-note">
+          Fields left blank are removed when they are optional. Visibility is the switch
+          above, not a field here.
+        </p>
+        <hr class="rule pd-rule" />
+
+        <div class="pf-grid">
+          <div class="field pf-wide">
+            <label for="pf-title">Title</label>
+            <input class="input" id="pf-title" />
+          </div>
+          <div class="field pf-wide">
+            <label for="pf-summary">Summary</label>
+            <textarea class="input pf-summary" id="pf-summary"></textarea>
+          </div>
+          <div class="field">
+            <label for="pf-category">Category</label>
+            <select class="input" id="pf-category">
+              {PROJECT_CATEGORIES.map(([value, label]) => <option value={value}>{label}</option>)}
+            </select>
+          </div>
+          <div class="field">
+            <label for="pf-status">Status</label>
+            <select class="input" id="pf-status">
+              {PROJECT_STATUSES.map(([value, label]) => <option value={value}>{label}</option>)}
+            </select>
+          </div>
+          <div class="field">
+            <label for="pf-year">Year</label>
+            <input class="input" id="pf-year" type="number" min="1990" max="2100" />
+          </div>
+          <div class="field">
+            <label for="pf-rank">Featured rank (blank = not featured)</label>
+            <input class="input" id="pf-rank" type="number" min="1" max="99" />
+          </div>
+          <div class="field pf-wide">
+            <label for="pf-tags">Tags (comma separated)</label>
+            <input class="input" id="pf-tags" />
+          </div>
+          <div class="field pf-wide">
+            <label for="pf-stack">Stack (comma separated)</label>
+            <input class="input" id="pf-stack" />
+          </div>
+          <div class="field pf-wide">
+            <label for="pf-repo">Repository URL</label>
+            <input class="input" id="pf-repo" />
+          </div>
+          <div class="field pf-wide">
+            <label for="pf-demo">Demo URL (optional)</label>
+            <input class="input" id="pf-demo" />
+          </div>
+          <div class="field pf-wide">
+            <label for="pf-hero">Hero image (optional)</label>
+            <input class="input" id="pf-hero" placeholder="/images/project.jpg" />
+          </div>
+          <div class="field pf-wide">
+            <label for="pf-highlights">Highlights (one per line)</label>
+            <textarea class="input pf-highlights" id="pf-highlights"></textarea>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="pf-reset">Revert</button>
+          <button type="button" class="btn btn-primary" id="pf-save">Commit changes</button>
+        </div>
+      </section>
+
+      <aside class="pd-side">
+        <section class="card elev-sm">
+          <h6 class="admin-eyebrow">Repository</h6>
+          <dl class="pd-facts">
+            <div><dt>Mapped</dt><dd><a href={fields.repoUrl} target="_blank" rel="noopener">{owner}/{repoName} ↗</a></dd></div>
+            <div><dt>Branch</dt><dd id="pd-branch">not fetched</dd></div>
+            <div><dt>Last push</dt><dd id="pd-push">not fetched</dd></div>
+            <div><dt>Stars</dt><dd id="pd-stars">—</dd></div>
+          </dl>
+          <button type="button" class="btn btn-secondary btn-sm btn-block" id="pd-fetch">
+            <Icon name="lucide:refresh-cw" class="admin-nav-icon" />Fetch from GitHub
+          </button>
+          <p class="text-muted admin-note">
+            A public read — this one works signed out.
+          </p>
+        </section>
+
+        <section class="card elev-sm">
+          <h6 class="admin-eyebrow">Danger Zone</h6>
+          <p class="text-muted admin-note">
+            Deleting commits a removal of <code>{projectPath(slug)}</code>. The file stays
+            in the history, so a revert brings it back. A linked case study is left alone.
+          </p>
+          <button type="button" class="btn btn-secondary btn-block pm-danger" id="pd-delete">
+            <Icon name="lucide:trash-2" class="admin-nav-icon" />Delete this project
+          </button>
+        </section>
+      </aside>
+    </div>
+
+    <div class="section-head-rule pd-cs-head">
+      <h6 class="admin-eyebrow">Case Study</h6>
+      <hr class="rule" />
+    </div>
+
+    {linked ? (
+      <section class="card elev-sm" id="pd-case-study" data-slug={linked.slug}>
+        <div class="pd-cs-bar">
+          <div>
+            <h3 class="pd-cs-title">{linked.data.title}</h3>
+            <p class="text-muted admin-note">
+              <code>{caseStudyPath(linked.slug)}</code> — the structured half. The body is
+              MDX and is written in git.
+            </p>
+          </div>
+          <div class="admin-actions">
+            <a class="btn btn-secondary btn-sm" href={`/case-studies/${linked.slug}`} target="_blank" rel="noopener">
+              <Icon name="lucide:external-link" class="admin-nav-icon" />Read it
+            </a>
+            <button type="button" class="btn btn-secondary btn-sm" id="cs-unlink">Unlink</button>
+          </div>
+        </div>
+
+        <hr class="rule pd-rule" />
+
+        <div class="pf-grid">
+          <div class="field pf-wide">
+            <label for="cs-title">Title</label>
+            <input class="input" id="cs-title" />
+          </div>
+          <div class="field pf-wide">
+            <label for="cs-subtitle">Subtitle</label>
+            <input class="input" id="cs-subtitle" />
+          </div>
+          <div class="field pf-wide">
+            <label for="cs-problem">Problem</label>
+            <textarea class="input pf-summary" id="cs-problem"></textarea>
+          </div>
+          <div class="field pf-wide">
+            <label for="cs-solution">Solution</label>
+            <textarea class="input pf-summary" id="cs-solution"></textarea>
+          </div>
+          <div class="field pf-wide">
+            <label for="cs-achievements">Achievements (one per line)</label>
+            <textarea class="input pf-highlights" id="cs-achievements"></textarea>
+          </div>
+          <div class="field pf-wide">
+            <label for="cs-stack">Stack (comma separated)</label>
+            <input class="input" id="cs-stack" />
+          </div>
+          <div class="field">
+            <label for="cs-date">Date</label>
+            <input class="input" id="cs-date" type="date" />
+          </div>
+          <div class="field">
+            <label for="cs-readtime">Read time (optional)</label>
+            <input class="input" id="cs-readtime" placeholder="8 min" />
+          </div>
+          <div class="field">
+            <label for="cs-repo">Repository URL (optional)</label>
+            <input class="input" id="cs-repo" />
+          </div>
+          <div class="field">
+            <label for="cs-demo">Demo URL (optional)</label>
+            <input class="input" id="cs-demo" />
+          </div>
+          <div class="field">
+            <label for="cs-hero">Hero image (optional)</label>
+            <input class="input" id="cs-hero" placeholder="/images/case.jpg" />
+          </div>
+          <div class="field">
+            <label for="cs-arch">Architecture image (optional)</label>
+            <input class="input" id="cs-arch" placeholder="/images/arch.svg" />
+          </div>
+        </div>
+
+        <p class="admin-note pd-message" id="cs-message"></p>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="cs-reset">Revert</button>
+          <button type="button" class="btn btn-primary" id="cs-save">Commit changes</button>
+        </div>
+      </section>
+    ) : (
+      <section class="card elev-sm" id="pd-case-study">
+        <div class="admin-empty">
+          <div class="admin-empty-art admin-empty-art-sm"><Illustration name="code-inspection" /></div>
+          <h3 class="admin-empty-title">No case study yet</h3>
+          <p class="admin-empty-copy">
+            Scaffolding writes <code>{caseStudyPath(slug)}</code> with the structured fields
+            filled in from this project and a placeholder body, then links the two. Or point
+            at one that already exists.
+          </p>
+          <div class="admin-empty-actions">
+            <button type="button" class="btn btn-primary btn-sm" id="cs-scaffold">
+              <Icon name="lucide:file-plus-2" class="admin-nav-icon" />Scaffold one from this project
+            </button>
+            <select class="input pd-cs-pick" id="cs-pick" aria-label="Link an existing case study">
+              <option value="">— link an existing one —</option>
+              {caseStudies.map(entry => <option value={entry.slug}>{entry.data.title} ({entry.slug})</option>)}
+            </select>
+          </div>
+          <p class="admin-note pd-message" id="cs-message"></p>
+        </div>
+      </section>
+    )}
+  </div>
+
+  <script is:inline type="application/json" id="project-detail-seed" set:html={seedJson}></script>
+</AdminLayout>
+
+<script>
+  import { onAdminPage } from '../../../lib/admin';
+  import { relativeTime } from '../../../lib/format';
+  import {
+    createCaseStudy,
+    patchCaseStudy,
+    patchProject,
+    removeProject,
+    type CaseStudyFields,
+    type ProjectFields,
+  } from '../../../lib/content-store';
+  import { fetchRepoMeta, getToken, getUser, parseRepoUrl } from '../../../lib/github';
+
+  onAdminPage('#admin-project-detail', () => {
+    interface Seed {
+      slug: string;
+      project: ProjectFields;
+      caseStudy: { slug: string; data: CaseStudyFields } | null;
+    }
+
+    const seed: Seed = JSON.parse(document.getElementById('project-detail-seed')!.textContent || '{}');
+    const signedIn = Boolean(getToken() && getUser());
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+    const message = (error: unknown) => (error instanceof Error ? error.message : 'Request failed.');
+    const csv = (value: string) => value.split(',').map(part => part.trim()).filter(Boolean);
+    const lines = (value: string) => value.split('\n').map(part => part.trim()).filter(Boolean);
+
+    function say(host: HTMLElement, text: string, tone: 'info' | 'error' = 'info') {
+      host.dataset.tone = tone;
+      host.textContent = text;
+    }
+
+    function sayLink(host: HTMLElement, text: string, url: string) {
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.target = '_blank';
+      anchor.rel = 'noopener';
+      anchor.textContent = 'view commit ↗';
+      host.dataset.tone = 'info';
+      host.replaceChildren(document.createTextNode(`${text} — `), anchor);
+    }
+
+    const pageMessage = $('pd-message');
+    if (!signedIn) {
+      say(
+        pageMessage,
+        'Signed out: this screen reads fine, but every button on it is a commit. Sign in from the rail to use them.'
+      );
+    }
+
+    // -------------------------------------------------------------- project
+
+    const project = {
+      title: $<HTMLInputElement>('pf-title'),
+      summary: $<HTMLTextAreaElement>('pf-summary'),
+      category: $<HTMLSelectElement>('pf-category'),
+      status: $<HTMLSelectElement>('pf-status'),
+      year: $<HTMLInputElement>('pf-year'),
+      rank: $<HTMLInputElement>('pf-rank'),
+      tags: $<HTMLInputElement>('pf-tags'),
+      stack: $<HTMLInputElement>('pf-stack'),
+      repo: $<HTMLInputElement>('pf-repo'),
+      demo: $<HTMLInputElement>('pf-demo'),
+      hero: $<HTMLInputElement>('pf-hero'),
+      highlights: $<HTMLTextAreaElement>('pf-highlights'),
+    };
+
+    function fillProject(fields: ProjectFields) {
+      project.title.value = fields.title ?? '';
+      project.summary.value = fields.summary ?? '';
+      project.category.value = fields.category ?? 'other';
+      project.status.value = fields.status ?? 'active';
+      project.year.value = String(fields.year ?? new Date().getFullYear());
+      project.rank.value = fields.featuredRank === undefined ? '' : String(fields.featuredRank);
+      project.tags.value = (fields.tags ?? []).join(', ');
+      project.stack.value = (fields.stack ?? []).join(', ');
+      project.repo.value = fields.repoUrl ?? '';
+      project.demo.value = fields.demoUrl ?? '';
+      project.hero.value = fields.heroImage ?? '';
+      project.highlights.value = (fields.highlights ?? []).join('\n');
+    }
+
+    /** The form as schema-shaped fields, or a sentence saying what is wrong. */
+    function readProject(): ProjectFields | string {
+      const title = project.title.value.trim();
+      const summary = project.summary.value.trim();
+      const repoUrl = project.repo.value.trim();
+      const year = Number(project.year.value);
+
+      if (!title) return 'A title is required — it is the card heading and the page title.';
+      if (!summary) return 'A summary is required: it is the card body and the meta description.';
+      try {
+        new URL(repoUrl);
+      } catch {
+        return 'The repository URL has to be an absolute URL.';
+      }
+      if (!Number.isInteger(year)) return 'Year has to be a whole number.';
+
+      const rank = project.rank.value.trim();
+      return {
+        title,
+        summary,
+        category: project.category.value as ProjectFields['category'],
+        tags: csv(project.tags.value),
+        stack: csv(project.stack.value),
+        repoUrl,
+        demoUrl: project.demo.value.trim() || undefined,
+        featuredRank: rank === '' ? undefined : Number(rank),
+        status: project.status.value as ProjectFields['status'],
+        year,
+        heroImage: project.hero.value.trim() || undefined,
+        highlights: lines(project.highlights.value),
+      };
+    }
+
+    fillProject(seed.project);
+    $<HTMLButtonElement>('pf-reset').addEventListener('click', () => {
+      fillProject(seed.project);
+      say(pageMessage, 'Reverted to what is on the default branch.');
+    });
+
+    const saveProject = $<HTMLButtonElement>('pf-save');
+    saveProject.addEventListener('click', async () => {
+      if (!signedIn) return say(pageMessage, 'Sign in with GitHub to commit.', 'error');
+
+      const fields = readProject();
+      if (typeof fields === 'string') return say(pageMessage, fields, 'error');
+
+      saveProject.disabled = true;
+      say(pageMessage, 'Committing…');
+      try {
+        /* `hidden` and `caseStudySlug` are deliberately not in this patch: the
+           first belongs to the switch above, the second to the section below.
+           Writing either here would add a line to a hand-authored file the
+           first time anyone edited a summary. */
+        const result = await patchProject(seed.slug, fields, `content(projects): update ${seed.slug}`);
+        if (result) {
+          sayLink(pageMessage, 'Committed. Live after the next build', result.url);
+          seed.project = { ...fields, hidden: seed.project.hidden, caseStudySlug: seed.project.caseStudySlug };
+        } else {
+          say(pageMessage, 'Nothing changed — the file already says exactly this.');
+        }
+      } catch (error) {
+        say(pageMessage, message(error), 'error');
+      } finally {
+        saveProject.disabled = false;
+      }
+    });
+
+    // ----------------------------------------------------------- visibility
+
+    const toggle = $<HTMLButtonElement>('pd-toggle');
+    const visibilityFlag = $('pd-visibility-flag');
+
+    if (!signedIn) {
+      toggle.disabled = true;
+      toggle.title = 'Sign in with GitHub to change visibility.';
+    } else {
+      toggle.addEventListener('click', async () => {
+        const visible = toggle.getAttribute('aria-checked') !== 'true';
+        toggle.setAttribute('aria-checked', String(visible));
+        toggle.disabled = true;
+        say(pageMessage, visible ? 'Publishing…' : 'Hiding…');
+        try {
+          const result = await patchProject(
+            seed.slug,
+            { hidden: !visible },
+            `content(projects): ${visible ? 'show' : 'hide'} ${seed.slug}`
+          );
+          seed.project.hidden = !visible;
+          visibilityFlag.textContent = visible ? 'visible' : 'hidden';
+          if (result) sayLink(pageMessage, visible ? 'Visible after the next build' : 'Hidden after the next build', result.url);
+          else say(pageMessage, 'Already in that state on the default branch.');
+        } catch (error) {
+          toggle.setAttribute('aria-checked', String(!visible));
+          say(pageMessage, message(error), 'error');
+        } finally {
+          toggle.disabled = false;
+        }
+      });
+    }
+
+    // ----------------------------------------------------------- repository
+
+    const fetchButton = $<HTMLButtonElement>('pd-fetch');
+    fetchButton.addEventListener('click', async () => {
+      fetchButton.disabled = true;
+      say(pageMessage, 'Reading the repository…');
+      try {
+        const { owner, name } = parseRepoUrl(seed.project.repoUrl);
+        const meta = await fetchRepoMeta(owner, name);
+        $('pd-branch').textContent = meta.defaultBranch;
+        $('pd-push').textContent = relativeTime(meta.pushedAt);
+        $('pd-stars').textContent = meta.archived ? `${meta.stars} ★ · archived on GitHub` : `${meta.stars} ★`;
+        say(pageMessage, `Read ${meta.fullName}.`);
+      } catch (error) {
+        say(pageMessage, message(error), 'error');
+      } finally {
+        fetchButton.disabled = false;
+      }
+    });
+
+    /* Two clicks, because the first one is the one people mean to take back.
+       The file stays in the history either way — this is a commit, not an
+       erasure — which is why a confirm is enough and a typed name is not. */
+    const deleteButton = $<HTMLButtonElement>('pd-delete');
+    let armed = false;
+    let disarm: ReturnType<typeof setTimeout>;
+
+    deleteButton.addEventListener('click', async () => {
+      if (!signedIn) return say(pageMessage, 'Sign in to delete a project file.', 'error');
+
+      if (!armed) {
+        armed = true;
+        deleteButton.textContent = 'Confirm delete';
+        say(pageMessage, `This commits a deletion of src/content/projects/${seed.slug}.md. Click again to confirm.`, 'error');
+        disarm = setTimeout(() => {
+          armed = false;
+          deleteButton.textContent = 'Delete this project';
+          say(pageMessage, '');
+        }, 5000);
+        return;
+      }
+
+      clearTimeout(disarm);
+      armed = false;
+      deleteButton.disabled = true;
+      say(pageMessage, 'Deleting…');
+      try {
+        await removeProject(seed.slug);
+        /* The page this is standing on stops being built, so there is nowhere
+           useful to stay. */
+        window.location.assign('/admin/projects');
+      } catch (error) {
+        deleteButton.disabled = false;
+        deleteButton.textContent = 'Delete this project';
+        say(pageMessage, message(error), 'error');
+      }
+    });
+
+    // ---------------------------------------------------------- case study
+
+    const csMessage = $('cs-message');
+    const linkedSlug = document.getElementById('pd-case-study')!.dataset.slug;
+
+    /* Both halves of this section commit `caseStudySlug` on the *project*, and
+       neither can show its result without a rebuild — the page below is
+       prerendered from a file that has only just changed. Reloading is the
+       honest end of both. */
+    async function relink(next: string | undefined, verb: string) {
+      const result = await patchProject(
+        seed.slug,
+        { caseStudySlug: next },
+        `content(projects): ${verb} ${seed.slug}`
+      );
+      if (result) sayLink(csMessage, 'Committed. This page catches up after the next build', result.url);
+      else say(csMessage, 'The project already pointed there.');
+    }
+
+    if (linkedSlug) {
+      const study = {
+        title: $<HTMLInputElement>('cs-title'),
+        subtitle: $<HTMLInputElement>('cs-subtitle'),
+        problem: $<HTMLTextAreaElement>('cs-problem'),
+        solution: $<HTMLTextAreaElement>('cs-solution'),
+        achievements: $<HTMLTextAreaElement>('cs-achievements'),
+        stack: $<HTMLInputElement>('cs-stack'),
+        date: $<HTMLInputElement>('cs-date'),
+        readTime: $<HTMLInputElement>('cs-readtime'),
+        repo: $<HTMLInputElement>('cs-repo'),
+        demo: $<HTMLInputElement>('cs-demo'),
+        hero: $<HTMLInputElement>('cs-hero'),
+        architecture: $<HTMLInputElement>('cs-arch'),
+      };
+
+      function fillCaseStudy(data: CaseStudyFields) {
+        study.title.value = data.title ?? '';
+        study.subtitle.value = data.subtitle ?? '';
+        study.problem.value = data.problem ?? '';
+        study.solution.value = data.solution ?? '';
+        study.achievements.value = (data.achievements ?? []).join('\n');
+        study.stack.value = (data.stack ?? []).join(', ');
+        study.date.value = (data.date ?? '').slice(0, 10);
+        study.readTime.value = data.readTime ?? '';
+        study.repo.value = data.repoUrl ?? '';
+        study.demo.value = data.demoUrl ?? '';
+        study.hero.value = data.heroImage ?? '';
+        study.architecture.value = data.architectureImage ?? '';
+      }
+
+      fillCaseStudy(seed.caseStudy!.data);
+      $<HTMLButtonElement>('cs-reset').addEventListener('click', () => {
+        fillCaseStudy(seed.caseStudy!.data);
+        say(csMessage, 'Reverted to what is on the default branch.');
+      });
+
+      const saveStudy = $<HTMLButtonElement>('cs-save');
+      saveStudy.addEventListener('click', async () => {
+        if (!signedIn) return say(csMessage, 'Sign in with GitHub to commit.', 'error');
+
+        const title = study.title.value.trim();
+        const subtitle = study.subtitle.value.trim();
+        if (!title || !subtitle) return say(csMessage, 'Title and subtitle are both required by the schema.', 'error');
+        if (!study.date.value) return say(csMessage, 'A date is required — it is what orders the listing.', 'error');
+
+        saveStudy.disabled = true;
+        say(csMessage, 'Committing…');
+        try {
+          const changes: Partial<CaseStudyFields> = {
+            title,
+            subtitle,
+            problem: study.problem.value.trim(),
+            solution: study.solution.value.trim(),
+            achievements: lines(study.achievements.value),
+            stack: csv(study.stack.value),
+            date: study.date.value,
+            readTime: study.readTime.value.trim() || undefined,
+            repoUrl: study.repo.value.trim() || undefined,
+            demoUrl: study.demo.value.trim() || undefined,
+            heroImage: study.hero.value.trim() || undefined,
+            architectureImage: study.architecture.value.trim() || undefined,
+          };
+
+          const result = await patchCaseStudy(
+            linkedSlug,
+            changes,
+            `content(case-studies): update ${linkedSlug}`
+          );
+          if (result) {
+            sayLink(csMessage, 'Committed. Live after the next build', result.url);
+            seed.caseStudy = { slug: linkedSlug, data: { ...seed.caseStudy!.data, ...changes } };
+          } else {
+            say(csMessage, 'Nothing changed — the file already says exactly this.');
+          }
+        } catch (error) {
+          say(csMessage, message(error), 'error');
+        } finally {
+          saveStudy.disabled = false;
+        }
+      });
+
+      const unlink = $<HTMLButtonElement>('cs-unlink');
+      unlink.addEventListener('click', async () => {
+        if (!signedIn) return say(csMessage, 'Sign in with GitHub to commit.', 'error');
+        unlink.disabled = true;
+        say(csMessage, 'Unlinking…');
+        try {
+          /* The case-study file is left where it is. Removing the pointer is
+             recoverable in one click; deleting prose is not. */
+          await relink(undefined, 'unlink case study from');
+          seed.project.caseStudySlug = undefined;
+        } catch (error) {
+          say(csMessage, message(error), 'error');
+        } finally {
+          unlink.disabled = false;
+        }
+      });
+    } else {
+      const scaffold = $<HTMLButtonElement>('cs-scaffold');
+      const pick = $<HTMLSelectElement>('cs-pick');
+
+      scaffold.addEventListener('click', async () => {
+        if (!signedIn) return say(csMessage, 'Sign in with GitHub to commit.', 'error');
+        scaffold.disabled = true;
+        say(csMessage, 'Scaffolding…');
+        try {
+          await createCaseStudy(seed.slug, {
+            title: seed.project.title,
+            subtitle: seed.project.summary,
+            problem: 'Describe the problem this project set out to solve.',
+            solution: 'Describe the approach that solved it.',
+            achievements: seed.project.highlights.length ? seed.project.highlights : ['Add an achievement.'],
+            stack: seed.project.stack,
+            repoUrl: seed.project.repoUrl,
+            demoUrl: seed.project.demoUrl,
+            date: new Date().toISOString().slice(0, 10),
+          });
+          await relink(seed.slug, 'link case study to');
+          seed.project.caseStudySlug = seed.slug;
+        } catch (error) {
+          say(csMessage, message(error), 'error');
+        } finally {
+          scaffold.disabled = false;
+        }
+      });
+
+      pick.addEventListener('change', async () => {
+        if (!pick.value) return;
+        if (!signedIn) {
+          pick.value = '';
+          return say(csMessage, 'Sign in with GitHub to commit.', 'error');
+        }
+        const chosen = pick.value;
+        pick.disabled = true;
+        say(csMessage, 'Linking…');
+        try {
+          await relink(chosen, 'link case study to');
+          seed.project.caseStudySlug = chosen;
+        } catch (error) {
+          pick.value = '';
+          say(csMessage, message(error), 'error');
+        } finally {
+          pick.disabled = false;
+        }
+      });
+    }
+  });
+</script>
+
+<style>
+  .pd-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    margin-bottom: var(--space-3);
+  }
+
+  .pd-head { align-items: flex-start; }
+  .pd-id { min-width: 0; }
+  .pd-paths { font-family: var(--font-mono); font-size: 11px; margin: 0 0 var(--space-2); }
+  .pd-paths code { background: var(--color-surface); padding: 1px 5px; }
+  .pd-flags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pd-head-actions { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-3); }
+  .pd-nopage { font-size: 11px; align-self: center; }
+
+  .pd-message { min-height: 18px; font-size: 12px; margin: 0 0 var(--space-4); }
+  .pd-message[data-tone='error'] { color: var(--color-accent-700); }
+
+  .pd-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-4); align-items: start; }
+  .pd-side { display: flex; flex-direction: column; gap: var(--space-4); }
+  .pd-rule { margin: var(--space-3) 0; }
+
+  .pd-facts { margin: 0; font-size: 12px; }
+  .pd-facts > div { display: flex; justify-content: space-between; gap: var(--space-3); padding: 5px 0; border-bottom: 1px solid var(--color-divider); }
+  .pd-facts > div:last-child { border-bottom: 0; }
+  .pd-facts dt { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-faint); }
+  .pd-facts dd { margin: 0; font-family: var(--font-mono); text-align: right; overflow-wrap: anywhere; }
+
+  .pd-cs-head { margin: var(--space-8) 0 var(--space-3); }
+  .pd-cs-head h6 { margin: 0; }
+  .pd-cs-bar { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); flex-wrap: wrap; }
+  .pd-cs-title { font-size: 18px; margin: 0 0 4px; }
+  .pd-cs-pick { width: auto; font-size: 13px; padding: 6px 10px; }
+
+  /* The field grid, the visibility switch's caption and the one red
+     affordance are all in `admin.css` — this screen and the project list share
+     them, so neither owns them. */
+
+  code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+
+  @media (max-width: 1000px) {
+    .pd-grid { grid-template-columns: 1fr; }
+    .pd-head-actions { align-items: flex-start; }
+  }
+</style>
