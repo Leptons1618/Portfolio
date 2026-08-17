@@ -10,7 +10,6 @@ export const ADMIN_KEYS = {
   journalDraft: 'om-admin-journal-draft',
   resumeDraft: 'om-admin-resume-draft',
   settings: 'om-admin-settings',
-  projectVisibility: 'om-admin-project-visibility',
 } as const;
 
 /** Every draft key, for the dashboard's clear-all action. */

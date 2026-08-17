@@ -31,7 +31,7 @@ import { DEFAULT_THEME, THEME_KEY, THEMES } from '../../lib/theme';
 <body class="login-body">
   <div class="login-panel">
     <div class="login-mark">
-      <h1 class="login-wordmark">[dev.identity]</h1>
+      <h1 class="login-wordmark">{site.name}</h1>
     </div>
 
     <div class="login-art"><Illustration name="github-profile" /></div>
@@ -48,8 +48,9 @@ import { DEFAULT_THEME, THEME_KEY, THEMES } from '../../lib/theme';
     <p class="login-status" id="gh-status" hidden></p>
 
     <p class="text-muted login-disclaimer">
-      Signing in uses a GitHub OAuth App. The token is held in this browser tab only,
-      never on disk, and is used to commit content straight to the repository. The site
+      Signing in uses a GitHub App, which can only reach the repositories it was
+      installed on. The token is held in this browser tab only, never on disk, expires
+      after 8 hours, and is used to commit content straight to the repository. The site
       itself is static — <code>/admin</code> is public HTML, so this gate hides the
       editors rather than protecting them. What is protected is the repository: a write
       needs a token GitHub issued to the owner.

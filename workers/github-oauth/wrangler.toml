@@ -9,11 +9,14 @@ workers_dev = true
 preview_urls = false
 
 [vars]
-# Public values. GITHUB_CLIENT_ID must equal PUBLIC_GITHUB_CLIENT_ID in the
-# site build, and every entry in ALLOWED_ORIGINS must be an origin the admin
-# is actually served from — including the dev origin while you are working.
-GITHUB_CLIENT_ID = "Ov23lieXFwRfCMIUk8bh"
+# Public values. GITHUB_CLIENT_ID is the GitHub App's client ID (`Iv23…`) and
+# must equal PUBLIC_GITHUB_CLIENT_ID in the site build. Every entry in
+# ALLOWED_ORIGINS must be an origin the admin is actually served from —
+# including the dev origin, which is also a registered callback on the App.
+GITHUB_CLIENT_ID = "Iv23lilJmWXy72Ei3TdP"
 ALLOWED_ORIGINS = "https://anishgiri.dev,http://localhost:4321"
 
 # GITHUB_CLIENT_SECRET is NOT set here. It is a secret:
 #   wrangler secret put GITHUB_CLIENT_SECRET
+# It must be the *App's* client secret. An OAuth App secret left over from the
+# previous setup will exchange into a token the App's permissions do not back.

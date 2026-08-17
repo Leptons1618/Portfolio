@@ -2,6 +2,7 @@ import { defineConfig } from 'astro/config';
 import mdx from '@astrojs/mdx';
 import tailwind from '@astrojs/tailwind';
 import sitemap from '@astrojs/sitemap';
+import icon from 'astro-icon';
 
 export default defineConfig({
   /* The live origin. Must match `public/CNAME` and the domain configured in
@@ -14,6 +15,11 @@ export default defineConfig({
   integrations: [
     mdx(),
     tailwind({ applyBaseStyles: false }),
+    /* Icons are inlined as SVG at build time, so nothing ships at runtime and
+       `currentColor` keeps them on the theme tokens. Only the admin surface
+       uses them; the public pages stay on the illustrations in
+       `src/assets/illustrations/`. */
+    icon(),
     // The admin surface is an authoring tool, not public content.
     sitemap({ filter: page => !/\/admin(\/|$)/.test(new URL(page).pathname) }),
   ],
