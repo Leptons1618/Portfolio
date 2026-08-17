@@ -201,6 +201,8 @@ pre {
 .btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  /* Nothing that cannot be pressed sits above the page. */
+  box-shadow: none;
 }
 
 /* The primary action is an angled panel: an ink ground with an accent
@@ -299,17 +301,37 @@ pre {
   border-top: 0;
 }
 
+/* A secondary action is a sheet on the ground, not an outline drawn on it: the
+   same surface, hairline and shadow the cards use, so a button beside a card
+   reads as the same material rather than as a hole in the page.
+
+   Elevation carries the state — `sm` at rest, `md` under the pointer, flat
+   while pressed, so the press is a real fall rather than a colour change. All
+   three come from the theme's own shadow tokens, which is why Blueprint gets
+   the same three steps in its hard-offset idiom without a rule of its own.
+
+   The tint mixes into `--color-surface` rather than into `transparent`: a
+   translucent ink wash over a raised sheet shows whatever is behind the button
+   through it, and a shadow under a see-through surface is exactly the thing
+   that reads as fake. `:not(:disabled)` because `:hover` matches a disabled
+   button perfectly happily, and a dead control that lifts is a lie. */
 .btn-secondary {
+  background: var(--color-surface);
   border-color: var(--color-divider);
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
 }
 
-.btn-secondary:hover {
-  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+.btn-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 7%, var(--color-surface));
+  border-color: var(--color-text-muted);
   color: var(--color-text);
+  box-shadow: var(--shadow-md);
 }
 
-.btn-secondary:active {
-  background: color-mix(in srgb, var(--color-text) 14%, transparent);
+.btn-secondary:active:not(:disabled) {
+  background: color-mix(in srgb, var(--color-text) 14%, var(--color-surface));
+  box-shadow: none;
 }
 
 .btn-ghost {

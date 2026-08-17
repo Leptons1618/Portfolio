@@ -4,7 +4,7 @@ import Illustration from '../../components/Illustration.astro';
 import { Icon } from 'astro-icon/components';
 import { getCaseStudies, getProjects } from '../../lib/content';
 import { PROJECT_CATEGORIES, PROJECT_STATUSES, type ProjectFields } from '../../lib/content-store';
-import { parseRepoUrl } from '../../lib/github';
+import { grantAccessUrl, parseRepoUrl } from '../../lib/github';
 import { site } from '../../lib/site';
 
 /* Hidden projects are exactly what this screen manages, so it asks for them. */
@@ -64,13 +64,13 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       <div class="source-head">
         <h6 class="admin-eyebrow">Source Control</h6>
         <div class="admin-actions">
-          <a
-            class="btn btn-secondary"
-            href="https://github.com/settings/installations"
-            target="_blank"
-            rel="noopener"
-          >
-            <Icon name="lucide:shield-check" class="admin-nav-icon" />Authorize repositories
+          {/* "Authorize" was the wrong verb and it cost an afternoon: signing
+              in already authorises the App, so a button offering to do it
+              again reads as done. What is missing on a fresh account is the
+              *installation*, which is the thing that carries repository
+              access — see `grantAccessUrl()`. */}
+          <a class="btn btn-secondary" href={grantAccessUrl()} target="_blank" rel="noopener">
+            <Icon name="lucide:shield-check" class="admin-nav-icon" />Repository access
           </a>
           <button type="button" class="btn btn-primary" id="import-open" data-user={GITHUB_USER}>
             <Icon name="lucide:git-branch" class="admin-nav-icon" />Import from GitHub
@@ -264,8 +264,9 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       <p class="text-muted modal-foot-note">
         "Granted" means the GitHub App is installed on that repository, so this session can
         write to it. Anything else needs
-        <a href="https://github.com/settings/installations" target="_blank" rel="noopener">the App's
-        repository access</a> widening first.
+        <a href={grantAccessUrl()} target="_blank" rel="noopener">the App's repository
+        access</a> widening first — "All repositories", or "Only select repositories"
+        with that one added.
       </p>
     </div>
   </dialog>
@@ -390,13 +391,17 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     type ProjectFields,
   } from '../../lib/content-store';
   import {
+    CONTENT_REPO,
+    canWriteContent,
     fetchRepoLanguages,
     fetchRepoMeta,
     getToken,
     getUser,
+    grantAccessUrl,
     listRepositories,
     type RepoSummary,
   } from '../../lib/github';
+  import { attachImageUpload } from '../../lib/image-upload';
 
   /* The admin client-routes, so this runs on first paint and again every time
      you come back to this screen — see `onAdminPage`. */
@@ -419,15 +424,51 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     if (signedIn && account) {
       document.getElementById('source-account')!.textContent = `Connected Account: @${account.login}`;
       const pill = document.getElementById('session-pill')!;
-      pill.textContent = 'signed in · commits enabled';
-      pill.className = 'tag tag-accent';
+      pill.textContent = 'signed in · checking access…';
+      pill.className = 'tag tag-neutral';
       const avatar = document.getElementById('source-avatar') as HTMLImageElement;
       avatar.src = account.avatarUrl;
       avatar.alt = `@${account.login}`;
       avatar.hidden = false;
       document.getElementById('connect-github')!.remove();
-      document.getElementById('write-note')!.textContent =
-        'Every action here commits to the default branch. The deploy follows the push.';
+
+      /* Holding a token is not the same as being able to commit, and this
+         banner used to claim it was — "signed in · commits enabled" appeared
+         the moment a session existed, and then every switch below it failed
+         with a permission error, which reads as a broken screen rather than as
+         a GitHub App that was installed read-only. Ask GitHub instead. */
+      const note = document.getElementById('write-note')!;
+      canWriteContent().then(allowed => {
+        pill.textContent = allowed ? 'signed in · commits enabled' : `signed in · read-only on ${CONTENT_REPO}`;
+        pill.className = allowed ? 'tag tag-accent' : 'tag tag-neutral';
+
+        if (allowed) {
+          note.textContent =
+            'Every action here commits to the default branch. The deploy follows the push.';
+          return;
+        }
+
+        const link = document.createElement('a');
+        /* Called here rather than baked into the markup: by now
+           `canWriteContent()` has resolved, so if an installation exists this
+           points at that installation's own page instead of the generic one. */
+        link.href = grantAccessUrl();
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = "choose repository access ↗";
+        note.dataset.tone = 'error';
+        note.replaceChildren(
+          document.createTextNode(
+            `This session cannot write to ${CONTENT_REPO}, so visibility, editing and delete will all ` +
+              'fail. Signing in authorises the App; installing it is what grants repository ' +
+              `access. Either it is not installed on ${CONTENT_REPO}, or its Contents permission ` +
+              'is still read-only — a permission raised after installation has to be accepted ' +
+              'before it applies. Both are fixed in one place: '
+          ),
+          link,
+          document.createTextNode('.')
+        );
+      });
     }
 
     function say(host: HTMLElement, text: string, tone: 'info' | 'error' = 'info') {
@@ -585,6 +626,14 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       highlights: field<HTMLTextAreaElement>('pf-highlights'),
       caseStudy: field<HTMLSelectElement>('pf-case'),
     };
+
+    /* The filename follows the title for the same reason the project's own does:
+       on this form nothing has been written yet, so the title is still the only
+       name the project has. */
+    attachImageUpload(inputs.hero, {
+      dir: 'images/projects',
+      name: () => `${slugify(inputs.title.value)}-hero`,
+    });
 
     let target: ProjectFields | null = null;
 
@@ -869,7 +918,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       if (state === 'ungranted') {
         const grant = document.createElement('a');
         grant.className = 'btn btn-secondary btn-sm';
-        grant.href = 'https://github.com/settings/installations';
+        grant.href = grantAccessUrl();
         grant.target = '_blank';
         grant.rel = 'noopener';
         grant.textContent = 'Grant access ↗';
@@ -974,7 +1023,16 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
   .pm-grid-head { margin-bottom: var(--space-3); }
   .pm-grid-head h6 { margin: 0; }
-  .pm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+
+  /* Track count comes from the available width rather than from a breakpoint:
+     each card holds a 2×2 field grid whose longest value is a full `owner/name`
+     in mono, and 440px is where that stops wrapping. `min()` keeps the track
+     from overflowing a viewport narrower than the minimum. */
+  .pm-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+    gap: var(--space-4);
+  }
 
   .pm-card.is-removed { opacity: 0.5; }
   .pm-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
@@ -990,6 +1048,9 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
   .visibility-note { margin-top: var(--space-6); max-width: 70ch; }
   .visibility-note code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+  /* Set when the access check comes back read-only — the one case where this
+     footnote is reporting a fault rather than describing the screen. */
+  .visibility-note[data-tone='error'] { color: var(--color-accent-700); }
 
   /* The dialogs, the field grid and the visibility switch's captions all live
      in `admin.css` — this screen shares every one of them with a project's own
@@ -1037,9 +1098,6 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     color: var(--color-neutral-800);
   }
 
-  @media (max-width: 1100px) {
-    .pm-grid { grid-template-columns: 1fr; }
-  }
   @media (max-width: 640px) {
     .pm-fields { grid-template-columns: 1fr; }
     #import-list :global(.repo-row) { grid-template-columns: minmax(0, 1fr); }

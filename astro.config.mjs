@@ -12,6 +12,21 @@ export default defineConfig({
      `scripts/check-content.mjs` asserts the fallback against `public/CNAME`. */
   site: process.env.SITE_URL || 'https://anishgiri.dev',
   output: 'static',
+  /* The dev port is part of the admin's OAuth identity, not a convenience.
+     `http://localhost:4321/admin/` is a registered callback on the GitHub App
+     and `http://localhost:4321` is an entry in the token Worker's
+     ALLOWED_ORIGINS — so a server that quietly falls through to 4322 because
+     something already holds 4321 cannot sign in at all, and fails twice over:
+     GitHub refuses the `redirect_uri` and the Worker refuses the origin. What
+     it looks like from the browser is a sign-in button that stopped working.
+
+     `strictPort` turns that into what it actually is — "Port 4321 is already
+     in use" — at startup, where it is one line to read and one process to
+     close. It has to go under `vite`: the port hunt is Vite's (the message is
+     `[vite] Port 4321 is in use, trying another one...`), Astro's own `server`
+     block has no such key, and passing it there is silently dropped. */
+  server: { port: 4321 },
+  vite: { server: { strictPort: true } },
   integrations: [
     mdx(),
     tailwind({ applyBaseStyles: false }),

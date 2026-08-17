@@ -31,7 +31,7 @@ const { title } = Astro.props;
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{title} | Admin</title>
   <meta name="robots" content="noindex, nofollow" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
   <meta name="theme-color" content={THEMES.find(t => t.id === DEFAULT_THEME)!.themeColor} />
   {/* Client-side routing between admin screens, so the sidebar can persist
       rather than being rebuilt on every navigation. Public pages stay plain
@@ -73,10 +73,29 @@ const { title } = Astro.props;
       // identical inline scripts are not re-run across a transition — so the
       // listener registered here covers every later navigation.
       document.addEventListener('astro:after-swap', restore);
+
+      // Client routing means a click produces nothing visible until the next
+      // document has been fetched and swapped — on a project's page, which is
+      // prerendered per project and not small, that gap reads as a dead click.
+      // The bar is the only thing that says a navigation is in flight. It is
+      // `transition:persist`, so this is the same node for the whole session
+      // and these two listeners are all it needs.
+      document.addEventListener('astro:before-preparation', function () {
+        var bar = document.getElementById('route-progress');
+        if (bar) bar.hidden = false;
+      });
+      document.addEventListener('astro:page-load', function () {
+        var bar = document.getElementById('route-progress');
+        if (bar) bar.hidden = true;
+      });
     })();
   </script>
 </head>
 <body>
+  {/* Outside the shell and pinned to the viewport: it belongs to the
+      navigation, not to any screen. */}
+  <div class="route-progress" id="route-progress" transition:persist hidden></div>
+
   <div class="admin-shell" id="admin-shell">
     <AdminSidebar />
 

@@ -7,6 +7,7 @@ import '@fontsource-variable/manrope';
 import '@fontsource-variable/jetbrains-mono';
 import '../../styles/global.css';
 import Illustration from '../../components/Illustration.astro';
+import { grantAccessUrl } from '../../lib/github';
 import { site } from '../../lib/site';
 import { DEFAULT_THEME, THEME_KEY, THEMES } from '../../lib/theme';
 ---
@@ -17,7 +18,7 @@ import { DEFAULT_THEME, THEME_KEY, THEMES } from '../../lib/theme';
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Admin Access</title>
   <meta name="robots" content="noindex, nofollow" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="icon" type="image/png" href="/favicon.png" />
   <meta name="theme-color" content={THEMES.find(t => t.id === DEFAULT_THEME)!.themeColor} />
   <script is:inline define:vars={{ THEME_KEY, DEFAULT_THEME, THEME_IDS: THEMES.map(t => t.id) }}>
     (function () {
@@ -54,6 +55,18 @@ import { DEFAULT_THEME, THEME_KEY, THEMES } from '../../lib/theme';
       itself is static — <code>/admin</code> is public HTML, so this gate hides the
       editors rather than protecting them. What is protected is the repository: a write
       needs a token GitHub issued to the owner.
+    </p>
+
+    {/* Signing in and granting repository access are two different grants, and
+        only the first one has a button on this page. Nothing here can tell
+        whether the second has happened — that needs a token — so rather than
+        guess, say where it lives and let it be a no-op for anyone already set
+        up. Without it the first run dead-ends on a screen full of 403s. */}
+    <p class="text-muted login-disclaimer">
+      Repository access is separate: it comes from <em>installing</em> the App, not from
+      signing in. Pick the repositories — all of them, or just this one — under
+      <a href={grantAccessUrl()} target="_blank" rel="noopener">the App's installation ↗</a>,
+      with Contents set to read and write.
     </p>
 
     <a class="login-back" href="/">← Back to the public site</a>

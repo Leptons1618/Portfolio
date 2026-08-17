@@ -380,7 +380,15 @@ const STATUS_VARIANT: Record<string, string> = {
     type CaseStudyFields,
     type ProjectFields,
   } from '../../../lib/content-store';
-  import { fetchRepoMeta, getToken, getUser, parseRepoUrl } from '../../../lib/github';
+  import {
+    CONTENT_REPO,
+    canWriteContent,
+    fetchRepoMeta,
+    getToken,
+    getUser,
+    parseRepoUrl,
+  } from '../../../lib/github';
+  import { attachImageUpload } from '../../../lib/image-upload';
 
   onAdminPage('#admin-project-detail', () => {
     interface Seed {
@@ -425,6 +433,20 @@ const STATUS_VARIANT: Record<string, string> = {
         pageMessage,
         'Signed out: this screen reads fine, but every button on it is a commit. Sign in from the rail to use them.'
       );
+    } else {
+      /* Every button here writes to the portfolio repository, not to the
+         repository this project is *about* — so a read-only installation makes
+         all of them fail, and saying it once up front beats discovering it one
+         failed commit at a time. */
+      canWriteContent().then(allowed => {
+        if (allowed || pageMessage.textContent) return;
+        say(
+          pageMessage,
+          `This session is read-only on ${CONTENT_REPO}, so Commit, visibility and delete will fail. ` +
+            'Check the GitHub App is installed there with Contents set to read and write.',
+          'error'
+        );
+      });
     }
 
     // -------------------------------------------------------------- project
@@ -491,6 +513,11 @@ const STATUS_VARIANT: Record<string, string> = {
         highlights: lines(project.highlights.value),
       };
     }
+
+    /* Attached before the first fill so the preview is right on arrival — the
+       control overrides the input's `value` setter, and a fill that ran first
+       would land before it was listening. */
+    attachImageUpload(project.hero, { dir: 'images/projects', name: () => `${seed.slug}-hero` });
 
     fillProject(seed.project);
     $<HTMLButtonElement>('pf-reset').addEventListener('click', () => {
@@ -666,6 +693,15 @@ const STATUS_VARIANT: Record<string, string> = {
         study.hero.value = data.heroImage ?? '';
         study.architecture.value = data.architectureImage ?? '';
       }
+
+      attachImageUpload(study.hero, {
+        dir: 'images/case-studies',
+        name: () => `${linkedSlug}-hero`,
+      });
+      attachImageUpload(study.architecture, {
+        dir: 'images/case-studies',
+        name: () => `${linkedSlug}-architecture`,
+      });
 
       fillCaseStudy(seed.caseStudy!.data);
       $<HTMLButtonElement>('cs-reset').addEventListener('click', () => {

@@ -11,6 +11,40 @@
   min-height: 100vh;
 }
 
+/* — route progress —
+
+   The admin client-routes, so a click on a nav link produces nothing at all
+   until the next document has been fetched and swapped. This is the only
+   feedback in that gap. It is indeterminate on purpose: there is no progress
+   number to report, so the bar eases toward the right edge and never reaches
+   it — arriving is the swap, not the animation ending.
+
+   Sits in the top layer of the page rather than inside `.admin-main`, because
+   the thing being replaced is the whole screen. */
+.route-progress {
+  position: fixed;
+  inset-block-start: 0;
+  inset-inline: 0;
+  z-index: 60;
+  height: 2px;
+  background: var(--color-accent);
+  transform-origin: 0 50%;
+  animation: route-progress 2.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.route-progress[hidden] { display: none; }
+
+@keyframes route-progress {
+  from { transform: scaleX(0.04); }
+  to { transform: scaleX(0.92); }
+}
+
+/* Reduced motion still wants the *state*, just not the crawl — a static bar
+   says "working" without animating. */
+@media (prefers-reduced-motion: reduce) {
+  .route-progress { animation: none; transform: scaleX(1); opacity: 0.6; }
+}
+
 /* — sidebar —
 
    Pinned to the viewport rather than stretched to the document. The shell is a
@@ -69,8 +103,7 @@
 }
 
 :root[data-admin-collapsed] .admin-nav-link,
-:root[data-admin-collapsed] .admin-new-post,
-:root[data-admin-collapsed] .admin-identity-btn {
+:root[data-admin-collapsed] .admin-new-post {
   justify-content: center;
   padding-inline: 0;
 }
@@ -183,8 +216,7 @@
   flex-wrap: wrap;
 }
 
-.admin-new-post,
-.admin-identity-btn {
+.admin-new-post {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -213,15 +245,36 @@
   opacity: 0.7;
 }
 
-/* — main — */
+/* — main —
+
+   Every width cap on this surface is also a centring instruction, and for a
+   while none of them was. `.admin-main-wide` set a `max-width` and nothing
+   else, so on any screen wider than the cap the whole editor sat pinned to the
+   left edge of a flex item that ran to the right edge of the window — a
+   1100px column of content with 400px of empty grid paper beside it on every
+   screen. A `max-width` without a matching `margin-inline` is the bug; the
+   pairing below is the rule.
+
+   `.admin-main` is a flex item, so `flex-grow` fills the row first and the auto
+   margins take whatever the cap leaves over — which is what centres it. The
+   dashboard and the two editors carry no inner wrapper at all, and this is the
+   cap that holds them. */
 .admin-main {
   flex: 1;
   min-width: 0;
+  width: 100%;
+  max-width: 1400px;
+  margin-inline: auto;
   padding: var(--space-6) var(--space-6) var(--space-8);
 }
 
-.admin-main-narrow { max-width: 720px; }
-.admin-main-wide { max-width: 1100px; }
+/* Inner caps, for a screen that wants to be narrower than the shell. Both
+   centre; a cap that does not is the thing this file got wrong. */
+.admin-main-narrow,
+.admin-main-wide { margin-inline: auto; }
+
+.admin-main-narrow { max-width: var(--wrap-prose); }
+.admin-main-wide { max-width: 1240px; }
 
 .admin-head {
   display: flex;
@@ -240,7 +293,6 @@
 .admin-eyebrow-mono { color: var(--color-accent-700); font-family: var(--font-mono); }
 
 .admin-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
-.admin-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); }
 .admin-grid-main { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-6); }
 
 .admin-note { font-size: 12px; margin: 0; }
@@ -296,7 +348,17 @@
   margin-bottom: 3px;
 }
 
-.pm-field-value { font-family: var(--font-mono); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+/* `owner/repository` in mono is the longest thing that lands here, and the
+   card grid sizes itself from the viewport rather than from a breakpoint — so
+   the value has to be able to break rather than push its column open. */
+.pm-field-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
 .pm-danger { color: var(--color-accent-700); }
 
 /* — the project form —
@@ -314,6 +376,73 @@
 @media (max-width: 640px) {
   .pf-grid { grid-template-columns: 1fr; }
 }
+
+/* — image upload, attached to a path field —
+
+   Built by `src/lib/image-upload.ts` in the browser, which is why these are
+   global rules: DOM a client script creates carries no `data-astro-cid`, so a
+   page-scoped selector would never reach it. Five fields across three screens
+   mount this, and none of them owns the markup. */
+.image-upload {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.image-upload-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border: 1px solid var(--color-divider);
+  background: var(--color-surface);
+}
+
+/* Empty, it is a drop target rather than a picture that failed to arrive, and
+   a dashed edge is the one convention that says so without a label. */
+.image-upload-frame:has(> img[hidden]) { border-style: dashed; }
+
+.image-upload-frame[data-over] {
+  border-style: solid;
+  border-color: var(--color-accent-700);
+  background: var(--color-accent-100);
+}
+
+/* `contain`, not `cover`: this is the asset under review, and an architecture
+   diagram cropped to 16/9 is a picture of its own middle. */
+.image-upload-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.image-upload-hint {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--color-text-faint);
+  text-align: center;
+  padding: var(--space-2);
+  /* The frame is the drop target; text inside it must not swallow the events. */
+  pointer-events: none;
+}
+
+.image-upload-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.image-upload-status {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+.image-upload-status[data-tone='error'] { color: var(--color-accent-700); }
 
 /* — design-system table — */
 .table {
@@ -382,7 +511,16 @@
 
    `wireTabs()` in `src/lib/admin.ts` is the behaviour; this is the look. The
    panels hide with the `hidden` attribute, which the rule below has to beat
-   because `.tab-panel` sets a `display`. */
+   because `.tab-panel` sets a `display`.
+
+   **The bar sticks.** Every panel behind it is longer than the viewport — a
+   project's whole frontmatter, a post's body, three sections of resume — so
+   switching halves meant scrolling back up to a control that had left the
+   screen, which is the opposite of what a tablist is for. `position: sticky`
+   is the whole mechanism: the header above scrolls away normally, the bar
+   reaches the top and stays. It needs an opaque ground, because the panel
+   passes underneath it rather than around it, and that ground covers the
+   Blueprint grid for those two pixels of rule — which is the point. */
 .tab-bar {
   display: flex;
   align-items: flex-end;
@@ -390,6 +528,12 @@
   flex-wrap: wrap;
   border-bottom: 2px solid var(--color-divider);
   margin-bottom: var(--space-4);
+  position: sticky;
+  top: 0;
+  /* Above the panel and the row menus (5), below the route progress bar (60). */
+  z-index: 20;
+  background: var(--color-bg);
+  padding-top: var(--space-2);
 }
 
 .tab {
@@ -464,7 +608,14 @@
    twenty repositories with the close button somewhere above them and the
    footnote somewhere below. Head and foot are pinned; `.modal-body` is the
    only part that moves. The padding therefore belongs to the bands rather
-   than to the dialog. */
+   than to the dialog.
+
+   All three bands used to ask for `var(--space-5)`, which this system does not
+   define — the scale is 1/2/3/4/6/8. An unresolvable `var()` is invalid at
+   computed-value time, so `padding` fell back to its initial value and every
+   dialog rendered with its content flush against the border. Nothing warns
+   about this: it is a valid stylesheet naming a token that is not there. Use a
+   token that exists, or the fallback form `var(--x, 20px)`. */
 .modal {
   width: min(760px, 92vw);
   max-height: min(88dvh, 900px);
@@ -494,19 +645,32 @@
   justify-content: space-between;
   gap: var(--space-4);
   flex: none;
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--color-divider);
   background: var(--color-surface);
 }
 
 .modal-head-copy { min-width: 0; }
 
+/* A column with a gap, not a plain block. `.field` carries no outer margin —
+   it is a grid cell everywhere else on the site — so a dialog that stacks them
+   directly rendered every label flush against the input above it. Giving the
+   band the rhythm means anything dropped into a dialog body is spaced by
+   default rather than by whichever page remembered to say so. */
 .modal-body {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
 }
+
+/* The gap owns the rhythm now, so anything that brought its own bottom margin
+   into a dialog body would double it. */
+.modal-body > .modal-controls,
+.modal-body > .pf-message { margin: 0; }
 
 /* Only when there is something to put in it — an export-only dialog has no
    commit button, and an empty band is a line across the bottom. */
@@ -517,7 +681,7 @@
   gap: var(--space-3);
   flex-wrap: wrap;
   flex: none;
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-3) var(--space-6);
   border-top: 1px solid var(--color-divider);
   background: var(--color-surface);
 }
@@ -650,6 +814,5 @@
   .admin-nav { flex-direction: row; flex-wrap: wrap; overflow: visible; }
   .admin-main { padding: var(--space-4) var(--space-4) var(--space-8); }
   .admin-grid-3,
-  .admin-grid-2,
   .admin-grid-main { grid-template-columns: 1fr; }
 }

@@ -15,19 +15,20 @@
  *     after every transition, so the URL is the single source of truth.
  */
 import { Icon } from 'astro-icon/components';
-import AdminSettingsModal from './AdminSettingsModal.astro';
 import ThemeToggle from './ThemeToggle.astro';
 import { site } from '../lib/site';
 
-/* Identity is deliberately *not* here. It commits nothing — the JSON it
-   produces has to be hand-merged into `src/lib/site.ts` — so it is a dialog
-   opened from the foot rather than a fifth destination that looks like the
-   four screens that do write. */
+/* Identity is the fifth destination. It was a dialog on the grounds that a
+   screen should be something that writes, and it is still the one entry here
+   that only exports — but the rule cost more than it bought: a modal has no
+   URL, does not survive a reload, and loses what you typed to a stray Escape.
+   Decision 14 has the reversal; the screen itself says it exports. */
 const NAV = [
   { label: 'Dashboard', href: '/admin/dashboard', icon: 'lucide:layout-dashboard' },
   { label: 'Projects', href: '/admin/projects', icon: 'lucide:folder-git-2' },
   { label: 'Journal', href: '/admin/journal', icon: 'lucide:pen-line' },
   { label: 'Resume', href: '/admin/resume', icon: 'lucide:file-text' },
+  { label: 'Identity', href: '/admin/settings', icon: 'lucide:user-round-cog' },
 ];
 
 /* Built and served paths differ by a trailing slash, so compare without one.
@@ -80,14 +81,6 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
     <a class="btn btn-primary btn-block admin-new-post" href="/admin/journal/new" title="New Post">
       <Icon name="lucide:plus" class="admin-nav-icon" /><span class="collapsible">New Post</span>
     </a>
-    <button
-      type="button"
-      class="btn btn-secondary btn-block admin-identity-btn"
-      title="Identity"
-      data-open-settings
-    >
-      <Icon name="lucide:user-round-cog" class="admin-nav-icon" /><span class="collapsible">Identity</span>
-    </button>
     <span class="collapsible admin-foot-actions">
       <ThemeToggle />
       <button type="button" class="btn btn-ghost admin-signout" id="admin-signout" hidden>Sign out</button>
@@ -96,11 +89,6 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
       <Icon name="lucide:external-link" class="admin-nav-icon" />public site
     </a>
   </div>
-
-  {/* Inside the persisted `<aside>` on purpose: the dialog survives a
-      navigation along with the rail, so its script binds once at module scope
-      like the rest of this component. */}
-  <AdminSettingsModal />
 </aside>
 
 <script>
