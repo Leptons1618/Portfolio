@@ -14,6 +14,86 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Images upload from the admin, and the field shows what it points at.**
+  `src/lib/image-upload.ts` attaches a drop target, a file picker and a preview
+  to the five path fields that already existed — a project's hero, a case
+  study's hero and architecture diagram, the import form's hero, and a journal
+  post's featured image. Pick or drop a file and it is committed to
+  `public/images/<collection>/<slug>-<field>.<ext>`, with the field filled in
+  with the path it now answers to. Before this the admin could write every
+  frontmatter field except the one naming a file it had no way to put in the
+  repository, so an image meant leaving, committing by hand, and coming back to
+  retype the path from memory.
+  - The upload commits on pick rather than with the form: an orphaned image in
+    `public/` is harmless, a frontmatter path to a file that was never written
+    fails `npm run check`.
+  - The preview falls back to `raw.githubusercontent.com` when this origin has
+    not rebuilt with the file yet — always the case in `npm run dev`, and true
+    in production for the minutes between the commit and the deploy.
+  - Refuses anything that is not a PNG, JPEG, WebP, AVIF, GIF or SVG, and
+    anything over 5 MB, with a sentence rather than a failed request.
+  - The journal editor's hand-rolled thumbnail is gone; it was this control
+    minus the upload, on one of the five fields.
+- **Every "fix your permissions" link now lands on GitHub's repository picker.**
+  `grantAccessUrl()` in `src/lib/github.ts` replaces four hard-coded copies of
+  `github.com/settings/installations`, which was the wrong page in the state it
+  mattered in: signing in **authorises** the App, installing it is what grants
+  repository access, and an account that has only done the first has an empty
+  "Installed GitHub Apps" list and gets dropped on "Authorized GitHub Apps" —
+  a tab with a Revoke button and no repository picker anywhere on it. The new
+  link resolves to the installation's own page when the session knows its id,
+  `/apps/<slug>/installations/new` when `PUBLIC_GITHUB_APP_SLUG` is set, and the
+  Apps you own otherwise. Decision 17.
+- **`PUBLIC_GITHUB_APP_SLUG`**, a third public build variable
+  (`OAUTH_APP_SLUG` in Actions). Optional and link-building only: with it,
+  "Repository access" opens the picker in one click. It cannot be derived from
+  the client ID — that mapping needs a JWT signed with the App's private key,
+  which nothing in this system holds.
+- **Secondary buttons have depth.** `--shadow-sm` at rest, `--shadow-md` under
+  the pointer, flat while pressed — the same material and the same tokens the
+  cards use, so a button beside a card stops reading as a hole in the page.
+  Written once on `.btn-secondary` against theme tokens, which is why Blueprint
+  inherits all three steps in its hard-offset idiom and could **drop** its own
+  `box-shadow` line rather than gain one.
+- **Tablists stick to the top of the viewport.** Every panel behind one is
+  longer than a screen — a project's whole frontmatter, a post's body, three
+  sections of resume — so switching halves meant scrolling back up to a control
+  that had left the screen, which is the one thing a tablist exists to make
+  cheap. The header above scrolls away normally and the bar stops at the top.
+  `position: sticky` on `.tab-bar` and nothing else: no scroll listener, no
+  stuck-state class.
+- **The resume editor's sections collapse.** Summary, Experience and Skills are
+  `<details>` now, so the disclosure, the keyboard behaviour and a closed
+  section's inputs leaving the focus order are all the element's job. Each
+  header carries the count a closed section still owes you — characters,
+  entries, groups and skills.
+- **A session that cannot commit says so before you click anything.** The
+  projects manifest's pill goes `checking access…` and then either
+  `commits enabled` or `read-only on <owner>/<repo>`, and the footnote under
+  the grid explains the two fixes. `canWriteContent()` in `src/lib/github.ts`
+  is the check — decision 16.
+- **A loading indicator for client-routed navigation.** `#route-progress` in
+  `AdminLayout` — a 2px accent bar, `transition:persist` so it is one node for
+  the session, shown on `astro:before-preparation` and hidden on
+  `astro:page-load`. Navigating to a prerendered project page was a dead click
+  for as long as the fetch took. Indeterminate on purpose: there is no number to
+  report, so it eases toward the edge and never arrives.
+- **The favicon is the portrait**, cropped to the head — the same face the hero
+  and the about page show, so a pinned tab is recognisably this person rather
+  than a monogram. `public/favicon.svg` is gone.
+- **Identity is a screen again, at `/admin/settings`**, and the fifth entry in
+  the rail. It was demoted to a dialog on the rule that a destination should be
+  something that writes; decision 14 takes that back. The rule was sorting on
+  the wrong axis — a modal has no URL, does not survive a reload, loses six
+  fields of typing to a stray Escape, and had no room to say the one surprising
+  thing about itself. It is **still export-only**, which has not changed and is
+  now stated beside the fields rather than under them, and it gains a **Revert**
+  the dialog never had. `AdminSettingsModal.astro` and the `data-open-settings`
+  delegated listener are deleted.
+- **Edit and Preview are tabs in the resume editor**, joining the journal editor
+  and a project's page on `wireTabs()`. Side by side, the editing column got half
+  the width for four stacked cards of inputs while the preview sat mostly empty;
+  neither half had enough room.
 - **A page per journal entry.** `/admin/journal` is now a manifest — every
   entry whatever its status, search, filter, the status menu and delete — with
   one primary action, **Create journal entry**. Writing happens at
@@ -101,6 +181,77 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **"Authorize repositories" on the projects manifest was the wrong verb and
+  the wrong destination.** Signing in already authorises the App, so a button
+  offering to do it again reads as done; what a fresh account is missing is the
+  *installation*. It is **Repository access** now, and it goes to the picker.
+  The modal footnote, the import list's "Grant access", the read-only banner and
+  the 403 message all moved to the same link, and the sign-in screen gained a
+  line saying repository access is a separate grant — that is the screen a first
+  run starts on.
+- **A disabled secondary button lifted under the pointer.** `:hover` matches a
+  disabled element perfectly happily, so the hover state promised a click that
+  would not be accepted. Every interactive state on that class is
+  `:not(:disabled)` now, and `.btn:disabled` drops its shadow outright.
+- **A second `npm run dev` could not sign in, and said nothing about why.** The
+  dev port is part of the admin's OAuth identity — `http://localhost:4321/admin/`
+  is a registered callback on the GitHub App and `http://localhost:4321` is an
+  entry in the Worker's `ALLOWED_ORIGINS` — so a server that quietly moved to
+  4322 because something already held 4321 failed twice over: GitHub refused the
+  `redirect_uri`, and the Worker answered `origin_not_allowed`. What it looked
+  like was a sign-in button that had stopped working. `astro.config.mjs` now
+  pins the port and sets `vite.server.strictPort`, so a busy port is a startup
+  error instead of a silent change of identity. (`strictPort` has to live under
+  `vite` — the port hunt is Vite's, and Astro's `server` block drops the key.)
+- **Sign-in failures name the value that has to change.** `explainExchange()` in
+  `src/lib/github.ts` turns the exchange's slugs into instructions and quotes the
+  current origin and callback URL back: `origin_not_allowed` says which origin
+  the Worker rejected and where its allowlist is, `redirect_uri_mismatch` says
+  which URL to add to the App, `incorrect_client_credentials` says the Worker's
+  secret and client ID belong to different apps. `Token exchange failed
+  (origin_not_allowed)` was true and left you reading source.
+- **Every admin screen was pinned to the left edge of the window.**
+  `.admin-main-wide` set a `max-width` and no `margin-inline`, so a 1100px
+  column of content sat hard against the rail with the entire remainder of a
+  wide screen pooling on the right. Both inner caps centre now, `.admin-main`
+  carries one of its own at 1400px for the pages that have no wrapper, and the
+  resume editor caps its *whole* screen rather than only its panels — a
+  full-width title row over a narrow stack of cards was the same bug one level
+  down. The projects grid sizes its tracks from the available width instead of
+  a breakpoint, so the cards got wider rather than the gutter.
+- **"Resource not accessible by integration" on every admin write.** GitHub
+  sends that one sentence for two different situations, neither of them a bug
+  in this code: the GitHub App is not installed on the repository, or a
+  permission it has is not the one the call needs — Contents stuck on *read* is
+  the usual case, because a permission added after installation does not apply
+  until the owner accepts it. `explainFailure()` in `src/lib/github.ts` now says
+  both, **names the repository the call was actually against** — an edit to the
+  AXCAD project fails on the *portfolio* repository, and the old wording sent
+  you to check the App's access to AXCAD, where there is nothing to find — and
+  links `github.com/settings/installations`.
+- **Fetch from GitHub failed for most projects once you signed in.** A GitHub
+  App user token only reaches the repositories the App was installed on, so an
+  authenticated read of anything else 403s where an *anonymous* read of the same
+  public repository succeeds — being signed in was strictly worse.
+  `fetchRepoMeta()` and `fetchRepoLanguages()` fall back to the public read on
+  403/404. Writes do not fall back and must not. Decision 15.
+- **Every admin dialog rendered with zero padding.** All three modal bands asked
+  for `var(--space-5)`, which this system does not define — the scale is
+  1/2/3/4/6/8. An unresolvable `var()` is invalid at computed-value time, so the
+  whole `padding` declaration was discarded and the property fell back to `0`.
+  Nothing warns about it: the stylesheet parses, `astro check` passes, the build
+  is green. The same bug was on the resume page's experience rail. `.modal-body`
+  is now a flex column with a gap as well, because `.field` carries no outer
+  margin — it is a grid cell everywhere else — so a dialog that stacked fields
+  put every label flush against the input above it.
+- **"Building ML systems" broke across two lines.** The hero's marked phrase is
+  `white-space: nowrap` — the box is the mark, and a mark split over two lines
+  reads as two marks — and the title's measure went from `12ch` to `22ch` so the
+  line the mark sits in actually fits.
+- **The hero portrait re-downloaded from github.com on every load.** It is now
+  `public/images/ui/portrait.webp`, served from this origin: 21 KB of the same
+  pixels against a 227 KB PNG behind a redirect to a third party. The `<img>`
+  carries `fetchpriority="high"`, since it is the hero's LCP element.
 - **The import dialog's repository rows rendered unstyled.** Every one is built
   with `createElement`, so none of them carries the page's `data-astro-cid` and
   the scoped `.repo-*` rules matched nothing at all — the rows came out as
@@ -122,12 +273,23 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **Site identity is a dialog, not a screen.** `/admin/settings` is gone; the
-  rail carries an **Identity** secondary button under **New Post**, and any
-  element with `data-open-settings` opens the same modal. It commits nothing —
-  its JSON still has to be merged into `src/lib/site.ts` by hand — so a whole
-  navigation for it was the wrong shape. The dialog lives inside the persisted
-  `<aside>`, so it survives a view transition with the rail.
+- **"Show in preview" moved out of the resume editor's cards and above the
+  preview it composes.** Those switches never touched what `buildModule()`
+  writes — they only decide which bands of the preview card render — but they
+  sat among fields that *do* get committed, which is a label arguing with its
+  surroundings and losing. They are a section filter over the preview now, with
+  Skills added so no section is the odd one out.
+- **The dashboard's Recent Content links to editors, not to public pages.** It
+  is an admin screen: arriving from a row means you came to change something. A
+  case study has no editor of its own, so its row opens the page of the project
+  that links it at `#case-study`, and an unlinked one goes to the projects
+  manifest flagged `unlinked`. Because every row now has an admin URL, drafts
+  and unpublished posts appear too — the published-only filter existed because
+  those have no *public* page, and that reason is gone.
+- ~~**Site identity is a dialog, not a screen.**~~ Reverted before release —
+  identity is a screen at `/admin/settings` again, listed under Added above.
+  The dialog shipped and came back within the same unreleased block; decision 14
+  says why the "a destination writes" rule was sorting on the wrong axis.
 - The rail is 260px rather than 220px, so the session line — `@handle · 8h
   left` — fits on one row beside the avatar, and its identity block is closed
   with a rule and real spacing above the nav. The grid gap was

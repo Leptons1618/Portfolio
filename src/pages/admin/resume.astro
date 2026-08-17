@@ -1,5 +1,6 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import { Icon } from 'astro-icon/components';
 import { person, experience, skills, certifications, education } from '../../lib/resume';
 
 /* The editor seeds from the same module the public page renders, so what you
@@ -10,6 +11,11 @@ import { person, experience, skills, certifications, education } from '../../lib
 const seed = { summary: person.summary, experience, skills, certifications, education };
 ---
 <AdminLayout title="Resume Editor">
+  {/* One measure for the whole screen. The header, the tablist and the panels
+      are the same column — capping only the panels left a full-width title row
+      and a full-width tab rule sitting over a narrow stack of cards, which is
+      the shape that read as "left aligned". */}
+  <div class="re-wrap">
   <div class="admin-head">
     <div>
       <h1 class="admin-title-sm">Resume Editor.spec</h1>
@@ -23,41 +29,99 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
     </div>
   </div>
 
-  <div class="admin-grid-2">
+  {/* Write and preview are the same document at two fidelities, so they are
+      tabs rather than two columns — the same call the journal editor makes,
+      for the same reason. Side by side, the editing column got half the width
+      for four stacked cards of inputs while the preview sat mostly empty, and
+      neither half had enough room. */}
+  <div class="tab-bar" role="tablist" aria-label="Resume view" id="re-tabs">
+    <button
+      type="button"
+      class="tab"
+      role="tab"
+      id="re-tab-edit"
+      aria-controls="re-panel-edit"
+      aria-selected="true"
+    >
+      <Icon name="lucide:pencil" class="admin-nav-icon" />Edit
+    </button>
+    <button
+      type="button"
+      class="tab"
+      role="tab"
+      id="re-tab-preview"
+      aria-controls="re-panel-preview"
+      aria-selected="false"
+    >
+      <Icon name="lucide:eye" class="admin-nav-icon" />Preview
+    </button>
+  </div>
+
+  {/* The layout lives on a child, never on the panel: Astro's scoping adds an
+      attribute to a page class, which would then outrank `.tab-panel[hidden]`
+      and leave both panels on screen at once. */}
+  {/* Each section is a `<details>`, so collapsing is the platform's job — the
+      open/close, the keyboard behaviour and the fact that a closed section's
+      inputs leave the focus order all come free, and none of it is script.
+      Experience alone is three entries of five fields, which put Skills a full
+      screen below the fold; being able to shut the part you are not editing is
+      the difference between a form and a filing cabinet. The count on each
+      header is what a closed section still has to tell you. */}
+  <div class="tab-panel" id="re-panel-edit" role="tabpanel" aria-labelledby="re-tab-edit">
     <div class="editor-col">
-      <div class="card elev-sm">
-        <div class="card-head">
-          <h6 class="admin-eyebrow">Summary</h6>
-          <label class="radio visible-toggle">
-            <input type="checkbox" id="summary-visible" checked />
-            <span class="dot"></span>
-            Show in preview
-          </label>
+      <details class="card elev-sm ed-section" open>
+        <summary class="ed-summary">
+          <h6 class="admin-eyebrow ed-legend">
+            Summary <span class="tag tag-neutral ed-count" id="count-summary"></span>
+          </h6>
+        </summary>
+        <div class="ed-body">
+          <textarea class="input summary-input" id="summary"></textarea>
         </div>
-        <textarea class="input summary-input" id="summary"></textarea>
-      </div>
+      </details>
 
-      <div class="card elev-sm">
-        <div class="card-head">
-          <h6 class="admin-eyebrow">Experience</h6>
-          <label class="radio visible-toggle">
-            <input type="checkbox" id="experience-visible" checked />
-            <span class="dot"></span>
-            Show in preview
-          </label>
+      <details class="card elev-sm ed-section" open>
+        <summary class="ed-summary">
+          <h6 class="admin-eyebrow ed-legend">
+            Experience <span class="tag tag-neutral ed-count" id="count-experience"></span>
+          </h6>
+        </summary>
+        <div class="ed-body">
+          <div id="experience-list" class="entry-list"></div>
+          <button type="button" class="btn btn-secondary btn-block" id="add-experience">Add New Experience Entry</button>
         </div>
-        <div id="experience-list" class="entry-list"></div>
-        <button type="button" class="btn btn-secondary btn-block" id="add-experience">Add New Experience Entry</button>
-      </div>
+      </details>
 
-      <div class="card elev-sm">
-        <h6 class="admin-eyebrow">Skills Array</h6>
-        <div id="skills-groups" class="skill-groups"></div>
-      </div>
+      <details class="card elev-sm ed-section" open>
+        <summary class="ed-summary">
+          <h6 class="admin-eyebrow ed-legend">
+            Skills Array <span class="tag tag-neutral ed-count" id="count-skills"></span>
+          </h6>
+        </summary>
+        <div class="ed-body">
+          <div id="skills-groups" class="skill-groups"></div>
+        </div>
+      </details>
     </div>
+  </div>
 
-    <div>
-      <h6 class="admin-eyebrow preview-heading">Live Preview</h6>
+  <div class="tab-panel" id="re-panel-preview" role="tabpanel" aria-labelledby="re-tab-preview" hidden>
+    <div class="preview-wrap">
+      {/* These three switches compose the *preview* and nothing else — they
+          have never touched what `buildModule()` writes. Sitting on the editing
+          cards as "Show in preview", beside fields that do get committed, they
+          read as a publish control for the section they were attached to. They
+          belong to the thing they change, so they live above it, and Skills
+          gets one too rather than being the odd section out. */}
+      <div class="pv-bar">
+        <span class="pm-field-label pv-label">Sections in this preview</span>
+        <div class="seg" role="group" aria-label="Sections shown in the preview">
+          <label class="seg-opt"><input type="checkbox" id="show-summary" checked />Summary</label>
+          <label class="seg-opt"><input type="checkbox" id="show-experience" checked />Experience</label>
+          <label class="seg-opt"><input type="checkbox" id="show-skills" checked />Skills</label>
+        </div>
+      </div>
+
       <div class="card elev-md preview-card">
         <h2 class="preview-name">{person.name}</h2>
         <div id="preview-summary">
@@ -68,11 +132,16 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
           <h6 class="admin-eyebrow preview-label">Experience</h6>
           <div id="preview-experience-list"></div>
         </div>
-        <div>
+        <div id="preview-skills-block">
           <h6 class="admin-eyebrow preview-label">Skills</h6>
           <div id="preview-skills" class="preview-skills"></div>
         </div>
       </div>
+      <p class="text-muted admin-note preview-note">
+        Shape only, and only on this screen — hiding a section here changes nothing that
+        gets committed. <a href="/resume" target="_blank" rel="noopener">/resume</a> is what
+        the site renders.
+      </p>
     </div>
   </div>
 
@@ -83,12 +152,13 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
     to drop in by hand. Certifications and education are carried through unchanged; identity
     fields stay in <code>src/lib/site.ts</code>.
   </p>
+  </div>
 
   <script is:inline type="application/json" id="resume-seed" set:html={JSON.stringify(seed)}></script>
 </AdminLayout>
 
 <script>
-  import { ADMIN_KEYS, onAdminPage } from '../../lib/admin';
+  import { ADMIN_KEYS, onAdminPage, wireTabs } from '../../lib/admin';
   import { commitFile, getToken } from '../../lib/github';
 
   /* The admin client-routes, so this runs on first paint and again after every
@@ -111,13 +181,24 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
     };
 
     let state: State = structuredClone(seed);
-    let summaryVisible = true;
-    let experienceVisible = true;
 
     const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+    /* Wired first: a throw further down would otherwise leave a tablist with
+       both panels showing at once. */
+    wireTabs($('re-tabs'));
+
     const summaryInput = $<HTMLTextAreaElement>('summary');
     const expList = $('experience-list');
     const skillGroups = $('skills-groups');
+
+    /* Preview composition, not content: these decide which bands of the preview
+       card render and have no bearing on the module that gets written. */
+    const shown = {
+      summary: $<HTMLInputElement>('show-summary'),
+      experience: $<HTMLInputElement>('show-experience'),
+      skills: $<HTMLInputElement>('show-skills'),
+    };
 
     function persist() {
       localStorage.setItem(KEY, JSON.stringify(state));
@@ -245,9 +326,22 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
       });
     }
 
+    /* What a collapsed section still says about itself. Driven off `state`
+       rather than off the DOM, so it is right whether the section is open,
+       closed, or has just been restored from a draft. */
+    const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+    function renderCounts() {
+      $('count-summary').textContent = plural(state.summary.trim().length, 'character');
+      $('count-experience').textContent = plural(state.experience.length, 'entry', 'entries');
+      const items = state.skills.reduce((total, group) => total + group.items.length, 0);
+      $('count-skills').textContent = `${plural(state.skills.length, 'group')} · ${plural(items, 'skill')}`;
+    }
+
     function renderPreview() {
-      $('preview-summary').hidden = !summaryVisible;
-      $('preview-experience').hidden = !experienceVisible;
+      $('preview-summary').hidden = !shown.summary.checked;
+      $('preview-experience').hidden = !shown.experience.checked;
+      $('preview-skills-block').hidden = !shown.skills.checked;
       $('preview-summary-text').textContent = state.summary;
 
       const list = $('preview-experience-list');
@@ -273,6 +367,10 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
         tag.textContent = name;
         skillsOut.appendChild(tag);
       });
+
+      /* Every edit path already ends here, so the headers stay in step without
+         a second call site to forget. */
+      renderCounts();
     }
 
     function renderAll() {
@@ -288,14 +386,7 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
       renderPreview();
     });
 
-    $<HTMLInputElement>('summary-visible').addEventListener('change', e => {
-      summaryVisible = (e.target as HTMLInputElement).checked;
-      renderPreview();
-    });
-    $<HTMLInputElement>('experience-visible').addEventListener('change', e => {
-      experienceVisible = (e.target as HTMLInputElement).checked;
-      renderPreview();
-    });
+    Object.values(shown).forEach(input => input.addEventListener('change', renderPreview));
 
     $<HTMLButtonElement>('add-experience').addEventListener('click', () => {
       state.experience.push({ title: '', company: '', dates: '', location: '', description: '' });
@@ -430,10 +521,64 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
 </script>
 
 <style>
+  /* Capped and centred, once, around the whole screen. A form is only as good
+     as its measure — a 1400px textarea is not a better place to write a bullet
+     — but a cap with no `margin-inline` is a column pinned to the left edge of
+     a very wide screen, which is what this was. */
+  .re-wrap { max-width: var(--wrap-mid); margin-inline: auto; }
+
   .editor-col { display: flex; flex-direction: column; gap: var(--space-4); }
-  .card-head { display: flex; justify-content: space-between; align-items: center; }
-  .visible-toggle { font-size: 12px; }
   .summary-input { min-height: 100px; }
+
+  /* — collapsible sections —
+
+     `.card` is a flex column; a `<details>` is not one, and making it one is a
+     fight with the UA's disclosure machinery for no gain. Block, and the body
+     carries its own rhythm. */
+  .ed-section { display: block; }
+
+  .ed-summary {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .ed-summary::-webkit-details-marker { display: none; }
+  .ed-summary:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+  /* The section label is still an `h6`, so it keeps whatever the active theme
+     does to an eyebrow — Blueprint's `§` included. `<summary>` allows exactly
+     one heading as its content, which is why the count rides inside it. */
+  .ed-legend { flex: 1; margin: 0; min-width: 0; }
+
+  .ed-count {
+    margin-left: var(--space-2);
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  /* Drawn rather than iconised: it has to rotate, and an inlined SVG in the
+     markup would be a third thing inside a `<summary>` that may hold one. */
+  .ed-summary::after {
+    content: '▾';
+    flex: none;
+    color: var(--color-accent);
+    font-size: 11px;
+    transition: transform 0.15s;
+  }
+
+  .ed-section[open] > .ed-summary::after { transform: rotate(180deg); }
+
+  .ed-body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px dashed var(--color-divider);
+  }
 
   .entry-list { display: flex; flex-direction: column; gap: var(--space-2); }
   .entry-list :global(.entry-description) { min-height: 60px; }
@@ -445,7 +590,19 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
   .skill-groups :global(.skill-chips) { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
   .skill-groups :global(.skill-add) { display: flex; gap: 8px; }
 
-  .preview-heading { margin-bottom: var(--space-2); }
+  .pv-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+  }
+
+  /* The caption is a field label everywhere else, where it sits above its
+     control rather than beside it. */
+  .pv-label { margin-bottom: 0; }
+
+  .preview-note { margin-top: var(--space-3); }
   .preview-card { min-height: 520px; }
   .preview-name { margin: 0; }
   .preview-label { margin-bottom: 2px; }

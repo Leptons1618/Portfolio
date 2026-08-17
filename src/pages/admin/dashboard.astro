@@ -17,26 +17,39 @@ const draftCount = journal.filter(p => p.data.status === 'draft').length;
 const unpublishedCount = journal.filter(p => p.data.status === 'unpublished').length;
 const latestJournal = journal.find(p => p.data.status === 'published');
 
+/* A case study has no editor of its own: its structured fields live on the
+   page of the project that links to it. Unlinked ones have nowhere to go but
+   the manifest — which is the honest answer, and also the thing to fix. */
+const projectByCaseStudy = new Map(
+  projects.filter(p => p.data.caseStudySlug).map(p => [p.data.caseStudySlug!, p.slug])
+);
+
 /* The activity log is the real content stream, newest first — the only
-   history a static site actually has. */
+   history a static site actually has.
+ *
+ * Every row goes to the screen that *edits* the thing, not to the public page.
+ * This is an admin dashboard: arriving from here means you came to change
+ * something, and the public site is one click away in the rail. That is also
+ * what lets drafts and unpublished posts appear — the reason they used to be
+ * filtered out was that they have no public URL, and an admin URL they always
+ * have. */
 const activity = [
   ...caseStudies.map(cs => ({
     title: `Case study: ${cs.data.title}`,
     detail: cs.data.subtitle,
     date: cs.data.date,
-    href: `/case-studies/${cs.slug}`,
+    href: projectByCaseStudy.has(cs.slug)
+      ? `/admin/projects/${projectByCaseStudy.get(cs.slug)}#case-study`
+      : '/admin/projects',
+    flag: projectByCaseStudy.has(cs.slug) ? null : 'unlinked',
   })),
-  /* Published only: an unpublished post has no page to link to, and a row
-     that 404s is worse than a row that is not there. The Journal screen is
-     where the other two states are managed. */
-  ...journal
-    .filter(entry => entry.data.status === 'published')
-    .map(entry => ({
-      title: `Journal: ${entry.data.title}`,
-      detail: entry.data.summary,
-      date: entry.data.date,
-      href: `/journal/${entry.slug}`,
-    })),
+  ...journal.map(entry => ({
+    title: `Journal: ${entry.data.title}`,
+    detail: entry.data.summary,
+    date: entry.data.date,
+    href: `/admin/journal/${entry.slug}`,
+    flag: entry.data.status === 'published' ? null : entry.data.status,
+  })),
 ]
   .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   .slice(0, 6);
@@ -90,13 +103,16 @@ const buildDate = new Date().toISOString().slice(0, 10);
         {activity.length > 0 ? activity.map(item => (
           <a class="activity-row" href={item.href}>
             <div class="activity-copy">
-              <p class="activity-title">{item.title}</p>
+              <p class="activity-title">
+                {item.title}
+                {item.flag && <span class="tag tag-neutral activity-flag">{item.flag}</span>}
+              </p>
               <p class="text-muted activity-detail">{item.detail}</p>
             </div>
             <span class="text-muted activity-date">{formatShortDate(item.date)}</span>
           </a>
         )) : (
-          /* Published case studies and posts only, so this is reachable with a
+          /* Case studies and journal entries only, so this is reachable with a
              portfolio full of projects — which is exactly when it is worth
              saying what "recent content" would have meant. */
           <div class="admin-empty">
@@ -118,10 +134,7 @@ const buildDate = new Date().toISOString().slice(0, 10);
       <h6 class="admin-eyebrow section-heading">Quick Actions</h6>
       <div class="quick-actions">
         <a class="btn btn-secondary btn-block" href="/admin/resume">Update Resume</a>
-        {/* Identity is a dialog in the rail, not a screen — the delegated
-            listener in `AdminSettingsModal` picks this attribute up from any
-            page. */}
-        <button type="button" class="btn btn-secondary btn-block" data-open-settings>Site Identity</button>
+        <a class="btn btn-secondary btn-block" href="/admin/settings">Site Identity</a>
         <button type="button" class="btn btn-secondary btn-block" id="clear-drafts">Clear Local Drafts</button>
       </div>
       <p class="text-muted admin-note drafts-note">
@@ -164,6 +177,9 @@ const buildDate = new Date().toISOString().slice(0, 10);
   .activity-row:hover .activity-title { color: var(--color-accent); }
   .activity-copy { min-width: 0; }
   .activity-title { margin: 0; font-weight: 600; font-size: 14px; }
+  /* Only ever present on a row that is not public yet — a draft, an
+     unpublished post, a case study no project points at. */
+  .activity-flag { margin-left: var(--space-2); font-family: var(--font-mono); font-size: 10px; }
   .activity-detail { margin: 2px 0 0; font-size: 12px; }
   .activity-date { font-size: 11px; white-space: nowrap; }
 

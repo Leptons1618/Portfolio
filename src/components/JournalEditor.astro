@@ -170,12 +170,10 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         <label for="f-hero">Featured image</label>
         <input class="input" id="f-hero" placeholder="/images/post.jpg or https://…" />
       </div>
-      <div class="thumb-frame" id="thumb-frame" hidden>
-        <img id="thumb-preview" alt="" />
-      </div>
       <p class="text-muted admin-note">
-        A path under <code>public/</code>, or an absolute URL. There is no upload here —
-        the file has to be in the repository for the build to find it.
+        Upload a file and it is committed to <code>public/images/journal/</code>; the
+        field then holds the path the build resolves. An absolute URL works too, and
+        is not fetched at build time.
       </p>
     </div>
   </aside>
@@ -193,6 +191,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     type PostStatus,
   } from '../lib/content-store';
   import { getToken } from '../lib/github';
+  import { attachImageUpload } from '../lib/image-upload';
 
   /* One module for both screens — `/admin/journal/new` and
      `/admin/journal/<slug>` render the same component, so the difference
@@ -293,8 +292,12 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       return (statusInputs.find(i => i.checked)?.value ?? 'draft') as PostStatus;
     }
 
-    const thumbFrame = $<HTMLElement>('thumb-frame');
-    const thumbPreview = $<HTMLImageElement>('thumb-preview');
+    /* An open post keeps its filename however the title is edited, so the image
+       is named after whichever of the two is the post's actual identity. */
+    attachImageUpload(fields.hero, {
+      dir: 'images/journal',
+      name: () => `${editing ?? slugify(fields.title.value)}-hero`,
+    });
 
     /* The preview is only rebuilt while its tab is showing — it is the whole
        body through a regex on every keystroke, and nobody is reading it from
@@ -317,13 +320,6 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         heading.textContent = fields.title.value.trim() || 'Create New Journal Entry';
       }
       $('status-help').textContent = STATUS_HELP[currentStatus()] ?? '';
-
-      /* Same scheme rule the preview's links use: the thumbnail is a value the
-         author just typed, and it ends up in an attribute. */
-      const hero = safeHref(fields.hero.value);
-      const show = Boolean(fields.hero.value.trim()) && hero !== '#';
-      thumbFrame.hidden = !show;
-      if (show) thumbPreview.src = hero;
     }
 
     wireTabs($('je-tabs'), id => {
@@ -544,8 +540,6 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
   .editor-col .tab-panel { display: flex; flex-direction: column; gap: var(--space-3); }
   .editor-col .tab-panel[hidden] { display: none; }
 
-  .thumb-frame { aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--color-divider); }
-  .thumb-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .md-toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
   .md-toolbar .md-btn { font-size: 12px; padding: 4px 10px; font-family: var(--font-mono); }
   .summary-input { min-height: 56px; }

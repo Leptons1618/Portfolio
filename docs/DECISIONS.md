@@ -202,7 +202,7 @@ Short records of the choices that are not obvious from the code. Newest last.
 
 ## 12. A screen is something that writes; everything else is a dialog or a detail page
 
-**Status:** accepted
+**Status:** accepted, except for the identity half — reversed by decision 14.
 
 **Context.** The admin rail had five destinations. Four of them commit to the repository. The fifth, `/admin/settings`, could not: its fields export a JSON blob that a human then merges into `src/lib/site.ts` by hand, because the target is a TypeScript module, not a content file. It looked exactly like the four that write, and it was one navigation away from a form of six inputs.
 
@@ -210,7 +210,7 @@ Meanwhile the projects screen had the opposite problem. One modal was doing two 
 
 **Decision.** Sort admin surfaces by what they do, not by how much markup they have.
 
-- **Identity is a dialog.** `AdminSettingsModal.astro` is rendered inside the persisted `<aside>`, so it survives a view transition with the rail and binds once at module scope. Any element carrying `data-open-settings` opens it, through a delegated listener — the dashboard's quick action does, and nothing had to be taught the element's id. `/admin/settings` is gone.
+- **Identity is a dialog.** `AdminSettingsModal.astro` is rendered inside the persisted `<aside>`, so it survives a view transition with the rail and binds once at module scope. Any element carrying `data-open-settings` opens it, through a delegated listener — the dashboard's quick action does, and nothing had to be taught the element's id. `/admin/settings` is gone. *(Reversed by decision 14. The other two bullets stand.)*
 - **Editing an existing project is a page.** `/admin/projects/[slug]` is prerendered per project, hidden ones included. It carries the full frontmatter form, the repository panel, a danger zone, and the linked case study's structured fields.
 - **The import modal creates only.** No edit mode, no second `mode` field, no "which of these two things is the Commit button about to do".
 
@@ -249,3 +249,89 @@ The second problem was smaller and more constant: the editor and its live previe
 `wireTabs()` in `src/lib/admin.ts` is shared with `/admin/projects/[slug]`, which had the same one-long-column problem between its frontmatter form and its case study.
 
 **Revisit if** an editor ever needs to write two files at once. Then the URL stops being able to name its target, and this goes back to being state.
+
+---
+
+## 14. Identity is a screen after all — "does it write" was the wrong sorting rule
+
+**Status:** accepted. Reverses the identity bullet of decision 12; the other two bullets of that decision stand.
+
+**Context.** Decision 12 sorted admin surfaces by what they *do*: four destinations that commit, and identity — which only exports, because its target is `src/lib/site.ts`, a TypeScript module rather than frontmatter — demoted to a dialog opened from the rail. The rule was tidy and the reasoning was sound as far as it went.
+
+It did not go far enough. A dialog has properties that have nothing to do with whether it writes, and every one of them was wrong for this form:
+
+- **It has no URL.** It cannot be linked to, bookmarked, or arrived at from anywhere except a click on the surface that owns it. "Open the identity form" was not a thing that could be said in a sentence.
+- **It does not survive a reload.** A form whose whole job is holding values you are about to transcribe into a source file is precisely the form you reload the page with open.
+- **Escape closes it, and Escape is free.** The platform's dialog behaviour is a feature for a confirm and a hazard for six fields of typing. There was no draft-on-close, so a stray keystroke lost the edit.
+- **It could not explain itself.** The single most surprising fact about the screen — that nothing on it is a commit — had to be compressed into one footnote squeezed beside the buttons, because a dialog that grows to explain itself is a dialog that should have been a page.
+
+**Decision.** `/admin/settings` is back, as `src/pages/admin/settings.astro`, and **Identity** is the fifth entry in the rail's nav. `AdminSettingsModal.astro` is deleted along with the `data-open-settings` delegated listener. The screen keeps the export-only behaviour exactly — Save writes `localStorage`, Export downloads `site-identity.json`, neither touches the repository — and now has room to say so beside the fields instead of under them. It gains a **Revert**, which the dialog never had: the server-rendered values *are* what `site.ts` currently says, so going back to them is free.
+
+**What the old rule was actually protecting against**, and how it is met instead: a rail entry that looks like the four that commit but quietly does not. That is a labelling problem, and it is solved by labelling — the screen's stamp reads `src/lib/site.ts · export only` above the fold, and the sidebar comment says which entry is the odd one. It was never worth solving by making the form harder to reach.
+
+**Consequences.** The rail's foot is one action again (**New Post**) plus the theme toggle, sign-out and the public-site link; the nav is five entries. `admin.css` lost `.admin-identity-btn`. `docs/FEATURES.md` had "Identity as a screen at `/admin/settings`" listed as ✂️ *cut* — a cut is a decision, and this is the decision being taken back, so the row now records the reversal rather than being deleted.
+
+**Revisit if** identity ever gains a commit path. That would make it an ordinary writing screen and this stops being interesting — but it needs `site.ts` to become something a patcher can safely edit, which today it is not.
+
+---
+
+## 15. Being signed in must never be worse than being signed out
+
+**Status:** accepted
+
+**Context.** `fetchRepoMeta()` read repository metadata through the token when there was one and anonymously when there was not. That looks like a strict improvement and is not. A GitHub App user token only reaches the repositories the App was *installed on*, so an authenticated read of anything outside the installation gets `403 Resource not accessible by integration` — where an anonymous read of the same public repository succeeds. The portfolio maps twenty-one projects to twenty-one repositories; the App is installed on a handful. Signing in broke **Fetch** for most of the grid, and the screen blamed permissions for a fact anyone can read without credentials.
+
+The same 403 arrives for a genuine write failure, with the same one-line message, which is the second half of the problem: verbatim, "Resource not accessible by integration" sends the reader looking for a bug in the editor. It actually means one of two things, neither fixable from this code — the App is not installed on the repository, or a permission it does have is not the one the call needs. Contents stuck on *read* is the common case, because a permission added to an App after installation does not apply until the owner accepts it.
+
+**Decision.** Two rules, both in `src/lib/github.ts`.
+
+- **Public reads fall back.** `fetchRepoMeta()` and `fetchRepoLanguages()` retry through `publicJson()` when the authenticated attempt returns 403 or 404. The token is an optimisation on those paths — a higher rate limit, and private repositories — never a requirement. Writes do not fall back and must not: there is no anonymous write.
+- **The 403 explains itself.** `explainFailure()` translates that one sentence into the two situations it covers and links the page where both are fixed — `grantAccessUrl()`, not the hard-coded `/settings/installations` it first pointed at; see decision 17. Every other status keeps GitHub's own message.
+
+**Why not "just install the App everywhere".** That is the right operational answer and it is what the message now says. It is not a substitute for the fallback: the metadata is public, so requiring an installation to read it makes the admin depend on configuration for something that has no reason to.
+
+**Consequences.** Signed out is still a first-class state on every read path, which is what the project screens already promised. A permission error now names a fix instead of a symptom.
+
+## 16. A screen may not claim a capability it has not checked
+
+**Status:** accepted
+
+**Context.** The projects screen's session pill read `signed in · commits enabled`, and the footnote under the grid read "Every action here commits to the default branch." Both were written the moment a token existed. Neither was true: a GitHub App user token reaches only the repositories the App was installed on, and only with the permissions that installation was granted, so a completely valid eight-hour session can be read-only on the one repository this surface writes to. What the owner saw was a banner promising commits, twenty-one switches that all failed, and an error that named a *project* repository the write never touched.
+
+Decision 15 made that error legible. It did not stop the screen asserting the opposite of the error two inches above it.
+
+**Decision.** `canWriteContent()` in `src/lib/github.ts` asks GitHub, once per session, and the banner waits for the answer.
+
+It is two questions because there are two independent ways to fail. **Reach:** a user-to-server token 403s on a repository the App was never installed on, so `GET /repos/{content repo}` answers by succeeding or throwing. **Scope:** the `permissions` object on that repository payload is the *user's* — `push: true` for the owner — so it cannot see an App installed with Contents on read. The installation's own `permissions.contents` is the App's grant, and only `write` can commit.
+
+Failure is a "no", not an error: the action that follows will explain itself properly, and a permission check that raises its own dialog is worse than the thing it was checking.
+
+**Why not try a commit and see.** Because the only honest probe is a real write, and a real write to find out whether writes work is a commit in the history of a repository that is also a website.
+
+**Why not put it in the rail.** It was tempting — one check would cover all five screens. The session line is one 260px row that already carries a handle and an expiry, and "read-only" is not a property of the session so much as of the session *and* a repository. It belongs where the buttons are.
+
+**Consequences.** The pill has a third state — `checking access…` — which is honest about the round trip. `signOut()` clears the cached answer, because the next session is a different token with different reach. Two screens consume it today, the projects manifest and a project's own page; every other write path still relies on `explainFailure()` to say what happened after the fact.
+
+---
+
+## 17. A link that explains a permission must land on the page that grants it
+
+**Status:** accepted
+
+**Context.** Decisions 15 and 16 got the *words* right — the 403 named its two causes, the banner stopped claiming access it had not checked — and both then linked `https://github.com/settings/installations`. That link was wrong in the one state it mattered most.
+
+Authorising a GitHub App and installing it are two separate grants. Signing in does the first. Only the second carries repository access. On an account that has signed in but never installed, "Installed GitHub Apps" is empty, GitHub drops you on the **Authorized GitHub Apps** tab instead, and that tab shows the App with a Revoke button and no repository picker anywhere on it. So the admin's own diagnostics — the ones written to stop this exact confusion — sent the owner to a page where the fix does not exist, to look for a control that is not on it. Every write 403'd and every link about it was a dead end.
+
+The generic failure is worth naming: an error message that explains a problem correctly and then links the wrong page is *more* expensive than one that says nothing, because it is credible. It spends the reader's trust sending them somewhere useless.
+
+**Decision.** `grantAccessUrl()` in `src/lib/github.ts` is the single source of that link, and it answers with the best of three:
+
+1. **`/settings/installations/<id>`** when `canWriteContent()` has already learned the installation id from `GET /user/installations`. Both failure modes are on that one page — the repository list, and the banner that accepts a permission raised after install.
+2. **`/apps/<slug>/installations/new`** — GitHub's own picker, "All repositories" or "Only select repositories". The only one of the three that works when the App is installed *nowhere*, which is exactly the state with no installation id to look up. Needs `PUBLIC_GITHUB_APP_SLUG`.
+3. **`/settings/apps`** — the Apps this account owns. Always correct without configuration, because this admin has one user and that user owns the App. Two clicks rather than none.
+
+**Why the slug is a build variable and not derived.** It cannot be derived. The client ID is `Iv23…`; the slug is a name, and no public endpoint maps one to the other — `GET /app` wants a JWT signed with the App's private key, which is the one credential this system deliberately does not have anywhere. So it is configuration, and it is optional configuration: unset, rung 3 still works.
+
+**Why not just tell people to install it properly.** The README now does (§1 has its own subsection). That is setup documentation, read once, months before the error. The link is read *at* the error.
+
+**Consequences.** `INSTALLATIONS_URL` is no longer exported — four hard-coded copies of it across `projects.astro` became calls to one function. The login screen gained a line saying repository access is a separate grant, because that is the screen a first run starts on. `PUBLIC_GITHUB_APP_SLUG` joins the two existing public build variables, mapped from `OAUTH_APP_SLUG` in `deploy.yml`.

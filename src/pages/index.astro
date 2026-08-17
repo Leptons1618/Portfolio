@@ -30,7 +30,18 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
       </div>
     </div>
     <div class="hero-figure">
-      <img class="grayscale hero-photo" src={site.photo} alt={site.name} width="480" height="480" />
+      {/* The hero's LCP element. It is above the fold on every viewport, so it
+          is fetched at high priority and never lazily — the browser's default
+          heuristics de-prioritise it behind the stylesheet otherwise. */}
+      <img
+        class="grayscale hero-photo"
+        src={site.photo}
+        alt={site.name}
+        width="480"
+        height="480"
+        fetchpriority="high"
+        decoding="async"
+      />
     </div>
   </header>
 
@@ -133,15 +144,20 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
     50% { opacity: 0.35; }
   }
 
-  .hero-title { font-size: clamp(32px, 5.4vw, 52px); max-width: 12ch; margin-bottom: var(--space-4); }
+  /* 22ch, not 12ch. The measure has to hold the first line — "Building ML
+     systems," — or the marked phrase breaks away from the verb that governs
+     it, which is the one line in the hero that has to read as a unit. */
+  .hero-title { font-size: clamp(32px, 5.4vw, 52px); max-width: 22ch; margin-bottom: var(--space-4); }
 
   /* The one phrase the hero argues for, marked the way a spec marks the term
-     it is defining. */
+     it is defining. It never breaks: the box is the mark, and a mark split
+     across two lines reads as two marks. */
   .highlight {
     color: var(--color-accent-800);
     background: var(--color-accent-100);
     border: 1px dashed var(--color-accent);
     padding: 0 8px;
+    white-space: nowrap;
   }
   .nowrap { white-space: nowrap; }
   .hero-desc { font-size: 17px; max-width: 52ch; opacity: 0.85; margin-bottom: var(--space-4); }

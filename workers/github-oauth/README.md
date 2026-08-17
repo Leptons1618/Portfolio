@@ -34,13 +34,38 @@ two that drift apart.
 The trailing slash on both callbacks matters — that is the path Astro publishes
 `admin/index.html` at, and the value must equal `redirect_uri` exactly.
 
-Then **Install App** on your own account, and grant it the repositories the
-admin should see: `Portfolio` at minimum, plus any repo you want to import a
-project from. Adding a repository later is one click on the install and needs
-no code change.
+### Install it — this is a second, separate step
+
+Creating the App does not install it, and neither does signing in. **Authorising**
+an App and **installing** it are two different grants, and only the second one
+carries repository access. Skip it and sign-in works perfectly, then every write
+fails with `Resource not accessible by integration` — which reads as a broken
+editor rather than as a missing install.
+
+On the App's page, **Install App** → your account → then choose:
+
+- **All repositories** — everything now and everything created later, public and
+  private. Simplest, and what most people want here.
+- **Only select repositories** — `Portfolio` at minimum (that is where every
+  commit lands, whichever project the edit was about), plus any repository you
+  want to import a project from.
+
+Widening it later is one click on the same page and needs no code change. So is
+accepting a permission raised after installation — GitHub does **not** apply a
+new permission to an existing install until you approve it there, which is the
+other half of the same 403.
+
+The two tabs under **Settings → Applications** are how to tell which grant you
+have: "Installed GitHub Apps" is the install, "Authorized GitHub Apps" is the
+sign-in. If the App only appears on the second, the install is what is missing —
+and that tab has no repository picker on it, so it is a dead end to be sent to.
 
 Note the **Client ID** (`Iv23…` for an App, not `Ov23…`), then **Generate a new
-client secret** and copy it — it is shown once.
+client secret** and copy it — it is shown once. Note the **slug** too: the last
+segment of the App's settings URL, `https://github.com/settings/apps/<slug>`.
+It is not the client ID and cannot be derived from it. It is optional, and it
+buys one thing — the admin's "Repository access" button opens the picker above
+directly instead of the list of Apps you own.
 
 Do not skip **Expire user authorization tokens**. It is what makes the token in
 the browser tab last 8 hours instead of forever. The Worker deliberately
@@ -77,11 +102,13 @@ Repository → **Settings → Secrets and variables → Actions → Variables**:
 | --- | --- |
 | `OAUTH_CLIENT_ID` | the GitHub App Client ID |
 | `OAUTH_WORKER_URL` | the Worker origin, **no trailing slash** |
+| `OAUTH_APP_SLUG` | the App slug — optional, link-building only |
 
-These are variables, not secrets: both are public by design, and
-`.github/workflows/deploy.yml` maps them onto `PUBLIC_GITHUB_CLIENT_ID` and
-`PUBLIC_GITHUB_OAUTH_WORKER` at build time. (Actions rejects variable names
-beginning with `GITHUB_`, which is why the names are shortened.)
+These are variables, not secrets: all three are public by design, and
+`.github/workflows/deploy.yml` maps them onto `PUBLIC_GITHUB_CLIENT_ID`,
+`PUBLIC_GITHUB_OAUTH_WORKER` and `PUBLIC_GITHUB_APP_SLUG` at build time.
+(Actions rejects variable names beginning with `GITHUB_`, which is why the names
+are shortened.)
 
 Or from the CLI:
 
@@ -101,11 +128,12 @@ editors export files instead of committing them. The sidebar session line reads
 conditional.
 
 **Signed in (full behaviour).** Copy `.env.example` to `.env` and fill in the
-same two values as the repository variables:
+same values as the repository variables:
 
 ```
 PUBLIC_GITHUB_CLIENT_ID=Iv23…
 PUBLIC_GITHUB_OAUTH_WORKER=https://portfolio-github-oauth.anishgiri163.workers.dev
+PUBLIC_GITHUB_APP_SLUG=your-app-slug
 ```
 
 Restart `npm run dev` — Astro reads `.env` at startup, not per request. Open
