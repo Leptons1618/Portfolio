@@ -194,14 +194,28 @@
     transform 0.1s ease;
 }
 
+/* No `box-shadow` here any more: `--shadow-sm` in this theme *is*
+   `2px 2px 0 0 var(--color-neutral-500)`, and `.btn-secondary` in `global.css`
+   now carries the three-step elevation on the tokens. What is left is what
+   tokens cannot say — the monospaced label, the white paper fill, and the
+   press. */
 [data-theme='blueprint'] .btn-secondary {
   font-family: var(--font-mono);
   font-weight: 500;
   letter-spacing: 0.05em;
   background: var(--color-neutral-100);
   border-color: var(--color-neutral-600);
-  box-shadow: 2px 2px 0 0 var(--color-neutral-500);
   transition: box-shadow 0.1s ease, transform 0.1s ease, background-color 0.15s ease;
+}
+
+/* Blueprint hovers by deepening the shadow, not by tinting the paper — the
+   fill stays white and only steps one tier. Stated rather than left to the
+   cascade: the generic hover is `.btn-secondary:hover:not(:disabled)`, which
+   already outranks the rule above, so without this the button would pick up
+   the Modernist wash. */
+[data-theme='blueprint'] .btn-secondary:hover:not(:disabled) {
+  background: var(--color-neutral-200);
+  border-color: var(--color-neutral-800);
 }
 
 [data-theme='blueprint'] .btn-primary:active,

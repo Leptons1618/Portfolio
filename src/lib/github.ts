@@ -45,6 +45,16 @@ import { site } from './site';
 const CLIENT_ID = import.meta.env.PUBLIC_GITHUB_CLIENT_ID ?? '';
 const WORKER_ORIGIN = (import.meta.env.PUBLIC_GITHUB_OAUTH_WORKER ?? '').replace(/\/$/, '');
 
+/**
+ * The App's slug — the last segment of `github.com/settings/apps/<slug>`.
+ *
+ * Optional, and it authorises nothing: it only builds a link. Without it the
+ * admin signs in and commits exactly as before; what it buys is the one-click
+ * repository picker in `grantAccessUrl()`, which is the only route that works
+ * on an account where the App is not installed at all.
+ */
+const APP_SLUG = (import.meta.env.PUBLIC_GITHUB_APP_SLUG ?? '').trim();
+
 /** Where GitHub sends the browser back. Must be one of the App's callbacks. */
 export const CALLBACK_PATH = '/admin/';
 
@@ -80,6 +90,16 @@ export function parseRepoUrl(url: string): { owner: string; name: string } {
 
 /** Owner and repository parsed once from the canonical repo URL in `site`. */
 const { owner: REPO_OWNER, name: REPO_NAME } = parseRepoUrl(site.repo);
+
+/**
+ * The repository every admin write lands in — `owner/name`, for saying so.
+ *
+ * Worth naming out loud on screen: a project card is *about* some other
+ * repository, so a permission error raised while committing a change to that
+ * project reads as being about that repository. It never is. Every commit this
+ * module makes goes to this one.
+ */
+export const CONTENT_REPO = `${REPO_OWNER}/${REPO_NAME}`;
 
 export class GitHubError extends Error {
   /** HTTP status when the failure came from a response, else `undefined`. */
@@ -138,6 +158,9 @@ export function signOut(): void {
   sessionStorage.removeItem(EXPIRY_KEY);
   sessionStorage.removeItem(USER_KEY);
   sessionStorage.removeItem(STATE_KEY);
+  /* The next session is a different token with different reach — see
+     `canWriteContent()` below, which caches the answer for one session. */
+  writeAccess = null;
 }
 
 function randomState(): string {
@@ -190,6 +213,50 @@ function stripQuery(): void {
 }
 
 /**
+ * Turn the exchange's failure slug into the thing that has to change.
+ *
+ * Every one of these is a configuration mismatch between three places that
+ * have to agree on one string — the origin this page is served from, the
+ * callback list on the GitHub App, and `ALLOWED_ORIGINS` on the Worker — and
+ * the slug alone names none of them. `Token exchange failed
+ * (origin_not_allowed)` is a true sentence that leaves you reading source.
+ *
+ * The origin is quoted back because it is the value most likely to be the
+ * surprise: a dev server that found 4321 busy and moved to 4322 is serving a
+ * perfectly working admin from an origin neither GitHub nor the Worker has
+ * ever heard of. `strictPort` in `astro.config.mjs` is what stops that
+ * happening; this is what explains it when it does.
+ */
+function explainExchange(slug: unknown, status: number): string {
+  switch (slug) {
+    case 'origin_not_allowed':
+      return (
+        `The token Worker does not accept ${window.location.origin}. Add that exact origin to ` +
+        'ALLOWED_ORIGINS in workers/github-oauth/wrangler.toml and redeploy — or serve the admin ' +
+        'from an origin already on the list.'
+      );
+    case 'redirect_uri_mismatch':
+      return (
+        `GitHub does not recognise ${callbackUrl()} as a callback for this App. Add that exact ` +
+        'URL to the App\'s callback list; a GitHub App carries up to ten, which is how one App ' +
+        'serves both production and localhost.'
+      );
+    case 'bad_verification_code':
+      return 'That sign-in code was already used or has expired. Start again from this page.';
+    case 'incorrect_client_credentials':
+      return (
+        'The Worker\'s GITHUB_CLIENT_SECRET does not match its GITHUB_CLIENT_ID. Both must belong ' +
+        'to the same GitHub App — an OAuth App secret left over from an earlier setup is the ' +
+        'usual cause. Reset it with `wrangler secret put GITHUB_CLIENT_SECRET`.'
+      );
+    case 'server_not_configured':
+      return 'The token Worker has no client ID or secret set. See workers/github-oauth/README.md.';
+    default:
+      return `Token exchange failed (${slug ?? status}).`;
+  }
+}
+
+/**
  * Finish the flow if this page load is an OAuth callback.
  *
  * Returns the signed-in user, or `null` when there is nothing to complete
@@ -208,9 +275,12 @@ export async function completeSignIn(): Promise<GitHubUser | null> {
   stripQuery();
 
   if (error) {
-    throw new GitHubError(
-      error === 'access_denied' ? 'Sign-in was cancelled.' : `GitHub returned "${error}".`
-    );
+    /* GitHub bounced the browser back rather than issuing a code. `redirect_uri`
+       problems usually stop at GitHub's own error page and never reach here, but
+       when one does it deserves the same answer as the exchange's version. */
+    if (error === 'access_denied') throw new GitHubError('Sign-in was cancelled.');
+    if (error === 'redirect_uri_mismatch') throw new GitHubError(explainExchange(error, 400));
+    throw new GitHubError(`GitHub returned "${error}" for ${callbackUrl()}.`);
   }
 
   if (!expectedState || !returnedState || !safeEqual(expectedState, returnedState)) {
@@ -225,7 +295,7 @@ export async function completeSignIn(): Promise<GitHubUser | null> {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || !payload.access_token) {
-    throw new GitHubError(`Token exchange failed (${payload.error ?? response.status}).`);
+    throw new GitHubError(explainExchange(payload.error, response.status));
   }
 
   const token: string = payload.access_token;
@@ -261,6 +331,82 @@ export async function completeSignIn(): Promise<GitHubUser | null> {
   return user;
 }
 
+/** Settings → Applications → Installed GitHub Apps. A list, not a picker. */
+const INSTALLATIONS_URL = 'https://github.com/settings/installations';
+
+/** Settings → Developer settings → GitHub Apps. Every App this account owns. */
+const OWNED_APPS_URL = 'https://github.com/settings/apps';
+
+/**
+ * This account's installation of the App, once something has asked GitHub.
+ *
+ * Stays `null` on an account where the App is authorised but installed nowhere
+ * — which is not an edge case, it is the state every new setup starts in, and
+ * the one `grantAccessUrl()` has to be able to get out of.
+ */
+let installationId: number | null = null;
+
+/**
+ * Where repository access is actually chosen — all of them, or a picked few,
+ * public and private alike.
+ *
+ * Not `/settings/installations`, which is where every link on this surface used
+ * to point. Signing in **authorises** the App; it does not **install** it, and
+ * those are two separate grants that GitHub keeps on two separate tabs. An
+ * account that has only ever signed in has an empty "Installed GitHub Apps"
+ * list, so GitHub drops it on "Authorized GitHub Apps" instead — where the App
+ * appears with a Revoke button and no repository picker anywhere on the page.
+ * Sending someone there to fix a permission error sends them somewhere the fix
+ * does not exist, which is exactly how it read.
+ *
+ * Three answers, best first:
+ *
+ *   - **The installation's own page**, when GitHub has handed us its id. Both
+ *     failure modes are fixed on it: the repository list, and the banner that
+ *     accepts a permission raised after the App was installed.
+ *   - **`/apps/<slug>/installations/new`** — the picker itself, and the only
+ *     one of the three that works when the App is installed nowhere. Needs
+ *     `PUBLIC_GITHUB_APP_SLUG`.
+ *   - **The App's own settings**, which always works without configuration
+ *     because this admin has exactly one user and that user owns the App:
+ *     pick it, then "Install App". Two clicks rather than none.
+ */
+export function grantAccessUrl(): string {
+  if (installationId !== null) return `${INSTALLATIONS_URL}/${installationId}`;
+  if (APP_SLUG) return `https://github.com/apps/${APP_SLUG}/installations/new`;
+  return OWNED_APPS_URL;
+}
+
+/**
+ * Translate GitHub's one-line 403 into something that names the fix.
+ *
+ * "Resource not accessible by integration" is what a GitHub App user token gets
+ * for two different situations, and neither is fixable from this code: the App
+ * was never installed on that repository, or it is installed without the
+ * permission the call needs — Contents stuck on *read* is the common one,
+ * because adding a permission to an App does not apply to an existing
+ * installation until the owner accepts it. Verbatim, that sentence sends people
+ * looking for a bug in the editor.
+ *
+ * The repository is pulled out of the request path rather than assumed, because
+ * which one it is decides where to go: an edit to the "AXCAD" project fails on
+ * the *portfolio* repository, and an error that does not say so sends the owner
+ * to check the App's access to AXCAD, where there is nothing to find.
+ */
+function explainFailure(status: number, message: string | undefined, path: string): string {
+  if (status === 403 && /not accessible by integration/i.test(message ?? '')) {
+    const repo = /^\/repos\/([^/]+\/[^/]+)/.exec(path)?.[1] ?? CONTENT_REPO;
+    return (
+      `GitHub refused this call on ${repo}. Signing in authorises the App; it does not install ` +
+      `it, and only an installation carries repository access. Open ${grantAccessUrl()} and ` +
+      `choose "All repositories", or "Only select repositories" with ${repo} among them, with ` +
+      'Contents set to read and write. If it is already installed, the same page is where a ' +
+      'permission raised afterwards has to be accepted before it applies.'
+    );
+  }
+  return message ?? `GitHub responded ${status}.`;
+}
+
 async function request<T>(path: string, init: RequestInit = {}, explicitToken?: string): Promise<T> {
   const token = explicitToken ?? getToken();
   if (!token) throw new GitHubError('Not signed in.');
@@ -284,15 +430,99 @@ async function request<T>(path: string, init: RequestInit = {}, explicitToken?: 
 
   if (!response.ok) {
     const detail = await response.json().catch(() => null);
-    throw new GitHubError(detail?.message ?? `GitHub responded ${response.status}.`, response.status);
+    throw new GitHubError(explainFailure(response.status, detail?.message, path), response.status);
   }
 
   return (await response.json()) as T;
 }
 
-/** Base64 for the Contents API, chunked so a large file cannot blow the stack. */
-function toBase64(text: string): string {
-  const bytes = new TextEncoder().encode(text);
+/**
+ * Whether this session can actually commit to the content repository.
+ *
+ * Being signed in is not the same thing, and the admin used to treat it as if
+ * it were: the projects screen announced "commits enabled" the moment a token
+ * existed, and then every switch on it failed with a permission error, which
+ * reads as a broken editor rather than as a GitHub App installed read-only.
+ *
+ * Two questions, because the two ways to fail are independent:
+ *
+ *   - **Reach.** A user-to-server token 403s on a repository the App was never
+ *     installed on, public or not — so the repository read either succeeds or
+ *     answers the question by throwing.
+ *   - **Scope.** The `permissions` object on that repository payload is the
+ *     *user's* (`push: true` for the owner), not the App's, so it cannot see
+ *     the case being looked for. The installation's own `permissions.contents`
+ *     is the App's grant, and `write` is the only value that can commit.
+ *
+ * Cached for the session: it cannot change without the owner going to GitHub
+ * and coming back, which ends this tab's session anyway.
+ *
+ * ponytail: one page of installations, and "some installation grants write"
+ * rather than "the installation covering this repository grants write". A
+ * personal account has one. Pair them up if that stops being true.
+ */
+let writeAccess: Promise<boolean> | null = null;
+
+export function canWriteContent(): Promise<boolean> {
+  writeAccess ??= Promise.all([
+    request<unknown>(`/repos/${CONTENT_REPO}`),
+    request<{ installations: { id: number; permissions?: Record<string, string> }[] }>(
+      '/user/installations?per_page=100'
+    ),
+  ])
+    .then(([, { installations }]) => {
+      /* The one call that knows the installation id, so it is the one that
+         remembers it — `grantAccessUrl()` can then link straight at the page
+         where access is widened rather than at the list it sits in. */
+      if (installations[0]) installationId = installations[0].id;
+      return installations.some(app => app.permissions?.contents === 'write');
+    })
+    /* Any throw is a "no". A 403 is the installation answering; a 404 is the
+       App unable to see the repository at all. Neither is worth surfacing
+       twice — the action that follows says it properly. */
+    .catch(() => false);
+  return writeAccess;
+}
+
+/**
+ * An unauthenticated read of the public API.
+ *
+ * The repository facts this module surfaces — default branch, last push, star
+ * count, languages — are public, so they have an answer with no token at all.
+ * That is what keeps the admin's Fetch button working signed out, and what
+ * `fetchRepoMeta` falls back to when the session's token cannot reach a
+ * repository the App was never installed on.
+ */
+async function publicJson(path: string): Promise<Record<string, unknown>> {
+  const response = await fetch(`https://api.github.com${path}`, {
+    headers: { Accept: 'application/vnd.github+json' },
+  });
+
+  if (!response.ok) {
+    throw new GitHubError(
+      response.status === 403
+        ? 'GitHub rate-limited this IP. Sign in, or try again in an hour.'
+        : response.status === 404
+          ? 'GitHub has no such repository — check the repository URL on this project.'
+          : `GitHub responded ${response.status}.`,
+      response.status
+    );
+  }
+
+  return (await response.json()) as Record<string, unknown>;
+}
+
+/**
+ * Base64 for the Contents API, chunked so a large file cannot blow the stack.
+ *
+ * Takes bytes as well as text because not everything the admin commits is a
+ * file it can read back as a string — an uploaded image arrives as an
+ * `ArrayBuffer` and must not go near `TextEncoder`, which would round-trip
+ * every byte outside ASCII through U+FFFD and commit a corrupt file that looks
+ * like a successful upload right up until the page tries to display it.
+ */
+function toBase64(content: string | Uint8Array): string {
+  const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : content;
   let binary = '';
   for (let i = 0; i < bytes.length; i += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -346,6 +576,24 @@ export async function readFile(path: string): Promise<RepoFile> {
   return { text: fromBase64(file.content), sha: file.sha };
 }
 
+/**
+ * A repository path as a URL that serves the file's actual bytes.
+ *
+ * The admin previews images it has just committed, and this origin is the wrong
+ * place to ask for one: a static site serves what its last build produced, so a
+ * file committed a moment ago is a 404 here until Pages redeploys — and in
+ * `npm run dev` it is a 404 forever, because the commit went to GitHub and the
+ * local `public/` never heard about it. `raw.githubusercontent.com` has it as
+ * soon as the commit lands.
+ *
+ * `HEAD` rather than a branch name so this does not become a fourth place the
+ * default branch is written down. No token: the content repository is public,
+ * which is what makes this a plain `<img src>` rather than a fetch and a blob.
+ */
+export function rawUrl(path: string): string {
+  return `https://raw.githubusercontent.com/${CONTENT_REPO}/HEAD/${path.replace(/^\/+/, '')}`;
+}
+
 /** Public metadata for a repository — what the admin's Fetch button reads. */
 export interface RepoMeta {
   fullName: string;
@@ -363,26 +611,25 @@ export interface RepoMeta {
  * The admin's project cards claim a branch and a last-sync time; this is where
  * those come from, rather than from a field nobody maintains. Public reads work
  * signed out (60/hour per IP), so the screen is useful before sign-in too.
+ *
+ * Being signed in must not make this *worse*, which it did: a GitHub App user
+ * token only reaches the repositories the App was installed on, so an
+ * authenticated read of any other repository 403s where an anonymous one
+ * succeeds — every project mapped to a repository outside the installation
+ * reported a permission error for a fact anyone can read. Falling back is the
+ * fix; the token is an optimisation here (higher rate limit, private repos),
+ * never a requirement.
  */
 export async function fetchRepoMeta(owner: string, repo: string): Promise<RepoMeta> {
   const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-  const token = getToken();
 
-  const response = token
-    ? await request<Record<string, unknown>>(path)
-    : await fetch(`https://api.github.com${path}`, {
-        headers: { Accept: 'application/vnd.github+json' },
-      }).then(async res => {
-        if (!res.ok) {
-          throw new GitHubError(
-            res.status === 403
-              ? 'GitHub rate-limited this IP. Sign in, or try again in an hour.'
-              : `GitHub responded ${res.status}.`,
-            res.status
-          );
-        }
-        return (await res.json()) as Record<string, unknown>;
-      });
+  const response = getToken()
+    ? await request<Record<string, unknown>>(path).catch(error => {
+        const denied = error instanceof GitHubError && (error.status === 403 || error.status === 404);
+        if (!denied) throw error;
+        return publicJson(path);
+      })
+    : await publicJson(path);
 
   return {
     fullName: String(response.full_name ?? `${owner}/${repo}`),
@@ -508,9 +755,11 @@ export async function listRepositories(user: string): Promise<RepoSummary[]> {
 export async function fetchRepoLanguages(owner: string, repo: string): Promise<string[]> {
   const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/languages`;
   try {
-    const bytes = getToken()
-      ? await request<Record<string, number>>(path)
-      : ((await (await fetch(`https://api.github.com${path}`)).json()) as Record<string, number>);
+    /* Same fallback as `fetchRepoMeta`, for the same reason: a token that
+       cannot reach this repository is not a reason to stop asking publicly. */
+    const bytes = (await (getToken()
+      ? request<Record<string, number>>(path).catch(() => publicJson(path))
+      : publicJson(path))) as Record<string, number>;
     return Object.entries(bytes)
       .sort((a, b) => b[1] - a[1])
       .map(([language]) => language);
@@ -535,7 +784,8 @@ export interface CommitResult {
  */
 export async function commitFile(options: {
   path: string;
-  content: string;
+  /** Text for content files; bytes for anything binary — see `toBase64`. */
+  content: string | Uint8Array;
   message: string;
   /** From `readFile`. Omit to look the SHA up now — fine for a whole-file write,
       wrong for read-modify-write, where the lookup would race the edit. */

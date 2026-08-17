@@ -27,8 +27,16 @@ export const site = {
   repo: 'https://github.com/Leptons1618/Portfolio',
   linkedin: 'https://www.linkedin.com/in/anish-giri-a4031723a',
 
-  /** Portrait used by the home hero and the about page. */
-  photo: 'https://github.com/user-attachments/assets/ac0a8a77-f1eb-45fa-8670-9b13cefd85e4',
+  /**
+   * Portrait used by the home hero, the about page and the admin rail.
+   *
+   * Served from this origin, not from `github.com/user-attachments`. A remote
+   * portrait meant the largest element in the hero waited on a DNS lookup, a
+   * TLS handshake and a redirect to a third party before it could start
+   * downloading, on every load — and the 227 KB PNG behind that URL is 21 KB as
+   * a WebP of the same pixels.
+   */
+  photo: '/images/ui/portrait.webp',
 } as const;
 
 /** Absolute URL for a site-relative path — Open Graph and sitemaps need one. */

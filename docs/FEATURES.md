@@ -26,8 +26,10 @@ it does not get re-derived as a good idea six months from now.
 | Project → case-study link | ✅ | One-way; `check-content.mjs` fails a dangling `caseStudySlug` |
 | Journal listing + post pages | ✅ | Published posts only in production |
 | Two themes (Modernist default, Blueprint) | ✅ | Token overrides, not a second component layer — decision 7 |
+| Secondary buttons carry the card's elevation | ✅ | `--shadow-sm` at rest, `--shadow-md` on hover, flat on `:active`, written once on the shared class against theme tokens — so Blueprint gets the same three steps as a hard offset without a rule of its own. `:not(:disabled)` throughout |
 | Sitemap, robots, canonical URLs, OG tags | ✅ | Origin agreement enforced by `check-content.mjs` — decision 4 |
 | Inline SVG illustrations | ✅ | `src/components/Illustration.astro` |
+| Portrait and favicon served from this origin | ✅ | `public/images/ui/portrait.webp` (21 KB, was a 227 KB PNG on `github.com`); the favicon is the same photograph cropped to the head |
 | Client-side routing on public pages | ✅ | Deliberately plain MPA; only the admin mounts `<ClientRouter />` |
 | Search | ⬜ | Needs an index; nothing has asked for it yet |
 | RSS feed | ⬜ | One post so far |
@@ -41,7 +43,8 @@ it does not get re-derived as a good idea six months from now.
 | GitHub App sign-in, owner-only | ✅ | `login` is checked against `site.githubUser` after the exchange |
 | 8-hour session, hours remaining in the rail | ✅ | Expired is treated as absent, so a stale tab lands on sign-in |
 | Refresh token never reaches the browser | ✅ | Worker builds its response key by key; pinned by `test.mjs` |
-| Works locally *and* in production on one App | ✅ | GitHub Apps carry up to ten callbacks |
+| Works locally *and* in production on one App | ✅ | GitHub Apps carry up to ten callbacks. The dev port is pinned (`vite.server.strictPort`) because it is part of the OAuth identity — a drift to 4322 breaks sign-in at both GitHub and the Worker |
+| Sign-in failures name the fix | ✅ | `explainExchange()` maps `origin_not_allowed` / `redirect_uri_mismatch` / `incorrect_client_credentials` to the string that has to change, quoting the live origin and callback URL |
 | Sidebar as its own component | ✅ | `src/components/AdminSidebar.astro` |
 | Sidebar survives navigation | ✅ | `transition:persist` + `<ClientRouter />` — decision 11 |
 | Viewport-pinned rail, only the nav scrolls | ✅ | `grid-template-rows: auto 1fr auto` on a `100dvh` box |
@@ -50,7 +53,11 @@ it does not get re-derived as a good idea six months from now.
 | Ungated, export-only on an unconfigured build | ✅ | Keeps a fork usable without secrets |
 | Error boundary | ✅ | `AdminErrorBoundary` + `showAdminError()`; catches a dead `init`, an uncaught throw and a rejected promise |
 | Empty states | ✅ | One `.admin-empty` component, six uses, each saying what would fill the screen |
-| Site identity as a dialog from the rail | ✅ | Inside the persisted `<aside>`, opened by any `data-open-settings` element |
+| Route progress on a client-routed navigation | ✅ | `#route-progress`, `transition:persist`; shown on `astro:before-preparation`, hidden on `astro:page-load` |
+| Every screen centred on its measure | ✅ | `.admin-main` and both inner caps pair `max-width` with `margin-inline: auto` — a cap without one is a screen pinned to the left of the window |
+| Tablists stay on screen | ✅ | `.tab-bar` is `position: sticky`; the header scrolls away, the bar reaches the top and stays. No script, no stuck-state class |
+| A session that cannot commit says so | ✅ | `canWriteContent()` — reach from `GET /repos/…`, scope from the installation's `permissions.contents` — decision 16 |
+| Recent Content links to editors, not public pages | ✅ | A case study routes to its project's page + `#case-study`; drafts and unpublished posts appear, flagged |
 | Real access control on `/admin/*` | ✂️ | The pages are prerendered public HTML. The *repository* is what GitHub protects; the redirect only hides the editors — decision 6 |
 
 ## Admin — projects
@@ -58,7 +65,10 @@ it does not get re-derived as a good idea six months from now.
 | Feature | State | Notes |
 | --- | --- | --- |
 | Visibility switch → commits `hidden` | ✅ | Frontmatter patch under the SHA that was read |
-| Fetch repository metadata (branch, last push, stars) | ✅ | The one action that works signed out |
+| Fetch repository metadata (branch, last push, stars) | ✅ | Falls back to the public read when the token cannot reach that repository — decision 15. A repository that is private or gone still fails, and says which |
+| A 403 that names its fix | ✅ | "Resource not accessible by integration" becomes the two things it actually means, **named against the repository the call was against**, plus a link that lands on the picker |
+| Every permission link goes to the repository picker | ✅ | `grantAccessUrl()` — the installation's own page, else `/apps/<slug>/installations/new`, else the Apps you own. Signing in **authorises** the App; only installing it grants repository access, and the old `/settings/installations` link was a dead end on an account that had done the first and not the second — decision 17 |
+| Write access checked, not assumed | ✅ | The session pill goes `checking access…` → `commits enabled` or `read-only on <repo>`; it used to claim the first unconditionally — decision 16 |
 | Delete a project file | ✅ | Two-click confirm; recoverable from git history |
 | A page per project (`/admin/projects/<slug>`) | ✅ | Prerendered for every project, hidden ones included; the card's **Edit** links to it. Frontmatter and case study are tabs; `#case-study` opens the second |
 | Edit every frontmatter field | ✅ | One read, N in-memory patches, one commit |
@@ -70,7 +80,9 @@ it does not get re-derived as a good idea six months from now.
 | Private repositories in the import list | 🟡 | Only where the App is installed; a private repo it cannot see cannot be listed |
 | Reorder `featuredRank` by dragging | ⬜ | It is a number field in the form today |
 | Case-study body editing | ✂️ | A second editor as capable as the journal one, a preview that cannot be a 40-line subset, and a real chance of committing MDX that fails the build |
-| Image upload | ⬜ | Paths must already exist under `public/` |
+| Image upload with preview | ✅ | `src/lib/image-upload.ts`, attached to all five image path fields. Drop or pick a file, it commits to `public/images/<collection>/<slug>-<field>.<ext>` and fills the field in. Commits on pick, not with the form — an orphaned image is harmless, a path to a file that was never written fails `check-content.mjs` |
+| The preview works before the site has rebuilt | ✅ | Object URL for what was just uploaded, `raw.githubusercontent.com` for anything else this origin does not serve yet — which is every uploaded image in `npm run dev` |
+| Resizing or converting on upload | ✂️ | The browser can do it, but a lossy re-encode of the author's original, silently, is not a thing an upload button should do. It refuses over 5 MB and says what the rest of the site uses instead |
 
 ## Admin — journal
 
@@ -88,6 +100,7 @@ it does not get re-derived as a good idea six months from now.
 | Load an existing post back into the editor | ✅ | **Edit** on any entry, published ones included, opens `/admin/journal/<slug>`. Prerendered from the build, so it works signed out |
 | Update an existing post | ✅ | Fields patched line by line, body swapped whole — anything the editor does not know about survives |
 | Per-entry menu: status, open, delete | ✅ | `<details>`; delete is a two-click confirm |
+| Featured image upload | ✅ | The same `attachImageUpload` the project screens use, into `public/images/journal/`. Replaced the editor's own thumbnail, which was this control without the upload |
 | Renaming a post's file from the editor | ✂️ | An open post keeps its slug. Astro derives it from the filename, so a rename orphans a live URL — move the file in git and add a redirect if it ever matters |
 | A repository dedicated to journal content | ✂️ | Its only real motive was writing from elsewhere, which the status enum covers; it would have dragged in a Content Layer migration and a `repository_dispatch` rebuild trigger |
 | A draft database (Cloudflare D1) | ✂️ | A post committed as `status: draft` is already cross-device, versioned and listed, at zero infrastructure cost |
@@ -97,11 +110,15 @@ it does not get re-derived as a good idea six months from now.
 | Feature | State | Notes |
 | --- | --- | --- |
 | Edit summary, experience, skills | ✅ | Regenerates all of `src/lib/resume.ts` |
+| Edit and Preview are tabs | ✅ | Was two columns; the editing half got half the width for four stacked cards while the preview sat mostly empty |
+| Sections collapse | ✅ | Three `<details>`, each header carrying the count a closed section still owes you |
+| Preview composition lives in the preview | ✅ | "Show in preview" was on the editing cards, beside fields that *do* commit, and it composes nothing but the preview. Now a section filter above it, Skills included |
 | Download or commit the module | ✅ | Both go through one `buildModule()` — keep it that way |
 | Certifications and education | 🟡 | Carried through the seed untouched; not editable in the UI |
+| Identity as a screen at `/admin/settings` | ✅ | Fifth entry in the rail. Was cut as a dialog; **un-cut** by decision 14 — a modal has no URL, does not survive a reload, and loses typing to Escape |
 | Identity fields | 🟡 | **Export only, on purpose.** The JSON targets a TypeScript module and has to be hand-merged into `src/lib/site.ts` |
-| Theme picker in the identity dialog | ✅ | Over `THEMES`, in step with the rail's toggle in both directions |
-| Identity as a screen at `/admin/settings` | ✂️ | It commits nothing, so a whole navigation was the wrong shape — it is a dialog in the rail |
+| Revert identity to what `site.ts` says | ✅ | The server-rendered values *are* the published ones, so going back to them is free |
+| Theme picker on the identity screen | ✅ | Over `THEMES`, in step with the rail's toggle in both directions |
 
 ---
 

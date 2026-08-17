@@ -1,0 +1,241 @@
+---
+/**
+ * Site identity — the name, role, links and theme every public page reads.
+ *
+ * This was a dialog rendered inside the persisted rail, which was the right
+ * shape while it was six inputs on top of whichever screen you happened to be
+ * on. It is not: a modal cannot be linked to, cannot be reloaded, cannot show
+ * what the values are for without crowding them, and it put an export-only
+ * form in the one place on the surface where a stray Escape loses what you
+ * typed. It is a screen now — decision 14.
+ *
+ * Still **export only**, and that has not changed: these values land in
+ * `src/lib/site.ts`, a TypeScript module, not frontmatter. `frontmatter.ts`
+ * cannot patch it and regenerating it would drop the comments that explain why
+ * `url` is written down three times. The page says so next to the buttons.
+ */
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import Illustration from '../../components/Illustration.astro';
+import { Icon } from 'astro-icon/components';
+import { site } from '../../lib/site';
+import { THEMES } from '../../lib/theme';
+
+/* Seeded from `src/lib/site.ts` — the module these values are exported back
+   into by hand. */
+const defaults = {
+  name: site.name,
+  role: site.roleLong,
+  bio: site.bio,
+  github: site.github,
+  linkedin: site.linkedin,
+  email: site.email,
+};
+---
+<AdminLayout title="Site Identity">
+  <div class="admin-main-wide" id="admin-settings">
+    <div class="admin-head">
+      <div>
+        <h6 class="admin-eyebrow-mono">MODULE: IDENTITY</h6>
+        <h1 class="admin-title">Site Identity</h1>
+        <span class="text-muted admin-stamp">src/lib/site.ts · export only</span>
+      </div>
+      <div class="admin-actions">
+        <a class="btn btn-secondary" href="/about" target="_blank" rel="noopener">
+          <Icon name="lucide:external-link" class="admin-nav-icon" />See it live
+        </a>
+        <button type="button" class="btn btn-secondary" id="export-settings">
+          <Icon name="lucide:download" class="admin-nav-icon" />Export JSON
+        </button>
+        <button type="button" class="btn btn-primary" id="save-settings">Save to this browser</button>
+      </div>
+    </div>
+
+    <p class="admin-note st-message" id="settings-message"></p>
+
+    <div class="st-grid">
+      <section class="card elev-sm">
+        <h6 class="admin-eyebrow">Identity</h6>
+        <p class="text-muted admin-note">
+          The name, role and links the header, footer, about page, resume and
+          <code>robots.txt</code> all read from.
+        </p>
+        <hr class="rule st-rule" />
+
+        <div class="pf-grid">
+          <div class="field pf-wide">
+            <label for="s-name">Name</label>
+            <input class="input" id="s-name" value={defaults.name} />
+          </div>
+          <div class="field pf-wide">
+            <label for="s-role">Role</label>
+            <input class="input" id="s-role" value={defaults.role} />
+          </div>
+          <div class="field pf-wide">
+            <label for="s-bio">Bio</label>
+            <textarea class="input st-bio" id="s-bio">{defaults.bio}</textarea>
+          </div>
+          <div class="field">
+            <label for="s-github">GitHub</label>
+            <input class="input" id="s-github" value={defaults.github} />
+          </div>
+          <div class="field">
+            <label for="s-linkedin">LinkedIn</label>
+            <input class="input" id="s-linkedin" value={defaults.linkedin} />
+          </div>
+          <div class="field pf-wide">
+            <label for="s-email">Email</label>
+            <input class="input" id="s-email" value={defaults.email} />
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="reset-settings">Revert</button>
+        </div>
+      </section>
+
+      <aside class="st-side">
+        <section class="card elev-sm">
+          <h6 class="admin-eyebrow">Theme</h6>
+          <div class="seg" role="group" aria-label="Theme">
+            {THEMES.map(theme => (
+              <label class="seg-opt"><input type="radio" name="settings-theme" value={theme.id} />{theme.label}</label>
+            ))}
+          </div>
+          <p class="text-muted admin-note">
+            Stored in this browser and applied everywhere, public pages included. The same
+            switch as the one in the rail.
+          </p>
+        </section>
+
+        {/* The one thing about this screen that surprises people: nothing here
+            is a commit. It is said next to the fields, not only in a footnote. */}
+        <section class="card elev-sm">
+          <h6 class="admin-eyebrow">How this lands</h6>
+          <div class="st-art"><Illustration name="personal-settings" /></div>
+          <p class="text-muted admin-note">
+            <strong>Save</strong> keeps a copy in this browser so the fields survive a
+            reload. <strong>Export</strong> downloads <code>site-identity.json</code>.
+            Neither commits: the target is <code>src/lib/site.ts</code>, a TypeScript
+            module, so the values are merged in by hand.
+          </p>
+        </section>
+      </aside>
+    </div>
+  </div>
+</AdminLayout>
+
+<script>
+  import { ADMIN_KEYS, onAdminPage } from '../../lib/admin';
+  import { THEME_EVENT, currentTheme, isThemeId, selectTheme } from '../../lib/theme';
+
+  onAdminPage('#admin-settings', () => {
+    const KEY = ADMIN_KEYS.settings;
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+    const ids = ['s-name', 's-role', 's-bio', 's-github', 's-linkedin', 's-email'] as const;
+    const fields = Object.fromEntries(
+      ids.map(id => [id, $<HTMLInputElement>(id)])
+    ) as Record<(typeof ids)[number], HTMLInputElement | HTMLTextAreaElement>;
+
+    /* What the server rendered, which is what `src/lib/site.ts` currently says —
+       captured before a stored draft is laid over it, so Revert has somewhere
+       to go back to. */
+    const published = Object.fromEntries(ids.map(id => [id, fields[id].value])) as Record<
+      (typeof ids)[number],
+      string
+    >;
+
+    const message = $('settings-message');
+
+    function say(text: string, tone: 'info' | 'error' = 'info') {
+      message.dataset.tone = tone;
+      message.textContent = text;
+    }
+
+    function snapshot() {
+      return {
+        name: fields['s-name'].value,
+        role: fields['s-role'].value,
+        bio: fields['s-bio'].value,
+        github: fields['s-github'].value,
+        linkedin: fields['s-linkedin'].value,
+        email: fields['s-email'].value,
+      };
+    }
+
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (saved) {
+        for (const id of ids) {
+          const key = id.slice(2) as keyof ReturnType<typeof snapshot>;
+          if (saved[key]) fields[id].value = saved[key];
+        }
+        say('Restored the copy held in this browser. Revert goes back to src/lib/site.ts.');
+      }
+    } catch {
+      /* ignore corrupt settings */
+    }
+
+    /* The theme is not part of the identity snapshot — it is a browser
+       preference the public site reads too, so it goes through `theme.ts`
+       rather than this screen's storage key. The rail's toggle can change it
+       while this page is open, hence following the event as well as marking on
+       load. */
+    const themeInputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[name="settings-theme"]')
+    );
+
+    function markTheme() {
+      const active = currentTheme();
+      themeInputs.forEach(input => { input.checked = input.value === active; });
+    }
+
+    markTheme();
+    document.addEventListener(THEME_EVENT, markTheme);
+
+    themeInputs.forEach(input => {
+      input.addEventListener('change', () => {
+        if (isThemeId(input.value)) selectTheme(input.value);
+      });
+    });
+
+    $<HTMLButtonElement>('save-settings').addEventListener('click', () => {
+      localStorage.setItem(KEY, JSON.stringify(snapshot()));
+      say('Saved to this browser. Export it, then merge into src/lib/site.ts.');
+    });
+
+    $<HTMLButtonElement>('reset-settings').addEventListener('click', () => {
+      localStorage.removeItem(KEY);
+      for (const id of ids) fields[id].value = published[id];
+      say('Reverted to what src/lib/site.ts says, and cleared the browser copy.');
+    });
+
+    $<HTMLButtonElement>('export-settings').addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify(snapshot(), null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'site-identity.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      say('Exported site-identity.json.');
+    });
+  });
+</script>
+
+<style>
+  .st-message { min-height: 18px; font-size: 12px; margin: 0 0 var(--space-4); }
+  .st-message[data-tone='error'] { color: var(--color-accent-700); }
+
+  .st-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-4); align-items: start; }
+  .st-side { display: flex; flex-direction: column; gap: var(--space-4); }
+  .st-rule { margin: var(--space-3) 0; }
+  .st-bio { min-height: 88px; }
+  .st-art { width: 140px; align-self: center; color: var(--color-accent-400); }
+
+  code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+
+  @media (max-width: 1000px) {
+    .st-grid { grid-template-columns: 1fr; }
+  }
+</style>
