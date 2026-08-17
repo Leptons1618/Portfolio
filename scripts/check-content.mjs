@@ -76,7 +76,21 @@ function check() {
     }
   }
 
-  // 3. The default Open Graph image exists — every page's og:image points at it.
+  /* 3. Every journal post declares a status, and one this build understands.
+     The schema defaults a missing `status` to `draft`, which is right for a
+     file the editor just created and wrong for one written by hand — a typo,
+     or a post from before the field existed, would silently vanish from
+     production instead of failing here. */
+  const JOURNAL_STATUSES = ['draft', 'published', 'unpublished'];
+  for (const post of journal) {
+    const status = frontmatterField(post.source, 'status');
+    if (!status) fail(post.file, `no "status" — expected one of ${JOURNAL_STATUSES.join(', ')}`);
+    else if (!JOURNAL_STATUSES.includes(status)) {
+      fail(post.file, `status "${status}" is not one of ${JOURNAL_STATUSES.join(', ')}`);
+    }
+  }
+
+  // 4. The default Open Graph image exists — every page's og:image points at it.
   const siteModule = readFileSync(p('src/lib/site.ts'), 'utf8');
   const ogImage = siteModule.match(/ogImage:\s*'([^']+)'/)?.[1];
   if (!ogImage) {
@@ -85,7 +99,7 @@ function check() {
     fail('src/lib/site.ts', `ogImage "${ogImage}" is not in public/`);
   }
 
-  // 4. The build origin agrees with the domain Pages actually serves.
+  // 5. The build origin agrees with the domain Pages actually serves.
   const cname = readFileSync(p('public/CNAME'), 'utf8').trim();
   const configured = readFileSync(p('astro.config.mjs'), 'utf8').match(/site:.*?'([^']+)'/s)?.[1];
   for (const [file, url] of [
@@ -98,7 +112,7 @@ function check() {
     }
   }
 
-  /* 5. ...and the deploy workflow does not quietly overrule it. `SITE_URL` in
+  /* 6. ...and the deploy workflow does not quietly overrule it. `SITE_URL` in
      the environment beats both files above, so a literal origin hard-coded
      into the workflow bypasses check 4 entirely: the build stays green and
      every canonical URL, OG tag and sitemap entry in production points at the

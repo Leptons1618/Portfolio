@@ -7,11 +7,10 @@ import '@fontsource-variable/manrope';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles/global.css';
 import '../styles/admin.css';
-import { Icon } from 'astro-icon/components';
-import ThemeToggle from '../components/ThemeToggle.astro';
+import { ClientRouter } from 'astro:transitions';
+import AdminSidebar from '../components/AdminSidebar.astro';
 import { SIDEBAR_KEY } from '../lib/admin';
 import { EXPIRY_KEY, TOKEN_KEY, isConfigured } from '../lib/github';
-import { site } from '../lib/site';
 import { DEFAULT_THEME, THEME_KEY, THEMES } from '../lib/theme';
 
 /* Only gate when the build actually has a GitHub App wired up. An
@@ -21,17 +20,8 @@ const GATE = isConfigured();
 
 interface Props {
   title: string;
-  section: 'dashboard' | 'projects' | 'journal' | 'settings' | 'resume';
 }
-const { title, section } = Astro.props;
-
-const navItems = [
-  { key: 'dashboard', label: 'Dashboard', href: '/admin/dashboard', code: '01', icon: 'lucide:layout-dashboard' },
-  { key: 'projects', label: 'Projects', href: '/admin/projects', code: '02', icon: 'lucide:folder-git-2' },
-  { key: 'journal', label: 'Journal', href: '/admin/journal', code: '03', icon: 'lucide:pen-line' },
-  { key: 'resume', label: 'Resume', href: '/admin/resume', code: '04', icon: 'lucide:file-text' },
-  { key: 'settings', label: 'Settings', href: '/admin/settings', code: '05', icon: 'lucide:settings' },
-];
+const { title } = Astro.props;
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -42,6 +32,10 @@ const navItems = [
   <meta name="robots" content="noindex, nofollow" />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta name="theme-color" content={THEMES.find(t => t.id === DEFAULT_THEME)!.themeColor} />
+  {/* Client-side routing between admin screens, so the sidebar can persist
+      rather than being rebuilt on every navigation. Public pages stay plain
+      MPA — this is the only layout that mounts it. */}
+  <ClientRouter />
   <script is:inline define:vars={{ SIDEBAR_KEY, THEME_KEY, TOKEN_KEY, EXPIRY_KEY, GATE, DEFAULT_THEME, THEME_IDS: THEMES.map(t => t.id) }}>
     // Runs before first paint: bounce an unauthenticated visitor before any
     // editor chrome renders, and restore the sidebar and theme so neither
@@ -51,124 +45,43 @@ const navItems = [
     // prerendered public HTML. The repository is what is protected, and that
     // is enforced by GitHub when a write is attempted without a token.
     (function () {
-      // An expired token is treated as no token, so an 8-hour-old tab lands on
-      // the sign-in page rather than a dashboard where every action fails.
-      var expiry = Number(sessionStorage.getItem(EXPIRY_KEY));
-      var expired = Number.isFinite(expiry) && expiry > 0 && Date.now() >= expiry;
-      if (GATE && (expired || !sessionStorage.getItem(TOKEN_KEY))) {
-        window.location.replace('/admin/');
-        return;
+      function restore() {
+        // An expired token is treated as no token, so an 8-hour-old tab lands
+        // on the sign-in page rather than a dashboard where every action fails.
+        var expiry = Number(sessionStorage.getItem(EXPIRY_KEY));
+        var expired = Number.isFinite(expiry) && expiry > 0 && Date.now() >= expiry;
+        if (GATE && (expired || !sessionStorage.getItem(TOKEN_KEY))) {
+          window.location.replace('/admin/');
+          return;
+        }
+        if (localStorage.getItem(SIDEBAR_KEY) === '1') {
+          document.documentElement.dataset.adminCollapsed = '1';
+        }
+        var stored = localStorage.getItem(THEME_KEY);
+        if (stored && stored !== DEFAULT_THEME && THEME_IDS.indexOf(stored) !== -1) {
+          document.documentElement.dataset.theme = stored;
+        }
       }
-      if (localStorage.getItem(SIDEBAR_KEY) === '1') {
-        document.documentElement.dataset.adminCollapsed = '1';
-      }
-      var stored = localStorage.getItem(THEME_KEY);
-      if (stored && stored !== DEFAULT_THEME && THEME_IDS.indexOf(stored) !== -1) {
-        document.documentElement.dataset.theme = stored;
-      }
+
+      restore();
+
+      // A view transition replaces every attribute on `<html>` with the ones
+      // the incoming document was built with, which drops both of the above.
+      // `astro:after-swap` runs before paint, so putting them back here is
+      // invisible rather than a flash. This script is only executed once —
+      // identical inline scripts are not re-run across a transition — so the
+      // listener registered here covers every later navigation.
+      document.addEventListener('astro:after-swap', restore);
     })();
   </script>
 </head>
 <body>
   <div class="admin-shell" id="admin-shell">
-    <aside class="admin-sidebar">
-      <div class="admin-sidebar-head">
-        {/* Identity lives at the top, where the avatar reads as "who am I
-            signed in as". Seeded from `site.ts`, replaced with the GitHub
-            login by the script below once a session exists. */}
-        <span class="admin-whoami">
-          <img class="admin-avatar" id="admin-avatar" alt="" width="28" height="28" src={site.photo} />
-          <span class="admin-whoami-text collapsible">
-            <span class="admin-whoami-name" id="admin-identity">{site.name}</span>
-            <span class="admin-whoami-role" id="admin-session">signed out</span>
-          </span>
-        </span>
-        <button type="button" class="btn btn-icon admin-collapse" id="admin-collapse" aria-label="Collapse sidebar" aria-expanded="true">
-          <Icon name="lucide:chevrons-left" class="admin-nav-icon" />
-        </button>
-      </div>
-      <nav class="admin-nav" aria-label="Admin sections">
-        {navItems.map(item => (
-          <a href={item.href} class="admin-nav-link" aria-current={item.key === section ? 'page' : undefined}>
-            <Icon name={item.icon} class="admin-nav-icon" />
-            <span class="collapsible">{item.label}</span>
-          </a>
-        ))}
-      </nav>
-      <div class="admin-sidebar-foot">
-        <a class="btn btn-primary btn-block admin-new-post" href="/admin/journal">
-          <Icon name="lucide:plus" class="admin-nav-icon" /><span class="collapsible">New Post</span>
-        </a>
-        <span class="collapsible admin-foot-actions">
-          <ThemeToggle />
-          <button type="button" class="btn btn-ghost admin-signout" id="admin-signout" hidden>Sign out</button>
-        </span>
-        <a class="collapsible admin-public-link" href="/">
-          <Icon name="lucide:external-link" class="admin-nav-icon" />public site
-        </a>
-      </div>
-    </aside>
+    <AdminSidebar />
 
     <main class="admin-main">
       <slot />
     </main>
   </div>
-
-  <script>
-    import { SIDEBAR_KEY as KEY } from '../lib/admin';
-    import { getUser, isConfigured, sessionExpiresAt, signOut } from '../lib/github';
-
-    const shell = document.getElementById('admin-shell')!;
-    const btn = document.getElementById('admin-collapse')!;
-
-    /* Identity. Written as text nodes and an image `src`, never innerHTML: the
-       login and avatar come back from GitHub, and it is never worth trusting a
-       remote string with a parser. */
-    const identity = document.getElementById('admin-identity')!;
-    const sessionLine = document.getElementById('admin-session')!;
-    const signOutButton = document.getElementById('admin-signout') as HTMLButtonElement;
-    const user = getUser();
-
-    if (user) {
-      identity.textContent = user.name ?? `@${user.login}`;
-      signOutButton.hidden = false;
-
-      /* GitHub App user tokens expire after 8 hours. Saying how much is left
-         beats discovering it when a commit fails. */
-      const expiresAt = sessionExpiresAt();
-      const hoursLeft = expiresAt === null ? null : Math.max(0, Math.round((expiresAt - Date.now()) / 36e5));
-      sessionLine.textContent = hoursLeft === null ? `@${user.login}` : `@${user.login} · ${hoursLeft}h left`;
-
-      const avatar = document.getElementById('admin-avatar') as HTMLImageElement;
-      avatar.src = user.avatarUrl;
-      avatar.alt = `@${user.login}`;
-    } else if (!isConfigured()) {
-      /* No client ID in this build — a local checkout or a fork. The screens
-         stay reachable so the repo is usable without secrets, but nothing here
-         can commit, and the sidebar should say which of the two it is. */
-      sessionLine.textContent = 'local · export only';
-    }
-
-    signOutButton.addEventListener('click', () => {
-      signOut();
-      window.location.replace('/admin/');
-    });
-
-    /* The chevron is an inlined SVG, so the collapsed state flips it in CSS —
-       writing `textContent` here would delete the icon. */
-    function apply(collapsed: boolean) {
-      shell.classList.toggle('is-collapsed', collapsed);
-      btn.setAttribute('aria-expanded', String(!collapsed));
-      btn.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
-    }
-
-    apply(localStorage.getItem(KEY) === '1');
-
-    btn.addEventListener('click', () => {
-      const next = !shell.classList.contains('is-collapsed');
-      localStorage.setItem(KEY, next ? '1' : '0');
-      apply(next);
-    });
-  </script>
 </body>
 </html>

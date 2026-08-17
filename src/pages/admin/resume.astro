@@ -9,7 +9,7 @@ import { person, experience, skills, certifications, education } from '../../lib
    handler below. */
 const seed = { summary: person.summary, experience, skills, certifications, education };
 ---
-<AdminLayout title="Resume Editor" section="resume">
+<AdminLayout title="Resume Editor">
   <div class="admin-head">
     <div>
       <h1 class="admin-title-sm">Resume Editor.spec</h1>
@@ -88,341 +88,345 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
 </AdminLayout>
 
 <script>
-  import { ADMIN_KEYS } from '../../lib/admin';
+  import { ADMIN_KEYS, onAdminPage } from '../../lib/admin';
   import { commitFile, getToken } from '../../lib/github';
 
-  const KEY = ADMIN_KEYS.resumeDraft;
-  const seed = JSON.parse(document.getElementById('resume-seed')!.textContent || '{}');
+  /* The admin client-routes, so this runs on first paint and again after every
+     navigation back to this screen — see `onAdminPage`. */
+  onAdminPage('#resume-seed', () => {
+    const KEY = ADMIN_KEYS.resumeDraft;
+    const seed = JSON.parse(document.getElementById('resume-seed')!.textContent || '{}');
 
-  type Entry = { title: string; company: string; dates: string; location: string; description: string };
-  type Group = { category: string; items: string[] };
-  type Education = { school: string; degree: string; dates: string };
-  type State = {
-    summary: string;
-    experience: Entry[];
-    skills: Group[];
-    /* Not editable in this screen, but carried so the export can rebuild the
-       whole module rather than truncating it. */
-    certifications: string[];
-    education: Education[];
-  };
+    type Entry = { title: string; company: string; dates: string; location: string; description: string };
+    type Group = { category: string; items: string[] };
+    type Education = { school: string; degree: string; dates: string };
+    type State = {
+      summary: string;
+      experience: Entry[];
+      skills: Group[];
+      /* Not editable in this screen, but carried so the export can rebuild the
+         whole module rather than truncating it. */
+      certifications: string[];
+      education: Education[];
+    };
 
-  let state: State = structuredClone(seed);
-  let summaryVisible = true;
-  let experienceVisible = true;
+    let state: State = structuredClone(seed);
+    let summaryVisible = true;
+    let experienceVisible = true;
 
-  const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-  const summaryInput = $<HTMLTextAreaElement>('summary');
-  const expList = $('experience-list');
-  const skillGroups = $('skills-groups');
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+    const summaryInput = $<HTMLTextAreaElement>('summary');
+    const expList = $('experience-list');
+    const skillGroups = $('skills-groups');
 
-  function persist() {
-    localStorage.setItem(KEY, JSON.stringify(state));
-    $('resume-stamp').textContent = `[ status: editing // draft saved ${new Date().toLocaleTimeString()} ]`;
-  }
+    function persist() {
+      localStorage.setItem(KEY, JSON.stringify(state));
+      $('resume-stamp').textContent = `[ status: editing // draft saved ${new Date().toLocaleTimeString()} ]`;
+    }
 
-  function renderExperience() {
-    expList.innerHTML = '';
-    state.experience.forEach((entry, i) => {
-      const wrap = document.createElement('div');
-      wrap.className = 'admin-subcard';
+    function renderExperience() {
+      expList.innerHTML = '';
+      state.experience.forEach((entry, i) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'admin-subcard';
 
-      const mk = (key: keyof Entry, placeholder: string, multiline = false) => {
-        const el = document.createElement(multiline ? 'textarea' : 'input') as HTMLInputElement | HTMLTextAreaElement;
-        el.className = 'input';
-        el.placeholder = placeholder;
-        el.value = entry[key];
-        if (multiline) el.classList.add('entry-description');
-        el.addEventListener('input', () => {
-          state.experience[i][key] = el.value;
-          persist();
-          renderPreview();
+        const mk = (key: keyof Entry, placeholder: string, multiline = false) => {
+          const el = document.createElement(multiline ? 'textarea' : 'input') as HTMLInputElement | HTMLTextAreaElement;
+          el.className = 'input';
+          el.placeholder = placeholder;
+          el.value = entry[key];
+          if (multiline) el.classList.add('entry-description');
+          el.addEventListener('input', () => {
+            state.experience[i][key] = el.value;
+            persist();
+            renderPreview();
+          });
+          return el;
+        };
+
+        wrap.append(
+          mk('title', 'Title'),
+          mk('company', 'Company'),
+          mk('dates', 'Dates'),
+          mk('location', 'Location'),
+          mk('description', 'Description', true)
+        );
+
+        /* Order is what the public page renders, so it is editable here rather
+           than only in the file. */
+        const controls = document.createElement('div');
+        controls.className = 'entry-controls';
+
+        const action = (label: string, title: string, run: () => void, disabled = false) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'btn btn-secondary entry-action';
+          button.textContent = label;
+          button.title = title;
+          button.disabled = disabled;
+          button.addEventListener('click', () => {
+            run();
+            persist();
+            renderExperience();
+            renderPreview();
+          });
+          return button;
+        };
+
+        const move = (to: number) => {
+          const [entry] = state.experience.splice(i, 1);
+          state.experience.splice(to, 0, entry);
+        };
+
+        controls.append(
+          action('↑', 'Move earlier', () => move(i - 1), i === 0),
+          action('↓', 'Move later', () => move(i + 1), i === state.experience.length - 1),
+          action('Remove entry', 'Delete this entry', () => { state.experience.splice(i, 1); })
+        );
+        wrap.appendChild(controls);
+
+        expList.appendChild(wrap);
+      });
+    }
+
+    function renderSkills() {
+      skillGroups.innerHTML = '';
+      state.skills.forEach((group, gi) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'skill-group';
+
+        const label = document.createElement('p');
+        label.className = 'skill-label';
+        label.textContent = group.category;
+        wrap.appendChild(label);
+
+        const chips = document.createElement('div');
+        chips.className = 'skill-chips';
+        group.items.forEach((item, ii) => {
+          const chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'tag tag-button tag-neutral';
+          chip.textContent = `${item} ×`;
+          chip.setAttribute('aria-label', `Remove ${item}`);
+          chip.addEventListener('click', () => {
+            state.skills[gi].items.splice(ii, 1);
+            persist();
+            renderSkills();
+            renderPreview();
+          });
+          chips.appendChild(chip);
         });
-        return el;
-      };
+        wrap.appendChild(chips);
 
-      wrap.append(
-        mk('title', 'Title'),
-        mk('company', 'Company'),
-        mk('dates', 'Dates'),
-        mk('location', 'Location'),
-        mk('description', 'Description', true)
-      );
-
-      /* Order is what the public page renders, so it is editable here rather
-         than only in the file. */
-      const controls = document.createElement('div');
-      controls.className = 'entry-controls';
-
-      const action = (label: string, title: string, run: () => void, disabled = false) => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'btn btn-secondary entry-action';
-        button.textContent = label;
-        button.title = title;
-        button.disabled = disabled;
-        button.addEventListener('click', () => {
-          run();
-          persist();
-          renderExperience();
-          renderPreview();
-        });
-        return button;
-      };
-
-      const move = (to: number) => {
-        const [entry] = state.experience.splice(i, 1);
-        state.experience.splice(to, 0, entry);
-      };
-
-      controls.append(
-        action('↑', 'Move earlier', () => move(i - 1), i === 0),
-        action('↓', 'Move later', () => move(i + 1), i === state.experience.length - 1),
-        action('Remove entry', 'Delete this entry', () => { state.experience.splice(i, 1); })
-      );
-      wrap.appendChild(controls);
-
-      expList.appendChild(wrap);
-    });
-  }
-
-  function renderSkills() {
-    skillGroups.innerHTML = '';
-    state.skills.forEach((group, gi) => {
-      const wrap = document.createElement('div');
-      wrap.className = 'skill-group';
-
-      const label = document.createElement('p');
-      label.className = 'skill-label';
-      label.textContent = group.category;
-      wrap.appendChild(label);
-
-      const chips = document.createElement('div');
-      chips.className = 'skill-chips';
-      group.items.forEach((item, ii) => {
-        const chip = document.createElement('button');
-        chip.type = 'button';
-        chip.className = 'tag tag-button tag-neutral';
-        chip.textContent = `${item} ×`;
-        chip.setAttribute('aria-label', `Remove ${item}`);
-        chip.addEventListener('click', () => {
-          state.skills[gi].items.splice(ii, 1);
+        const row = document.createElement('div');
+        row.className = 'skill-add';
+        const input = document.createElement('input');
+        input.className = 'input';
+        input.placeholder = `Add to ${group.category}…`;
+        const insert = document.createElement('button');
+        insert.type = 'button';
+        insert.className = 'btn btn-secondary';
+        insert.textContent = 'Insert';
+        const commit = () => {
+          const value = input.value.trim();
+          if (!value) return;
+          state.skills[gi].items.push(value);
+          input.value = '';
           persist();
           renderSkills();
           renderPreview();
-        });
-        chips.appendChild(chip);
+        };
+        insert.addEventListener('click', commit);
+        input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
+        row.append(input, insert);
+        wrap.appendChild(row);
+
+        skillGroups.appendChild(wrap);
       });
-      wrap.appendChild(chips);
+    }
 
-      const row = document.createElement('div');
-      row.className = 'skill-add';
-      const input = document.createElement('input');
-      input.className = 'input';
-      input.placeholder = `Add to ${group.category}…`;
-      const insert = document.createElement('button');
-      insert.type = 'button';
-      insert.className = 'btn btn-secondary';
-      insert.textContent = 'Insert';
-      const commit = () => {
-        const value = input.value.trim();
-        if (!value) return;
-        state.skills[gi].items.push(value);
-        input.value = '';
-        persist();
-        renderSkills();
-        renderPreview();
-      };
-      insert.addEventListener('click', commit);
-      input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
-      row.append(input, insert);
-      wrap.appendChild(row);
+    function renderPreview() {
+      $('preview-summary').hidden = !summaryVisible;
+      $('preview-experience').hidden = !experienceVisible;
+      $('preview-summary-text').textContent = state.summary;
 
-      skillGroups.appendChild(wrap);
-    });
-  }
+      const list = $('preview-experience-list');
+      list.innerHTML = '';
+      state.experience.forEach(entry => {
+        const item = document.createElement('div');
+        item.className = 'preview-entry';
+        item.innerHTML = `
+          <p class="preview-entry-title"></p>
+          <p class="preview-entry-company"></p>
+          <p class="preview-entry-desc"></p>`;
+        item.querySelector('.preview-entry-title')!.textContent = `${entry.title} · ${entry.dates}`;
+        item.querySelector('.preview-entry-company')!.textContent = entry.company;
+        item.querySelector('.preview-entry-desc')!.textContent = entry.description;
+        list.appendChild(item);
+      });
 
-  function renderPreview() {
-    $('preview-summary').hidden = !summaryVisible;
-    $('preview-experience').hidden = !experienceVisible;
-    $('preview-summary-text').textContent = state.summary;
+      const skillsOut = $('preview-skills');
+      skillsOut.innerHTML = '';
+      state.skills.flatMap(g => g.items).forEach(name => {
+        const tag = document.createElement('span');
+        tag.className = 'tag tag-neutral';
+        tag.textContent = name;
+        skillsOut.appendChild(tag);
+      });
+    }
 
-    const list = $('preview-experience-list');
-    list.innerHTML = '';
-    state.experience.forEach(entry => {
-      const item = document.createElement('div');
-      item.className = 'preview-entry';
-      item.innerHTML = `
-        <p class="preview-entry-title"></p>
-        <p class="preview-entry-company"></p>
-        <p class="preview-entry-desc"></p>`;
-      item.querySelector('.preview-entry-title')!.textContent = `${entry.title} · ${entry.dates}`;
-      item.querySelector('.preview-entry-company')!.textContent = entry.company;
-      item.querySelector('.preview-entry-desc')!.textContent = entry.description;
-      list.appendChild(item);
+    function renderAll() {
+      summaryInput.value = state.summary;
+      renderExperience();
+      renderSkills();
+      renderPreview();
+    }
+
+    summaryInput.addEventListener('input', () => {
+      state.summary = summaryInput.value;
+      persist();
+      renderPreview();
     });
 
-    const skillsOut = $('preview-skills');
-    skillsOut.innerHTML = '';
-    state.skills.flatMap(g => g.items).forEach(name => {
-      const tag = document.createElement('span');
-      tag.className = 'tag tag-neutral';
-      tag.textContent = name;
-      skillsOut.appendChild(tag);
+    $<HTMLInputElement>('summary-visible').addEventListener('change', e => {
+      summaryVisible = (e.target as HTMLInputElement).checked;
+      renderPreview();
     });
+    $<HTMLInputElement>('experience-visible').addEventListener('change', e => {
+      experienceVisible = (e.target as HTMLInputElement).checked;
+      renderPreview();
+    });
+
+    $<HTMLButtonElement>('add-experience').addEventListener('click', () => {
+      state.experience.push({ title: '', company: '', dates: '', location: '', description: '' });
+      persist();
+      renderExperience();
+      renderPreview();
+    });
+
+    $<HTMLButtonElement>('discard').addEventListener('click', () => {
+      localStorage.removeItem(KEY);
+      state = structuredClone(seed);
+      $('resume-stamp').textContent = '[ status: editing // reset to published content ]';
+      renderAll();
+    });
+
+    /* Must reproduce every export `src/lib/resume.ts` currently has — the
+       public page, the resume aside and this editor all import from it, so a
+       partial file breaks the build. Both the download and the commit below
+       write exactly this, so there is one template to keep in sync, not two. */
+    function buildModule() {
+      const j = (v: unknown) => JSON.stringify(v, null, 2);
+      return `/**
+   * Generated by the admin resume editor. Replace src/lib/resume.ts with this file.
+   *
+   * Identity fields come from site.ts; this module owns only the resume body.
+   */
+
+  import { site } from './site';
+
+  export interface ExperienceEntry {
+    title: string;
+    company: string;
+    dates: string;
+    location: string;
+    description: string;
   }
 
-  function renderAll() {
-    summaryInput.value = state.summary;
-    renderExperience();
-    renderSkills();
-    renderPreview();
+  export interface SkillGroup {
+    category: string;
+    items: string[];
   }
 
-  summaryInput.addEventListener('input', () => {
-    state.summary = summaryInput.value;
-    persist();
-    renderPreview();
-  });
-
-  $<HTMLInputElement>('summary-visible').addEventListener('change', e => {
-    summaryVisible = (e.target as HTMLInputElement).checked;
-    renderPreview();
-  });
-  $<HTMLInputElement>('experience-visible').addEventListener('change', e => {
-    experienceVisible = (e.target as HTMLInputElement).checked;
-    renderPreview();
-  });
-
-  $<HTMLButtonElement>('add-experience').addEventListener('click', () => {
-    state.experience.push({ title: '', company: '', dates: '', location: '', description: '' });
-    persist();
-    renderExperience();
-    renderPreview();
-  });
-
-  $<HTMLButtonElement>('discard').addEventListener('click', () => {
-    localStorage.removeItem(KEY);
-    state = structuredClone(seed);
-    $('resume-stamp').textContent = '[ status: editing // reset to published content ]';
-    renderAll();
-  });
-
-  /* Must reproduce every export `src/lib/resume.ts` currently has — the
-     public page, the resume aside and this editor all import from it, so a
-     partial file breaks the build. Both the download and the commit below
-     write exactly this, so there is one template to keep in sync, not two. */
-  function buildModule() {
-    const j = (v: unknown) => JSON.stringify(v, null, 2);
-    return `/**
- * Generated by the admin resume editor. Replace src/lib/resume.ts with this file.
- *
- * Identity fields come from site.ts; this module owns only the resume body.
- */
-
-import { site } from './site';
-
-export interface ExperienceEntry {
-  title: string;
-  company: string;
-  dates: string;
-  location: string;
-  description: string;
-}
-
-export interface SkillGroup {
-  category: string;
-  items: string[];
-}
-
-export interface EducationEntry {
-  school: string;
-  degree: string;
-  dates: string;
-}
-
-export const person = {
-  name: site.name,
-  role: site.role,
-  location: site.location,
-  address: site.address,
-  email: site.email,
-  phone: site.phone,
-  linkedin: site.linkedin,
-  summary: ${j(state.summary)},
-};
-
-export const experience: ExperienceEntry[] = ${j(state.experience)};
-
-export const skills: SkillGroup[] = ${j(state.skills)};
-
-export const certifications: string[] = ${j(state.certifications)};
-
-export const education: EducationEntry[] = ${j(state.education)};
-`;
+  export interface EducationEntry {
+    school: string;
+    degree: string;
+    dates: string;
   }
 
-  $<HTMLButtonElement>('export-resume').addEventListener('click', () => {
-    const blob = new Blob([buildModule()], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'resume.ts';
-    a.click();
-    URL.revokeObjectURL(url);
-  });
+  export const person = {
+    name: site.name,
+    role: site.role,
+    location: site.location,
+    address: site.address,
+    email: site.email,
+    phone: site.phone,
+    linkedin: site.linkedin,
+    summary: ${j(state.summary)},
+  };
 
-  /* Commit the regenerated module. The download stays as the offline path and
-     as the way to eyeball the file before it lands. */
-  const commitBtn = $<HTMLButtonElement>('commit-resume');
-  const stamp = $('resume-stamp');
+  export const experience: ExperienceEntry[] = ${j(state.experience)};
 
-  if (!getToken()) {
-    commitBtn.disabled = true;
-    commitBtn.title = 'Sign in with GitHub to commit.';
-  }
+  export const skills: SkillGroup[] = ${j(state.skills)};
 
-  commitBtn.addEventListener('click', async () => {
-    commitBtn.disabled = true;
-    commitBtn.textContent = 'Committing…';
-    stamp.textContent = '[ status: committing src/lib/resume.ts ]';
+  export const certifications: string[] = ${j(state.certifications)};
+
+  export const education: EducationEntry[] = ${j(state.education)};
+  `;
+    }
+
+    $<HTMLButtonElement>('export-resume').addEventListener('click', () => {
+      const blob = new Blob([buildModule()], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'resume.ts';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    /* Commit the regenerated module. The download stays as the offline path and
+       as the way to eyeball the file before it lands. */
+    const commitBtn = $<HTMLButtonElement>('commit-resume');
+    const stamp = $('resume-stamp');
+
+    if (!getToken()) {
+      commitBtn.disabled = true;
+      commitBtn.title = 'Sign in with GitHub to commit.';
+    }
+
+    commitBtn.addEventListener('click', async () => {
+      commitBtn.disabled = true;
+      commitBtn.textContent = 'Committing…';
+      stamp.textContent = '[ status: committing src/lib/resume.ts ]';
+
+      try {
+        const { url } = await commitFile({
+          path: 'src/lib/resume.ts',
+          content: buildModule(),
+          message: 'content(resume): update resume body from the admin editor',
+        });
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = 'view commit ↗';
+        stamp.replaceChildren(document.createTextNode('[ status: committed // '), link, document.createTextNode(' ]'));
+        commitBtn.textContent = 'Committed ✓';
+      } catch (error) {
+        stamp.textContent = error instanceof Error ? error.message : 'Commit failed.';
+        commitBtn.textContent = 'Commit to GitHub';
+      } finally {
+        commitBtn.disabled = false;
+        setTimeout(() => { commitBtn.textContent = 'Commit to GitHub'; }, 2000);
+      }
+    });
 
     try {
-      const { url } = await commitFile({
-        path: 'src/lib/resume.ts',
-        content: buildModule(),
-        message: 'content(resume): update resume body from the admin editor',
-      });
-
-      const link = document.createElement('a');
-      link.href = url;
-      link.target = '_blank';
-      link.rel = 'noopener';
-      link.textContent = 'view commit ↗';
-      stamp.replaceChildren(document.createTextNode('[ status: committed // '), link, document.createTextNode(' ]'));
-      commitBtn.textContent = 'Committed ✓';
-    } catch (error) {
-      stamp.textContent = error instanceof Error ? error.message : 'Commit failed.';
-      commitBtn.textContent = 'Commit to GitHub';
-    } finally {
-      commitBtn.disabled = false;
-      setTimeout(() => { commitBtn.textContent = 'Commit to GitHub'; }, 2000);
+      const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (saved?.experience && saved?.skills) {
+        /* Merged over the seed so a draft written before a field existed still
+           exports a complete module. */
+        state = { ...structuredClone(seed), ...saved };
+        $('resume-stamp').textContent = '[ status: editing // draft restored from this browser ]';
+      }
+    } catch {
+      /* ignore a corrupt draft */
     }
+
+    renderAll();
   });
-
-  try {
-    const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (saved?.experience && saved?.skills) {
-      /* Merged over the seed so a draft written before a field existed still
-         exports a complete module. */
-      state = { ...structuredClone(seed), ...saved };
-      $('resume-stamp').textContent = '[ status: editing // draft restored from this browser ]';
-    }
-  } catch {
-    /* ignore a corrupt draft */
-  }
-
-  renderAll();
 </script>
 
 <style>
