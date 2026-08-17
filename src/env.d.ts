@@ -2,8 +2,8 @@
 
 interface ImportMetaEnv {
   /**
-   * OAuth App client ID. Public by design — it identifies the app, it does not
-   * authorise anything. Must equal `GITHUB_CLIENT_ID` in
+   * GitHub App client ID (`Iv23…`). Public by design — it identifies the app,
+   * it does not authorise anything. Must equal `GITHUB_CLIENT_ID` in
    * `workers/github-oauth/wrangler.toml`.
    */
   readonly PUBLIC_GITHUB_CLIENT_ID?: string;

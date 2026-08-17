@@ -6,21 +6,33 @@
  * else; this module drives the browser half of the flow and then talks to the
  * GitHub REST API directly.
  *
+ * Sign-in is a **GitHub App** user-to-server flow, not an OAuth App. The
+ * difference that matters here: access is granted per repository at install
+ * time, so the token can only reach repositories the App was installed on, and
+ * `GET /user/installations/…/repositories` is a real answer to "what may this
+ * session touch" rather than a guess. A GitHub App also carries up to ten
+ * callback URLs, which is why production and `localhost` share one App.
+ *
  * Security shape, and the reasoning behind each choice:
  *
  *   - **No secret ships.** Only the client ID and the Worker origin are in the
  *     bundle, and neither authorises anything on its own.
  *   - **Token lives in `sessionStorage`, never `localStorage`.** It dies with
  *     the tab, so a shared machine does not keep a live credential on disk.
+ *   - **The refresh token never reaches the browser.** The Worker drops it. A
+ *     user token expires after 8 hours and you sign in again; a refresh token
+ *     is good for six months and is not something to leave in a tab.
  *   - **The CSRF `state` is 256 bits of `crypto.getRandomValues`,** single-use,
  *     removed before the exchange runs, and compared without early exit.
  *   - **The code is consumed exactly once.** The query string is stripped from
  *     the URL before the network call, so a reload cannot replay it and the
  *     code never reaches a history entry or a `Referer` header.
  *   - **Identity is checked after the exchange.** Any GitHub user can complete
- *     an OAuth flow; only `site.githubUser` is allowed to keep the token.
- *   - **Least privilege.** `public_repo` — enough to commit to a public repo,
- *     not enough to touch a private one.
+ *     the flow; only `site.githubUser` is allowed to keep the token.
+ *   - **Least privilege.** The App asks for Contents (write) and Metadata
+ *     (read) on the repositories it is installed on, and nothing else. There is
+ *     no `scope` parameter — GitHub Apps ignore it; permissions come from the
+ *     App's own configuration.
  *
  * What this is *not*: `/admin` is prerendered public HTML. Gating it in the
  * browser hides the screens, it does not protect them. What is actually
@@ -33,17 +45,15 @@ import { site } from './site';
 const CLIENT_ID = import.meta.env.PUBLIC_GITHUB_CLIENT_ID ?? '';
 const WORKER_ORIGIN = (import.meta.env.PUBLIC_GITHUB_OAUTH_WORKER ?? '').replace(/\/$/, '');
 
-/** Enough to commit to a public repository, and nothing more. */
-export const OAUTH_SCOPE = 'public_repo';
-
-/** Where GitHub sends the browser back. Must match the OAuth App's callback. */
+/** Where GitHub sends the browser back. Must be one of the App's callbacks. */
 export const CALLBACK_PATH = '/admin/';
 
 /**
- * Exported because `AdminLayout` reads it from an `is:inline` head script,
+ * Exported because `AdminLayout` reads them from an `is:inline` head script,
  * which cannot import a module — the same seam `SIDEBAR_KEY` uses.
  */
 export const TOKEN_KEY = 'om-gh-token';
+export const EXPIRY_KEY = 'om-gh-expires';
 const USER_KEY = 'om-gh-user';
 const STATE_KEY = 'om-gh-oauth-state';
 
@@ -53,8 +63,23 @@ export interface GitHubUser {
   avatarUrl: string;
 }
 
+/**
+ * `https://github.com/owner/repo` → the two halves the GitHub API needs.
+ *
+ * Exported because the admin's project screen parses the same shape out of
+ * each project's `repoUrl`; one parser means one set of edge cases (trailing
+ * slash, `.git` suffix) rather than two that drift.
+ */
+export function parseRepoUrl(url: string): { owner: string; name: string } {
+  const [owner = '', name = ''] = new URL(url).pathname
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\.git$/, '')
+    .split('/');
+  return { owner, name };
+}
+
 /** Owner and repository parsed once from the canonical repo URL in `site`. */
-const [REPO_OWNER, REPO_NAME] = new URL(site.repo).pathname.replace(/^\//, '').split('/');
+const { owner: REPO_OWNER, name: REPO_NAME } = parseRepoUrl(site.repo);
 
 export class GitHubError extends Error {
   /** HTTP status when the failure came from a response, else `undefined`. */
@@ -72,7 +97,29 @@ export function isConfigured(): boolean {
   return Boolean(CLIENT_ID && WORKER_ORIGIN);
 }
 
+/**
+ * When the current session dies, as epoch ms — or `null` when there is no
+ * session. GitHub App user tokens last 8 hours.
+ */
+export function sessionExpiresAt(): number | null {
+  const raw = sessionStorage.getItem(EXPIRY_KEY);
+  const at = raw ? Number(raw) : NaN;
+  return Number.isFinite(at) ? at : null;
+}
+
+/**
+ * The live token, or `null`.
+ *
+ * An expired token is cleared rather than returned: GitHub would reject it on
+ * the next call anyway, and a screen that looks signed in but fails every
+ * action is worse than one that asks you to sign in again.
+ */
 export function getToken(): string | null {
+  const expiresAt = sessionExpiresAt();
+  if (expiresAt !== null && Date.now() >= expiresAt) {
+    signOut();
+    return null;
+  }
   return sessionStorage.getItem(TOKEN_KEY);
 }
 
@@ -88,6 +135,7 @@ export function getUser(): GitHubUser | null {
 
 export function signOut(): void {
   sessionStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(EXPIRY_KEY);
   sessionStorage.removeItem(USER_KEY);
   sessionStorage.removeItem(STATE_KEY);
 }
@@ -125,10 +173,11 @@ export function beginSignIn(): void {
   const state = randomState();
   sessionStorage.setItem(STATE_KEY, state);
 
+  /* No `scope` — a GitHub App ignores it. What this session may do comes from
+     the App's permissions and the repositories it was installed on. */
   const url = new URL('https://github.com/login/oauth/authorize');
   url.searchParams.set('client_id', CLIENT_ID);
   url.searchParams.set('redirect_uri', callbackUrl());
-  url.searchParams.set('scope', OAUTH_SCOPE);
   url.searchParams.set('state', state);
   url.searchParams.set('allow_signup', 'false');
 
@@ -181,6 +230,12 @@ export async function completeSignIn(): Promise<GitHubUser | null> {
 
   const token: string = payload.access_token;
 
+  /* GitHub App user tokens expire — 8 hours at the time of writing, but take
+     the number GitHub sends rather than hard-coding it. A token with no
+     `expires_in` (an App with expiry disabled) simply has no deadline. */
+  const expiresIn = Number(payload.expires_in);
+  const expiresAt = Number.isFinite(expiresIn) && expiresIn > 0 ? Date.now() + expiresIn * 1000 : null;
+
   const profile = await request<{ login: string; name: string | null; avatar_url: string }>(
     '/user',
     {},
@@ -201,6 +256,7 @@ export async function completeSignIn(): Promise<GitHubUser | null> {
   };
 
   sessionStorage.setItem(TOKEN_KEY, token);
+  if (expiresAt !== null) sessionStorage.setItem(EXPIRY_KEY, String(expiresAt));
   sessionStorage.setItem(USER_KEY, JSON.stringify(user));
   return user;
 }

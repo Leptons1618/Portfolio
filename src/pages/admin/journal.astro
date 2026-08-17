@@ -11,7 +11,7 @@ const today = new Date().toISOString().slice(0, 10);
 <AdminLayout title="Journal Editor" section="journal">
   <div class="admin-head">
     <div>
-      <h1 class="admin-title-sm">[dev.identity] Create New Journal Entry</h1>
+      <h1 class="admin-title-sm">Create New Journal Entry</h1>
       <span class="text-muted admin-stamp" id="save-stamp">Draft mode. Not saved yet.</span>
     </div>
     <div class="admin-actions">
@@ -94,15 +94,6 @@ const today = new Date().toISOString().slice(0, 10);
           A path under <code>public/</code>, or an absolute URL. There is no upload here —
           the file has to be in the repository for the build to find it.
         </p>
-      </div>
-
-      <div class="card elev-sm">
-        <h6 class="admin-eyebrow">AI Tools</h6>
-        <div class="ai-tools">
-          <button type="button" class="btn btn-secondary" disabled>Auto-generate Transcript</button>
-          <button type="button" class="btn btn-secondary" disabled>Gen Social Snippets</button>
-        </div>
-        <p class="text-muted admin-note">Requires a backend service — unavailable on a static build.</p>
       </div>
     </aside>
   </div>
@@ -382,7 +373,6 @@ const today = new Date().toISOString().slice(0, 10);
   .summary-input { min-height: 56px; }
   .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
   .field-row label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
-  .ai-tools { display: flex; gap: 8px; flex-wrap: wrap; }
   .editor-body { min-height: 220px; font-family: var(--font-mono); font-size: 13px; }
 
   .preview-heading { margin-bottom: var(--space-2); }

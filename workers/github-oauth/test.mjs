@@ -3,10 +3,12 @@
  *
  * Run: `node workers/github-oauth/test.mjs`
  *
- * Only the paths that return *before* the call to GitHub are exercised, which
- * is deliberate — those are the checks that decide whether a request is
- * allowed to reach GitHub at all, and they are the ones worth pinning. No test
- * framework: `node:assert` and a counter are enough for eight cases.
+ * Mostly the paths that return *before* the call to GitHub, which is
+ * deliberate — those are the checks that decide whether a request is allowed
+ * to reach GitHub at all. The exception is the last case, which stubs
+ * `globalThis.fetch` to pin the response field allowlist: the refresh token
+ * must never leave this Worker. No test framework: `node:assert` and a counter
+ * are enough.
  */
 
 import assert from 'node:assert/strict';
@@ -98,6 +100,42 @@ await check('a missing secret fails closed without naming which one', async () =
 await check('every response forbids caching', async () => {
   const res = await worker.fetch(post(valid, { origin: 'https://evil.example' }), ENV);
   assert.equal(res.headers.get('Cache-Control'), 'no-store');
+});
+
+/* The only case that lets the Worker reach "GitHub". A GitHub App exchange
+   answers with a refresh token good for six months next to an access token
+   good for eight hours; forwarding the whole payload would put the long-lived
+   half into a browser tab. Stub the upstream, then assert on what comes out. */
+await check('the refresh token never leaves the Worker', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        access_token: 'ghu_access',
+        token_type: 'bearer',
+        expires_in: 28800,
+        refresh_token: 'ghr_refresh',
+        refresh_token_expires_in: 15811200,
+        scope: '',
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } }
+    );
+
+  try {
+    const res = await worker.fetch(post(valid), ENV);
+    assert.equal(res.status, 200);
+
+    const raw = await res.text();
+    assert.ok(!raw.includes('ghr_refresh'), 'refresh token value leaked into the response');
+    assert.ok(!raw.includes('refresh_token'), 'refresh token field leaked into the response');
+
+    const body = JSON.parse(raw);
+    assert.deepEqual(Object.keys(body).sort(), ['access_token', 'expires_in', 'token_type']);
+    assert.equal(body.access_token, 'ghu_access');
+    assert.equal(body.expires_in, 28800);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
 
 console.log(`\n${passed} checks passed.`);

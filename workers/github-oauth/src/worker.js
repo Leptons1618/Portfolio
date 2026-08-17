@@ -1,17 +1,24 @@
 /**
- * GitHub OAuth token exchange.
+ * GitHub App token exchange.
  *
- * The portfolio is a static site with no server, so it cannot hold an OAuth
- * client secret — anything shipped to the browser is public. This Worker is
- * the one piece of server the flow needs: it holds the secret and does
- * nothing else. It never sees a password, never stores a token, and keeps no
- * state between requests.
+ * The portfolio is a static site with no server, so it cannot hold the client
+ * secret — anything shipped to the browser is public. This Worker is the one
+ * piece of server the flow needs: it holds the secret and does nothing else.
+ * It never sees a password, never stores a token, and keeps no state between
+ * requests.
  *
  * Contract — `POST /token`, JSON `{ code, redirect_uri }` → `{ access_token,
- * token_type, scope }`. Every other method and path is a 404.
+ * token_type, expires_in }`. Every other method and path is a 404.
  *
  * Deliberate properties:
  *
+ *   - **The refresh token is dropped here and never returned.** GitHub's
+ *     response to a GitHub App exchange carries `refresh_token` alongside the
+ *     access token; the access token is good for 8 hours, the refresh token
+ *     for six months. Only the short-lived half has any business being in a
+ *     browser tab. This is the single most important line in the file — see
+ *     the field allowlist at the bottom, which is why the response is built
+ *     key by key rather than forwarded.
  *   - The `Origin` header must be on the allowlist. A stateless exchanger is
  *     otherwise a free oracle any site can point at.
  *   - The authorization code arrives in a request *body*, and the token
@@ -133,11 +140,15 @@ export default {
       return json({ error: String(result.error || 'no_token') }, 400, origin);
     }
 
+    // Built key by key, never spread. `result` also holds `refresh_token` and
+    // `refresh_token_expires_in`; a six-month credential must not reach the
+    // browser, and an allowlist is the only shape of this code that stays
+    // correct when GitHub adds a field.
     return json(
       {
         access_token: result.access_token,
         token_type: result.token_type,
-        scope: result.scope,
+        expires_in: result.expires_in,
       },
       200,
       origin

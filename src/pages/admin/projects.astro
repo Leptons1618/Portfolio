@@ -1,23 +1,15 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { getProjects } from '../../lib/content';
+import { parseRepoUrl } from '../../lib/github';
 import { site } from '../../lib/site';
 
 /* Hidden projects are exactly what this screen manages, so it asks for them. */
 const projects = await getProjects(true);
 const GITHUB_USER = site.githubUser;
 
-/** `https://github.com/owner/repo` → the two halves the GitHub API needs. */
-function splitRepo(url: string): { owner: string; name: string } {
-  const [owner = GITHUB_USER, name = ''] = new URL(url).pathname
-    .replace(/^\/+|\/+$/g, '')
-    .replace(/\.git$/, '')
-    .split('/');
-  return { owner, name };
-}
-
 const rows = projects.map(p => {
-  const { owner, name } = splitRepo(p.data.repoUrl);
+  const { owner, name } = parseRepoUrl(p.data.repoUrl);
   return {
     slug: p.slug,
     /* The file this card commits to. Astro derives the slug from the filename,
@@ -152,19 +144,17 @@ const linkedCount = rows.filter(r => r.caseStudySlug).length;
     </div>
 
     <p class="text-muted admin-note visibility-note" id="write-note">
-      Signed out, the visibility switches are held in this browser only — export them and apply
-      the result to <code>src/content/projects/*.md</code> by hand.
+      Signed out, this screen is read-only — visibility, unlink and delete all need a
+      GitHub session, because each one is a commit to <code>src/content/projects/</code>.
     </p>
-    <button type="button" class="btn btn-secondary" id="export-visibility">Export Visibility JSON</button>
   </div>
 </AdminLayout>
 
 <script>
-  import { ADMIN_KEYS } from '../../lib/admin';
+  import { relativeTime } from '../../lib/format';
   import { removeFrontmatterField, setFrontmatterField } from '../../lib/frontmatter';
   import { commitFile, deleteFile, fetchRepoMeta, getToken, getUser, readFile } from '../../lib/github';
 
-  const KEY = ADMIN_KEYS.projectVisibility;
   const signedIn = Boolean(getToken() && getUser());
 
   /* Signed in, a switch is a commit; signed out it is a note to yourself. The
@@ -222,37 +212,26 @@ const linkedCount = rows.filter(r => r.caseStudySlug).length;
     return commitFile({ path, content: next, message: commitMessage, sha: file.sha });
   }
 
-  /* — visibility — */
-  function readLocal(): Record<string, boolean> {
-    try {
-      return JSON.parse(localStorage.getItem(KEY) || '{}');
-    } catch {
-      return {};
-    }
-  }
+  /* — visibility —
 
+     The file on the default branch is the only truth. Signed out there is
+     nowhere to write, so the switch is disabled rather than recording an
+     intention in this browser that nothing will ever apply. */
   const toggles = Array.from(document.querySelectorAll<HTMLButtonElement>('.toggle[data-slug]'));
-  const local = readLocal();
 
   toggles.forEach(toggle => {
     const card = toggle.closest<HTMLElement>('.pm-card')!;
     const slug = toggle.dataset.slug!;
 
-    /* The file is the truth when signed in. The local map is only consulted
-       for the export-only path, where nothing has been committed. */
-    if (!signedIn && slug in local) toggle.setAttribute('aria-checked', String(local[slug]));
+    if (!signedIn) {
+      toggle.disabled = true;
+      toggle.title = 'Sign in with GitHub to change visibility.';
+      return;
+    }
 
     toggle.addEventListener('click', async () => {
       const next = toggle.getAttribute('aria-checked') !== 'true';
       toggle.setAttribute('aria-checked', String(next));
-
-      if (!signedIn) {
-        const map = readLocal();
-        map[slug] = next;
-        localStorage.setItem(KEY, JSON.stringify(map));
-        say(card, next ? 'Marked visible in this browser. Export to apply.' : 'Marked hidden in this browser. Export to apply.');
-        return;
-      }
 
       toggle.disabled = true;
       say(card, next ? 'Publishing…' : 'Hiding…');
@@ -274,26 +253,7 @@ const linkedCount = rows.filter(r => r.caseStudySlug).length;
     });
   });
 
-  document.getElementById('export-visibility')?.addEventListener('click', () => {
-    const map: Record<string, boolean> = {};
-    toggles.forEach(t => { map[t.dataset.slug!] = t.getAttribute('aria-checked') === 'true'; });
-    const blob = new Blob([JSON.stringify(map, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'project-visibility.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  });
-
   /* — per-card actions — */
-  const rel = (iso: string) => {
-    const hours = (Date.now() - new Date(iso).getTime()) / 36e5;
-    if (hours < 1) return 'under an hour ago';
-    if (hours < 48) return `${Math.round(hours)}h ago`;
-    return `${Math.round(hours / 24)}d ago`;
-  };
-
   cards.forEach(card => {
     const button = (action: string) => card.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)!;
 
@@ -306,7 +266,7 @@ const linkedCount = rows.filter(r => r.caseStudySlug).length;
       try {
         const meta = await fetchRepoMeta(card.dataset.owner!, card.dataset.repo!);
         card.querySelector('.pm-branch')!.textContent = `branch: ${meta.defaultBranch}`;
-        card.querySelector('.pm-sync')!.textContent = `last push: ${rel(meta.pushedAt)}`;
+        card.querySelector('.pm-sync')!.textContent = `last push: ${relativeTime(meta.pushedAt)}`;
         const notes = [`${meta.stars} ★`];
         if (meta.archived) notes.push('archived on GitHub');
         say(card, notes.join(' · '));

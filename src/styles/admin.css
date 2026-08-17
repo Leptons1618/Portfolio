@@ -11,15 +11,26 @@
   min-height: 100vh;
 }
 
-/* — sidebar — */
+/* — sidebar —
+
+   Pinned to the viewport rather than stretched to the document. The shell is a
+   flex row, so without an explicit height the sidebar column grows to the full
+   page height and `margin-top: auto` drops the foot to the bottom of the
+   *scroll* — which on a long page means the identity block and the New Post
+   button are somewhere far below the fold. Three rows instead: head and foot
+   are always on screen, and the nav in the middle is the only part that ever
+   scrolls. */
 .admin-sidebar {
   width: 220px;
   flex: none;
   background: var(--color-surface);
   padding: var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
+  position: sticky;
+  top: 0;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--space-5);
   transition: width 0.15s;
 }
 
@@ -30,18 +41,47 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-.admin-brand {
+/* Who you are signed in as. Collapsed, the avatar is the whole thing. */
+.admin-whoami {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+
+.admin-whoami-text { min-width: 0; }
+
+.admin-whoami-name {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-whoami-role {
+  display: block;
   font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 14px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-accent-700);
 }
 
 .admin-nav {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .admin-nav-link {
@@ -49,6 +89,7 @@
   align-items: center;
   gap: 10px;
   padding: 8px 10px;
+  flex: none;
   border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--color-text);
@@ -86,18 +127,19 @@
   color: var(--color-accent-700);
 }
 
+.admin-nav-icon { width: 16px; height: 16px; flex: none; }
+
+.admin-collapse svg { transition: transform 0.15s; }
+.admin-shell.is-collapsed .admin-collapse svg { transform: rotate(180deg); }
+
+/* Identity moved to the head, so the foot carries one job: the actions. */
 .admin-sidebar-foot {
-  margin-top: auto;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: var(--space-2);
   font-size: 12px;
 }
-
-/* The identity line sits back; the CTA above it must not, so the dimming
-   lives here rather than on the whole foot. */
-.admin-identity-row { opacity: 0.7; }
 
 .admin-foot-actions {
   display: flex;
@@ -114,18 +156,9 @@
   text-decoration: none;
 }
 
-.admin-new-post-mark { font-family: var(--font-mono); }
-
-.admin-identity-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
 .admin-avatar {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   border: 1px solid var(--color-divider);
   flex: none;
@@ -133,6 +166,15 @@
 
 .admin-signout {
   font-size: 11px;
+}
+
+/* The public-site link sits back from the actions it shares a row with. */
+.admin-public-link {
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0.7;
 }
 
 /* — main — */
@@ -285,12 +327,19 @@
 
 @media (max-width: 860px) {
   .admin-shell { flex-direction: column; }
+  /* Stacked, the rail is a banner: it scrolls away with the page, so the
+     viewport pinning above has to be undone rather than inherited. */
   .admin-sidebar,
-  .admin-shell.is-collapsed .admin-sidebar { width: 100%; gap: var(--space-3); }
+  .admin-shell.is-collapsed .admin-sidebar {
+    width: 100%;
+    position: static;
+    height: auto;
+    grid-template-rows: none;
+    gap: var(--space-3);
+  }
   .admin-shell.is-collapsed .collapsible { display: revert; }
   .admin-collapse { display: none; }
-  .admin-nav { flex-direction: row; flex-wrap: wrap; }
-  .admin-sidebar-foot { margin-top: 0; }
+  .admin-nav { flex-direction: row; flex-wrap: wrap; overflow: visible; }
   .admin-main { padding: var(--space-4) var(--space-4) var(--space-8); }
   .admin-grid-3,
   .admin-grid-2,
