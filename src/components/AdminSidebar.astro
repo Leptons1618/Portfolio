@@ -1,0 +1,166 @@
+---
+/**
+ * The admin rail: who you are signed in as, where you can go, and the actions
+ * that belong to no single screen.
+ *
+ * `AdminLayout` marks this `transition:persist`, so the element survives a
+ * navigation instead of being rebuilt — which is the whole reason the layout
+ * mounts `<ClientRouter />`. Two consequences shape the script below:
+ *
+ *   - It binds **once**, at module scope. Astro moves this exact DOM node into
+ *     the next page, listeners and all, and re-running the bindings would stack
+ *     duplicates on the same nodes.
+ *   - The current-section marker is therefore *not* server state. It is
+ *     rendered here for the first paint and refreshed from `location.pathname`
+ *     after every transition, so the URL is the single source of truth.
+ */
+import { Icon } from 'astro-icon/components';
+import ThemeToggle from './ThemeToggle.astro';
+import { site } from '../lib/site';
+
+const NAV = [
+  { label: 'Dashboard', href: '/admin/dashboard', icon: 'lucide:layout-dashboard' },
+  { label: 'Projects', href: '/admin/projects', icon: 'lucide:folder-git-2' },
+  { label: 'Journal', href: '/admin/journal', icon: 'lucide:pen-line' },
+  { label: 'Resume', href: '/admin/resume', icon: 'lucide:file-text' },
+  { label: 'Settings', href: '/admin/settings', icon: 'lucide:settings' },
+];
+
+/* Built and served paths differ by a trailing slash, so compare without one. */
+const here = Astro.url.pathname.replace(/\/+$/, '');
+---
+{/* The persist name is set here rather than by the caller: a transition
+    directive on a component tag does not reach the element inside it, and this
+    rail is the reason `AdminLayout` mounts a router at all. */}
+<aside class="admin-sidebar" transition:persist="admin-sidebar">
+  <div class="admin-sidebar-head">
+    {/* Identity sits at the top, where an avatar reads as "who am I signed in
+        as". Seeded from `site.ts`, replaced with the GitHub login below once a
+        session exists. */}
+    <span class="admin-whoami">
+      <img class="admin-avatar" id="admin-avatar" alt="" width="28" height="28" src={site.photo} />
+      <span class="admin-whoami-text collapsible">
+        <span class="admin-whoami-name" id="admin-identity">{site.name}</span>
+        <span class="admin-whoami-role" id="admin-session">signed out</span>
+      </span>
+    </span>
+    <button
+      type="button"
+      class="btn btn-icon admin-collapse"
+      id="admin-collapse"
+      aria-label="Collapse sidebar"
+      aria-expanded="true"
+    >
+      <Icon name="lucide:chevrons-left" class="admin-nav-icon" />
+    </button>
+  </div>
+
+  <nav class="admin-nav" aria-label="Admin sections">
+    {NAV.map(item => (
+      <a
+        href={item.href}
+        class="admin-nav-link"
+        title={item.label}
+        aria-current={item.href === here ? 'page' : undefined}
+      >
+        <Icon name={item.icon} class="admin-nav-icon" />
+        <span class="collapsible">{item.label}</span>
+      </a>
+    ))}
+  </nav>
+
+  <div class="admin-sidebar-foot">
+    <a class="btn btn-primary btn-block admin-new-post" href="/admin/journal" title="New Post">
+      <Icon name="lucide:plus" class="admin-nav-icon" /><span class="collapsible">New Post</span>
+    </a>
+    <span class="collapsible admin-foot-actions">
+      <ThemeToggle />
+      <button type="button" class="btn btn-ghost admin-signout" id="admin-signout" hidden>Sign out</button>
+    </span>
+    <a class="collapsible admin-public-link" href="/">
+      <Icon name="lucide:external-link" class="admin-nav-icon" />public site
+    </a>
+  </div>
+</aside>
+
+<script>
+  import { SIDEBAR_KEY } from '../lib/admin';
+  import { getUser, isConfigured, sessionExpiresAt, signOut } from '../lib/github';
+
+  const root = document.documentElement;
+
+  /* — identity —
+
+     Written as text nodes and an image `src`, never innerHTML: the login and
+     the avatar come back from GitHub, and it is never worth handing a remote
+     string to a parser. */
+  const sessionLine = document.getElementById('admin-session')!;
+  const signOutButton = document.getElementById('admin-signout') as HTMLButtonElement;
+  const user = getUser();
+
+  if (user) {
+    document.getElementById('admin-identity')!.textContent = user.name ?? `@${user.login}`;
+    signOutButton.hidden = false;
+
+    /* GitHub App user tokens expire after 8 hours. Saying how much is left
+       beats discovering it when a commit fails. */
+    const expiresAt = sessionExpiresAt();
+    const hoursLeft = expiresAt === null ? null : Math.max(0, Math.round((expiresAt - Date.now()) / 36e5));
+    sessionLine.textContent = hoursLeft === null ? `@${user.login}` : `@${user.login} · ${hoursLeft}h left`;
+
+    const avatar = document.getElementById('admin-avatar') as HTMLImageElement;
+    avatar.src = user.avatarUrl;
+    avatar.alt = `@${user.login}`;
+  } else if (!isConfigured()) {
+    /* No client ID in this build — a fork, or a local checkout with no `.env`.
+       The screens stay reachable so the repository is usable without secrets,
+       but nothing here can commit, and the rail should say which it is. */
+    sessionLine.textContent = 'local · export only';
+  }
+
+  signOutButton.addEventListener('click', () => {
+    signOut();
+    window.location.replace('/admin/');
+  });
+
+  /* — collapse —
+
+     The state lives on `<html>` rather than on a class here, because the
+     pre-paint script in `AdminLayout` has to set it before this element
+     exists. The chevron is an inlined SVG flipped in CSS; writing
+     `textContent` on that button would delete the icon. */
+  const collapseButton = document.getElementById('admin-collapse')!;
+
+  function markCollapsed(collapsed: boolean) {
+    if (collapsed) root.dataset.adminCollapsed = '1';
+    else delete root.dataset.adminCollapsed;
+    collapseButton.setAttribute('aria-expanded', String(!collapsed));
+    collapseButton.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+  }
+
+  markCollapsed(localStorage.getItem(SIDEBAR_KEY) === '1');
+
+  collapseButton.addEventListener('click', () => {
+    const next = root.dataset.adminCollapsed !== '1';
+    localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0');
+    markCollapsed(next);
+  });
+
+  /* — current section —
+
+     This node outlives the page it was rendered on, so the server-rendered
+     `aria-current` is only right for the first paint. `astro:page-load` is not
+     dispatched for that first page, which is why the marker is also applied
+     once here. */
+  function markCurrent() {
+    const here = window.location.pathname.replace(/\/+$/, '');
+    document.querySelectorAll<HTMLAnchorElement>('.admin-nav-link').forEach(link => {
+      const target = new URL(link.href).pathname.replace(/\/+$/, '');
+      if (target === here) link.setAttribute('aria-current', 'page');
+      else link.removeAttribute('aria-current');
+    });
+  }
+
+  markCurrent();
+  document.addEventListener('astro:page-load', markCurrent);
+</script>

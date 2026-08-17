@@ -1,15 +1,17 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import { Icon } from 'astro-icon/components';
 import { getPosts } from '../../lib/content';
 import { formatShortDate } from '../../lib/format';
+import { POST_STATUSES } from '../../lib/content-store';
 
-/* Drafts are listed here — they are exactly what this screen exists to
-   manage — but marked, because they do not reach a production build. */
+/* Every status, including the two the public site never renders — managing
+   them is what this screen exists for. */
 const existing = await getPosts(true);
 const today = new Date().toISOString().slice(0, 10);
 ---
-<AdminLayout title="Journal Editor" section="journal">
-  <div class="admin-head">
+<AdminLayout title="Journal Editor">
+  <div class="admin-head" id="admin-journal">
     <div>
       <h1 class="admin-title-sm">Create New Journal Entry</h1>
       <span class="text-muted admin-stamp" id="save-stamp">Draft mode. Not saved yet.</span>
@@ -72,9 +74,13 @@ const today = new Date().toISOString().slice(0, 10);
         <div class="field">
           <label>Status</label>
           <div class="seg">
-            <label class="seg-opt"><input type="radio" name="status" value="draft" checked />Draft</label>
-            <label class="seg-opt"><input type="radio" name="status" value="published" />Published</label>
+            {POST_STATUSES.map(([value, label]) => (
+              <label class="seg-opt">
+                <input type="radio" name="status" value={value} checked={value === 'draft'} />{label}
+              </label>
+            ))}
           </div>
+          <p class="text-muted admin-note status-help" id="status-help"></p>
         </div>
         <p class="text-muted admin-note">
           Filename: <code id="f-slug">untitled.md</code>
@@ -100,262 +106,386 @@ const today = new Date().toISOString().slice(0, 10);
 
   {existing.length > 0 && (
     <section class="focus-hide existing">
-      <h6 class="admin-eyebrow">Existing Entries ({existing.length})</h6>
+      <div class="existing-head">
+        <h6 class="admin-eyebrow">Existing Entries ({existing.length})</h6>
+        <div class="existing-filters">
+          <input
+            class="input entry-search"
+            id="entry-search"
+            type="search"
+            placeholder="Search titles…"
+            aria-label="Search journal entries"
+          />
+          <div class="seg" role="group" aria-label="Filter entries by status">
+            <label class="seg-opt"><input type="radio" name="entry-filter" value="all" checked />All</label>
+            {POST_STATUSES.map(([value, label]) => (
+              <label class="seg-opt"><input type="radio" name="entry-filter" value={value} />{label}</label>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div class="card elev-sm existing-card">
         {existing.map(entry => (
-          <a class="existing-row" href={`/journal/${entry.slug}`}>
-            <span class="cell-strong">
-              {entry.data.title}
-              {entry.data.draft && <span class="tag tag-accent draft-flag">draft</span>}
-            </span>
-            <span class="text-muted cell-mono">{formatShortDate(entry.data.date)}</span>
-          </a>
+          <div
+            class="existing-row"
+            data-slug={entry.slug}
+            data-status={entry.data.status}
+            data-search={entry.data.title.toLowerCase()}
+          >
+            <div class="existing-id">
+              <span class="cell-strong">{entry.data.title}</span>
+              {/* Colour comes from the row's `data-status` in this page's
+                  stylesheet, so the script only has to rewrite one attribute
+                  and one word when a status changes. */}
+              <span class="tag entry-flag" data-role="flag">{entry.data.status}</span>
+            </div>
+            <span class="text-muted cell-mono existing-date">{formatShortDate(entry.data.date)}</span>
+            {/* Unpublished posts leave `getStaticPaths`, so there is no page to
+                open — saying so beats handing out a link that 404s. */}
+            {entry.data.status === 'unpublished'
+              ? <span class="text-muted cell-mono existing-link">no page</span>
+              : (
+                <a class="existing-link" href={`/journal/${entry.slug}`} title="Open the post">
+                  <Icon name="lucide:external-link" class="admin-nav-icon" />
+                </a>
+              )}
+            <select class="input entry-status" aria-label={`Status for ${entry.data.title}`}>
+              {POST_STATUSES.map(([value, label]) => (
+                <option value={value} selected={value === entry.data.status}>{label}</option>
+              ))}
+            </select>
+            <p class="text-muted admin-note entry-line" data-role="status"></p>
+          </div>
         ))}
       </div>
+      <p class="text-muted admin-note" id="entries-note">
+        Changing a status is a commit to <code>src/content/journal/</code>. Unpublishing
+        removes the page from the build outright, so its URL starts returning 404.
+      </p>
     </section>
   )}
 </AdminLayout>
 
 <script>
-  import { ADMIN_KEYS } from '../../lib/admin';
+  import { ADMIN_KEYS, onAdminPage } from '../../lib/admin';
+  import { setPostStatus, type PostStatus } from '../../lib/content-store';
   import { commitFile, getToken } from '../../lib/github';
 
-  const KEY = ADMIN_KEYS.journalDraft;
-  const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+  /* The admin client-routes, so this runs on first paint and again every time
+     you come back to this screen — see `onAdminPage`. */
+  onAdminPage('#admin-journal', () => {
+    const KEY = ADMIN_KEYS.journalDraft;
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-  const fields = {
-    title: $<HTMLInputElement>('f-title'),
-    summary: $<HTMLTextAreaElement>('f-summary'),
-    date: $<HTMLInputElement>('f-date'),
-    tags: $<HTMLInputElement>('f-tags'),
-    readTime: $<HTMLInputElement>('f-readtime'),
-    duration: $<HTMLInputElement>('f-duration'),
-    hero: $<HTMLInputElement>('f-hero'),
-    body: $<HTMLTextAreaElement>('f-body'),
-  };
-  const statusInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="status"]'));
-  const slugOut = $('f-slug');
-  const previewTitle = $('preview-title');
-  const previewBody = $('preview-body');
-  const stamp = $('save-stamp');
-
-  const slugify = (s: string) =>
-    s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled';
-
-  // Quotes matter: link hrefs below are interpolated into an attribute, and an
-  // unescaped `"` would close it and inject markup of the author's own typing.
-  const escapeHtml = (s: string) =>
-    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-  /* Only schemes a published post could actually use — keeps `javascript:`
-     out of the preview's hrefs. */
-  const safeHref = (url: string) =>
-    /^(https?:|mailto:|[/#.])/i.test(url.trim()) ? url.trim() : '#';
-
-  /* A deliberately small Markdown subset — enough for an accurate preview
-     without pulling a parser into the bundle. */
-  function renderMarkdown(src: string): string {
-    const blocks = escapeHtml(src).split(/\n{2,}/);
-    return blocks
-      .map(block => {
-        const trimmed = block.trim();
-        if (!trimmed) return '';
-
-        if (trimmed.startsWith('```')) {
-          const code = trimmed.replace(/^```[^\n]*\n?/, '').replace(/```$/, '');
-          return `<pre><code>${code}</code></pre>`;
-        }
-        const heading = trimmed.match(/^(#{1,3})\s+(.*)$/);
-        if (heading) {
-          const level = heading[1].length;
-          return `<h${level}>${inline(heading[2])}</h${level}>`;
-        }
-        if (/^>\s/.test(trimmed)) {
-          return `<blockquote>${inline(trimmed.replace(/^>\s?/gm, ''))}</blockquote>`;
-        }
-        if (/^[-*]\s/.test(trimmed)) {
-          const items = trimmed.split('\n').map(l => `<li>${inline(l.replace(/^[-*]\s+/, ''))}</li>`).join('');
-          return `<ul>${items}</ul>`;
-        }
-        if (/^\d+\.\s/.test(trimmed)) {
-          const items = trimmed.split('\n').map(l => `<li>${inline(l.replace(/^\d+\.\s+/, ''))}</li>`).join('');
-          return `<ol>${items}</ol>`;
-        }
-        return `<p>${inline(trimmed.replace(/\n/g, ' '))}</p>`;
-      })
-      .join('');
-  }
-
-  function inline(s: string): string {
-    return s
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-      .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, url) => `<a href="${safeHref(url)}">${label}</a>`);
-  }
-
-  function currentStatus() {
-    return statusInputs.find(i => i.checked)?.value ?? 'draft';
-  }
-
-  const thumbFrame = $<HTMLElement>('thumb-frame');
-  const thumbPreview = $<HTMLImageElement>('thumb-preview');
-
-  function render() {
-    previewTitle.textContent = fields.title.value || 'Post Title...';
-    previewBody.innerHTML = renderMarkdown(fields.body.value);
-    slugOut.textContent = `${slugify(fields.title.value)}.md`;
-
-    /* Same scheme rule the preview's links use: the thumbnail is a value the
-       author just typed, and it ends up in an attribute. */
-    const hero = safeHref(fields.hero.value);
-    const show = Boolean(fields.hero.value.trim()) && hero !== '#';
-    thumbFrame.hidden = !show;
-    if (show) thumbPreview.src = hero;
-  }
-
-  function snapshot() {
-    return {
-      title: fields.title.value,
-      summary: fields.summary.value,
-      date: fields.date.value,
-      tags: fields.tags.value,
-      readTime: fields.readTime.value,
-      duration: fields.duration.value,
-      hero: fields.hero.value,
-      body: fields.body.value,
-      status: currentStatus(),
+    const fields = {
+      title: $<HTMLInputElement>('f-title'),
+      summary: $<HTMLTextAreaElement>('f-summary'),
+      date: $<HTMLInputElement>('f-date'),
+      tags: $<HTMLInputElement>('f-tags'),
+      readTime: $<HTMLInputElement>('f-readtime'),
+      duration: $<HTMLInputElement>('f-duration'),
+      hero: $<HTMLInputElement>('f-hero'),
+      body: $<HTMLTextAreaElement>('f-body'),
     };
-  }
+    const statusInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="status"]'));
+    const slugOut = $('f-slug');
+    const previewTitle = $('preview-title');
+    const previewBody = $('preview-body');
+    const stamp = $('save-stamp');
 
-  function restore() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (!saved) return;
-      fields.title.value = saved.title ?? '';
-      fields.summary.value = saved.summary ?? '';
-      if (saved.date) fields.date.value = saved.date;
-      fields.tags.value = saved.tags ?? '';
-      fields.readTime.value = saved.readTime ?? '';
-      fields.duration.value = saved.duration ?? '';
-      fields.hero.value = saved.hero ?? '';
-      fields.body.value = saved.body ?? '';
-      statusInputs.forEach(i => { i.checked = i.value === (saved.status ?? 'draft'); });
-      stamp.textContent = 'Draft mode. Restored from this browser.';
-    } catch {
-      /* ignore a corrupt draft */
+    const slugify = (s: string) =>
+      s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled';
+
+    // Quotes matter: link hrefs below are interpolated into an attribute, and an
+    // unescaped `"` would close it and inject markup of the author's own typing.
+    const escapeHtml = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    /* Only schemes a published post could actually use — keeps `javascript:`
+       out of the preview's hrefs. */
+    const safeHref = (url: string) =>
+      /^(https?:|mailto:|[/#.])/i.test(url.trim()) ? url.trim() : '#';
+
+    /* A deliberately small Markdown subset — enough for an accurate preview
+       without pulling a parser into the bundle. */
+    function renderMarkdown(src: string): string {
+      const blocks = escapeHtml(src).split(/\n{2,}/);
+      return blocks
+        .map(block => {
+          const trimmed = block.trim();
+          if (!trimmed) return '';
+
+          if (trimmed.startsWith('```')) {
+            const code = trimmed.replace(/^```[^\n]*\n?/, '').replace(/```$/, '');
+            return `<pre><code>${code}</code></pre>`;
+          }
+          const heading = trimmed.match(/^(#{1,3})\s+(.*)$/);
+          if (heading) {
+            const level = heading[1].length;
+            return `<h${level}>${inline(heading[2])}</h${level}>`;
+          }
+          if (/^>\s/.test(trimmed)) {
+            return `<blockquote>${inline(trimmed.replace(/^>\s?/gm, ''))}</blockquote>`;
+          }
+          if (/^[-*]\s/.test(trimmed)) {
+            const items = trimmed.split('\n').map(l => `<li>${inline(l.replace(/^[-*]\s+/, ''))}</li>`).join('');
+            return `<ul>${items}</ul>`;
+          }
+          if (/^\d+\.\s/.test(trimmed)) {
+            const items = trimmed.split('\n').map(l => `<li>${inline(l.replace(/^\d+\.\s+/, ''))}</li>`).join('');
+            return `<ol>${items}</ol>`;
+          }
+          return `<p>${inline(trimmed.replace(/\n/g, ' '))}</p>`;
+        })
+        .join('');
     }
-  }
 
-  // YAML double-quoted scalars: JSON string escaping is a valid subset.
-  const yaml = (s: string) => JSON.stringify(s);
+    function inline(s: string): string {
+      return s
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, url) => `<a href="${safeHref(url)}">${label}</a>`);
+    }
 
-  function buildMarkdown() {
-    const s = snapshot();
-    const tags = s.tags.split(',').map(t => t.trim()).filter(Boolean);
-    const lines = [
-      '---',
-      `title: ${yaml(s.title || 'Untitled')}`,
-      `summary: ${yaml(s.summary)}`,
-      `date: ${yaml(s.date)}`,
-      `tags: [${tags.map(yaml).join(', ')}]`,
-    ];
-    if (s.readTime) lines.push(`readTime: ${yaml(s.readTime)}`);
-    if (s.duration) lines.push(`videoDuration: ${yaml(s.duration)}`);
-    if (s.hero) lines.push(`heroImage: ${yaml(s.hero)}`);
-    lines.push(`draft: ${s.status === 'draft'}`);
-    lines.push('---', '', s.body.trim(), '');
-    return lines.join('\n');
-  }
+    const STATUS_HELP: Record<string, string> = {
+      draft: 'Kept out of production builds. Visible here and in `npm run dev`.',
+      published: 'Live on the site after the next build.',
+      unpublished: 'Withdrawn: no listing, no page, the URL returns 404.',
+    };
 
-  Object.values(fields).forEach(el => el.addEventListener('input', render));
-  statusInputs.forEach(i => i.addEventListener('change', render));
+    function currentStatus(): PostStatus {
+      return (statusInputs.find(i => i.checked)?.value ?? 'draft') as PostStatus;
+    }
 
-  /* Formatting buttons wrap the selection. `setRangeText` keeps the undo stack
-     intact, which reassigning `.value` would throw away. */
-  document.querySelectorAll<HTMLButtonElement>('.md-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const body = fields.body;
-      const { selectionStart: start, selectionEnd: end } = body;
-      const wrapped = `${btn.dataset.before}${body.value.slice(start, end)}${btn.dataset.after}`;
-      body.setRangeText(wrapped, start, end, 'end');
-      body.focus();
-      render();
-    });
-  });
+    const thumbFrame = $<HTMLElement>('thumb-frame');
+    const thumbPreview = $<HTMLImageElement>('thumb-preview');
 
-  $<HTMLButtonElement>('save-draft').addEventListener('click', () => {
-    localStorage.setItem(KEY, JSON.stringify(snapshot()));
-    const btn = $<HTMLButtonElement>('save-draft');
-    btn.textContent = 'Saved ✓';
-    stamp.textContent = `Draft mode. Last saved: ${new Date().toLocaleTimeString()}`;
-    setTimeout(() => { btn.textContent = 'Save Draft'; }, 1200);
-  });
+    function render() {
+      previewTitle.textContent = fields.title.value || 'Post Title...';
+      previewBody.innerHTML = renderMarkdown(fields.body.value);
+      slugOut.textContent = `${slugify(fields.title.value)}.md`;
+      $('status-help').textContent = STATUS_HELP[currentStatus()] ?? '';
 
-  $<HTMLButtonElement>('export-md').addEventListener('click', () => {
-    const blob = new Blob([buildMarkdown()], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${slugify(fields.title.value)}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
-  });
+      /* Same scheme rule the preview's links use: the thumbnail is a value the
+         author just typed, and it ends up in an attribute. */
+      const hero = safeHref(fields.hero.value);
+      const show = Boolean(fields.hero.value.trim()) && hero !== '#';
+      thumbFrame.hidden = !show;
+      if (show) thumbPreview.src = hero;
+    }
 
-  /* Commit straight to the repository. The export above stays: it is the only
-     path that works when you are not signed in, or when you want to review the
-     file before it lands. */
-  const commitBtn = $<HTMLButtonElement>('commit-md');
+    function snapshot() {
+      return {
+        title: fields.title.value,
+        summary: fields.summary.value,
+        date: fields.date.value,
+        tags: fields.tags.value,
+        readTime: fields.readTime.value,
+        duration: fields.duration.value,
+        hero: fields.hero.value,
+        body: fields.body.value,
+        status: currentStatus(),
+      };
+    }
 
-  if (!getToken()) {
-    commitBtn.disabled = true;
-    commitBtn.title = 'Sign in with GitHub to commit.';
-  }
+    function restore() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if (!saved) return;
+        fields.title.value = saved.title ?? '';
+        fields.summary.value = saved.summary ?? '';
+        if (saved.date) fields.date.value = saved.date;
+        fields.tags.value = saved.tags ?? '';
+        fields.readTime.value = saved.readTime ?? '';
+        fields.duration.value = saved.duration ?? '';
+        fields.hero.value = saved.hero ?? '';
+        fields.body.value = saved.body ?? '';
+        statusInputs.forEach(i => { i.checked = i.value === (saved.status ?? 'draft'); });
+        stamp.textContent = 'Draft mode. Restored from this browser.';
+      } catch {
+        /* ignore a corrupt draft */
+      }
+    }
 
-  commitBtn.addEventListener('click', async () => {
-    const slug = slugify(fields.title.value);
-    const path = `src/content/journal/${slug}.md`;
+    // YAML double-quoted scalars: JSON string escaping is a valid subset.
+    const yaml = (s: string) => JSON.stringify(s);
 
-    commitBtn.disabled = true;
-    commitBtn.textContent = 'Committing…';
-    stamp.textContent = `Writing ${path}…`;
+    function buildMarkdown() {
+      const s = snapshot();
+      const tags = s.tags.split(',').map(t => t.trim()).filter(Boolean);
+      const lines = [
+        '---',
+        `title: ${yaml(s.title || 'Untitled')}`,
+        `summary: ${yaml(s.summary)}`,
+        `date: ${yaml(s.date)}`,
+        `tags: [${tags.map(yaml).join(', ')}]`,
+      ];
+      if (s.readTime) lines.push(`readTime: ${yaml(s.readTime)}`);
+      if (s.duration) lines.push(`videoDuration: ${yaml(s.duration)}`);
+      if (s.hero) lines.push(`heroImage: ${yaml(s.hero)}`);
+      lines.push(`status: ${yaml(s.status)}`);
+      lines.push('---', '', s.body.trim(), '');
+      return lines.join('\n');
+    }
 
-    try {
-      const { url, created } = await commitFile({
-        path,
-        content: buildMarkdown(),
-        message: `content(journal): ${slug}`,
+    Object.values(fields).forEach(el => el.addEventListener('input', render));
+    statusInputs.forEach(i => i.addEventListener('change', render));
+
+    /* Formatting buttons wrap the selection. `setRangeText` keeps the undo stack
+       intact, which reassigning `.value` would throw away. */
+    document.querySelectorAll<HTMLButtonElement>('.md-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const body = fields.body;
+        const { selectionStart: start, selectionEnd: end } = body;
+        const wrapped = `${btn.dataset.before}${body.value.slice(start, end)}${btn.dataset.after}`;
+        body.setRangeText(wrapped, start, end, 'end');
+        body.focus();
+        render();
       });
+    });
 
-      const link = document.createElement('a');
-      link.href = url;
-      link.target = '_blank';
-      link.rel = 'noopener';
-      link.textContent = 'view commit ↗';
-      stamp.replaceChildren(
-        document.createTextNode(`${created ? 'Created' : 'Updated'} ${path} — `),
-        link
-      );
-      commitBtn.textContent = 'Committed ✓';
-    } catch (error) {
-      stamp.textContent = error instanceof Error ? error.message : 'Commit failed.';
-      commitBtn.textContent = 'Commit to GitHub';
-    } finally {
-      commitBtn.disabled = false;
-      setTimeout(() => { commitBtn.textContent = 'Commit to GitHub'; }, 2000);
+    $<HTMLButtonElement>('save-draft').addEventListener('click', () => {
+      localStorage.setItem(KEY, JSON.stringify(snapshot()));
+      const btn = $<HTMLButtonElement>('save-draft');
+      btn.textContent = 'Saved ✓';
+      stamp.textContent = `Draft mode. Last saved: ${new Date().toLocaleTimeString()}`;
+      setTimeout(() => { btn.textContent = 'Save Draft'; }, 1200);
+    });
+
+    $<HTMLButtonElement>('export-md').addEventListener('click', () => {
+      const blob = new Blob([buildMarkdown()], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${slugify(fields.title.value)}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    /* Commit straight to the repository. The export above stays: it is the only
+       path that works when you are not signed in, or when you want to review the
+       file before it lands. */
+    const commitBtn = $<HTMLButtonElement>('commit-md');
+
+    if (!getToken()) {
+      commitBtn.disabled = true;
+      commitBtn.title = 'Sign in with GitHub to commit.';
     }
-  });
 
-  const shell = document.getElementById('admin-shell')!;
-  const focusBtn = $<HTMLButtonElement>('focus-toggle');
-  focusBtn.addEventListener('click', () => {
-    const on = shell.classList.toggle('is-focus');
-    focusBtn.textContent = on ? 'Exit Focus' : 'Focus';
-    focusBtn.setAttribute('aria-pressed', String(on));
-  });
+    commitBtn.addEventListener('click', async () => {
+      const slug = slugify(fields.title.value);
+      const path = `src/content/journal/${slug}.md`;
 
-  restore();
-  render();
+      commitBtn.disabled = true;
+      commitBtn.textContent = 'Committing…';
+      stamp.textContent = `Writing ${path}…`;
+
+      try {
+        const { url, created } = await commitFile({
+          path,
+          content: buildMarkdown(),
+          message: `content(journal): ${slug}`,
+        });
+
+        const link = document.createElement('a');
+        link.href = url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = 'view commit ↗';
+        stamp.replaceChildren(
+          document.createTextNode(`${created ? 'Created' : 'Updated'} ${path} — `),
+          link
+        );
+        commitBtn.textContent = 'Committed ✓';
+      } catch (error) {
+        stamp.textContent = error instanceof Error ? error.message : 'Commit failed.';
+        commitBtn.textContent = 'Commit to GitHub';
+      } finally {
+        commitBtn.disabled = false;
+        setTimeout(() => { commitBtn.textContent = 'Commit to GitHub'; }, 2000);
+      }
+    });
+
+    /* — existing entries —
+
+       This list is where all three statuses meet, and it is the reason the state
+       is one enum in the file rather than a flag here and a draft store
+       somewhere else: `getPosts(true)` already returned everything, so filtering
+       is one predicate and moving a post between states is one frontmatter
+       patch on a file this screen never had to parse. */
+    const rows = Array.from(document.querySelectorAll<HTMLElement>('.existing-row'));
+    const entrySearch = document.getElementById('entry-search') as HTMLInputElement | null;
+    const entryFilters = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="entry-filter"]'));
+
+    function applyEntryFilters() {
+      const term = (entrySearch?.value ?? '').trim().toLowerCase();
+      const status = entryFilters.find(input => input.checked)?.value ?? 'all';
+      rows.forEach(row => {
+        row.hidden =
+          !(status === 'all' || row.dataset.status === status) ||
+          !(term === '' || (row.dataset.search ?? '').includes(term));
+      });
+    }
+
+    entrySearch?.addEventListener('input', applyEntryFilters);
+    entryFilters.forEach(input => input.addEventListener('change', applyEntryFilters));
+
+    rows.forEach(row => {
+      const select = row.querySelector<HTMLSelectElement>('.entry-status')!;
+      const line = row.querySelector<HTMLElement>('[data-role="status"]')!;
+      const flag = row.querySelector<HTMLElement>('[data-role="flag"]')!;
+
+      if (!getToken()) {
+        select.disabled = true;
+        select.title = 'Sign in with GitHub to change a status — it is a commit.';
+        return;
+      }
+
+      select.addEventListener('change', async () => {
+        const next = select.value as PostStatus;
+        const previous = row.dataset.status as PostStatus;
+        select.disabled = true;
+        line.dataset.tone = 'info';
+        line.textContent = 'Committing…';
+
+        try {
+          const result = await setPostStatus(row.dataset.slug!, next);
+          row.dataset.status = next;
+          flag.textContent = next;
+          if (result) {
+            const anchor = document.createElement('a');
+            anchor.href = result.url;
+            anchor.target = '_blank';
+            anchor.rel = 'noopener';
+            anchor.textContent = 'view commit ↗';
+            line.replaceChildren(document.createTextNode(`${next} after the next build — `), anchor);
+          } else {
+            line.textContent = 'Already that status on the default branch.';
+          }
+          applyEntryFilters();
+        } catch (error) {
+          select.value = previous;
+          line.dataset.tone = 'error';
+          line.textContent = error instanceof Error ? error.message : 'Commit failed.';
+        } finally {
+          select.disabled = false;
+        }
+      });
+    });
+
+    const shell = document.getElementById('admin-shell')!;
+    const focusBtn = $<HTMLButtonElement>('focus-toggle');
+    focusBtn.addEventListener('click', () => {
+      const on = shell.classList.toggle('is-focus');
+      focusBtn.textContent = on ? 'Exit Focus' : 'Focus';
+      focusBtn.setAttribute('aria-pressed', String(on));
+    });
+
+    restore();
+    render();
+  });
 </script>
 
 <style>
@@ -384,20 +514,62 @@ const today = new Date().toISOString().slice(0, 10);
   }
 
   .existing { margin-top: var(--space-6); }
-  .existing-card { gap: 0; }
-  .existing-row {
+  .existing-head {
     display: flex;
     justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+  }
+  .existing-head h6 { margin: 0; }
+  .existing-filters { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+  .entry-search { width: 220px; font-size: 13px; padding: 6px 10px; }
+
+  .existing-card { gap: 0; }
+  /* Title | date | open | status | message — the message spans the row so a
+     commit link never squeezes the controls. */
+  .existing-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto auto;
+    align-items: center;
     gap: var(--space-3);
     padding: var(--space-2) 0;
     border-bottom: 1px solid var(--color-divider);
-    text-decoration: none;
-    color: inherit;
     font-size: 14px;
   }
   .existing-row:last-child { border-bottom: 0; }
-  .existing-row:hover { color: var(--color-accent); }
-  .draft-flag { margin-left: var(--space-2); vertical-align: middle; }
+  .existing-row[hidden] { display: none; }
+  .existing-id { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+  .existing-date { white-space: nowrap; }
+  .existing-link { display: inline-flex; align-items: center; font-size: 12px; }
+  .entry-status { font-size: 12px; padding: 4px 8px; width: auto; }
+  .entry-line { grid-column: 1 / -1; min-height: 0; }
+  .entry-line:empty { display: none; }
+  .entry-line[data-tone='error'] { color: var(--color-accent-700); }
+
+  /* The flag mirrors the row's state, so the script rewrites one attribute
+     rather than juggling three global tag variants. */
+  .entry-flag { text-transform: lowercase; }
+  .existing-row[data-status='draft'] .entry-flag {
+    background: var(--color-accent-100);
+    color: var(--color-accent-800);
+  }
+  .existing-row[data-status='published'] .entry-flag {
+    background: var(--color-accent-2-100);
+    color: var(--color-accent-2-800);
+  }
+  .existing-row[data-status='unpublished'] .entry-flag {
+    background: var(--color-neutral-100);
+    color: var(--color-neutral-800);
+  }
+
+  .status-help { margin-top: 6px; }
+
+  @media (max-width: 700px) {
+    .existing-row { grid-template-columns: 1fr auto; }
+    .existing-date { grid-column: 1; }
+  }
 
   code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
 </style>

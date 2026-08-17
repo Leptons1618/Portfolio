@@ -395,6 +395,130 @@ export async function fetchRepoMeta(owner: string, repo: string): Promise<RepoMe
   };
 }
 
+/** One row in the import modal. */
+export interface RepoSummary {
+  name: string;
+  fullName: string;
+  owner: string;
+  description: string | null;
+  htmlUrl: string;
+  /** The repository's own website field — the best guess at a demo URL. */
+  homepage: string | null;
+  topics: string[];
+  /** ISO timestamps, for "which of these did I touch recently". */
+  createdAt: string;
+  pushedAt: string;
+  isPrivate: boolean;
+  archived: boolean;
+  /** True when the GitHub App was installed on this repository. */
+  granted: boolean;
+}
+
+/** The subset of GitHub's repository payload this module reads. */
+interface RawRepo {
+  name: string;
+  full_name: string;
+  owner?: { login: string };
+  description: string | null;
+  html_url: string;
+  homepage: string | null;
+  topics?: string[];
+  created_at: string;
+  pushed_at: string;
+  private: boolean;
+  archived: boolean;
+}
+
+const toSummary = (repo: RawRepo, granted: boolean): RepoSummary => ({
+  name: repo.name,
+  fullName: repo.full_name,
+  owner: repo.owner?.login ?? repo.full_name.split('/')[0],
+  description: repo.description,
+  htmlUrl: repo.html_url,
+  homepage: repo.homepage,
+  topics: repo.topics ?? [],
+  createdAt: repo.created_at,
+  pushedAt: repo.pushed_at,
+  isPrivate: repo.private,
+  archived: repo.archived,
+  granted,
+});
+
+/**
+ * Every repository the import modal can offer, in one list.
+ *
+ * Two sources, because neither is complete on its own. The App's installations
+ * say what this session may actually write to — private repositories included —
+ * and are the only honest answer to "has access been granted"; the public
+ * listing says what else exists that access *could* be granted to. Signed out,
+ * only the second one answers and every row comes back `granted: false`, which
+ * is true: nothing is granted to a browser with no token.
+ *
+ * ponytail: one page of 100 from each source, no pagination. A personal
+ * account does not have 100 repositories worth importing; add `Link`-header
+ * following if that stops being true.
+ */
+export async function listRepositories(user: string): Promise<RepoSummary[]> {
+  const merged = new Map<string, RepoSummary>();
+
+  if (getToken()) {
+    const { installations } = await request<{ installations: { id: number }[] }>(
+      '/user/installations?per_page=100'
+    );
+    const lists = await Promise.all(
+      installations.map(app =>
+        request<{ repositories: RawRepo[] }>(`/user/installations/${app.id}/repositories?per_page=100`)
+      )
+    );
+    for (const list of lists) {
+      for (const repo of list.repositories) merged.set(repo.full_name, toSummary(repo, true));
+    }
+  }
+
+  /* Unauthenticated on purpose: this half has to work signed out, and a user
+     token from a GitHub App only sees the installation's repositories anyway,
+     so it would answer the same question twice. */
+  const response = await fetch(
+    `https://api.github.com/users/${encodeURIComponent(user)}/repos?per_page=100&sort=updated`,
+    { headers: { Accept: 'application/vnd.github+json' } }
+  );
+  if (!response.ok) {
+    throw new GitHubError(
+      response.status === 403
+        ? 'GitHub rate-limited this IP. Try again in an hour.'
+        : `GitHub responded ${response.status}.`,
+      response.status
+    );
+  }
+  for (const repo of (await response.json()) as RawRepo[]) {
+    if (!merged.has(repo.full_name)) merged.set(repo.full_name, toSummary(repo, false));
+  }
+
+  return [...merged.values()].sort((a, b) => b.pushedAt.localeCompare(a.pushedAt));
+}
+
+/**
+ * Languages GitHub detected in a repository, biggest first — the best
+ * available seed for a project's `stack`.
+ *
+ * Public repositories answer this unauthenticated, so the import form fills in
+ * before sign-in too. A failure is not worth surfacing: the field is editable
+ * and an empty list is a fine starting point.
+ */
+export async function fetchRepoLanguages(owner: string, repo: string): Promise<string[]> {
+  const path = `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/languages`;
+  try {
+    const bytes = getToken()
+      ? await request<Record<string, number>>(path)
+      : ((await (await fetch(`https://api.github.com${path}`)).json()) as Record<string, number>);
+    return Object.entries(bytes)
+      .sort((a, b) => b[1] - a[1])
+      .map(([language]) => language);
+  } catch {
+    return [];
+  }
+}
+
 export interface CommitResult {
   /** Link to the commit on github.com. */
   url: string;

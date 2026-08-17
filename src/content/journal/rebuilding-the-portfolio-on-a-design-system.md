@@ -4,6 +4,7 @@ summary: "Swapping two hand-tuned themes for one Modernist token set — what a 
 date: "2026-08-14"
 tags: ["Design Systems", "Astro", "CSS"]
 readTime: "5 min"
+status: "published"
 ---
 
 This site used to ship two complete visual identities. One was `pixel`: a PICO-8 palette on near-black, Press Start 2P headings, a CRT scanline overlay painted over the whole viewport, and hard offset shadows that snapped on hover. The other was `paper`: cream stock, a typewriter face, cards with ragged SVG tear edges and a half-degree rotation so the page read like scraps on a desk. A toggle in the header cycled between them and a system preference.

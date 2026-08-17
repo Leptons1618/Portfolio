@@ -24,6 +24,7 @@
   width: 220px;
   flex: none;
   background: var(--color-surface);
+  border-right: 1px solid var(--color-divider);
   padding: var(--space-4);
   position: sticky;
   top: 0;
@@ -34,8 +35,15 @@
   transition: width 0.15s;
 }
 
-.admin-shell.is-collapsed .admin-sidebar { width: 64px; }
-.admin-shell.is-collapsed .collapsible { display: none; }
+/* Collapsed state lives on `<html>`, not on a class inside the rail: the
+   pre-paint script in `AdminLayout` has to set it before the sidebar element
+   exists, and the same attribute is what `astro:after-swap` puts back. */
+:root[data-admin-collapsed] .admin-sidebar {
+  width: 64px;
+  padding-inline: var(--space-2);
+}
+
+:root[data-admin-collapsed] .collapsible { display: none; }
 
 .admin-sidebar-head {
   display: flex;
@@ -43,6 +51,19 @@
   justify-content: space-between;
   gap: var(--space-2);
   min-width: 0;
+}
+
+/* At 64px the avatar and the chevron do not fit on one row — stacking them is
+   the difference between a rail and an overflowing one. */
+:root[data-admin-collapsed] .admin-sidebar-head {
+  flex-direction: column;
+  gap: 6px;
+}
+
+:root[data-admin-collapsed] .admin-nav-link,
+:root[data-admin-collapsed] .admin-new-post {
+  justify-content: center;
+  padding-inline: 0;
 }
 
 /* Who you are signed in as. Collapsed, the avatar is the whole thing. */
@@ -130,7 +151,7 @@
 .admin-nav-icon { width: 16px; height: 16px; flex: none; }
 
 .admin-collapse svg { transition: transform 0.15s; }
-.admin-shell.is-collapsed .admin-collapse svg { transform: rotate(180deg); }
+:root[data-admin-collapsed] .admin-collapse svg { transform: rotate(180deg); }
 
 /* Identity moved to the head, so the foot carries one job: the actions. */
 .admin-sidebar-foot {
@@ -330,14 +351,18 @@
   /* Stacked, the rail is a banner: it scrolls away with the page, so the
      viewport pinning above has to be undone rather than inherited. */
   .admin-sidebar,
-  .admin-shell.is-collapsed .admin-sidebar {
+  :root[data-admin-collapsed] .admin-sidebar {
     width: 100%;
     position: static;
     height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-divider);
     grid-template-rows: none;
+    padding-inline: var(--space-4);
     gap: var(--space-3);
   }
-  .admin-shell.is-collapsed .collapsible { display: revert; }
+  :root[data-admin-collapsed] .collapsible { display: revert; }
+  :root[data-admin-collapsed] .admin-sidebar-head { flex-direction: row; }
   .admin-collapse { display: none; }
   .admin-nav { flex-direction: row; flex-wrap: wrap; overflow: visible; }
   .admin-main { padding: var(--space-4) var(--space-4) var(--space-8); }

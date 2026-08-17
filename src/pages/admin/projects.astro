@@ -1,30 +1,39 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
-import { getProjects } from '../../lib/content';
+import { Icon } from 'astro-icon/components';
+import { getCaseStudies, getProjects } from '../../lib/content';
+import { PROJECT_CATEGORIES, PROJECT_STATUSES, type ProjectFields } from '../../lib/content-store';
 import { parseRepoUrl } from '../../lib/github';
 import { site } from '../../lib/site';
 
 /* Hidden projects are exactly what this screen manages, so it asks for them. */
 const projects = await getProjects(true);
+const caseStudies = await getCaseStudies();
 const GITHUB_USER = site.githubUser;
 
-const rows = projects.map(p => {
-  const { owner, name } = parseRepoUrl(p.data.repoUrl);
+const rows = projects.map(project => {
+  const { owner, name } = parseRepoUrl(project.data.repoUrl);
   return {
-    slug: p.slug,
-    /* The file this card commits to. Astro derives the slug from the filename,
-       so the path is the slug — see `docs/DECISIONS.md`. */
-    path: `src/content/projects/${p.slug}.md`,
-    title: p.data.title,
-    repoUrl: p.data.repoUrl,
+    slug: project.slug,
+    /* The file every action on this card commits to. Astro derives the slug
+       from the filename, so the path is the slug — see `docs/DECISIONS.md`. */
+    path: `src/content/projects/${project.slug}.md`,
     owner,
     repoName: name,
-    year: p.data.year,
-    status: p.data.status,
-    caseStudySlug: p.data.caseStudySlug,
-    hidden: p.data.hidden,
+    data: project.data,
   };
 });
+
+/* The edit form prefills from the real frontmatter rather than from what the
+   card happens to display, so a field the card never shows still round-trips.
+   `<` is escaped because this lands inside a `<script>` element. */
+const seed = {
+  projects: Object.fromEntries(
+    rows.map(row => [row.slug, row.data as ProjectFields])
+  ),
+  caseStudies: caseStudies.map(entry => ({ slug: entry.slug, title: entry.data.title })),
+};
+const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
 
 const STATUS_VARIANT: Record<string, string> = {
   active: 'tag-accent-2',
@@ -33,26 +42,35 @@ const STATUS_VARIANT: Record<string, string> = {
   archived: 'tag-neutral',
 };
 
-const hiddenCount = rows.filter(r => r.hidden).length;
-const linkedCount = rows.filter(r => r.caseStudySlug).length;
+const hiddenCount = rows.filter(row => row.data.hidden).length;
+const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 ---
-<AdminLayout title="Project Manager" section="projects">
-  <div class="admin-main-wide">
+<AdminLayout title="Project Manager">
+  <div class="admin-main-wide" id="admin-projects">
     <h6 class="admin-eyebrow-mono">MODULE: PROJECT_MGMT</h6>
     <h1 class="pm-title">Project Portfolio</h1>
     <p class="pm-desc">
-      Manage project visibility, sync with remote repositories, and edit case study links.
-      Every change here is a commit to <code>src/content/projects/</code> on the default
-      branch, which is what triggers a rebuild.
+      Import repositories, edit project details, and manage case-study links. Every
+      change here is a commit to <code>src/content/</code> on the default branch, which
+      is what triggers a rebuild.
     </p>
 
     <section class="card elev-sm source-control">
       <div class="source-head">
         <h6 class="admin-eyebrow">Source Control</h6>
         <div class="admin-actions">
-          <a class="btn btn-secondary" href="https://github.com/settings/installations" target="_blank" rel="noopener">Authorize Repositories</a>
-          <button type="button" class="btn btn-secondary" id="import-repos" data-user={GITHUB_USER}>Import from GitHub</button>
-          <a class="btn btn-primary" href="/admin/" id="connect-github">Connect to GitHub</a>
+          <a
+            class="btn btn-secondary"
+            href="https://github.com/settings/installations"
+            target="_blank"
+            rel="noopener"
+          >
+            <Icon name="lucide:shield-check" class="admin-nav-icon" />Authorize repositories
+          </a>
+          <button type="button" class="btn btn-primary" id="import-open" data-user={GITHUB_USER}>
+            <Icon name="lucide:git-branch" class="admin-nav-icon" />Import from GitHub
+          </button>
+          <a class="btn btn-secondary" href="/admin/" id="connect-github">Connect to GitHub</a>
         </div>
       </div>
       <hr class="rule" />
@@ -70,8 +88,6 @@ const linkedCount = rows.filter(r => r.caseStudySlug).length;
           </div>
         </div>
       </div>
-      <p class="text-muted admin-note" id="import-status"></p>
-      <div id="import-results" class="import-results"></div>
     </section>
 
     <div class="section-head-rule pm-grid-head">
@@ -80,18 +96,17 @@ const linkedCount = rows.filter(r => r.caseStudySlug).length;
     </div>
 
     <div class="pm-grid">
-      {rows.map(r => (
+      {rows.map(row => (
         <article
           class="card elev-sm pm-card"
-          data-slug={r.slug}
-          data-path={r.path}
-          data-owner={r.owner}
-          data-repo={r.repoName}
-          data-case-study={r.caseStudySlug ?? ''}
+          data-slug={row.slug}
+          data-path={row.path}
+          data-owner={row.owner}
+          data-repo={row.repoName}
         >
           <div class="pm-card-head">
             <div class="pm-card-id">
-              <h3 class="pm-card-title">{r.title}</h3>
+              <h3 class="pm-card-title">{row.data.title}</h3>
               <p class="pm-card-meta">
                 <span class="pm-branch">branch: —</span> · <span class="pm-sync">last sync: not fetched</span>
               </p>
@@ -102,9 +117,9 @@ const linkedCount = rows.filter(r => r.caseStudySlug).length;
                 type="button"
                 class="toggle"
                 role="switch"
-                data-slug={r.slug}
-                aria-checked={r.hidden ? 'false' : 'true'}
-                aria-label={`Toggle visibility for ${r.title}`}
+                data-slug={row.slug}
+                aria-checked={row.data.hidden ? 'false' : 'true'}
+                aria-label={`Toggle visibility for ${row.data.title}`}
               ><span></span></button>
             </div>
           </div>
@@ -114,270 +129,783 @@ const linkedCount = rows.filter(r => r.caseStudySlug).length;
           <div class="pm-fields">
             <div>
               <span class="pm-field-label">Mapped Repository</span>
-              <a class="pm-field-value" href={r.repoUrl} target="_blank" rel="noopener">{r.owner}/{r.repoName} ↗</a>
+              <a class="pm-field-value" href={row.data.repoUrl} target="_blank" rel="noopener">
+                {row.owner}/{row.repoName} ↗
+              </a>
             </div>
             <div>
               <span class="pm-field-label">Year · Status</span>
-              <span class="pm-field-value">{r.year} <span class={`tag ${STATUS_VARIANT[r.status] ?? 'tag-neutral'}`}>{r.status}</span></span>
+              <span class="pm-field-value">
+                {row.data.year}
+                <span class={`tag ${STATUS_VARIANT[row.data.status] ?? 'tag-neutral'}`}>{row.data.status}</span>
+              </span>
             </div>
             <div>
               <span class="pm-field-label">Slug</span>
-              <a class="pm-field-value" href={`/projects/${r.slug}`}>/{r.slug}</a>
+              <a class="pm-field-value" href={`/projects/${row.slug}`}>/{row.slug}</a>
             </div>
             <div>
               <span class="pm-field-label">Case Study</span>
-              {r.caseStudySlug
-                ? <a class="pm-field-value" href={`/case-studies/${r.caseStudySlug}`}>linked · {r.caseStudySlug}</a>
-                : <span class="pm-field-value text-muted">none</span>}
+              <span class="pm-field-value" data-role="case-study">
+                {row.data.caseStudySlug
+                  ? <a href={`/case-studies/${row.data.caseStudySlug}`}>linked · {row.data.caseStudySlug}</a>
+                  : <span class="text-muted">none</span>}
+              </span>
             </div>
           </div>
 
           <p class="text-muted admin-note pm-status" data-role="status"></p>
 
           <div class="pm-actions">
-            <button type="button" class="btn btn-secondary btn-sm" data-action="fetch">Fetch</button>
-            <button type="button" class="btn btn-secondary btn-sm" data-action="unlink" disabled={!r.caseStudySlug}>Unlink</button>
-            <button type="button" class="btn btn-secondary btn-sm pm-danger" data-action="delete">Delete</button>
+            <button type="button" class="btn btn-secondary btn-sm" data-action="edit">
+              <Icon name="lucide:pencil" class="admin-nav-icon" />Edit
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" data-action="fetch">
+              <Icon name="lucide:refresh-cw" class="admin-nav-icon" />Fetch
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm pm-danger" data-action="delete">
+              <Icon name="lucide:trash-2" class="admin-nav-icon" />Delete
+            </button>
           </div>
         </article>
       ))}
     </div>
 
     <p class="text-muted admin-note visibility-note" id="write-note">
-      Signed out, this screen is read-only — visibility, unlink and delete all need a
-      GitHub session, because each one is a commit to <code>src/content/projects/</code>.
+      Signed out, this screen is read-only — visibility, editing and delete all need a
+      GitHub session, because each one is a commit to <code>src/content/</code>.
     </p>
   </div>
+
+  {/* — import modal —
+
+      Three honest states per repository, which only became possible once
+      sign-in was a GitHub App: the installation says what this session may
+      actually write to, the public listing says what else exists. */}
+  <dialog class="modal" id="import-modal" aria-labelledby="import-title">
+    <form method="dialog" class="modal-close-form">
+      <button class="btn btn-icon modal-close" value="cancel" aria-label="Close">
+        <Icon name="lucide:x" class="admin-nav-icon" />
+      </button>
+    </form>
+
+    <h2 class="modal-title" id="import-title">Import from GitHub</h2>
+    <p class="text-muted admin-note modal-lede" id="import-status">Loading repositories…</p>
+
+    <div class="modal-controls">
+      <input
+        class="input modal-search"
+        id="import-search"
+        type="search"
+        placeholder="Search repositories…"
+        aria-label="Search repositories"
+      />
+      <div class="seg" role="group" aria-label="Filter repositories">
+        <label class="seg-opt"><input type="radio" name="import-filter" value="all" checked />All</label>
+        <label class="seg-opt"><input type="radio" name="import-filter" value="imported" />In portfolio</label>
+        <label class="seg-opt"><input type="radio" name="import-filter" value="granted" />Granted</label>
+        <label class="seg-opt"><input type="radio" name="import-filter" value="ungranted" />Not granted</label>
+      </div>
+    </div>
+
+    <div class="modal-list" id="import-list"></div>
+
+    <p class="text-muted admin-note">
+      "Granted" means the GitHub App is installed on that repository, so this session can
+      write to it. Anything else needs
+      <a href="https://github.com/settings/installations" target="_blank" rel="noopener">the App's
+      repository access</a> widening first.
+    </p>
+  </dialog>
+
+  {/* — project form —
+
+      One form, two commit paths. GitHub answers seven of the nine required
+      fields; `category` is an enum and `highlights` is prose, so an import can
+      never be one click if every file that lands is to be schema-valid. */}
+  <dialog class="modal" id="project-modal" aria-labelledby="project-form-title">
+    <form method="dialog" class="modal-close-form">
+      <button class="btn btn-icon modal-close" value="cancel" aria-label="Close">
+        <Icon name="lucide:x" class="admin-nav-icon" />
+      </button>
+    </form>
+
+    <h2 class="modal-title" id="project-form-title">Edit project</h2>
+    <p class="text-muted admin-note modal-lede">
+      Writes <code id="pf-path">src/content/projects/…</code>. Fields left blank are
+      removed from the frontmatter when they are optional.
+    </p>
+
+    <div class="pf-grid">
+      <div class="field pf-wide">
+        <label for="pf-title">Title</label>
+        <input class="input" id="pf-title" />
+      </div>
+      <div class="field pf-wide">
+        <label for="pf-summary">Summary</label>
+        <textarea class="input pf-summary" id="pf-summary"></textarea>
+      </div>
+      <div class="field">
+        <label for="pf-category">Category</label>
+        <select class="input" id="pf-category">
+          {PROJECT_CATEGORIES.map(([value, label]) => <option value={value}>{label}</option>)}
+        </select>
+      </div>
+      <div class="field">
+        <label for="pf-status">Status</label>
+        <select class="input" id="pf-status">
+          {PROJECT_STATUSES.map(([value, label]) => <option value={value}>{label}</option>)}
+        </select>
+      </div>
+      <div class="field">
+        <label for="pf-year">Year</label>
+        <input class="input" id="pf-year" type="number" min="1990" max="2100" />
+      </div>
+      <div class="field">
+        <label for="pf-rank">Featured rank (blank = not featured)</label>
+        <input class="input" id="pf-rank" type="number" min="1" max="99" />
+      </div>
+      <div class="field pf-wide">
+        <label for="pf-tags">Tags (comma separated)</label>
+        <input class="input" id="pf-tags" />
+      </div>
+      <div class="field pf-wide">
+        <label for="pf-stack">Stack (comma separated)</label>
+        <input class="input" id="pf-stack" />
+      </div>
+      <div class="field pf-wide">
+        <label for="pf-repo">Repository URL</label>
+        <input class="input" id="pf-repo" />
+      </div>
+      <div class="field pf-wide">
+        <label for="pf-demo">Demo URL (optional)</label>
+        <input class="input" id="pf-demo" />
+      </div>
+      <div class="field pf-wide">
+        <label for="pf-hero">Hero image (optional)</label>
+        <input class="input" id="pf-hero" placeholder="/images/project.jpg" />
+      </div>
+      <div class="field pf-wide">
+        <label for="pf-highlights">Highlights (one per line)</label>
+        <textarea class="input pf-highlights" id="pf-highlights"></textarea>
+      </div>
+      <div class="field pf-wide">
+        <label for="pf-case">Case study</label>
+        <select class="input" id="pf-case">
+          <option value="">— none —</option>
+          {caseStudies.map(entry => <option value={entry.slug}>{entry.data.title} ({entry.slug})</option>)}
+          <option value="__new__">+ scaffold a new case study from this project</option>
+        </select>
+        <p class="text-muted admin-note">
+          Scaffolding writes <code>src/content/case-studies/&lt;slug&gt;.mdx</code> with the
+          structured fields filled in and a placeholder body. Bodies are written in git.
+        </p>
+      </div>
+    </div>
+
+    <p class="admin-note pf-message" id="pf-message"></p>
+
+    <div class="modal-actions">
+      <form method="dialog"><button class="btn btn-secondary" value="cancel">Cancel</button></form>
+      <button type="button" class="btn btn-primary" id="pf-save">Commit</button>
+    </div>
+  </dialog>
+
+  <script is:inline type="application/json" id="projects-seed" set:html={seedJson}></script>
 </AdminLayout>
 
 <script>
+  import { onAdminPage } from '../../lib/admin';
   import { relativeTime } from '../../lib/format';
-  import { removeFrontmatterField, setFrontmatterField } from '../../lib/frontmatter';
-  import { commitFile, deleteFile, fetchRepoMeta, getToken, getUser, readFile } from '../../lib/github';
+  import {
+    createCaseStudy,
+    createProject,
+    fieldsFromRepo,
+    patchProject,
+    projectPath,
+    removeProject,
+    slugify,
+    type ProjectFields,
+  } from '../../lib/content-store';
+  import {
+    fetchRepoLanguages,
+    fetchRepoMeta,
+    getToken,
+    getUser,
+    listRepositories,
+    type RepoSummary,
+  } from '../../lib/github';
 
-  const signedIn = Boolean(getToken() && getUser());
-
-  /* Signed in, a switch is a commit; signed out it is a note to yourself. The
-     screen says which of the two it is doing rather than looking the same in
-     both states. */
-  const account = getUser();
-  if (signedIn && account) {
-    document.getElementById('source-account')!.textContent = `Connected Account: @${account.login}`;
-    const pill = document.getElementById('session-pill')!;
-    pill.textContent = 'signed in · commits enabled';
-    pill.className = 'tag tag-accent';
-    const avatar = document.getElementById('source-avatar') as HTMLImageElement;
-    avatar.src = account.avatarUrl;
-    avatar.alt = `@${account.login}`;
-    avatar.hidden = false;
-    document.getElementById('connect-github')!.remove();
-    document.getElementById('write-note')!.textContent =
-      'Visibility, unlink and delete commit straight to the default branch. Deploy follows the push.';
-  }
-
-  const cards = Array.from(document.querySelectorAll<HTMLElement>('.pm-card'));
-
-  function say(card: HTMLElement, message: string, tone: 'info' | 'error' = 'info') {
-    const line = card.querySelector<HTMLElement>('[data-role="status"]')!;
-    line.textContent = message;
-    line.dataset.tone = tone;
-  }
-
-  function link(card: HTMLElement, message: string, url: string) {
-    const line = card.querySelector<HTMLElement>('[data-role="status"]')!;
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.target = '_blank';
-    anchor.rel = 'noopener';
-    anchor.textContent = 'view commit ↗';
-    line.dataset.tone = 'info';
-    line.replaceChildren(document.createTextNode(`${message} — `), anchor);
-  }
-
-  const message = (error: unknown) => (error instanceof Error ? error.message : 'Request failed.');
-
-  /**
-   * Read the file, change one field, write it back under the SHA we just read.
-   * Anything else in the file — the body, fields this screen never shows — is
-   * carried through untouched, and a concurrent edit makes GitHub reject the
-   * write rather than lose it.
-   */
-  async function patchField(path: string, key: string, value: string | boolean | undefined, commitMessage: string) {
-    const file = await readFile(path);
-    const next =
-      value === undefined
-        ? removeFrontmatterField(file.text, key)
-        : setFrontmatterField(file.text, key, value);
-    if (next === file.text) return null;
-    return commitFile({ path, content: next, message: commitMessage, sha: file.sha });
-  }
-
-  /* — visibility —
-
-     The file on the default branch is the only truth. Signed out there is
-     nowhere to write, so the switch is disabled rather than recording an
-     intention in this browser that nothing will ever apply. */
-  const toggles = Array.from(document.querySelectorAll<HTMLButtonElement>('.toggle[data-slug]'));
-
-  toggles.forEach(toggle => {
-    const card = toggle.closest<HTMLElement>('.pm-card')!;
-    const slug = toggle.dataset.slug!;
-
-    if (!signedIn) {
-      toggle.disabled = true;
-      toggle.title = 'Sign in with GitHub to change visibility.';
-      return;
+  /* The admin client-routes, so this runs on first paint and again every time
+     you come back to this screen — see `onAdminPage`. */
+  onAdminPage('#admin-projects', () => {
+    interface Seed {
+      projects: Record<string, ProjectFields>;
+      caseStudies: { slug: string; title: string }[];
     }
 
-    toggle.addEventListener('click', async () => {
-      const next = toggle.getAttribute('aria-checked') !== 'true';
-      toggle.setAttribute('aria-checked', String(next));
+    const seed: Seed = JSON.parse(document.getElementById('projects-seed')!.textContent || '{}');
+    const signedIn = Boolean(getToken() && getUser());
+    const message = (error: unknown) => (error instanceof Error ? error.message : 'Request failed.');
 
-      toggle.disabled = true;
-      say(card, next ? 'Publishing…' : 'Hiding…');
-      try {
-        const result = await patchField(
-          card.dataset.path!,
-          'hidden',
-          !next,
-          `content(projects): ${next ? 'show' : 'hide'} ${slug}`
-        );
-        if (result) link(card, next ? 'Visible after the next build' : 'Hidden after the next build', result.url);
-        else say(card, 'Already in that state on the default branch.');
-      } catch (error) {
-        toggle.setAttribute('aria-checked', String(!next));
-        say(card, message(error), 'error');
-      } finally {
-        toggle.disabled = false;
-      }
-    });
-  });
+    /* — session banner —
 
-  /* — per-card actions — */
-  cards.forEach(card => {
-    const button = (action: string) => card.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)!;
+       Signed in, every switch on this screen is a commit; signed out it is
+       nothing at all. The screen says which of the two it is doing rather than
+       looking identical in both states. */
+    const account = getUser();
+    if (signedIn && account) {
+      document.getElementById('source-account')!.textContent = `Connected Account: @${account.login}`;
+      const pill = document.getElementById('session-pill')!;
+      pill.textContent = 'signed in · commits enabled';
+      pill.className = 'tag tag-accent';
+      const avatar = document.getElementById('source-avatar') as HTMLImageElement;
+      avatar.src = account.avatarUrl;
+      avatar.alt = `@${account.login}`;
+      avatar.hidden = false;
+      document.getElementById('connect-github')!.remove();
+      document.getElementById('write-note')!.textContent =
+        'Every action here commits to the default branch. The deploy follows the push.';
+    }
 
-    /* Fetch is the only action that works signed out — the public API answers
-       an unauthenticated read, and the branch and push time are public facts. */
-    button('fetch').addEventListener('click', async () => {
-      const fetchButton = button('fetch');
-      fetchButton.disabled = true;
-      say(card, 'Reading the repository…');
-      try {
-        const meta = await fetchRepoMeta(card.dataset.owner!, card.dataset.repo!);
-        card.querySelector('.pm-branch')!.textContent = `branch: ${meta.defaultBranch}`;
-        card.querySelector('.pm-sync')!.textContent = `last push: ${relativeTime(meta.pushedAt)}`;
-        const notes = [`${meta.stars} ★`];
-        if (meta.archived) notes.push('archived on GitHub');
-        say(card, notes.join(' · '));
-      } catch (error) {
-        say(card, message(error), 'error');
-      } finally {
-        fetchButton.disabled = false;
-      }
-    });
+    function say(host: HTMLElement, text: string, tone: 'info' | 'error' = 'info') {
+      host.dataset.tone = tone;
+      host.textContent = text;
+    }
 
-    button('unlink').addEventListener('click', async () => {
-      if (!signedIn) return say(card, 'Sign in to change the case-study link.', 'error');
-      const unlink = button('unlink');
-      unlink.disabled = true;
-      say(card, 'Removing the case-study link…');
-      try {
-        const result = await patchField(
-          card.dataset.path!,
-          'caseStudySlug',
-          undefined,
-          `content(projects): unlink case study from ${card.dataset.slug}`
-        );
-        if (result) {
-          link(card, 'Unlinked', result.url);
-          card.dataset.caseStudy = '';
-        } else {
-          say(card, 'No case-study link to remove.');
-        }
-      } catch (error) {
-        unlink.disabled = false;
-        say(card, message(error), 'error');
-      }
-    });
+    function sayLink(host: HTMLElement, text: string, url: string) {
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.target = '_blank';
+      anchor.rel = 'noopener';
+      anchor.textContent = 'view commit ↗';
+      host.dataset.tone = 'info';
+      host.replaceChildren(document.createTextNode(`${text} — `), anchor);
+    }
 
-    /* Two clicks, because the first one is the one people mean to take back.
-       The file stays in the history either way — this is a commit, not an
-       erasure — which is why a confirm is enough and a typed name is not. */
-    let armed = false;
-    let disarm: ReturnType<typeof setTimeout>;
-    button('delete').addEventListener('click', async () => {
-      const del = button('delete');
-      if (!signedIn) return say(card, 'Sign in to delete a project file.', 'error');
+    // ---------------------------------------------------------------- cards
 
-      if (!armed) {
-        armed = true;
-        del.textContent = 'Confirm delete';
-        say(card, `This commits a deletion of ${card.dataset.path}. Click again to confirm.`, 'error');
-        disarm = setTimeout(() => {
-          armed = false;
-          del.textContent = 'Delete';
-          say(card, '');
-        }, 5000);
+    const cards = Array.from(document.querySelectorAll<HTMLElement>('.pm-card'));
+    const cardBySlug = new Map(cards.map(card => [card.dataset.slug!, card]));
+    const statusOf = (card: HTMLElement) => card.querySelector<HTMLElement>('[data-role="status"]')!;
+
+    /* Visibility. The file on the default branch is the only truth; signed out
+       there is nowhere to write, so the switch is disabled rather than
+       recording an intention in this browser that nothing will ever apply.
+       `line` is where this switch reports, which differs between the card and
+       the import modal — the same project can carry both. */
+    function bindToggle(toggle: HTMLButtonElement, line: HTMLElement) {
+      if (!signedIn) {
+        toggle.disabled = true;
+        toggle.title = 'Sign in with GitHub to change visibility.';
         return;
       }
 
-      clearTimeout(disarm);
-      armed = false;
-      del.textContent = 'Delete';
-      del.disabled = true;
-      say(card, 'Deleting…');
+      toggle.addEventListener('click', async () => {
+        const slug = toggle.dataset.slug!;
+        const visible = toggle.getAttribute('aria-checked') !== 'true';
+        toggle.setAttribute('aria-checked', String(visible));
+        toggle.disabled = true;
+
+        say(line, visible ? 'Publishing…' : 'Hiding…');
+        try {
+          const result = await patchProject(
+            slug,
+            { hidden: !visible },
+            `content(projects): ${visible ? 'show' : 'hide'} ${slug}`
+          );
+          syncToggles(slug, visible);
+          if (result) sayLink(line, visible ? 'Visible after the next build' : 'Hidden after the next build', result.url);
+          else say(line, 'Already in that state on the default branch.');
+        } catch (error) {
+          toggle.setAttribute('aria-checked', String(!visible));
+          say(line, message(error), 'error');
+        } finally {
+          toggle.disabled = false;
+        }
+      });
+    }
+
+    /* A project has a switch on its card and, once the modal has been opened,
+       another one in the import list. Both show the same field. */
+    function syncToggles(slug: string, visible: boolean) {
+      document
+        .querySelectorAll<HTMLButtonElement>(`.toggle[data-slug="${CSS.escape(slug)}"]`)
+        .forEach(toggle => toggle.setAttribute('aria-checked', String(visible)));
+      if (seed.projects[slug]) seed.projects[slug].hidden = !visible;
+    }
+
+    cards.forEach(card => {
+      const button = (action: string) => card.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)!;
+      const line = statusOf(card);
+      bindToggle(card.querySelector<HTMLButtonElement>('.toggle')!, line);
+
+      button('edit').addEventListener('click', () => {
+        const slug = card.dataset.slug!;
+        openForm({ mode: 'edit', slug, fields: seed.projects[slug] });
+      });
+
+      /* Fetch is the only action that works signed out — the public API answers
+         an unauthenticated read, and the branch and push time are public facts. */
+      button('fetch').addEventListener('click', async () => {
+        const fetchButton = button('fetch');
+        fetchButton.disabled = true;
+        say(line, 'Reading the repository…');
+        try {
+          const meta = await fetchRepoMeta(card.dataset.owner!, card.dataset.repo!);
+          card.querySelector('.pm-branch')!.textContent = `branch: ${meta.defaultBranch}`;
+          card.querySelector('.pm-sync')!.textContent = `last push: ${relativeTime(meta.pushedAt)}`;
+          const notes = [`${meta.stars} ★`];
+          if (meta.archived) notes.push('archived on GitHub');
+          say(line, notes.join(' · '));
+        } catch (error) {
+          say(line, message(error), 'error');
+        } finally {
+          fetchButton.disabled = false;
+        }
+      });
+
+      /* Two clicks, because the first one is the one people mean to take back.
+         The file stays in the history either way — this is a commit, not an
+         erasure — which is why a confirm is enough and a typed name is not. */
+      let armed = false;
+      let disarm: ReturnType<typeof setTimeout>;
+      button('delete').addEventListener('click', async () => {
+        const del = button('delete');
+        if (!signedIn) return say(line, 'Sign in to delete a project file.', 'error');
+
+        if (!armed) {
+          armed = true;
+          del.textContent = 'Confirm delete';
+          say(line, `This commits a deletion of ${card.dataset.path}. Click again to confirm.`, 'error');
+          disarm = setTimeout(() => {
+            armed = false;
+            del.textContent = 'Delete';
+            say(line, '');
+          }, 5000);
+          return;
+        }
+
+        clearTimeout(disarm);
+        armed = false;
+        del.textContent = 'Delete';
+        del.disabled = true;
+        say(line, 'Deleting…');
+        try {
+          const result = await removeProject(card.dataset.slug!);
+          card.classList.add('is-removed');
+          card.querySelectorAll('button').forEach(b => { b.disabled = true; });
+          sayLink(line, 'Deleted — gone after the next build', result.url);
+        } catch (error) {
+          del.disabled = false;
+          say(line, message(error), 'error');
+        }
+      });
+    });
+
+    // ----------------------------------------------------------- the form
+
+    const projectModal = document.getElementById('project-modal') as HTMLDialogElement;
+    const formTitle = document.getElementById('project-form-title')!;
+    const formPath = document.getElementById('pf-path')!;
+    const formMessage = document.getElementById('pf-message')!;
+    const saveButton = document.getElementById('pf-save') as HTMLButtonElement;
+    const field = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+    const inputs = {
+      title: field<HTMLInputElement>('pf-title'),
+      summary: field<HTMLTextAreaElement>('pf-summary'),
+      category: field<HTMLSelectElement>('pf-category'),
+      status: field<HTMLSelectElement>('pf-status'),
+      year: field<HTMLInputElement>('pf-year'),
+      rank: field<HTMLInputElement>('pf-rank'),
+      tags: field<HTMLInputElement>('pf-tags'),
+      stack: field<HTMLInputElement>('pf-stack'),
+      repo: field<HTMLInputElement>('pf-repo'),
+      demo: field<HTMLInputElement>('pf-demo'),
+      hero: field<HTMLInputElement>('pf-hero'),
+      highlights: field<HTMLTextAreaElement>('pf-highlights'),
+      caseStudy: field<HTMLSelectElement>('pf-case'),
+    };
+
+    type FormTarget = { mode: 'create' | 'edit'; slug: string; fields: ProjectFields };
+    let target: FormTarget | null = null;
+
+    const csv = (value: string) => value.split(',').map(part => part.trim()).filter(Boolean);
+    const lines = (value: string) => value.split('\n').map(part => part.trim()).filter(Boolean);
+
+    function openForm(next: FormTarget) {
+      target = next;
+      const { fields } = next;
+
+      formTitle.textContent = next.mode === 'create' ? 'Import project' : `Edit ${next.slug}`;
+      formPath.textContent = projectPath(next.slug);
+      saveButton.textContent = next.mode === 'create' ? 'Create project' : 'Commit changes';
+      say(formMessage, '');
+
+      inputs.title.value = fields.title ?? '';
+      inputs.summary.value = fields.summary ?? '';
+      inputs.category.value = fields.category ?? 'other';
+      inputs.status.value = fields.status ?? 'active';
+      inputs.year.value = String(fields.year ?? new Date().getFullYear());
+      inputs.rank.value = fields.featuredRank === undefined ? '' : String(fields.featuredRank);
+      inputs.tags.value = (fields.tags ?? []).join(', ');
+      inputs.stack.value = (fields.stack ?? []).join(', ');
+      inputs.repo.value = fields.repoUrl ?? '';
+      inputs.demo.value = fields.demoUrl ?? '';
+      inputs.hero.value = fields.heroImage ?? '';
+      inputs.highlights.value = (fields.highlights ?? []).join('\n');
+      inputs.caseStudy.value = fields.caseStudySlug ?? '';
+
+      projectModal.showModal();
+      inputs.title.focus();
+    }
+
+    /** The form as schema-shaped fields, or a sentence saying what is wrong. */
+    function readForm(): ProjectFields | string {
+      const title = inputs.title.value.trim();
+      const summary = inputs.summary.value.trim();
+      const repoUrl = inputs.repo.value.trim();
+      const year = Number(inputs.year.value);
+
+      if (!title) return 'A title is required — it is also what the filename comes from.';
+      if (!summary) return 'A summary is required: it is the card body and the meta description.';
       try {
-        const result = await deleteFile({
-          path: card.dataset.path!,
-          message: `content(projects): remove ${card.dataset.slug}`,
-        });
-        card.classList.add('is-removed');
-        card.querySelectorAll('button').forEach(b => { b.disabled = true; });
-        link(card, 'Deleted — gone after the next build', result.url);
+        new URL(repoUrl);
+      } catch {
+        return 'The repository URL has to be an absolute URL.';
+      }
+      if (!Number.isInteger(year)) return 'Year has to be a whole number.';
+
+      const rank = inputs.rank.value.trim();
+      return {
+        title,
+        summary,
+        category: inputs.category.value as ProjectFields['category'],
+        tags: csv(inputs.tags.value),
+        stack: csv(inputs.stack.value),
+        repoUrl,
+        demoUrl: inputs.demo.value.trim() || undefined,
+        featuredRank: rank === '' ? undefined : Number(rank),
+        status: inputs.status.value as ProjectFields['status'],
+        year,
+        heroImage: inputs.hero.value.trim() || undefined,
+        highlights: lines(inputs.highlights.value),
+      };
+    }
+
+    /**
+     * Resolve the case-study select into a slug, scaffolding the file first
+     * when that is what was asked for. Returns `undefined` for "none", which
+     * `patchProject` reads as "remove the field".
+     */
+    async function resolveCaseStudy(slug: string, fields: ProjectFields): Promise<string | undefined> {
+      const choice = inputs.caseStudy.value;
+      if (choice !== '__new__') return choice || undefined;
+
+      await createCaseStudy(slug, {
+        title: fields.title,
+        subtitle: fields.summary,
+        problem: 'Describe the problem this project set out to solve.',
+        solution: 'Describe the approach that solved it.',
+        achievements: fields.highlights.length ? fields.highlights : ['Add an achievement.'],
+        stack: fields.stack,
+        repoUrl: fields.repoUrl,
+        demoUrl: fields.demoUrl,
+        date: new Date().toISOString().slice(0, 10),
+      });
+
+      /* The new case study exists on the branch but not in this page's build,
+         so add it to the select rather than leaving the next save unable to
+         find it. */
+      const option = document.createElement('option');
+      option.value = slug;
+      option.textContent = `${fields.title} (${slug})`;
+      inputs.caseStudy.insertBefore(option, inputs.caseStudy.lastElementChild);
+      inputs.caseStudy.value = slug;
+      return slug;
+    }
+
+    saveButton.addEventListener('click', async () => {
+      if (!target) return;
+      if (!signedIn) return say(formMessage, 'Sign in with GitHub to commit.', 'error');
+
+      const fields = readForm();
+      if (typeof fields === 'string') return say(formMessage, fields, 'error');
+
+      const slug = target.mode === 'create' ? slugify(fields.title) : target.slug;
+      if (!slug) return say(formMessage, 'That title does not produce a usable filename.', 'error');
+
+      saveButton.disabled = true;
+      say(formMessage, 'Committing…');
+
+      try {
+        const caseStudySlug = await resolveCaseStudy(slug, fields);
+
+        /* `hidden` is deliberately not in the patch: it belongs to the
+           visibility switch, and writing it here would add a `hidden: false`
+           line to every hand-authored file the first time it is edited. */
+        const result =
+          target.mode === 'create'
+            ? await createProject(slug, { ...fields, caseStudySlug })
+            : await patchProject(slug, { ...fields, caseStudySlug }, `content(projects): update ${slug}`);
+
+        if (!result) {
+          say(formMessage, 'Nothing changed — the file already says exactly this.');
+        } else {
+          sayLink(formMessage, 'Committed. It appears after the next build', result.url);
+          afterSave(slug, { ...fields, caseStudySlug, hidden: target.fields.hidden });
+        }
       } catch (error) {
-        del.disabled = false;
-        say(card, message(error), 'error');
+        say(formMessage, message(error), 'error');
+      } finally {
+        saveButton.disabled = false;
       }
     });
-  });
 
-  /* — import: what exists on GitHub but not in the collection — */
-  const importBtn = document.getElementById('import-repos') as HTMLButtonElement | null;
-  const status = document.getElementById('import-status')!;
-  const results = document.getElementById('import-results')!;
-  const known = new Set(cards.map(card => card.dataset.repo!.toLowerCase()).filter(Boolean));
+    /* The page is prerendered, so a commit does not change what is on screen.
+       Update the parts that would otherwise lie until the next build. */
+    function afterSave(slug: string, fields: ProjectFields) {
+      seed.projects[slug] = fields;
+      /* The file exists now, so a second Commit is an edit. Left as `create`
+         it would come back with "already exists", which is true and useless. */
+      if (target) target = { mode: 'edit', slug, fields };
+      saveButton.textContent = 'Commit changes';
+      formTitle.textContent = `Edit ${slug}`;
 
-  importBtn?.addEventListener('click', async () => {
-    importBtn.disabled = true;
-    status.textContent = 'Fetching public repositories…';
-    results.innerHTML = '';
-    try {
-      const user = importBtn.dataset.user!;
-      const res = await fetch(`https://api.github.com/users/${encodeURIComponent(user)}/repos?per_page=100&sort=updated`);
-      if (!res.ok) throw new Error(`GitHub responded ${res.status}`);
-      const repos = (await res.json()) as { name: string; html_url: string; description: string | null }[];
-      const missing = repos.filter(r => !known.has(r.name.toLowerCase()));
-      status.textContent = `${repos.length} public repositories · ${missing.length} not yet in the content collection`;
-      if (missing.length) {
-        const list = document.createElement('div');
-        list.className = 'import-list';
-        missing.slice(0, 30).forEach(r => {
-          const row = document.createElement('a');
-          row.className = 'import-row';
-          row.href = r.html_url;
-          row.target = '_blank';
-          row.rel = 'noopener';
-          row.textContent = `${r.name}${r.description ? ` — ${r.description}` : ''}`;
-          list.appendChild(row);
-        });
-        results.appendChild(list);
+      /* A project created from the modal has no card until the next build, so
+         all that can be updated is the modal's own view of what exists. */
+      const card = cardBySlug.get(slug);
+      if (!card) {
+        importState.slugByRepo.set(repoKey(fields.repoUrl), slug);
+        if (importState.loaded) renderImportList();
+        return;
       }
-    } catch (err) {
-      status.textContent = `Could not reach GitHub: ${(err as Error).message}. The public API allows 60 requests an hour per IP.`;
-    } finally {
-      importBtn.disabled = false;
+
+      card.querySelector('.pm-card-title')!.textContent = fields.title;
+      const caseCell = card.querySelector<HTMLElement>('[data-role="case-study"]')!;
+      if (fields.caseStudySlug) {
+        const anchor = document.createElement('a');
+        anchor.href = `/case-studies/${fields.caseStudySlug}`;
+        anchor.textContent = `linked · ${fields.caseStudySlug}`;
+        caseCell.replaceChildren(anchor);
+      } else {
+        const none = document.createElement('span');
+        none.className = 'text-muted';
+        none.textContent = 'none';
+        caseCell.replaceChildren(none);
+      }
     }
+
+    // --------------------------------------------------------- import modal
+
+    const importModal = document.getElementById('import-modal') as HTMLDialogElement;
+    const importOpen = document.getElementById('import-open') as HTMLButtonElement;
+    const importStatus = document.getElementById('import-status')!;
+    const importList = document.getElementById('import-list')!;
+    const importSearch = document.getElementById('import-search') as HTMLInputElement;
+    const importFilters = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[name="import-filter"]')
+    );
+
+    /* Repositories are matched on their URL, not their name: the project's
+       title is editable and often is not the repository name. Trailing slashes
+       and a `.git` suffix are stripped so a hand-typed `repoUrl` still lines up
+       with what the API returns. */
+    const repoKey = (url: string) => url.toLowerCase().replace(/\.git$/, '').replace(/\/+$/, '');
+
+    const importState = {
+      repos: [] as RepoSummary[],
+      loaded: false,
+      slugByRepo: new Map(
+        Object.entries(seed.projects).map(([slug, project]) => [repoKey(project.repoUrl), slug])
+      ),
+    };
+
+    type RepoState = 'imported' | 'granted' | 'ungranted';
+
+    function stateOf(repo: RepoSummary): RepoState {
+      if (importState.slugByRepo.has(repoKey(repo.htmlUrl))) return 'imported';
+      return repo.granted ? 'granted' : 'ungranted';
+    }
+
+    const STATE_LABEL: Record<RepoState, string> = {
+      imported: 'in portfolio',
+      granted: 'granted, not imported',
+      ungranted: 'not granted',
+    };
+
+    function renderImportList() {
+      const term = importSearch.value.trim().toLowerCase();
+      const filter = importFilters.find(input => input.checked)?.value ?? 'all';
+
+      const visible = importState.repos.filter(repo => {
+        const state = stateOf(repo);
+        if (filter !== 'all' && filter !== state) return false;
+        if (!term) return true;
+        return `${repo.fullName} ${repo.description ?? ''}`.toLowerCase().includes(term);
+      });
+
+      importList.replaceChildren(...visible.map(repoRow));
+
+      if (!visible.length) {
+        const empty = document.createElement('p');
+        empty.className = 'text-muted admin-note';
+        empty.textContent = 'No repositories match.';
+        importList.appendChild(empty);
+      }
+    }
+
+    /* Built node by node rather than from a template string: the name, the
+       description and the URL all come back from GitHub, and none of them is
+       worth handing to an HTML parser. */
+    function repoRow(repo: RepoSummary): HTMLElement {
+      const state = stateOf(repo);
+      const row = document.createElement('div');
+      row.className = 'repo-row';
+      row.dataset.state = state;
+
+      const identity = document.createElement('div');
+      identity.className = 'repo-id';
+
+      const name = document.createElement('a');
+      name.className = 'repo-name';
+      name.href = repo.htmlUrl;
+      name.target = '_blank';
+      name.rel = 'noopener';
+      name.textContent = repo.fullName;
+      identity.appendChild(name);
+
+      const badges = document.createElement('span');
+      badges.className = 'repo-badges';
+      const flag = document.createElement('span');
+      flag.className = 'tag repo-flag';
+      flag.textContent = STATE_LABEL[state];
+      badges.appendChild(flag);
+      if (repo.isPrivate) badges.appendChild(chip('private'));
+      if (repo.archived) badges.appendChild(chip('archived'));
+      identity.appendChild(badges);
+
+      if (repo.description) {
+        const description = document.createElement('p');
+        description.className = 'text-muted repo-desc';
+        description.textContent = repo.description;
+        identity.appendChild(description);
+      }
+
+      const line = document.createElement('p');
+      line.className = 'text-muted admin-note repo-line';
+      line.dataset.role = 'status';
+
+      row.appendChild(identity);
+      row.appendChild(repoAction(repo, state, line));
+      row.appendChild(line);
+
+      return row;
+    }
+
+    function chip(text: string): HTMLElement {
+      const element = document.createElement('span');
+      element.className = 'tag tag-neutral';
+      element.textContent = text;
+      return element;
+    }
+
+    function repoAction(repo: RepoSummary, state: RepoState, line: HTMLElement): HTMLElement {
+      const host = document.createElement('div');
+      host.className = 'repo-action';
+
+      if (state === 'ungranted') {
+        const grant = document.createElement('a');
+        grant.className = 'btn btn-secondary btn-sm';
+        grant.href = 'https://github.com/settings/installations';
+        grant.target = '_blank';
+        grant.rel = 'noopener';
+        grant.textContent = 'Grant access ↗';
+        host.appendChild(grant);
+        return host;
+      }
+
+      if (state === 'imported') {
+        const slug = importState.slugByRepo.get(repoKey(repo.htmlUrl))!;
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'toggle';
+        toggle.setAttribute('role', 'switch');
+        toggle.dataset.slug = slug;
+        toggle.setAttribute('aria-checked', String(!seed.projects[slug]?.hidden));
+        toggle.setAttribute('aria-label', `Toggle visibility for ${slug}`);
+        toggle.appendChild(document.createElement('span'));
+        bindToggle(toggle, line);
+        host.appendChild(toggle);
+
+        const edit = document.createElement('button');
+        edit.type = 'button';
+        edit.className = 'btn btn-secondary btn-sm';
+        edit.textContent = 'Edit';
+        edit.addEventListener('click', () => {
+          importModal.close();
+          openForm({ mode: 'edit', slug, fields: seed.projects[slug] });
+        });
+        host.appendChild(edit);
+        return host;
+      }
+
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'btn btn-primary btn-sm';
+      add.textContent = 'Add';
+      add.addEventListener('click', async () => {
+        add.disabled = true;
+        add.textContent = 'Reading…';
+        /* `stack` is worth one extra call: languages are the only field GitHub
+           can fill that the form would otherwise leave empty. */
+        const languages = await fetchRepoLanguages(repo.owner, repo.name);
+        add.disabled = false;
+        add.textContent = 'Add';
+        importModal.close();
+        openForm({
+          mode: 'create',
+          slug: slugify(repo.name),
+          fields: fieldsFromRepo(repo, languages),
+        });
+      });
+      host.appendChild(add);
+      return host;
+    }
+
+    async function loadRepositories() {
+      importStatus.textContent = 'Reading repositories…';
+      importList.replaceChildren();
+      try {
+        importState.repos = await listRepositories(importOpen.dataset.user!);
+        importState.loaded = true;
+        const granted = importState.repos.filter(repo => repo.granted).length;
+        const imported = importState.repos.filter(repo => stateOf(repo) === 'imported').length;
+        importStatus.textContent = signedIn
+          ? `${importState.repos.length} repositories · ${granted} granted to the app · ${imported} already in the portfolio`
+          : `${importState.repos.length} public repositories. Sign in to see which the app has access to, and to import.`;
+        renderImportList();
+      } catch (error) {
+        importStatus.textContent = message(error);
+      }
+    }
+
+    importOpen.addEventListener('click', () => {
+      importModal.showModal();
+      if (!importState.loaded) loadRepositories();
+    });
+
+    importSearch.addEventListener('input', renderImportList);
+    importFilters.forEach(input => input.addEventListener('change', renderImportList));
+
+    /* A `<dialog>` closes on Escape by itself; clicking the backdrop is not
+       part of the element, so it is wired up here for the two of them. */
+    [importModal, projectModal].forEach(modal => {
+      modal.addEventListener('click', event => {
+        if (event.target === modal) modal.close();
+      });
+    });
   });
 </script>
 
@@ -394,14 +922,6 @@ const linkedCount = rows.filter(r => r.caseStudySlug).length;
   .source-avatar { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--color-divider); flex: none; }
   .source-account { margin: 0; font-weight: 600; font-size: 14px; }
   .source-tags { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
-
-  .import-results :global(.import-list) { display: flex; flex-direction: column; }
-  .import-results :global(.import-row) {
-    font-size: 13px;
-    padding: 6px 0;
-    border-top: 1px solid var(--color-divider);
-    text-decoration: none;
-  }
 
   .pm-grid-head { margin-bottom: var(--space-3); }
   .pm-grid-head h6 { margin: 0; }
@@ -434,10 +954,80 @@ const linkedCount = rows.filter(r => r.caseStudySlug).length;
   .visibility-note { margin-top: var(--space-6); max-width: 70ch; }
   .visibility-note code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
 
+  /* — the two dialogs —
+
+     Native `<dialog>`: the top layer, focus trapping and Escape are all the
+     platform's job, so none of them is reimplemented here. */
+  .modal {
+    width: min(760px, 92vw);
+    max-height: 88dvh;
+    overflow-y: auto;
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    color: var(--color-text);
+    padding: var(--space-5);
+  }
+  .modal::backdrop { background: color-mix(in srgb, var(--color-neutral-900) 45%, transparent); }
+  .modal-close-form { display: flex; justify-content: flex-end; }
+  .modal-close { margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0 0; }
+  .modal-title { font-size: 20px; margin: 0 0 4px; }
+  .modal-lede { margin-bottom: var(--space-4); }
+  .modal-lede code { font-size: 11px; background: var(--color-surface); padding: 1px 5px; }
+  .modal-controls { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-3); }
+  .modal-search { width: 240px; font-size: 13px; padding: 6px 10px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
+
+  .modal-list { display: flex; flex-direction: column; margin-bottom: var(--space-3); }
+
+  .repo-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--color-divider);
+  }
+  .repo-row:last-child { border-bottom: 0; }
+  .repo-id { min-width: 0; }
+  .repo-name { font-weight: 600; font-size: 14px; }
+  .repo-badges { display: inline-flex; gap: 6px; margin-left: var(--space-2); flex-wrap: wrap; }
+  .repo-desc { font-size: 12px; margin: 4px 0 0; }
+  .repo-action { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+  .repo-line { grid-column: 1 / -1; }
+  .repo-line:empty { display: none; }
+  .repo-line[data-tone='error'] { color: var(--color-accent-700); }
+
+  /* State reads off the row, so the row builder sets one attribute rather than
+     picking between three global tag variants. */
+  .repo-row[data-state='imported'] .repo-flag {
+    background: var(--color-accent-2-100);
+    color: var(--color-accent-2-800);
+  }
+  .repo-row[data-state='granted'] .repo-flag {
+    background: var(--color-accent-100);
+    color: var(--color-accent-800);
+  }
+  .repo-row[data-state='ungranted'] .repo-flag {
+    background: var(--color-neutral-100);
+    color: var(--color-neutral-800);
+  }
+
+  /* — the project form — */
+  .pf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+  .pf-wide { grid-column: 1 / -1; }
+  .pf-grid label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+  .pf-summary { min-height: 56px; }
+  .pf-highlights { min-height: 110px; font-family: var(--font-mono); font-size: 13px; }
+  .pf-message { min-height: 18px; font-size: 12px; margin: var(--space-3) 0 0; }
+  .pf-message[data-tone='error'] { color: var(--color-accent-700); }
+
   @media (max-width: 1100px) {
     .pm-grid { grid-template-columns: 1fr; }
   }
   @media (max-width: 640px) {
-    .pm-fields { grid-template-columns: 1fr; }
+    .pm-fields,
+    .pf-grid { grid-template-columns: 1fr; }
+    .repo-row { grid-template-columns: 1fr; }
   }
 </style>

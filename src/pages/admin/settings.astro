@@ -13,8 +13,8 @@ const defaults = {
   email: site.email,
 };
 ---
-<AdminLayout title="Settings" section="settings">
-  <div class="admin-main-narrow">
+<AdminLayout title="Settings">
+  <div class="admin-main-narrow" id="admin-settings">
     <h1 class="settings-title">Settings</h1>
 
     <section class="card elev-sm settings-card">
@@ -72,57 +72,59 @@ const defaults = {
 </AdminLayout>
 
 <script>
-  import { ADMIN_KEYS } from '../../lib/admin';
+  import { ADMIN_KEYS, onAdminPage } from '../../lib/admin';
 
-  const KEY = ADMIN_KEYS.settings;
-  const ids = ['s-name', 's-role', 's-bio', 's-github', 's-linkedin', 's-email'] as const;
-  const fields = Object.fromEntries(
-    ids.map(id => [id, document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement])
-  ) as Record<(typeof ids)[number], HTMLInputElement | HTMLTextAreaElement>;
-  const modeInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="mode"]'));
+  onAdminPage('#admin-settings', () => {
+    const KEY = ADMIN_KEYS.settings;
+    const ids = ['s-name', 's-role', 's-bio', 's-github', 's-linkedin', 's-email'] as const;
+    const fields = Object.fromEntries(
+      ids.map(id => [id, document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement])
+    ) as Record<(typeof ids)[number], HTMLInputElement | HTMLTextAreaElement>;
+    const modeInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="mode"]'));
 
-  function snapshot() {
-    return {
-      name: fields['s-name'].value,
-      role: fields['s-role'].value,
-      bio: fields['s-bio'].value,
-      github: fields['s-github'].value,
-      linkedin: fields['s-linkedin'].value,
-      email: fields['s-email'].value,
-      mode: modeInputs.find(i => i.checked)?.value ?? 'light',
-    };
-  }
-
-  try {
-    const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-    if (saved) {
-      if (saved.name) fields['s-name'].value = saved.name;
-      if (saved.role) fields['s-role'].value = saved.role;
-      if (saved.bio) fields['s-bio'].value = saved.bio;
-      if (saved.github) fields['s-github'].value = saved.github;
-      if (saved.linkedin) fields['s-linkedin'].value = saved.linkedin;
-      if (saved.email) fields['s-email'].value = saved.email;
-      modeInputs.forEach(i => { i.checked = i.value === (saved.mode ?? 'light'); });
+    function snapshot() {
+      return {
+        name: fields['s-name'].value,
+        role: fields['s-role'].value,
+        bio: fields['s-bio'].value,
+        github: fields['s-github'].value,
+        linkedin: fields['s-linkedin'].value,
+        email: fields['s-email'].value,
+        mode: modeInputs.find(i => i.checked)?.value ?? 'light',
+      };
     }
-  } catch {
-    /* ignore corrupt settings */
-  }
 
-  const saveBtn = document.getElementById('save-settings') as HTMLButtonElement;
-  saveBtn.addEventListener('click', () => {
-    localStorage.setItem(KEY, JSON.stringify(snapshot()));
-    saveBtn.textContent = 'Saved ✓';
-    setTimeout(() => { saveBtn.textContent = 'Save Changes'; }, 1500);
-  });
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (saved) {
+        if (saved.name) fields['s-name'].value = saved.name;
+        if (saved.role) fields['s-role'].value = saved.role;
+        if (saved.bio) fields['s-bio'].value = saved.bio;
+        if (saved.github) fields['s-github'].value = saved.github;
+        if (saved.linkedin) fields['s-linkedin'].value = saved.linkedin;
+        if (saved.email) fields['s-email'].value = saved.email;
+        modeInputs.forEach(i => { i.checked = i.value === (saved.mode ?? 'light'); });
+      }
+    } catch {
+      /* ignore corrupt settings */
+    }
 
-  document.getElementById('export-settings')?.addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(snapshot(), null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'site-identity.json';
-    a.click();
-    URL.revokeObjectURL(url);
+    const saveBtn = document.getElementById('save-settings') as HTMLButtonElement;
+    saveBtn.addEventListener('click', () => {
+      localStorage.setItem(KEY, JSON.stringify(snapshot()));
+      saveBtn.textContent = 'Saved ✓';
+      setTimeout(() => { saveBtn.textContent = 'Save Changes'; }, 1500);
+    });
+
+    document.getElementById('export-settings')?.addEventListener('click', () => {
+      const blob = new Blob([JSON.stringify(snapshot(), null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'site-identity.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
   });
 </script>
 

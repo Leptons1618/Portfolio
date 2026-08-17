@@ -67,12 +67,20 @@ export async function getCaseStudies(limit?: number): Promise<CaseStudy[]> {
 }
 
 /**
- * Journal posts, newest first. Drafts are authored in the admin editor and
- * kept out of production builds, but stay visible in `dev` and to the admin
- * screens, which pass `includeDrafts`.
+ * Journal posts, newest first.
+ *
+ * `published` is public. `draft` is visible while writing — in `dev` and to
+ * the admin screens — and never in a production build. `unpublished` is
+ * visible only to the admin: it is how a live post is withdrawn, and because
+ * this feeds `getStaticPaths` too, the page stops being built and the URL
+ * 404s rather than staying reachable by anyone holding the link.
+ *
+ * The admin screens pass `includeAll`, because managing those states is what
+ * they exist for.
  */
-export async function getPosts(includeDrafts = false): Promise<Post[]> {
-  const keep = ({ data }: Post) => includeDrafts || !import.meta.env.PROD || !data.draft;
+export async function getPosts(includeAll = false): Promise<Post[]> {
+  const keep = ({ data }: Post) =>
+    includeAll || data.status === 'published' || (data.status === 'draft' && !import.meta.env.PROD);
   return (await getCollection('journal', keep)).sort(byDateDesc);
 }
 

@@ -11,7 +11,7 @@ There is no test suite or linter. Three commands catch breakage, and they catch 
 - **`npm run build`** validates every content file against the Zod schemas in `src/content/config.ts`, so a bad frontmatter field fails the build. It does not check types.
 - **`npm run check:worker`** (`workers/github-oauth/test.mjs`) exercises the token exchanger's security branches — origin allowlist, route surface, code shape, `redirect_uri` pinning, fail-closed on a missing secret — without ever calling GitHub. Plain `node:assert`, no framework.
 - **`npm run check:frontmatter`** (`scripts/test-frontmatter.mjs`) exercises `src/lib/frontmatter.ts`, the in-place frontmatter patcher the project manager commits through — body preservation, quoting, CRLF, and the cases it refuses. It imports the `.ts` module directly and lets Node strip the types, so it needs **Node ≥ 22.18** (`engines` in `package.json`, and why both workflows pin `node-version: 24`). On older Node it dies with `ERR_UNKNOWN_FILE_EXTENSION`.
-- **`npm run check:content`** (`scripts/check-content.mjs`) validates the relationships *between* files, which neither Astro command does: every `caseStudySlug` resolves to a case study, every site-relative `heroImage`/`architectureImage` exists in `public/`, the default OG image exists, and the build origin agrees with `public/CNAME`. `node scripts/check-content.mjs --self-test` checks its own frontmatter parser.
+- **`npm run check:content`** (`scripts/check-content.mjs`) validates the relationships *between* files, which neither Astro command does: every `caseStudySlug` resolves to a case study, every site-relative `heroImage`/`architectureImage` exists in `public/`, every journal post declares a valid `status`, the default OG image exists, and the build origin agrees with `public/CNAME`. `node scripts/check-content.mjs --self-test` checks its own frontmatter parser.
 
 Run `npm run check` and `npm run build`.
 
@@ -33,7 +33,7 @@ Astro 5, `output: 'static'`. Every page is prerendered — there is no server at
 
 - **`projects`** (`.md`) — the primary index. Drives the home page, `/projects`, and `/projects/[slug]`. **Frontmatter only** — no page renders a project body. `hidden: true` (written by the admin's visibility switch) drops a project from every listing *and* from `getStaticPaths`; `getProjects(true)` is how the admin screens see them.
 - **`case-studies`** (`.mdx`) — long-form write-ups, rendered through `CaseStudyLayout`.
-- **`journal`** (`.md`) — posts; `draft: true` entries are filtered out only when `import.meta.env.PROD`, so drafts are visible in `dev` and to the admin screens.
+- **`journal`** (`.md`) — posts, with a three-state `status`: `published` is public, `draft` is visible in `dev` and to the admin but never in a production build, `unpublished` is admin-only. Because `getPosts` feeds `getStaticPaths` too, unpublishing removes the *page*, so the URL 404s rather than lingering. `check-content.mjs` requires the field — the schema's `draft` default is for the editor, and a hand-authored post must not fall into it silently.
 
 Projects and case studies are linked one-way: a project's optional `caseStudySlug` points at a case study file. Nothing links back. `check-content.mjs` is what makes a typo fail rather than silently degrade.
 
@@ -42,13 +42,14 @@ Do not add a `slug:` frontmatter field. Astro derives the slug from the filename
 ### `src/lib/` owns the cross-cutting facts
 
 - **`site.ts`** — identity and URLs. Name, role, bio, email, phone, address, GitHub, LinkedIn, repo, origin, OG image, portrait. **Nothing else may hard-code these.** If you find an email or a profile URL in a component, it belongs here.
-- **`content.ts`** — the only module that calls `getCollection`. Ordering (`featuredRank ?? 99`, then `year` descending), draft filtering, `CATEGORY_LABELS`, the project↔case-study link, and tag counting all live here. Pages and layouts consume the functions; they do not query collections themselves.
+- **`content.ts`** — the only module that calls `getCollection`. Ordering (`featuredRank ?? 99`, then `year` descending), status filtering, `CATEGORY_LABELS`, the project↔case-study link, and tag counting all live here. Pages and layouts consume the functions; they do not query collections themselves.
+- **`content-store.ts`** — the write half of the same collections, and the only thing the admin commits content through: `createProject`, `patchProject`, `removeProject`, `createCaseStudy`, `setPostStatus`. Create builds a whole file from a generator; edit patches fields in place through `frontmatter.ts`. Browser-only, and it imports `content.ts` **type-only** so `astro:content` never reaches the client bundle.
 - **`resume.ts`** — resume body. Not a collection. Identity fields come from `site.ts`. Regenerated wholesale by the admin editor.
 - **`format.ts`** — dates, journal tag labels, post meta lines.
 - **`admin.ts`** — localStorage key names.
 - **`theme.ts`** — the theme id list, their `theme-color` values, and the storage key. Nothing else may name a theme.
 - **`github.ts`** — admin sign-in and repository reads/writes (`readFile`, `commitFile`, `deleteFile`, `fetchRepoMeta`). The only module that talks to the GitHub API or holds the token. Read its header comment before changing anything in it.
-- **`frontmatter.ts`** — patches one frontmatter field in place, preserving the rest of the file byte for byte. Used by the project manager; refuses anything it cannot do losslessly. Not a YAML parser, and must not grow into one.
+- **`frontmatter.ts`** — patches one frontmatter field in place, preserving the rest of the file byte for byte. Scalars via `setFrontmatterField`, lists via `setFrontmatterList` (which keeps whichever style the file already used). Refuses anything it cannot do losslessly. Not a YAML parser, and must not grow into one.
 - **`clipboard.ts`** — `copyText()`, with the selection fallback for insecure contexts.
 
 `CATEGORY_LABELS` is typed `Record<Project['data']['category'], string>`, so adding a value to the schema enum fails the typecheck until it is labelled. "Featured" is deliberately *not* a category — it is a `featuredRank`, and the projects filter bar prepends it as a pseudo-category.
@@ -57,10 +58,11 @@ Do not add a `slug:` frontmatter field. Astro derives the slug from the filename
 
 `src/pages/admin/*` is an authoring surface. It runs in the browser; the only server in the system is `workers/github-oauth/`, a stateless Cloudflare Worker that does the OAuth code→token exchange and nothing else. Signed in, the journal and resume editors commit whole files through the GitHub Contents API, and the project manager commits frontmatter patches (visibility, case-study unlink) or deletes a project file outright. `settings` stays export-only because its JSON has to be hand-merged into `src/lib/site.ts`.
 
-Details live in `.claude/rules/admin-surface.md`, which loads when you touch those files. Two rules worth repeating here:
+Details live in `.claude/rules/admin-surface.md`, which loads when you touch those files. Three rules worth repeating here:
 
 - **`/admin/*` is prerendered public HTML.** The pre-paint redirect hides the editors, it does not protect them. The repository is what is protected, by GitHub, at write time.
 - **`buildModule()` in the resume editor regenerates all of `src/lib/resume.ts`**, so any export you add to that module must be added there in the same change.
+- **`AdminLayout` mounts `<ClientRouter />` and the sidebar is `transition:persist`.** A page `<script>` therefore executes at most once per session, so every admin page script goes through `onAdminPage()` in `src/lib/admin.ts`. Read decision 11 in `docs/DECISIONS.md` before changing anything in the admin shell.
 
 ### Styling: token themes, plain CSS
 
@@ -82,7 +84,9 @@ Rules when touching styles:
 
 ## Why things are the way they are
 
-`docs/DECISIONS.md` records the non-obvious choices: why the site is static, what `/admin` is and is not, why the resume is a module rather than a collection, why the origin is written down three times, why `content.ts` is the only caller of `getCollection`, why the OAuth flow needs a Worker and what its security posture does *not* cover, and why the second theme is token overrides rather than a parallel stylesheet. Read it before proposing to change any of those.
+`docs/DECISIONS.md` records the non-obvious choices: why the site is static, what `/admin` is and is not, why the resume is a module rather than a collection, why the origin is written down three times, why `content.ts` is the only caller of `getCollection`, why the OAuth flow needs a Worker and what its security posture does *not* cover, why sign-in is a GitHub App whose refresh token never reaches the browser, why journal state is one enum rather than two flags, why only the admin client-routes, and why the second theme is token overrides rather than a parallel stylesheet. Read it before proposing to change any of those.
+
+`docs/FEATURES.md` tracks what exists, what is missing, and what was cut on purpose. `CHANGELOG.md` is the shipped history. `docs/ADMIN-REARCHITECTURE.md` is the admin plan of record — all four of its phases are done.
 
 ## Process notes
 
