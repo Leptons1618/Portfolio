@@ -3,9 +3,9 @@
  * What an admin screen shows when its script has fallen over.
  *
  * There is no framework here to catch a render error — every admin page is
- * static HTML wired up by one client `<script>` — so the failure this guards
- * against is the JavaScript one: an uncaught throw, a rejected promise, or an
- * `init` that never finished. When any of those happen the markup still paints
+ * static HTML wired up by one client script element — so the failure this
+ * guards against is the JavaScript one: an uncaught throw, a rejected promise,
+ * or an `init` that never finished. When any of those happen the markup paints
  * and every control silently does nothing, which on a surface whose buttons
  * commit to a repository is the worst way to fail.
  *

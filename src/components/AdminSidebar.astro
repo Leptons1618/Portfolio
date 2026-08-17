@@ -77,7 +77,7 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
   </nav>
 
   <div class="admin-sidebar-foot">
-    <a class="btn btn-primary btn-block admin-new-post" href="/admin/journal" title="New Post">
+    <a class="btn btn-primary btn-block admin-new-post" href="/admin/journal/new" title="New Post">
       <Icon name="lucide:plus" class="admin-nav-icon" /><span class="collapsible">New Post</span>
     </a>
     <button
@@ -171,12 +171,17 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
      This node outlives the page it was rendered on, so the server-rendered
      `aria-current` is only right for the first paint. `astro:page-load` is not
      dispatched for that first page, which is why the marker is also applied
-     once here. */
+     once here.
+
+     Prefix, not equality — the same rule the frontmatter above uses. Both
+     sections have pages underneath them now (`/admin/projects/<slug>`,
+     `/admin/journal/new`, `/admin/journal/<slug>`), and on those the rail was
+     marking nothing at all. */
   function markCurrent() {
     const here = window.location.pathname.replace(/\/+$/, '');
     document.querySelectorAll<HTMLAnchorElement>('.admin-nav-link').forEach(link => {
       const target = new URL(link.href).pathname.replace(/\/+$/, '');
-      if (target === here) link.setAttribute('aria-current', 'page');
+      if (target === here || here.startsWith(`${target}/`)) link.setAttribute('aria-current', 'page');
       else link.removeAttribute('aria-current');
     });
   }

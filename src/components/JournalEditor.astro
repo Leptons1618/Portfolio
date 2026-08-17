@@ -1,0 +1,569 @@
+---
+/**
+ * The journal writing surface, shared by the two screens that write a post.
+ *
+ * `/admin/journal/new` renders it with `slug: null`; `/admin/journal/[slug]`
+ * renders it with the post's frontmatter and body from the last build. That
+ * split replaced a single screen that was an editor, a "which post am I
+ * editing" indicator and the entries list all at once, and had to keep the
+ * three in sync in JavaScript. The URL says which post is open now, so this
+ * component never has to answer that question — the prop does, once, at build
+ * time, and the commit path reads it back out of the seed.
+ *
+ * The one rule that survived the move intact: **an open post keeps its
+ * filename**, however the title is edited. Astro derives a slug from the
+ * filename, so a rename would orphan a live URL. `slug` is the file this
+ * commits to, and nothing here ever recomputes it.
+ *
+ * Writing and previewing are a tablist rather than two stacked panels. Both
+ * are the same column of the same document at different fidelities, and side
+ * by side neither got enough width to read at.
+ */
+import { Icon } from 'astro-icon/components';
+import { POST_STATUSES, type PostFields } from '../lib/content-store';
+
+interface Props {
+  /** The post being edited, or `null` for a new one. Also the filename. */
+  slug: string | null;
+  /** Frontmatter from the last build, or `null` for a new post. */
+  fields: PostFields | null;
+  body: string;
+  /** Today, from the server, so the date field has a sane default. */
+  today: string;
+}
+
+const { slug, fields, body, today } = Astro.props;
+const editing = slug !== null;
+
+/* What the script cannot read back off the form. The title, the body and the
+   status are server-rendered into the controls themselves, so they are not
+   repeated here — the body especially, which would otherwise ship twice.
+   `<` is escaped because this lands inside a script element — never write that
+   tag literally in a comment here: Vite's dependency scanner matches it in the
+   raw `.astro` source and parses the markup after it as JavaScript. */
+const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
+---
+<div class="admin-head" id="journal-editor">
+  <div class="je-id">
+    <a class="je-back" href="/admin/journal">
+      <Icon name="lucide:arrow-left" class="admin-nav-icon" />All entries
+    </a>
+    <h6 class="admin-eyebrow-mono">{editing ? 'MODULE: EDIT_ENTRY' : 'MODULE: NEW_ENTRY'}</h6>
+    <h1 class="admin-title-sm" id="editor-heading">
+      {editing ? fields!.title : 'Create New Journal Entry'}
+    </h1>
+    {/* The path, not the heading, is where the filename belongs: the heading
+        follows the title as it is typed and the filename deliberately does
+        not, so putting the slug in the h1 said the opposite of what is true. */}
+    <p class="je-path">
+      <code id="f-slug">{editing ? `${slug}.md` : 'untitled.md'}</code>
+      <span class="text-muted je-path-note">
+        {editing ? 'the file this commits to — a title edit will not rename it' : 'from the title, until it is first committed'}
+      </span>
+    </p>
+    <span class="text-muted admin-stamp" id="save-stamp">
+      {editing
+        ? `Loaded from the last build of src/content/journal/${slug}.md`
+        : 'Draft mode. Not saved yet.'}
+    </span>
+  </div>
+
+  <div class="admin-actions">
+    <button type="button" class="btn btn-secondary" id="focus-toggle">Focus</button>
+    <button type="button" class="btn btn-secondary" id="save-draft">Save Draft</button>
+    <button type="button" class="btn btn-secondary" id="export-md">
+      <Icon name="lucide:download" class="admin-nav-icon" />Export .md
+    </button>
+    <button type="button" class="btn btn-primary" id="commit-md">
+      {editing ? 'Commit changes' : 'Commit to GitHub'}
+    </button>
+  </div>
+</div>
+
+<div class="editor-grid">
+  <div class="editor-col">
+    <input
+      class="input editor-title"
+      id="f-title"
+      placeholder="Post Title..."
+      value={editing ? fields!.title : ''}
+    />
+
+    <div class="tab-bar" role="tablist" aria-label="Editor view" id="je-tabs">
+      <button type="button" class="tab" role="tab" id="je-tab-write" aria-controls="je-panel-write" aria-selected="true">
+        <Icon name="lucide:pen-line" class="admin-nav-icon" />Write
+      </button>
+      <button type="button" class="tab" role="tab" id="je-tab-preview" aria-controls="je-panel-preview" aria-selected="false">
+        <Icon name="lucide:eye" class="admin-nav-icon" />Preview
+      </button>
+    </div>
+
+    <div class="tab-panel" id="je-panel-write" role="tabpanel" aria-labelledby="je-tab-write">
+      <div class="md-toolbar" role="toolbar" aria-label="Markdown formatting">
+        <button type="button" class="btn btn-secondary md-btn" data-before="**" data-after="**" title="Bold"><strong>B</strong></button>
+        <button type="button" class="btn btn-secondary md-btn" data-before="*" data-after="*" title="Italic"><em>I</em></button>
+        <button type="button" class="btn btn-secondary md-btn" data-before="`" data-after="`" title="Inline code">&lt;/&gt;</button>
+        <button type="button" class="btn btn-secondary md-btn" data-before="[" data-after="](https://)" title="Link">link</button>
+        <button type="button" class="btn btn-secondary md-btn" data-before="![" data-after="](/images/)" title="Image">image</button>
+      </div>
+      <textarea class="input editor-body" id="f-body" placeholder="Write your post using Markdown...">{body}</textarea>
+    </div>
+
+    <div class="tab-panel" id="je-panel-preview" role="tabpanel" aria-labelledby="je-tab-preview" hidden>
+      <div class="card elev-md preview-card">
+        <h3 class="preview-title" id="preview-title">Post Title...</h3>
+        <div class="preview-md" id="preview-body"></div>
+      </div>
+      <p class="text-muted admin-note je-preview-note">
+        A small hand-rolled Markdown subset — enough to check shape and spelling.
+        The build renders the real thing.
+      </p>
+    </div>
+  </div>
+
+  <aside class="editor-side focus-hide">
+    <div class="card elev-sm">
+      <h6 class="admin-eyebrow">Metadata</h6>
+      <div class="field">
+        <label for="f-summary">Summary</label>
+        <textarea class="input summary-input" id="f-summary" placeholder="One line for the card and the meta description."></textarea>
+      </div>
+      <div class="field">
+        <label for="f-date">Publish Date</label>
+        <input class="input" type="date" id="f-date" value={today} />
+      </div>
+      <div class="field">
+        <label for="f-tags">Tags (comma separated)</label>
+        <input class="input" id="f-tags" placeholder="e.g. Design Systems, Astro" />
+      </div>
+      <div class="field field-row">
+        <div>
+          <label for="f-readtime">Read time</label>
+          <input class="input" id="f-readtime" placeholder="5 min" />
+        </div>
+        <div>
+          <label for="f-duration">Video duration</label>
+          <input class="input" id="f-duration" placeholder="14:23" />
+        </div>
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <div class="seg">
+          {POST_STATUSES.map(([value, label]) => (
+            <label class="seg-opt">
+              <input
+                type="radio"
+                name="status"
+                value={value}
+                checked={value === (editing ? fields!.status : 'draft')}
+              />{label}
+            </label>
+          ))}
+        </div>
+        <p class="text-muted admin-note status-help" id="status-help"></p>
+      </div>
+    </div>
+
+    <div class="card elev-sm">
+      <h6 class="admin-eyebrow">Thumbnail</h6>
+      <div class="field">
+        <label for="f-hero">Featured image</label>
+        <input class="input" id="f-hero" placeholder="/images/post.jpg or https://…" />
+      </div>
+      <div class="thumb-frame" id="thumb-frame" hidden>
+        <img id="thumb-preview" alt="" />
+      </div>
+      <p class="text-muted admin-note">
+        A path under <code>public/</code>, or an absolute URL. There is no upload here —
+        the file has to be in the repository for the build to find it.
+      </p>
+    </div>
+  </aside>
+</div>
+
+<script is:inline type="application/json" id="journal-editor-seed" set:html={seedJson}></script>
+
+<script>
+  import { ADMIN_KEYS, onAdminPage, wireTabs } from '../lib/admin';
+  import {
+    buildPostMarkdown,
+    createPost,
+    updatePost,
+    type PostFields,
+    type PostStatus,
+  } from '../lib/content-store';
+  import { getToken } from '../lib/github';
+
+  /* One module for both screens — `/admin/journal/new` and
+     `/admin/journal/<slug>` render the same component, so the difference
+     between them is entirely in the seed below. The admin client-routes, so
+     this runs on first paint and again on every navigation into either. */
+  onAdminPage('#journal-editor', () => {
+    const KEY = ADMIN_KEYS.journalDraft;
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+    interface Seed {
+      /** The post being edited, or `null` for a new one. The URL decided this. */
+      slug: string | null;
+      fields: PostFields | null;
+    }
+    const seed: Seed = JSON.parse(document.getElementById('journal-editor-seed')!.textContent || '{}');
+    const editing = seed.slug;
+
+    const fields = {
+      title: $<HTMLInputElement>('f-title'),
+      summary: $<HTMLTextAreaElement>('f-summary'),
+      date: $<HTMLInputElement>('f-date'),
+      tags: $<HTMLInputElement>('f-tags'),
+      readTime: $<HTMLInputElement>('f-readtime'),
+      duration: $<HTMLInputElement>('f-duration'),
+      hero: $<HTMLInputElement>('f-hero'),
+      body: $<HTMLTextAreaElement>('f-body'),
+    };
+    const statusInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="status"]'));
+    const slugOut = $('f-slug');
+    const heading = $('editor-heading');
+    const previewTitle = $('preview-title');
+    const previewBody = $('preview-body');
+    const stamp = $('save-stamp');
+    const commitBtn = $<HTMLButtonElement>('commit-md');
+
+    const slugify = (s: string) =>
+      s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled';
+
+    // Quotes matter: link hrefs below are interpolated into an attribute, and an
+    // unescaped `"` would close it and inject markup of the author's own typing.
+    const escapeHtml = (s: string) =>
+      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    /* Only schemes a published post could actually use — keeps `javascript:`
+       out of the preview's hrefs. */
+    const safeHref = (url: string) =>
+      /^(https?:|mailto:|[/#.])/i.test(url.trim()) ? url.trim() : '#';
+
+    /* A deliberately small Markdown subset — enough for an accurate preview
+       without pulling a parser into the bundle. */
+    function renderMarkdown(src: string): string {
+      const blocks = escapeHtml(src).split(/\n{2,}/);
+      return blocks
+        .map(block => {
+          const trimmed = block.trim();
+          if (!trimmed) return '';
+
+          if (trimmed.startsWith('```')) {
+            const code = trimmed.replace(/^```[^\n]*\n?/, '').replace(/```$/, '');
+            return `<pre><code>${code}</code></pre>`;
+          }
+          const heading = trimmed.match(/^(#{1,3})\s+(.*)$/);
+          if (heading) {
+            const level = heading[1].length;
+            return `<h${level}>${inline(heading[2])}</h${level}>`;
+          }
+          if (/^>\s/.test(trimmed)) {
+            return `<blockquote>${inline(trimmed.replace(/^>\s?/gm, ''))}</blockquote>`;
+          }
+          if (/^[-*]\s/.test(trimmed)) {
+            const items = trimmed.split('\n').map(l => `<li>${inline(l.replace(/^[-*]\s+/, ''))}</li>`).join('');
+            return `<ul>${items}</ul>`;
+          }
+          if (/^\d+\.\s/.test(trimmed)) {
+            const items = trimmed.split('\n').map(l => `<li>${inline(l.replace(/^\d+\.\s+/, ''))}</li>`).join('');
+            return `<ol>${items}</ol>`;
+          }
+          return `<p>${inline(trimmed.replace(/\n/g, ' '))}</p>`;
+        })
+        .join('');
+    }
+
+    function inline(s: string): string {
+      return s
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, url) => `<a href="${safeHref(url)}">${label}</a>`);
+    }
+
+    const STATUS_HELP: Record<string, string> = {
+      draft: 'Kept out of production builds. Visible here and in `npm run dev`.',
+      published: 'Live on the site after the next build.',
+      unpublished: 'Withdrawn: no listing, no page, the URL returns 404.',
+    };
+
+    function currentStatus(): PostStatus {
+      return (statusInputs.find(i => i.checked)?.value ?? 'draft') as PostStatus;
+    }
+
+    const thumbFrame = $<HTMLElement>('thumb-frame');
+    const thumbPreview = $<HTMLImageElement>('thumb-preview');
+
+    /* The preview is only rebuilt while its tab is showing — it is the whole
+       body through a regex on every keystroke, and nobody is reading it from
+       behind the writing panel. Switching tabs rebuilds it once. */
+    let previewing = false;
+
+    function renderPreview() {
+      previewTitle.textContent = fields.title.value || 'Post Title...';
+      previewBody.innerHTML = renderMarkdown(fields.body.value);
+    }
+
+    function render() {
+      if (previewing) renderPreview();
+
+      /* A new post's filename follows the title until the first commit. An open
+         one already has a file, and rewriting the line on every keystroke would
+         promise a rename this screen deliberately does not do. */
+      if (editing === null) {
+        slugOut.textContent = `${slugify(fields.title.value)}.md`;
+        heading.textContent = fields.title.value.trim() || 'Create New Journal Entry';
+      }
+      $('status-help').textContent = STATUS_HELP[currentStatus()] ?? '';
+
+      /* Same scheme rule the preview's links use: the thumbnail is a value the
+         author just typed, and it ends up in an attribute. */
+      const hero = safeHref(fields.hero.value);
+      const show = Boolean(fields.hero.value.trim()) && hero !== '#';
+      thumbFrame.hidden = !show;
+      if (show) thumbPreview.src = hero;
+    }
+
+    wireTabs($('je-tabs'), id => {
+      previewing = id === 'je-panel-preview';
+      if (previewing) renderPreview();
+    });
+
+    function snapshot() {
+      return {
+        title: fields.title.value,
+        summary: fields.summary.value,
+        date: fields.date.value,
+        tags: fields.tags.value,
+        readTime: fields.readTime.value,
+        duration: fields.duration.value,
+        hero: fields.hero.value,
+        body: fields.body.value,
+        status: currentStatus(),
+        /* Which post this draft belongs to. The restore below refuses a draft
+           whose `editing` does not match this screen, so a half-written new
+           entry cannot be resurrected on top of a published post. */
+        editing,
+      };
+    }
+
+    /** The form as schema-shaped frontmatter, for both the export and the commit. */
+    function readFields(): PostFields {
+      return {
+        title: fields.title.value.trim(),
+        summary: fields.summary.value.trim(),
+        date: fields.date.value,
+        tags: fields.tags.value.split(',').map(tag => tag.trim()).filter(Boolean),
+        readTime: fields.readTime.value.trim() || undefined,
+        videoDuration: fields.duration.value.trim() || undefined,
+        heroImage: fields.hero.value.trim() || undefined,
+        status: currentStatus(),
+      };
+    }
+
+    /* The title, the body and the status are server-rendered into the markup —
+       they are the three the browser can restore for free. The rest is filled
+       in here so an empty optional stays empty rather than printing
+       "undefined". */
+    if (seed.fields) {
+      fields.summary.value = seed.fields.summary ?? '';
+      fields.date.value = (seed.fields.date ?? '').slice(0, 10) || fields.date.value;
+      fields.tags.value = (seed.fields.tags ?? []).join(', ');
+      fields.readTime.value = seed.fields.readTime ?? '';
+      fields.duration.value = seed.fields.videoDuration ?? '';
+      fields.hero.value = seed.fields.heroImage ?? '';
+    }
+
+    /* A draft belongs to exactly one screen. `editing` is part of the snapshot
+       so this can tell: a draft of the new-entry screen must not reappear on
+       top of a post, and a draft of one post must not reappear on another. */
+    function restore() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+        if (!saved || (saved.editing ?? null) !== editing) return;
+        fields.title.value = saved.title ?? '';
+        fields.summary.value = saved.summary ?? '';
+        if (saved.date) fields.date.value = saved.date;
+        fields.tags.value = saved.tags ?? '';
+        fields.readTime.value = saved.readTime ?? '';
+        fields.duration.value = saved.duration ?? '';
+        fields.hero.value = saved.hero ?? '';
+        fields.body.value = saved.body ?? '';
+        statusInputs.forEach(i => { i.checked = i.value === (saved.status ?? 'draft'); });
+        stamp.textContent = editing
+          ? `Restored from this browser — unsaved changes to ${editing}.md.`
+          : 'Draft mode. Restored from this browser.';
+      } catch {
+        /* ignore a corrupt draft */
+      }
+    }
+
+    Object.values(fields).forEach(el => el.addEventListener('input', render));
+    statusInputs.forEach(i => i.addEventListener('change', render));
+
+    /* Formatting buttons wrap the selection. `setRangeText` keeps the undo stack
+       intact, which reassigning `.value` would throw away. */
+    document.querySelectorAll<HTMLButtonElement>('.md-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const body = fields.body;
+        const { selectionStart: start, selectionEnd: end } = body;
+        const wrapped = `${btn.dataset.before}${body.value.slice(start, end)}${btn.dataset.after}`;
+        body.setRangeText(wrapped, start, end, 'end');
+        body.focus();
+        render();
+      });
+    });
+
+    $<HTMLButtonElement>('save-draft').addEventListener('click', () => {
+      localStorage.setItem(KEY, JSON.stringify(snapshot()));
+      const btn = $<HTMLButtonElement>('save-draft');
+      btn.textContent = 'Saved ✓';
+      stamp.textContent = `Draft held in this browser. Last saved: ${new Date().toLocaleTimeString()}`;
+      setTimeout(() => { btn.textContent = 'Save Draft'; }, 1200);
+    });
+
+    $<HTMLButtonElement>('export-md').addEventListener('click', () => {
+      const name = editing ?? slugify(fields.title.value);
+      const blob = new Blob([buildPostMarkdown(readFields(), fields.body.value)], {
+        type: 'text/markdown',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name}.md`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    /* Commit straight to the repository. The export above stays: it is the only
+       path that works when you are not signed in, or when you want to review the
+       file before it lands.
+
+       Two write paths, and which one runs is the URL. A new entry is built
+       whole — there is nothing to preserve. An open one is patched field by
+       field with its body swapped, because the file on the branch may carry a
+       comment or a key this editor has never heard of, and regenerating it
+       would drop both. Same split as the project screens; see
+       `content-store.ts`. */
+    if (!getToken()) {
+      commitBtn.disabled = true;
+      commitBtn.title = 'Sign in with GitHub to commit.';
+    }
+
+    commitBtn.addEventListener('click', async () => {
+      const post = readFields();
+      if (!post.title) {
+        stamp.textContent = 'A title is required — it is also where the filename comes from.';
+        return;
+      }
+
+      const target = editing ?? slugify(post.title);
+      const path = `src/content/journal/${target}.md`;
+      const label = commitBtn.textContent;
+
+      commitBtn.disabled = true;
+      commitBtn.textContent = 'Committing…';
+      stamp.textContent = `Writing ${path}…`;
+
+      try {
+        const result = editing
+          ? await updatePost(editing, post, fields.body.value)
+          : await createPost(target, post, fields.body.value);
+
+        if (!result) {
+          stamp.textContent = 'Nothing changed — the file already says exactly this.';
+        } else {
+          const link = document.createElement('a');
+          link.href = result.url;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          link.textContent = 'view commit ↗';
+          stamp.replaceChildren(
+            document.createTextNode(
+              editing
+                ? `Updated ${path} — `
+                /* There is no `/admin/journal/<slug>` for it yet: this screen is
+                   prerendered, and the file has only just been committed. */
+                : `Created ${path}. Its own editor page exists after the next build — `
+            ),
+            link
+          );
+          /* Committed state is now the file's, not the browser's. Leaving the
+             draft behind would restore it over the next load of this screen. */
+          localStorage.removeItem(KEY);
+        }
+        commitBtn.textContent = 'Committed ✓';
+      } catch (error) {
+        stamp.textContent = error instanceof Error ? error.message : 'Commit failed.';
+        commitBtn.textContent = label;
+      } finally {
+        commitBtn.disabled = false;
+        setTimeout(() => { commitBtn.textContent = label; }, 2000);
+      }
+    });
+
+    const shell = document.getElementById('admin-shell')!;
+    const focusBtn = $<HTMLButtonElement>('focus-toggle');
+    focusBtn.addEventListener('click', () => {
+      const on = shell.classList.toggle('is-focus');
+      focusBtn.textContent = on ? 'Exit Focus' : 'Focus';
+      focusBtn.setAttribute('aria-pressed', String(on));
+    });
+
+    restore();
+    render();
+  });
+</script>
+
+<style>
+  .je-id { min-width: 0; }
+  .je-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    margin-bottom: var(--space-2);
+  }
+  .je-path { font-size: 11px; margin: 4px 0 6px; display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; }
+  .je-path code { font-family: var(--font-mono); background: var(--color-surface); padding: 1px 5px; }
+  .je-path-note { font-size: 11px; }
+
+  /* The mockup's bento: writing surface left, everything that describes the
+     post right. Focus mode hides the right column outright. */
+  .editor-grid { display: grid; grid-template-columns: 8fr 4fr; gap: var(--space-4); align-items: start; }
+  .editor-col { display: flex; flex-direction: column; gap: var(--space-4); }
+  .editor-side { display: flex; flex-direction: column; gap: var(--space-4); }
+  .editor-title { font-size: 20px; font-family: var(--font-heading); height: 48px; border-left: 3px solid var(--color-accent); }
+
+  /* The tab bar sits directly under the title, so it does not need the shared
+     gap on top of the column's own. */
+  .tab-bar { margin-bottom: 0; }
+  .editor-col .tab-panel { display: flex; flex-direction: column; gap: var(--space-3); }
+  .editor-col .tab-panel[hidden] { display: none; }
+
+  .thumb-frame { aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--color-divider); }
+  .thumb-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .md-toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
+  .md-toolbar .md-btn { font-size: 12px; padding: 4px 10px; font-family: var(--font-mono); }
+  .summary-input { min-height: 56px; }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+  .field-row label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
+  /* Tall, because the panel it sits in no longer shares the column with a
+     preview card — the writing surface gets the whole height. */
+  .editor-body { min-height: 460px; font-family: var(--font-mono); font-size: 13px; }
+
+  .preview-card { min-height: 460px; }
+  .preview-title { margin: 0; }
+  .je-preview-note { margin: 0; }
+
+  .status-help { margin-top: 6px; }
+
+  code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+
+  @media (max-width: 1000px) {
+    .editor-grid { grid-template-columns: 1fr; }
+  }
+</style>
