@@ -13,4 +13,5 @@ highlights:
   - "Built a full CAD workspace with snapping, history management, and precision drafting tools."
   - "Implemented an AutoCAD-style command parser for geometry creation/editing workflows."
   - "Added multi-format export pathways (DXF, SVG, PDF, JSON, and Excel) from the web editor."
+hidden: true
 ---
