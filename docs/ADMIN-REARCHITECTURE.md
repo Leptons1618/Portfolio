@@ -4,8 +4,10 @@ The plan agreed in the design session of 2026-08-17. Four independently
 shippable phases, ordered so every one of them leaves `npm run check` and
 `npm run build` green and the site deployable.
 
-Read `docs/DECISIONS.md` first — this document changes two of the decisions
-recorded there, and says so where it does.
+**All four phases are done.** What each one turned out to mean is recorded
+below; `CHANGELOG.md` has the shipped list and `docs/FEATURES.md` tracks what
+is still missing. Read `docs/DECISIONS.md` first — this document changes two of
+the decisions recorded there, and says so where it does.
 
 ## The decisions this rests on
 
@@ -36,15 +38,23 @@ re-derives them as good ideas.
   `github.ts` stays a single module; `parseRepoUrl` is exported from it so the
   projects screen and the module itself share one parser.
 
-## Target module map
+## Module map, as built
 
 ```
-src/lib/github.ts        sign-in, token, expiry, identity, read/commit/delete
-                                                    ← unchanged shape, one repository
-src/lib/project-store.ts create, patch, remove      ← seam: a project content file
+src/lib/content.ts       every getCollection call             ← the read half
+src/lib/content-store.ts create, patch, remove, scaffold      ← the write half
+src/lib/github.ts        sign-in, token, expiry, identity,
+                         read/commit/delete, repository lists ← one repository
+src/lib/frontmatter.ts   one field, in place, or it refuses
 workers/github-oauth/
-  /token                 code → access token        ← stays thin, stateless
+  /token                 code → access token                  ← thin, stateless
 ```
+
+The planned name was `project-store.ts`. It shipped as **`content-store.ts`**:
+the case-study scaffold and the journal status patch are the same kind of
+write against the same collections, and three modules with one caller each
+would have been three hypothetical seams rather than one real one. Reading is
+`content.ts`, writing is `content-store.ts`, and the symmetry is the point.
 
 ---
 
@@ -109,7 +119,7 @@ fork. Only the fake-write path goes.
 
 ---
 
-## Phase 1 — GitHub App migration
+## Phase 1 — GitHub App migration ✅ **done**
 
 Auth only. Nothing user-visible changes except that the import modal *becomes
 able* to see granted repositories.
@@ -141,22 +151,31 @@ same request shape. This phase is much smaller than it sounds.
 
 ---
 
-## Phase 2 — Projects: import modal, editing, case studies
+## Phase 2 — Projects: import modal, editing, case studies ✅ **done**
 
-Needs Phase 1's repo handle.
+Needed Phase 1's installation data.
 
-### `src/lib/project-store.ts`
+### `src/lib/content-store.ts`
 
 ```ts
-create(fields): Promise<CommitResult>   // new src/content/projects/<slug>.md
-patch(slug, fields): Promise<…>         // via frontmatter.ts, one field at a time
-remove(slug): Promise<…>                // delete the file
+createProject(slug, fields)          // whole file, from a generator
+patchProject(slug, changes, message) // one read, N patches, one commit
+removeProject(slug)                  // delete the file
+createCaseStudy(slug, seed)          // .mdx scaffold, structured fields only
+setPostStatus(slug, status)          // the journal half of Phase 3
+fieldsFromRepo(repo, languages)      // the seven fields GitHub can answer
 ```
 
 `frontmatter.ts` patches **one field in place** and refuses anything it cannot
 do losslessly. That is deliberate and must not grow into a YAML parser — so
-`patch()` loops it per field over a single read-modify-write, and `create()`
-writes a whole file with a generator rather than a patcher.
+`patchProject()` loops it per field over a single read-modify-write, and
+`createProject()` writes a whole file with a generator rather than a patcher.
+
+One thing the plan did not anticipate: `tags`, `stack` and `highlights` are
+*lists*, and the patcher only knew scalars. It gained `setFrontmatterList()`,
+which replaces the items while keeping whichever style the file already used —
+inline for the first two, an indented block for the third. That is still not a
+YAML parser: a block scalar, or a value that is plainly not a list, is refused.
 
 ### Import modal
 
@@ -183,9 +202,9 @@ textarea. One commit on confirm. Every file that lands is schema-valid, so an
 import can never break the build.
 
 Toggling a repo **off** sets `hidden: true` — reversible in one click. Actual
-file deletion stays where it is: the deliberate two-click confirm on the
-project card (`projects.astro:349-382`), plus the same confirm in the modal's
-overflow menu. Delete is never reachable from a fast toggle in a list.
+file deletion stays on the project card, behind its two-click confirm, and was
+deliberately *not* mirrored into the modal: a list of rows with an "Add"
+button next to a delete is exactly where a mis-click costs something.
 
 ### Project and case-study editing
 
@@ -204,9 +223,10 @@ Bodies are edited in git.
 
 ---
 
-## Phase 3 — Journal status enum
+## Phase 3 — Journal status enum ✅ **done**
 
-No new infrastructure. Ships alone, in the current repo.
+No new infrastructure. Shipped alone, in the current repo. Written up as
+decision 10.
 
 Replace `draft: z.boolean().default(false)` with:
 
@@ -231,11 +251,46 @@ needed a store module if drafts lived anywhere but the repo — since they do,
 
 ---
 
+Touched: `config.ts`, `content.ts`, `dashboard.astro`, `journal.astro`, the one
+existing post, and `scripts/check-content.mjs` — which now **requires** the
+field rather than letting the schema default swallow a typo. That check was not
+in the plan and is the part most worth keeping.
+
+---
+
+## Phase 4 — The shell, revisited ✅ **done**
+
+Not in the original plan. Phase 0 fixed *where* the rail sat; it did not stop
+the rail being rebuilt on every click, and at 64px its head still overflowed.
+
+- `src/components/AdminSidebar.astro` — the rail is its own component.
+- `AdminLayout` mounts `<ClientRouter />`; the `<aside>` is `transition:persist`.
+- Collapsed state moved to `data-admin-collapsed` on `<html>`, restored
+  pre-paint and again in `astro:after-swap`.
+- Every admin page script goes through `onAdminPage()`.
+
+The three traps this walked into — page scripts that run once per session,
+`astro:page-load` not firing for the first page, and root attributes being
+wiped on swap — are written up in decision 11. Read that before touching
+anything in the admin shell.
+
+---
+
 ## Order of work
 
 ```
 0  cleanup + shell        ← done
-1  GitHub App             ← no dependencies
-2  projects               ← needs 1
-3  journal status enum    ← no dependencies
+1  GitHub App             ← done
+2  projects               ← done  (needed 1)
+3  journal status enum    ← done
+4  persisted shell        ← done  (added after Phase 0 proved insufficient)
 ```
+
+## What is still missing
+
+`docs/FEATURES.md` is the live list. The one gap worth naming here: **an
+existing journal post cannot be loaded back into the editor.** Its status can
+be changed from the entry list, but editing the body or the metadata of a
+published post still means git. Closing that means parsing a committed
+Markdown file's frontmatter in the browser, which `frontmatter.ts` currently
+only reads one scalar at a time — deliberately.

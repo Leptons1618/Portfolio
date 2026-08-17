@@ -23,7 +23,11 @@ const next = THEMES.find(t => t.id !== DEFAULT_THEME)!;
 
   const button = document.getElementById('theme-toggle')!;
   const label = document.getElementById('theme-toggle-label')!;
-  const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+
+  /* Looked up per call, not once: in the admin this control lives inside the
+     persisted sidebar, and a view transition replaces the whole `<head>` — a
+     reference taken at module scope would point at a detached tag. */
+  const themeColorMeta = () => document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
 
   const isTheme = (value: string | null): value is ThemeId =>
     THEMES.some(t => t.id === value);
@@ -40,6 +44,7 @@ const next = THEMES.find(t => t.id !== DEFAULT_THEME)!;
     if (id === DEFAULT_THEME) delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = id;
 
+    const meta = themeColorMeta();
     if (meta) meta.content = theme.themeColor;
     label.textContent = target.label;
     button.setAttribute('aria-label', `Switch to the ${target.label} theme`);

@@ -3,17 +3,18 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 import { getCaseStudies, getPosts, getProjects } from '../../lib/content';
 import { formatShortDate } from '../../lib/format';
 
-/* The admin sees hidden projects and draft posts; the public site sees neither. */
+/* The admin sees hidden projects and every journal status; the public site
+   sees neither. */
 const projects = await getProjects(true);
 const caseStudies = await getCaseStudies();
-/* The admin surface sees drafts; the public journal pages do not. */
 const journal = await getPosts(true);
 
 const featuredCount = projects.filter(p => p.data.featuredRank !== undefined).length;
 const hiddenCount = projects.filter(p => p.data.hidden).length;
 const linkedCaseStudies = projects.filter(p => p.data.caseStudySlug).length;
-const draftCount = journal.filter(p => p.data.draft).length;
-const latestJournal = journal[0];
+const draftCount = journal.filter(p => p.data.status === 'draft').length;
+const unpublishedCount = journal.filter(p => p.data.status === 'unpublished').length;
+const latestJournal = journal.find(p => p.data.status === 'published');
 
 /* The activity log is the real content stream, newest first — the only
    history a static site actually has. */
@@ -24,20 +25,25 @@ const activity = [
     date: cs.data.date,
     href: `/case-studies/${cs.slug}`,
   })),
-  ...journal.map(entry => ({
-    title: `Journal: ${entry.data.title}`,
-    detail: entry.data.summary,
-    date: entry.data.date,
-    href: `/journal/${entry.slug}`,
-  })),
+  /* Published only: an unpublished post has no page to link to, and a row
+     that 404s is worse than a row that is not there. The Journal screen is
+     where the other two states are managed. */
+  ...journal
+    .filter(entry => entry.data.status === 'published')
+    .map(entry => ({
+      title: `Journal: ${entry.data.title}`,
+      detail: entry.data.summary,
+      date: entry.data.date,
+      href: `/journal/${entry.slug}`,
+    })),
 ]
   .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   .slice(0, 6);
 
 const buildDate = new Date().toISOString().slice(0, 10);
 ---
-<AdminLayout title="Overview" section="dashboard">
-  <div class="admin-head">
+<AdminLayout title="Overview">
+  <div class="admin-head" id="admin-dashboard">
     <div>
       <h1 class="admin-title">Overview</h1>
       <span class="text-muted admin-stamp">content_build · {buildDate}</span>
@@ -69,8 +75,9 @@ const buildDate = new Date().toISOString().slice(0, 10);
       <h2 class="stat-value">{journal.length}</h2>
       <hr class="rule" />
       <span class="text-muted stat-note">
-        {latestJournal ? `latest: ${formatShortDate(latestJournal.data.date)}` : 'none written yet'}
+        {latestJournal ? `latest: ${formatShortDate(latestJournal.data.date)}` : 'none published yet'}
         {draftCount > 0 && ` · ${draftCount} draft${draftCount === 1 ? '' : 's'}`}
+        {unpublishedCount > 0 && ` · ${unpublishedCount} unpublished`}
       </span>
     </div>
   </div>
@@ -106,13 +113,15 @@ const buildDate = new Date().toISOString().slice(0, 10);
 </AdminLayout>
 
 <script>
-  import { ALL_ADMIN_KEYS } from '../../lib/admin';
+  import { ALL_ADMIN_KEYS, onAdminPage } from '../../lib/admin';
 
-  const btn = document.getElementById('clear-drafts') as HTMLButtonElement | null;
-  btn?.addEventListener('click', () => {
-    ALL_ADMIN_KEYS.forEach(key => localStorage.removeItem(key));
-    btn.textContent = 'Cleared ✓';
-    setTimeout(() => { btn.textContent = 'Clear Local Drafts'; }, 1500);
+  onAdminPage('#admin-dashboard', () => {
+    const btn = document.getElementById('clear-drafts') as HTMLButtonElement | null;
+    btn?.addEventListener('click', () => {
+      ALL_ADMIN_KEYS.forEach(key => localStorage.removeItem(key));
+      btn.textContent = 'Cleared ✓';
+      setTimeout(() => { btn.textContent = 'Clear Local Drafts'; }, 1500);
+    });
   });
 </script>
 

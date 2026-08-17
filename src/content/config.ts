@@ -55,8 +55,16 @@ const journal = defineCollection({
     readTime: z.string().optional(),
     videoDuration: z.string().optional(),
     heroImage: z.string().optional(),
-    /* Drafts are authored in the admin editor and kept out of production builds. */
-    draft: z.boolean().default(false),
+    /* One field, three states, so no post can contradict itself:
+         draft       — being written. Visible in `dev` and to the admin, never
+                       in a production build.
+         published   — live.
+         unpublished — was live, has been withdrawn. Out of every listing *and*
+                       out of `getStaticPaths`, so the URL 404s rather than
+                       lingering as an orphan page.
+       The default is the safe one, and `scripts/check-content.mjs` requires the
+       field outright so a hand-authored post cannot fall into it by accident. */
+    status: z.enum(['draft', 'published', 'unpublished']).default('draft'),
   }),
 });
 

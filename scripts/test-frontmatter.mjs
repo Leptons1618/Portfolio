@@ -13,6 +13,7 @@ import {
   readFrontmatterField,
   removeFrontmatterField,
   setFrontmatterField,
+  setFrontmatterList,
 } from '../src/lib/frontmatter.ts';
 
 const FILE = [
@@ -84,6 +85,57 @@ const FILE = [
   assert.throws(() => setFrontmatterField(block, 'summary', 'new'), FrontmatterError);
   assert.throws(() => setFrontmatterField('no frontmatter here', 'year', 1), FrontmatterError);
   assert.throws(() => setFrontmatterField('---\ntitle: "X"\n', 'year', 1), FrontmatterError);
+}
+
+/* Lists keep the style the file already used — the projects collection has
+   both, and the admin edits files it did not write. */
+{
+  const flow = setFrontmatterList(FILE, 'tags', ['cad', 'dxf', 'a "quoted" one']);
+  assert.equal(flow.split('\n')[3], 'tags: ["cad", "dxf", "a \\"quoted\\" one"]');
+  assert.equal(flow.split('\n').length, FILE.split('\n').length, 'flow lists stay one line');
+  assert.ok(flow.includes('year: 2024'), 'neighbouring fields survive');
+}
+
+{
+  const blockList = [
+    '---',
+    'title: "AXCAD"',
+    'highlights:',
+    '  - "one"',
+    '  - "two"',
+    '  - "three"',
+    'year: 2024',
+    '---',
+    '',
+    'Body.',
+    '',
+  ].join('\n');
+
+  const out = setFrontmatterList(blockList, 'highlights', ['first', 'second']);
+  assert.equal(
+    out,
+    ['---', 'title: "AXCAD"', 'highlights:', '  - "first"', '  - "second"', 'year: 2024', '---', '', 'Body.', ''].join('\n'),
+    'the block shrinks in place and nothing around it moves'
+  );
+
+  /* An empty list cannot stay in block form: a bare `highlights:` is null. */
+  assert.ok(setFrontmatterList(blockList, 'highlights', []).includes('highlights: []'));
+  assert.ok(!setFrontmatterList(blockList, 'highlights', []).includes('- "one"'));
+
+  /* A missing key is appended, inline, at the end of the block. */
+  const added = setFrontmatterList(blockList, 'stack', ['TypeScript']);
+  assert.equal(added.split('\n')[7], 'stack: ["TypeScript"]');
+  assert.equal(added.split('\n')[8], '---');
+
+  /* Removing a block list is refused rather than half-done. */
+  assert.throws(() => removeFrontmatterField(blockList, 'highlights'), FrontmatterError);
+}
+
+/* Refuses a value that is not a list rather than replacing it with one. */
+{
+  assert.throws(() => setFrontmatterList(FILE, 'title', ['x']), FrontmatterError);
+  const scalarBlock = ['---', 'summary: |', '  line one', '---', ''].join('\n');
+  assert.throws(() => setFrontmatterList(scalarBlock, 'summary', ['x']), FrontmatterError);
 }
 
 console.log('frontmatter self-test: ok');
