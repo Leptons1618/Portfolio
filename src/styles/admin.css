@@ -373,6 +373,64 @@
 .seg-opt:not(:has(input:checked)):hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
 .seg-opt:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 
+/* — tabs —
+
+   Two screens are long enough that scrolling past one half to reach the other
+   was the whole navigation: the journal editor (write, then preview) and a
+   project's page (its frontmatter, then its case study). Both are one column
+   split in two, not a hierarchy, so a tablist is the right shape.
+
+   `wireTabs()` in `src/lib/admin.ts` is the behaviour; this is the look. The
+   panels hide with the `hidden` attribute, which the rule below has to beat
+   because `.tab-panel` sets a `display`. */
+.tab-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  border-bottom: 2px solid var(--color-divider);
+  margin-bottom: var(--space-4);
+}
+
+.tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 14px;
+  margin-bottom: -2px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.tab:hover { color: var(--color-text); background: color-mix(in srgb, var(--color-accent) 8%, transparent); }
+.tab:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+
+.tab[aria-selected='true'] {
+  color: var(--color-text);
+  border-bottom-color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* A count or a state, riding along on the tab it belongs to. */
+.tab-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid var(--color-divider);
+  color: var(--color-text-faint);
+}
+
+.tab[aria-selected='true'] .tab-badge { border-color: var(--color-accent); color: var(--color-accent-800); }
+
+.tab-panel { display: block; }
+.tab-panel[hidden] { display: none; }
+
 /* — editor live preview — */
 .preview-md h1,
 .preview-md h2,
@@ -398,30 +456,94 @@
    platform's job, so none of them is reimplemented anywhere that uses this.
    Lives here rather than in a page because four surfaces share it now — the
    import list, the project form, the identity modal and the case-study
-   scaffold. */
+   scaffold.
+
+   Three bands, and the split is the point. Scrolling the *whole* dialog took
+   the title, the search field and the commit button off screen the moment the
+   content was taller than the viewport, which on the import list is always:
+   twenty repositories with the close button somewhere above them and the
+   footnote somewhere below. Head and foot are pinned; `.modal-body` is the
+   only part that moves. The padding therefore belongs to the bands rather
+   than to the dialog. */
 .modal {
   width: min(760px, 92vw);
-  max-height: 88dvh;
-  overflow-y: auto;
+  max-height: min(88dvh, 900px);
+  flex-direction: column;
+  overflow: hidden;
   border: 1px solid var(--color-divider);
   border-radius: var(--radius-md);
   background: var(--color-bg);
   color: var(--color-text);
-  padding: var(--space-5);
+  padding: 0;
 }
+
+/* `display` has to be conditional on `[open]`, not set on `.modal`. A closed
+   `<dialog>` is hidden by `dialog:not([open]) { display: none }` in the UA
+   sheet, and *any* author `display` outranks a UA one whatever its
+   specificity — so declaring `flex` unconditionally would leave all three
+   dialogs sitting in the page, open, on first paint. */
+.modal[open] { display: flex; }
 
 .modal-narrow { width: min(560px, 92vw); }
 
 .modal::backdrop { background: color-mix(in srgb, var(--color-neutral-900) 45%, transparent); }
-.modal-close-form { display: flex; justify-content: flex-end; }
-.modal-close { margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0 0; }
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex: none;
+  padding: var(--space-4) var(--space-5);
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-surface);
+}
+
+.modal-head-copy { min-width: 0; }
+
+.modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-5);
+}
+
+/* Only when there is something to put in it — an export-only dialog has no
+   commit button, and an empty band is a line across the bottom. */
+.modal-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  flex: none;
+  padding: var(--space-3) var(--space-5);
+  border-top: 1px solid var(--color-divider);
+  background: var(--color-surface);
+}
+
+.modal-foot-note { margin: 0; font-size: 11px; max-width: 62ch; }
+.modal-close-form { display: flex; justify-content: flex-end; flex: none; }
 .modal-title { font-size: 20px; margin: 0 0 4px; }
-.modal-lede { margin-bottom: var(--space-4); }
-.modal-lede code { font-size: 11px; background: var(--color-surface); padding: 1px 5px; }
+.modal-lede { margin: 0; }
+.modal-lede code { font-size: 11px; background: var(--color-bg); padding: 1px 5px; }
 .modal-controls { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-3); }
 .modal-search { width: 240px; font-size: 13px; padding: 6px 10px; }
+/* Also used outside a dialog: the two editing panels on a project's page close
+   with the same Revert / Commit pair, which is why it keeps its own top gap
+   and the foot band cancels it. */
 .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
-.modal-list { display: flex; flex-direction: column; margin-bottom: var(--space-3); }
+.modal-foot .modal-actions { margin-top: 0; margin-left: auto; }
+.modal-list { display: flex; flex-direction: column; }
+
+/* The dialog's own artwork, quiet enough not to compete with the title it sits
+   beside, and gone as soon as the head is tight for room. */
+.modal-art { width: 120px; flex: none; color: var(--color-accent); }
+
+@media (max-width: 620px) {
+  .modal-art { display: none; }
+  .modal-head, .modal-body, .modal-foot { padding-inline: var(--space-4); }
+}
 
 /* — empty states —
 

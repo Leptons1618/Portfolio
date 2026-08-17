@@ -108,6 +108,62 @@ export function mountAdminErrorBoundary(): void {
  * being left in the console: it means none of this screen's controls got wired
  * up, and the page would otherwise look finished and do nothing.
  */
+/**
+ * Wire an ARIA tablist inside `host`, and answer which tab is showing.
+ *
+ * Two admin screens split a long single column into tabs — the journal editor
+ * (write / preview) and a project's page (frontmatter / case study) — and both
+ * want the same three things: one panel visible, the roving-focus keyboard
+ * behaviour a tablist is supposed to have, and a way to switch tabs from
+ * somewhere else on the page.
+ *
+ * The markup is the contract, so nothing here builds DOM: `host` is the
+ * `[role="tablist"]` element, and each `[role="tab"]` inside it names the panel
+ * it shows through `aria-controls`. Panels are hidden with the `hidden`
+ * attribute rather than a class, so a panel that is not showing is out of the
+ * accessibility tree and its form controls are skipped by sequential focus —
+ * which is why a panel must not also carry a page-scoped class that sets
+ * `display`, since Astro's scoping would then outrank `.tab-panel[hidden]`.
+ *
+ * Called from inside `onAdminPage`, so it re-runs per navigation against the
+ * freshly-swapped DOM. It holds no module state for that reason.
+ */
+export function wireTabs(host: HTMLElement, onSelect?: (id: string) => void) {
+  const tabs = Array.from(host.querySelectorAll<HTMLButtonElement>('[role="tab"]'));
+
+  const select = (id: string) => {
+    tabs.forEach(tab => {
+      const on = tab.getAttribute('aria-controls') === id;
+      tab.setAttribute('aria-selected', String(on));
+      /* Only the selected tab is tabbable — arrow keys move between them, which
+         is what a tablist trades its Tab stops for. */
+      tab.tabIndex = on ? 0 : -1;
+      const panel = document.getElementById(tab.getAttribute('aria-controls')!);
+      if (panel) panel.hidden = !on;
+    });
+    onSelect?.(id);
+  };
+
+  tabs.forEach((tab, index) => {
+    tab.addEventListener('click', () => select(tab.getAttribute('aria-controls')!));
+    tab.addEventListener('keydown', event => {
+      const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
+      if (!step) return;
+      event.preventDefault();
+      const next = tabs[(index + step + tabs.length) % tabs.length];
+      next.focus();
+      select(next.getAttribute('aria-controls')!);
+    });
+  });
+
+  /* Whatever the server marked selected wins the first paint, so the panel the
+     page wants open does not depend on this running. */
+  const initial = tabs.find(tab => tab.getAttribute('aria-selected') === 'true') ?? tabs[0];
+  if (initial) select(initial.getAttribute('aria-controls')!);
+
+  return { select, current: () => tabs.find(tab => tab.getAttribute('aria-selected') === 'true')?.getAttribute('aria-controls') ?? null };
+}
+
 export function onAdminPage(rootSelector: string, init: () => void): void {
   let initialised: Element | null = null;
 

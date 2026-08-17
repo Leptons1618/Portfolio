@@ -31,77 +31,80 @@ const defaults = {
 };
 ---
 <dialog class="modal modal-narrow" id="settings-modal" aria-labelledby="settings-title">
-  <form method="dialog" class="modal-close-form">
-    <button class="btn btn-icon modal-close" value="cancel" aria-label="Close">
-      <Icon name="lucide:x" class="admin-nav-icon" />
-    </button>
-  </form>
-
-  <div class="settings-head">
-    <div>
+  <div class="modal-head">
+    <div class="modal-head-copy">
       <h6 class="admin-eyebrow-mono">MODULE: IDENTITY</h6>
       <h2 class="modal-title" id="settings-title">Site Identity</h2>
       <p class="text-muted admin-note modal-lede">
         The name, role and links every public page reads from <code>src/lib/site.ts</code>.
       </p>
     </div>
-    <div class="settings-art"><Illustration name="personal-settings" /></div>
+    <div class="modal-art settings-art"><Illustration name="personal-settings" /></div>
+    <form method="dialog" class="modal-close-form">
+      <button class="btn btn-icon" value="cancel" aria-label="Close">
+        <Icon name="lucide:x" class="admin-nav-icon" />
+      </button>
+    </form>
   </div>
 
-  <div class="field">
-    <label for="s-name">Name</label>
-    <input class="input" id="s-name" value={defaults.name} />
-  </div>
-  <div class="field">
-    <label for="s-role">Role</label>
-    <input class="input" id="s-role" value={defaults.role} />
-  </div>
-  <div class="field">
-    <label for="s-bio">Bio</label>
-    <textarea class="input settings-bio" id="s-bio">{defaults.bio}</textarea>
-  </div>
-  <div class="settings-pair">
+  <div class="modal-body">
     <div class="field">
-      <label for="s-github">GitHub</label>
-      <input class="input" id="s-github" value={defaults.github} />
+      <label for="s-name">Name</label>
+      <input class="input" id="s-name" value={defaults.name} />
     </div>
     <div class="field">
-      <label for="s-linkedin">LinkedIn</label>
-      <input class="input" id="s-linkedin" value={defaults.linkedin} />
+      <label for="s-role">Role</label>
+      <input class="input" id="s-role" value={defaults.role} />
+    </div>
+    <div class="field">
+      <label for="s-bio">Bio</label>
+      <textarea class="input settings-bio" id="s-bio">{defaults.bio}</textarea>
+    </div>
+    <div class="settings-pair">
+      <div class="field">
+        <label for="s-github">GitHub</label>
+        <input class="input" id="s-github" value={defaults.github} />
+      </div>
+      <div class="field">
+        <label for="s-linkedin">LinkedIn</label>
+        <input class="input" id="s-linkedin" value={defaults.linkedin} />
+      </div>
+    </div>
+    <div class="field">
+      <label for="s-email">Email</label>
+      <input class="input" id="s-email" value={defaults.email} />
+    </div>
+
+    <hr class="rule settings-rule" />
+
+    <h6 class="admin-eyebrow">Theme</h6>
+    <div class="seg" role="group" aria-label="Theme">
+      {THEMES.map(theme => (
+        <label class="seg-opt"><input type="radio" name="settings-theme" value={theme.id} />{theme.label}</label>
+      ))}
+    </div>
+    <p class="text-muted admin-note settings-theme-note">
+      Stored in this browser and applied everywhere, public pages included. The same
+      switch as the one in the rail.
+    </p>
+
+    <p class="admin-note settings-message" id="settings-message"></p>
+  </div>
+
+  {/* Pinned, because the sentence next to the buttons is the one thing about
+      this dialog that surprises people: nothing here is a commit. */}
+  <div class="modal-foot">
+    <p class="text-muted modal-foot-note">
+      Export only, on purpose: these values have to be merged into
+      <code>src/lib/site.ts</code> by hand.
+    </p>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary" id="export-settings">
+        <Icon name="lucide:download" class="admin-nav-icon" />Export JSON
+      </button>
+      <button type="button" class="btn btn-primary" id="save-settings">Save to this browser</button>
     </div>
   </div>
-  <div class="field">
-    <label for="s-email">Email</label>
-    <input class="input" id="s-email" value={defaults.email} />
-  </div>
-
-  <hr class="rule settings-rule" />
-
-  <h6 class="admin-eyebrow">Theme</h6>
-  <div class="seg" role="group" aria-label="Theme">
-    {THEMES.map(theme => (
-      <label class="seg-opt"><input type="radio" name="settings-theme" value={theme.id} />{theme.label}</label>
-    ))}
-  </div>
-  <p class="text-muted admin-note settings-theme-note">
-    Stored in this browser and applied everywhere, public pages included. The same
-    switch as the one in the rail.
-  </p>
-
-  <p class="admin-note settings-message" id="settings-message"></p>
-
-  <div class="modal-actions">
-    <button type="button" class="btn btn-secondary" id="export-settings">
-      <Icon name="lucide:download" class="admin-nav-icon" />Export JSON
-    </button>
-    <button type="button" class="btn btn-primary" id="save-settings">Save to this browser</button>
-  </div>
-
-  <p class="text-muted admin-note">
-    Export only, on purpose: these values have to be merged into
-    <code>src/lib/site.ts</code> by hand, so committing the JSON verbatim would drop
-    a file into the repository that nothing reads.
-  </p>
 </dialog>
 
 <script>
@@ -206,9 +209,9 @@ const defaults = {
 </script>
 
 <style>
-  .settings-head { display: flex; align-items: flex-start; gap: var(--space-4); }
-  .settings-head > div:first-child { min-width: 0; }
-  .settings-art { width: 140px; flex: none; color: var(--color-accent); }
+  /* Narrower than `.modal-art`'s default: this dialog is the narrow variant,
+     and at 120px the illustration crowded the lede into two words a line. */
+  .settings-art { width: 96px; }
   .settings-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
   .settings-bio { min-height: 76px; }
   .settings-rule { margin: var(--space-4) 0; }
@@ -217,7 +220,6 @@ const defaults = {
   .settings-message[data-tone='error'] { color: var(--color-accent-700); }
 
   @media (max-width: 560px) {
-    .settings-art { display: none; }
     .settings-pair { grid-template-columns: 1fr; }
   }
 </style>

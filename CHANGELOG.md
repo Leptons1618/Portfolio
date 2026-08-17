@@ -14,6 +14,18 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **A page per journal entry.** `/admin/journal` is now a manifest — every
+  entry whatever its status, search, filter, the status menu and delete — with
+  one primary action, **Create journal entry**. Writing happens at
+  `/admin/journal/new` and `/admin/journal/<slug>`, which render the same
+  `JournalEditor.astro`. Which post is open is the URL rather than a JavaScript
+  variable, so nothing has to be kept in sync with it. See decision 13.
+- **Write and Preview are tabs** in the journal editor, and **Frontmatter** and
+  **Case study** are tabs on `/admin/projects/<slug>` — both were one very long
+  column with the second half below the fold. `wireTabs()` in
+  `src/lib/admin.ts` is the shared behaviour: ARIA tablist, arrow-key roving
+  focus, panels hidden with the `hidden` attribute so their form controls leave
+  the focus order. `#case-study` in the URL opens a project's second tab.
 - **A page per project: `/admin/projects/<slug>`.** Every frontmatter field
   with room to read it, the repository's live state beside them, a danger zone,
   and — new — **the linked case study's structured fields, editable in place**.
@@ -87,6 +99,27 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   script now needs.
 - `docs/FEATURES.md` and this file.
 
+### Fixed
+
+- **The import dialog's repository rows rendered unstyled.** Every one is built
+  with `createElement`, so none of them carries the page's `data-astro-cid` and
+  the scoped `.repo-*` rules matched nothing at all — the rows came out as
+  stacked divs with the action below the name instead of beside it. They are
+  `#import-list :global(.repo-…)` now, hung off a server-rendered ancestor,
+  which is the same seam the resume editor's generated fields already used.
+- **`npm run dev` failed to scan for dependencies.** Three `.astro` files
+  spelled `<script>` literally inside a frontmatter comment; Vite's esbuild
+  dependency scanner regex-matches that tag in the *raw* source, comments
+  included, and handed the surrounding markup to esbuild as JavaScript. The
+  build was unaffected, which is why it went unnoticed.
+- Dialogs scrolled as a whole, which took the title, the search field and the
+  commit button off screen exactly when the content was long enough to need
+  them. `.modal` is three bands now — a pinned head, a scrolling `.modal-body`,
+  a pinned foot.
+- The rail marked no current section on `/admin/projects/<slug>`: the
+  server-side match was a prefix and the client-side one, which replaces it
+  after every transition, was an equality.
+
 ### Changed
 
 - **Site identity is a dialog, not a screen.** `/admin/settings` is gone; the
@@ -133,6 +166,12 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Removed
 
+- The journal editor's `setEditing()`, `resetEditor()`, `openEntry()`, its
+  **New entry** escape button and the `is-editing` row highlight. The URL says
+  which post is open, so there is nothing left for any of them to do.
+- The journal editor's copy of the entries list. It lives on the manifest,
+  which means committing a status no longer reaches into a prerendered row the
+  editor happens to be standing beside.
 - `src/pages/admin/settings.astro`. It is the identity modal now, reachable
   from every screen instead of being one.
 - **Settings** as a sidebar destination. Four nav entries, all of which write.

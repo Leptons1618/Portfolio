@@ -27,7 +27,10 @@ const rows = projects.map(project => {
 
 /* The edit form prefills from the real frontmatter rather than from what the
    card happens to display, so a field the card never shows still round-trips.
-   `<` is escaped because this lands inside a `<script>` element. */
+   `<` is escaped because this lands inside a script element — and note that
+   the tag is spelled out in prose rather than written literally: Vite's
+   dependency scanner regex-matches `<script …>` in the *raw* `.astro` source,
+   comments included, and hands whatever follows to esbuild as JavaScript. */
 const seed = {
   projects: Object.fromEntries(
     rows.map(row => [row.slug, row.data as ProjectFields])
@@ -211,49 +214,60 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       sign-in was a GitHub App: the installation says what this session may
       actually write to, the public listing says what else exists. */}
   <dialog class="modal" id="import-modal" aria-labelledby="import-title">
-    <form method="dialog" class="modal-close-form">
-      <button class="btn btn-icon modal-close" value="cancel" aria-label="Close">
-        <Icon name="lucide:x" class="admin-nav-icon" />
-      </button>
-    </form>
-
-    <h2 class="modal-title" id="import-title">Import from GitHub</h2>
-    <p class="text-muted admin-note modal-lede" id="import-status">Loading repositories…</p>
-
-    <div class="modal-controls">
-      <input
-        class="input modal-search"
-        id="import-search"
-        type="search"
-        placeholder="Search repositories…"
-        aria-label="Search repositories"
-      />
-      <div class="seg" role="group" aria-label="Filter repositories">
-        <label class="seg-opt"><input type="radio" name="import-filter" value="all" checked />All</label>
-        <label class="seg-opt"><input type="radio" name="import-filter" value="imported" />In portfolio</label>
-        <label class="seg-opt"><input type="radio" name="import-filter" value="granted" />Granted</label>
-        <label class="seg-opt"><input type="radio" name="import-filter" value="ungranted" />Not granted</label>
+    {/* Head and foot are pinned by `.modal`; the repository list is the band
+        that scrolls. With twenty-odd rows, scrolling the whole dialog put the
+        search field out of reach exactly when it was needed. */}
+    <div class="modal-head">
+      <div class="modal-head-copy">
+        <h6 class="admin-eyebrow-mono">MODULE: IMPORT</h6>
+        <h2 class="modal-title" id="import-title">Import from GitHub</h2>
+        <p class="text-muted admin-note modal-lede" id="import-status">Loading repositories…</p>
       </div>
+      <form method="dialog" class="modal-close-form">
+        <button class="btn btn-icon" value="cancel" aria-label="Close">
+          <Icon name="lucide:x" class="admin-nav-icon" />
+        </button>
+      </form>
     </div>
 
-    <div class="modal-list" id="import-list"></div>
-
-    <template id="import-empty">
-      <div class="admin-empty">
-        <div class="admin-empty-art admin-empty-art-sm"><Illustration name="empty-mailbox" /></div>
-        <p class="admin-empty-copy">
-          No repository matches that search and filter. "Not granted" hides everything the
-          App can already write to — try All.
-        </p>
+    <div class="modal-body">
+      <div class="modal-controls">
+        <input
+          class="input modal-search"
+          id="import-search"
+          type="search"
+          placeholder="Search repositories…"
+          aria-label="Search repositories"
+        />
+        <div class="seg" role="group" aria-label="Filter repositories">
+          <label class="seg-opt"><input type="radio" name="import-filter" value="all" checked />All</label>
+          <label class="seg-opt"><input type="radio" name="import-filter" value="imported" />In portfolio</label>
+          <label class="seg-opt"><input type="radio" name="import-filter" value="granted" />Granted</label>
+          <label class="seg-opt"><input type="radio" name="import-filter" value="ungranted" />Not granted</label>
+        </div>
       </div>
-    </template>
 
-    <p class="text-muted admin-note">
-      "Granted" means the GitHub App is installed on that repository, so this session can
-      write to it. Anything else needs
-      <a href="https://github.com/settings/installations" target="_blank" rel="noopener">the App's
-      repository access</a> widening first.
-    </p>
+      <div class="modal-list" id="import-list"></div>
+
+      <template id="import-empty">
+        <div class="admin-empty">
+          <div class="admin-empty-art admin-empty-art-sm"><Illustration name="empty-mailbox" /></div>
+          <p class="admin-empty-copy">
+            No repository matches that search and filter. "Not granted" hides everything the
+            App can already write to — try All.
+          </p>
+        </div>
+      </template>
+    </div>
+
+    <div class="modal-foot">
+      <p class="text-muted modal-foot-note">
+        "Granted" means the GitHub App is installed on that repository, so this session can
+        write to it. Anything else needs
+        <a href="https://github.com/settings/installations" target="_blank" rel="noopener">the App's
+        repository access</a> widening first.
+      </p>
+    </div>
   </dialog>
 
   {/* — import form —
@@ -264,90 +278,98 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       project that already exists is `/admin/projects/<slug>`, which has room
       for the case study too. */}
   <dialog class="modal" id="project-modal" aria-labelledby="project-form-title">
-    <form method="dialog" class="modal-close-form">
-      <button class="btn btn-icon modal-close" value="cancel" aria-label="Close">
-        <Icon name="lucide:x" class="admin-nav-icon" />
-      </button>
-    </form>
-
-    <h2 class="modal-title" id="project-form-title">Import project</h2>
-    <p class="text-muted admin-note modal-lede">
-      Writes <code id="pf-path">src/content/projects/…</code>. Fields left blank are
-      removed from the frontmatter when they are optional.
-    </p>
-
-    <div class="pf-grid">
-      <div class="field pf-wide">
-        <label for="pf-title">Title</label>
-        <input class="input" id="pf-title" />
-      </div>
-      <div class="field pf-wide">
-        <label for="pf-summary">Summary</label>
-        <textarea class="input pf-summary" id="pf-summary"></textarea>
-      </div>
-      <div class="field">
-        <label for="pf-category">Category</label>
-        <select class="input" id="pf-category">
-          {PROJECT_CATEGORIES.map(([value, label]) => <option value={value}>{label}</option>)}
-        </select>
-      </div>
-      <div class="field">
-        <label for="pf-status">Status</label>
-        <select class="input" id="pf-status">
-          {PROJECT_STATUSES.map(([value, label]) => <option value={value}>{label}</option>)}
-        </select>
-      </div>
-      <div class="field">
-        <label for="pf-year">Year</label>
-        <input class="input" id="pf-year" type="number" min="1990" max="2100" />
-      </div>
-      <div class="field">
-        <label for="pf-rank">Featured rank (blank = not featured)</label>
-        <input class="input" id="pf-rank" type="number" min="1" max="99" />
-      </div>
-      <div class="field pf-wide">
-        <label for="pf-tags">Tags (comma separated)</label>
-        <input class="input" id="pf-tags" />
-      </div>
-      <div class="field pf-wide">
-        <label for="pf-stack">Stack (comma separated)</label>
-        <input class="input" id="pf-stack" />
-      </div>
-      <div class="field pf-wide">
-        <label for="pf-repo">Repository URL</label>
-        <input class="input" id="pf-repo" />
-      </div>
-      <div class="field pf-wide">
-        <label for="pf-demo">Demo URL (optional)</label>
-        <input class="input" id="pf-demo" />
-      </div>
-      <div class="field pf-wide">
-        <label for="pf-hero">Hero image (optional)</label>
-        <input class="input" id="pf-hero" placeholder="/images/project.jpg" />
-      </div>
-      <div class="field pf-wide">
-        <label for="pf-highlights">Highlights (one per line)</label>
-        <textarea class="input pf-highlights" id="pf-highlights"></textarea>
-      </div>
-      <div class="field pf-wide">
-        <label for="pf-case">Case study</label>
-        <select class="input" id="pf-case">
-          <option value="">— none —</option>
-          {caseStudies.map(entry => <option value={entry.slug}>{entry.data.title} ({entry.slug})</option>)}
-          <option value="__new__">+ scaffold a new case study from this project</option>
-        </select>
-        <p class="text-muted admin-note">
-          Scaffolding writes <code>src/content/case-studies/&lt;slug&gt;.mdx</code> with the
-          structured fields filled in and a placeholder body. Bodies are written in git.
+    <div class="modal-head">
+      <div class="modal-head-copy">
+        <h6 class="admin-eyebrow-mono">MODULE: IMPORT_FORM</h6>
+        <h2 class="modal-title" id="project-form-title">Import project</h2>
+        <p class="text-muted admin-note modal-lede">
+          Writes <code id="pf-path">src/content/projects/…</code>. Fields left blank are
+          removed from the frontmatter when they are optional.
         </p>
       </div>
+      <form method="dialog" class="modal-close-form">
+        <button class="btn btn-icon" value="cancel" aria-label="Close">
+          <Icon name="lucide:x" class="admin-nav-icon" />
+        </button>
+      </form>
     </div>
 
-    <p class="admin-note pf-message" id="pf-message"></p>
+    <div class="modal-body">
+      <div class="pf-grid">
+        <div class="field pf-wide">
+          <label for="pf-title">Title</label>
+          <input class="input" id="pf-title" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-summary">Summary</label>
+          <textarea class="input pf-summary" id="pf-summary"></textarea>
+        </div>
+        <div class="field">
+          <label for="pf-category">Category</label>
+          <select class="input" id="pf-category">
+            {PROJECT_CATEGORIES.map(([value, label]) => <option value={value}>{label}</option>)}
+          </select>
+        </div>
+        <div class="field">
+          <label for="pf-status">Status</label>
+          <select class="input" id="pf-status">
+            {PROJECT_STATUSES.map(([value, label]) => <option value={value}>{label}</option>)}
+          </select>
+        </div>
+        <div class="field">
+          <label for="pf-year">Year</label>
+          <input class="input" id="pf-year" type="number" min="1990" max="2100" />
+        </div>
+        <div class="field">
+          <label for="pf-rank">Featured rank (blank = not featured)</label>
+          <input class="input" id="pf-rank" type="number" min="1" max="99" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-tags">Tags (comma separated)</label>
+          <input class="input" id="pf-tags" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-stack">Stack (comma separated)</label>
+          <input class="input" id="pf-stack" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-repo">Repository URL</label>
+          <input class="input" id="pf-repo" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-demo">Demo URL (optional)</label>
+          <input class="input" id="pf-demo" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-hero">Hero image (optional)</label>
+          <input class="input" id="pf-hero" placeholder="/images/project.jpg" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-highlights">Highlights (one per line)</label>
+          <textarea class="input pf-highlights" id="pf-highlights"></textarea>
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-case">Case study</label>
+          <select class="input" id="pf-case">
+            <option value="">— none —</option>
+            {caseStudies.map(entry => <option value={entry.slug}>{entry.data.title} ({entry.slug})</option>)}
+            <option value="__new__">+ scaffold a new case study from this project</option>
+          </select>
+          <p class="text-muted admin-note">
+            Scaffolding writes <code>src/content/case-studies/&lt;slug&gt;.mdx</code> with the
+            structured fields filled in and a placeholder body. Bodies are written in git.
+          </p>
+        </div>
+      </div>
 
-    <div class="modal-actions">
-      <form method="dialog"><button class="btn btn-secondary" value="cancel">Cancel</button></form>
-      <button type="button" class="btn btn-primary" id="pf-save">Create project</button>
+      <p class="admin-note pf-message" id="pf-message"></p>
+    </div>
+
+    <div class="modal-foot">
+      <div class="modal-actions">
+        <form method="dialog"><button class="btn btn-secondary" value="cancel">Cancel</button></form>
+        <button type="button" class="btn btn-primary" id="pf-save">Create project</button>
+      </div>
     </div>
   </dialog>
 
@@ -973,35 +995,44 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
      in `admin.css` — this screen shares every one of them with a project's own
      page. What is left here is this screen's own layout. */
 
-  .repo-row {
+  /* — import rows —
+
+     Every one of these is built by `repoRow()` with `createElement`, so none of
+     the nodes carries this page's `data-astro-cid` and a plain scoped selector
+     would silently match nothing — the rows rendered as unstyled stacked divs,
+     which is what "the import dialog looks broken" was. `:global()` under
+     `#import-list`, which *is* server-rendered and does carry the attribute, is
+     the same seam the resume editor's generated fields use. Anything added to
+     `repoRow()` has to be declared through this door too. */
+  #import-list :global(.repo-row) {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: var(--space-3);
+    gap: var(--space-2) var(--space-3);
     padding: var(--space-3) 0;
     border-bottom: 1px solid var(--color-divider);
   }
-  .repo-row:last-child { border-bottom: 0; }
-  .repo-id { min-width: 0; }
-  .repo-name { font-weight: 600; font-size: 14px; }
-  .repo-badges { display: inline-flex; gap: 6px; margin-left: var(--space-2); flex-wrap: wrap; }
-  .repo-desc { font-size: 12px; margin: 4px 0 0; }
-  .repo-action { display: flex; align-items: center; gap: var(--space-2); flex: none; }
-  .repo-line { grid-column: 1 / -1; }
-  .repo-line:empty { display: none; }
-  .repo-line[data-tone='error'] { color: var(--color-accent-700); }
+  #import-list :global(.repo-row:last-child) { border-bottom: 0; }
+  #import-list :global(.repo-id) { min-width: 0; }
+  #import-list :global(.repo-name) { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+  #import-list :global(.repo-badges) { display: inline-flex; gap: 6px; margin-left: var(--space-2); flex-wrap: wrap; }
+  #import-list :global(.repo-desc) { font-size: 12px; margin: 4px 0 0; }
+  #import-list :global(.repo-action) { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+  #import-list :global(.repo-line) { grid-column: 1 / -1; margin: 0; }
+  #import-list :global(.repo-line:empty) { display: none; }
+  #import-list :global(.repo-line[data-tone='error']) { color: var(--color-accent-700); }
 
   /* State reads off the row, so the row builder sets one attribute rather than
      picking between three global tag variants. */
-  .repo-row[data-state='imported'] .repo-flag {
+  #import-list :global(.repo-row[data-state='imported'] .repo-flag) {
     background: var(--color-accent-2-100);
     color: var(--color-accent-2-800);
   }
-  .repo-row[data-state='granted'] .repo-flag {
+  #import-list :global(.repo-row[data-state='granted'] .repo-flag) {
     background: var(--color-accent-100);
     color: var(--color-accent-800);
   }
-  .repo-row[data-state='ungranted'] .repo-flag {
+  #import-list :global(.repo-row[data-state='ungranted'] .repo-flag) {
     background: var(--color-neutral-100);
     color: var(--color-neutral-800);
   }
@@ -1011,6 +1042,6 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
   }
   @media (max-width: 640px) {
     .pm-fields { grid-template-columns: 1fr; }
-    .repo-row { grid-template-columns: 1fr; }
+    #import-list :global(.repo-row) { grid-template-columns: minmax(0, 1fr); }
   }
 </style>

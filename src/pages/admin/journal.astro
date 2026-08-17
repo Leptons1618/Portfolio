@@ -1,629 +1,207 @@
 ---
+/**
+ * The journal manifest: every entry, whatever its status, and the one button
+ * that starts a new one.
+ *
+ * This screen used to be an editor with a list bolted underneath it, which
+ * meant the answer to "which file does Commit write" lived in a JavaScript
+ * variable and had to be mirrored into the heading, the filename line and a
+ * highlighted row. Writing is now `/admin/journal/new` and
+ * `/admin/journal/<slug>`, so the URL answers it and this screen has one job:
+ * say what exists and move a post between states.
+ *
+ * The three statuses meet here, and that is why the state is one enum in the
+ * file rather than a flag in the frontmatter and a draft store somewhere else:
+ * `getPosts(true)` already returned everything, so filtering is one predicate
+ * and moving a post between states is one frontmatter patch on a file this
+ * screen never had to parse.
+ */
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import Illustration from '../../components/Illustration.astro';
 import { Icon } from 'astro-icon/components';
 import { getPosts } from '../../lib/content';
 import { formatShortDate } from '../../lib/format';
-import { POST_STATUSES, type PostFields } from '../../lib/content-store';
+import { POST_STATUSES } from '../../lib/content-store';
 
 /* Every status, including the two the public site never renders — managing
    them is what this screen exists for. */
 const existing = await getPosts(true);
-const today = new Date().toISOString().slice(0, 10);
 
-/* Frontmatter *and* body for every post, so opening one for editing is a local
-   read rather than a round trip to GitHub — which also means it works signed
-   out, and that the editor is prefilled from exactly what the last build saw.
-   The commit path still reads the file first, for the SHA. */
-const seed = Object.fromEntries(
-  existing.map(entry => [
-    entry.slug,
-    {
-      fields: {
-        title: entry.data.title,
-        summary: entry.data.summary,
-        date: entry.data.date,
-        tags: entry.data.tags,
-        readTime: entry.data.readTime,
-        videoDuration: entry.data.videoDuration,
-        heroImage: entry.data.heroImage,
-        status: entry.data.status,
-      } satisfies PostFields,
-      body: entry.body,
-    },
-  ])
-);
-const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
+const counts = {
+  draft: existing.filter(entry => entry.data.status === 'draft').length,
+  published: existing.filter(entry => entry.data.status === 'published').length,
+  unpublished: existing.filter(entry => entry.data.status === 'unpublished').length,
+};
 ---
-<AdminLayout title="Journal Editor">
-  <div class="admin-head" id="admin-journal">
-    <div>
-      <h6 class="admin-eyebrow-mono" id="editor-mode">MODULE: NEW_ENTRY</h6>
-      <h1 class="admin-title-sm" id="editor-heading">Create New Journal Entry</h1>
-      <span class="text-muted admin-stamp" id="save-stamp">Draft mode. Not saved yet.</span>
-    </div>
-    <div class="admin-actions">
-      {/* Only shown while an existing post is open — it is the way back out of
-          editing, and offering it on a blank editor would be a no-op button. */}
-      <button type="button" class="btn btn-secondary" id="new-entry" hidden>
-        <Icon name="lucide:file-plus-2" class="admin-nav-icon" />New entry
-      </button>
-      <button type="button" class="btn btn-secondary" id="focus-toggle">Focus</button>
-      <button type="button" class="btn btn-secondary" id="save-draft">Save Draft</button>
-      <button type="button" class="btn btn-secondary" id="export-md">Export .md</button>
-      <button type="button" class="btn btn-primary" id="commit-md">Commit to GitHub</button>
-    </div>
-  </div>
-
-  <div class="editor-grid">
-    <div class="editor-col">
-      <input class="input editor-title" id="f-title" placeholder="Post Title..." />
-
-      <div class="md-toolbar" role="toolbar" aria-label="Markdown formatting">
-        <button type="button" class="btn btn-secondary md-btn" data-before="**" data-after="**" title="Bold"><strong>B</strong></button>
-        <button type="button" class="btn btn-secondary md-btn" data-before="*" data-after="*" title="Italic"><em>I</em></button>
-        <button type="button" class="btn btn-secondary md-btn" data-before="`" data-after="`" title="Inline code">&lt;/&gt;</button>
-        <button type="button" class="btn btn-secondary md-btn" data-before="[" data-after="](https://)" title="Link">link</button>
-        <button type="button" class="btn btn-secondary md-btn" data-before="![" data-after="](/images/)" title="Image">image</button>
-      </div>
-      <textarea class="input editor-body" id="f-body" placeholder="Write your post description using Markdown..."></textarea>
-
-      <div class="focus-hide">
-        <h6 class="admin-eyebrow preview-heading">Live Preview</h6>
-        <div class="card elev-md preview-card">
-          <h3 class="preview-title" id="preview-title">Post Title...</h3>
-          <div class="preview-md" id="preview-body"></div>
-        </div>
-      </div>
-    </div>
-
-    <aside class="editor-side focus-hide">
-      <div class="card elev-sm">
-        <h6 class="admin-eyebrow">Metadata</h6>
-        <div class="field">
-          <label for="f-summary">Summary</label>
-          <textarea class="input summary-input" id="f-summary" placeholder="One line for the card and the meta description."></textarea>
-        </div>
-        <div class="field">
-          <label for="f-date">Publish Date</label>
-          <input class="input" type="date" id="f-date" value={today} />
-        </div>
-        <div class="field">
-          <label for="f-tags">Tags (comma separated)</label>
-          <input class="input" id="f-tags" placeholder="e.g. Design Systems, Astro" />
-        </div>
-        <div class="field field-row">
-          <div>
-            <label for="f-readtime">Read time</label>
-            <input class="input" id="f-readtime" placeholder="5 min" />
-          </div>
-          <div>
-            <label for="f-duration">Video duration</label>
-            <input class="input" id="f-duration" placeholder="14:23" />
-          </div>
-        </div>
-        <div class="field">
-          <label>Status</label>
-          <div class="seg">
-            {POST_STATUSES.map(([value, label]) => (
-              <label class="seg-opt">
-                <input type="radio" name="status" value={value} checked={value === 'draft'} />{label}
-              </label>
-            ))}
-          </div>
-          <p class="text-muted admin-note status-help" id="status-help"></p>
-        </div>
-        <p class="text-muted admin-note">
-          Filename: <code id="f-slug">untitled.md</code>
+<AdminLayout title="Journal">
+  <div class="admin-main-wide" id="admin-journal">
+    <div class="admin-head">
+      <div>
+        <h6 class="admin-eyebrow-mono">MODULE: JOURNAL</h6>
+        <h1 class="admin-title">Journal</h1>
+        <p class="jl-desc">
+          Everything in <code>src/content/journal/</code>, drafts and withdrawn posts
+          included. <strong>Edit</strong> opens an entry on its own page; a status change
+          is its own commit from the row menu.
         </p>
       </div>
-
-      <div class="card elev-sm">
-        <h6 class="admin-eyebrow">Thumbnail</h6>
-        <div class="field">
-          <label for="f-hero">Featured image</label>
-          <input class="input" id="f-hero" placeholder="/images/post.jpg or https://…" />
-        </div>
-        <div class="thumb-frame" id="thumb-frame" hidden>
-          <img id="thumb-preview" alt="" />
-        </div>
-        <p class="text-muted admin-note">
-          A path under <code>public/</code>, or an absolute URL. There is no upload here —
-          the file has to be in the repository for the build to find it.
-        </p>
-      </div>
-    </aside>
-  </div>
-
-  <section class="focus-hide existing">
-    <div class="existing-head">
-      <h6 class="admin-eyebrow">Existing Entries ({existing.length})</h6>
-      {existing.length > 0 && (
-        <div class="existing-filters">
-          <input
-            class="input entry-search"
-            id="entry-search"
-            type="search"
-            placeholder="Search titles…"
-            aria-label="Search journal entries"
-          />
-          <div class="seg" role="group" aria-label="Filter entries by status">
-            <label class="seg-opt"><input type="radio" name="entry-filter" value="all" checked />All</label>
-            {POST_STATUSES.map(([value, label]) => (
-              <label class="seg-opt"><input type="radio" name="entry-filter" value={value} />{label}</label>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-
-    <div class="card elev-sm existing-card">
-      {existing.map(entry => (
-        <div
-          class="existing-row"
-          data-slug={entry.slug}
-          data-status={entry.data.status}
-          data-search={entry.data.title.toLowerCase()}
-        >
-          <div class="existing-id">
-            <span class="cell-strong">{entry.data.title}</span>
-            {/* Colour comes from the row's `data-status` in this page's
-                stylesheet, so the script only has to rewrite one attribute
-                and one word when a status changes. */}
-            <span class="tag entry-flag" data-role="flag">{entry.data.status}</span>
-          </div>
-          <span class="text-muted cell-mono existing-date">{formatShortDate(entry.data.date)}</span>
-
-          <button type="button" class="btn btn-secondary btn-sm" data-action="edit">
-            <Icon name="lucide:pencil" class="admin-nav-icon" />Edit
-          </button>
-
-          {/* Everything else this row can do, behind one control. A `<details>`
-              rather than a scripted popover: the open/close, the button
-              semantics and the click-outside-to-close are all things the
-              element does for free once the row closes its siblings. */}
-          <details class="menu entry-menu">
-            <summary
-              class="btn btn-icon btn-sm"
-              role="button"
-              aria-haspopup="menu"
-              aria-label={`More actions for ${entry.data.title}`}
-              title="More actions"
-            >
-              <Icon name="lucide:ellipsis-vertical" class="admin-nav-icon" />
-            </summary>
-            <div class="menu-panel" role="menu">
-              <span class="menu-label">Status</span>
-              {POST_STATUSES.map(([value, label]) => (
-                <button
-                  type="button"
-                  class="menu-item"
-                  role="menuitemradio"
-                  data-status={value}
-                  aria-checked={value === entry.data.status ? 'true' : 'false'}
-                  aria-current={value === entry.data.status ? 'true' : undefined}
-                >{label}</button>
-              ))}
-              <hr class="menu-sep" />
-              {/* Unpublished posts leave `getStaticPaths`, so there is no page
-                  to open — a disabled row saying why beats a link that 404s. */}
-              {entry.data.status === 'unpublished' ? (
-                <button type="button" class="menu-item" role="menuitem" disabled>No public page</button>
-              ) : (
-                <a class="menu-item" role="menuitem" href={`/journal/${entry.slug}`} target="_blank" rel="noopener">
-                  <Icon name="lucide:external-link" class="admin-nav-icon" />Open the post
-                </a>
-              )}
-              <button type="button" class="menu-item menu-item-danger" role="menuitem" data-action="delete">
-                <Icon name="lucide:trash-2" class="admin-nav-icon" />Delete the file
-              </button>
-            </div>
-          </details>
-
-          <p class="text-muted admin-note entry-line" data-role="status"></p>
-        </div>
-      ))}
-
-      {/* Two different nothings, and they want different sentences: no posts at
-          all, versus a filter that matched none of the ones there are. */}
-      {existing.length === 0 && (
-        <div class="admin-empty">
-          <div class="admin-empty-art"><Illustration name="taking-notes" /></div>
-          <h3 class="admin-empty-title">Nothing written yet</h3>
-          <p class="admin-empty-copy">
-            <code>src/content/journal/</code> is empty. Whatever is in the editor above
-            becomes the first file in it — start as a draft, and publishing later is one
-            menu click.
-          </p>
-        </div>
-      )}
-
-      <div class="admin-empty" id="entries-empty" hidden>
-        <div class="admin-empty-art admin-empty-art-sm"><Illustration name="empty-mailbox" /></div>
-        <p class="admin-empty-copy">No entry matches that search and filter.</p>
+      <div class="admin-actions">
+        <a class="btn btn-primary" href="/admin/journal/new">
+          <Icon name="lucide:file-plus-2" class="admin-nav-icon" />Create journal entry
+        </a>
       </div>
     </div>
 
     {existing.length > 0 && (
-      <p class="text-muted admin-note" id="entries-note">
-        <strong>Edit</strong> loads a post into the editor above, published ones included;
-        committing writes the fields back one line at a time and swaps the body, so
-        anything the editor does not know about survives. Changing a status is its own
-        commit — unpublishing removes the page from the build outright, so its URL starts
-        returning 404.
-      </p>
+      <div class="jl-summary">
+        <span class="tag tag-accent-2">{counts.published} published</span>
+        {counts.draft > 0 && <span class="tag tag-accent">{counts.draft} draft</span>}
+        {counts.unpublished > 0 && <span class="tag tag-neutral">{counts.unpublished} unpublished</span>}
+      </div>
     )}
-  </section>
 
-  <script is:inline type="application/json" id="journal-seed" set:html={seedJson}></script>
+    {/* Nothing written at all is a real state, and the one moment this screen
+        can say exactly what would fill it instead of showing a rule over an
+        empty card. */}
+    {existing.length === 0 ? (
+      <div class="card elev-sm">
+        <div class="admin-empty">
+          <div class="admin-empty-art"><Illustration name="taking-notes" /></div>
+          <h3 class="admin-empty-title">Nothing written yet</h3>
+          <p class="admin-empty-copy">
+            <code>src/content/journal/</code> is empty. A new entry starts as a draft — it
+            stays out of production builds until you publish it, which is one menu click
+            from this list.
+          </p>
+          <div class="admin-empty-actions">
+            <a class="btn btn-primary btn-sm" href="/admin/journal/new">
+              <Icon name="lucide:file-plus-2" class="admin-nav-icon" />Create your first entry
+            </a>
+          </div>
+        </div>
+      </div>
+    ) : (
+      <>
+        <div class="existing-head">
+          <h6 class="admin-eyebrow">Entries ({existing.length})</h6>
+          <div class="existing-filters">
+            <input
+              class="input entry-search"
+              id="entry-search"
+              type="search"
+              placeholder="Search titles…"
+              aria-label="Search journal entries"
+            />
+            <div class="seg" role="group" aria-label="Filter entries by status">
+              <label class="seg-opt"><input type="radio" name="entry-filter" value="all" checked />All</label>
+              {POST_STATUSES.map(([value, label]) => (
+                <label class="seg-opt"><input type="radio" name="entry-filter" value={value} />{label}</label>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div class="card elev-sm existing-card">
+          {existing.map(entry => (
+            <div
+              class="existing-row"
+              data-slug={entry.slug}
+              data-status={entry.data.status}
+              data-search={entry.data.title.toLowerCase()}
+            >
+              <div class="existing-id">
+                <a class="existing-title" href={`/admin/journal/${entry.slug}`}>{entry.data.title}</a>
+                {/* Colour comes from the row's `data-status` in this page's
+                    stylesheet, so the script only has to rewrite one attribute
+                    and one word when a status changes. */}
+                <span class="tag entry-flag" data-role="flag">{entry.data.status}</span>
+              </div>
+              <p class="text-muted existing-summary">{entry.data.summary}</p>
+              <span class="text-muted cell-mono existing-date">{formatShortDate(entry.data.date)}</span>
+
+              <a class="btn btn-secondary btn-sm" href={`/admin/journal/${entry.slug}`}>
+                <Icon name="lucide:pencil" class="admin-nav-icon" />Edit
+              </a>
+
+              {/* Everything else this row can do, behind one control. A `<details>`
+                  rather than a scripted popover: the open/close, the button
+                  semantics and the click-outside-to-close are all things the
+                  element does for free once the row closes its siblings. */}
+              <details class="menu entry-menu">
+                <summary
+                  class="btn btn-icon btn-sm"
+                  role="button"
+                  aria-haspopup="menu"
+                  aria-label={`More actions for ${entry.data.title}`}
+                  title="More actions"
+                >
+                  <Icon name="lucide:ellipsis-vertical" class="admin-nav-icon" />
+                </summary>
+                <div class="menu-panel" role="menu">
+                  <span class="menu-label">Status</span>
+                  {POST_STATUSES.map(([value, label]) => (
+                    <button
+                      type="button"
+                      class="menu-item"
+                      role="menuitemradio"
+                      data-status={value}
+                      aria-checked={value === entry.data.status ? 'true' : 'false'}
+                      aria-current={value === entry.data.status ? 'true' : undefined}
+                    >{label}</button>
+                  ))}
+                  <hr class="menu-sep" />
+                  {/* Unpublished posts leave `getStaticPaths`, so there is no page
+                      to open — a disabled row saying why beats a link that 404s. */}
+                  {entry.data.status === 'unpublished' ? (
+                    <button type="button" class="menu-item" role="menuitem" disabled>No public page</button>
+                  ) : (
+                    <a class="menu-item" role="menuitem" href={`/journal/${entry.slug}`} target="_blank" rel="noopener">
+                      <Icon name="lucide:external-link" class="admin-nav-icon" />Open the post
+                    </a>
+                  )}
+                  <button type="button" class="menu-item menu-item-danger" role="menuitem" data-action="delete">
+                    <Icon name="lucide:trash-2" class="admin-nav-icon" />Delete the file
+                  </button>
+                </div>
+              </details>
+
+              <p class="text-muted admin-note entry-line" data-role="status"></p>
+            </div>
+          ))}
+
+          {/* A filter that matched none of the posts there are is a different
+              nothing from having none, and it wants a different sentence. */}
+          <div class="admin-empty" id="entries-empty" hidden>
+            <div class="admin-empty-art admin-empty-art-sm"><Illustration name="empty-mailbox" /></div>
+            <p class="admin-empty-copy">No entry matches that search and filter.</p>
+          </div>
+        </div>
+
+        <p class="text-muted admin-note jl-note">
+          Changing a status is its own commit — unpublishing removes the page from the
+          build outright, so its URL starts returning 404. Deleting commits a removal of
+          the file, which stays in the history either way.
+        </p>
+      </>
+    )}
+  </div>
 </AdminLayout>
 
 <script>
-  import { ADMIN_KEYS, onAdminPage } from '../../lib/admin';
-  import {
-    buildPostMarkdown,
-    createPost,
-    removePost,
-    setPostStatus,
-    updatePost,
-    type PostFields,
-    type PostStatus,
-  } from '../../lib/content-store';
+  import { onAdminPage } from '../../lib/admin';
+  import { removePost, setPostStatus, type PostStatus } from '../../lib/content-store';
   import { getToken } from '../../lib/github';
 
   /* The admin client-routes, so this runs on first paint and again every time
      you come back to this screen — see `onAdminPage`. */
   onAdminPage('#admin-journal', () => {
-    const KEY = ADMIN_KEYS.journalDraft;
-    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-
-    interface SeedEntry {
-      fields: PostFields;
-      body: string;
-    }
-    const seed: Record<string, SeedEntry> = JSON.parse(
-      document.getElementById('journal-seed')!.textContent || '{}'
-    );
-
-    /* The slug of the post currently open, or `null` for a new entry. This is
-       the one piece of state that decides everything about the commit: which
-       path it writes, whether it may overwrite, and — crucially — that the
-       filename stays put when the title is edited. Astro derives the slug from
-       the filename, so renaming on every title tweak would leave a trail of
-       orphaned URLs. */
-    let editing: string | null = null;
-
-    const fields = {
-      title: $<HTMLInputElement>('f-title'),
-      summary: $<HTMLTextAreaElement>('f-summary'),
-      date: $<HTMLInputElement>('f-date'),
-      tags: $<HTMLInputElement>('f-tags'),
-      readTime: $<HTMLInputElement>('f-readtime'),
-      duration: $<HTMLInputElement>('f-duration'),
-      hero: $<HTMLInputElement>('f-hero'),
-      body: $<HTMLTextAreaElement>('f-body'),
-    };
-    const statusInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="status"]'));
-    const slugOut = $('f-slug');
-    const previewTitle = $('preview-title');
-    const previewBody = $('preview-body');
-    const stamp = $('save-stamp');
-
-    const slugify = (s: string) =>
-      s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled';
-
-    // Quotes matter: link hrefs below are interpolated into an attribute, and an
-    // unescaped `"` would close it and inject markup of the author's own typing.
-    const escapeHtml = (s: string) =>
-      s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-    /* Only schemes a published post could actually use — keeps `javascript:`
-       out of the preview's hrefs. */
-    const safeHref = (url: string) =>
-      /^(https?:|mailto:|[/#.])/i.test(url.trim()) ? url.trim() : '#';
-
-    /* A deliberately small Markdown subset — enough for an accurate preview
-       without pulling a parser into the bundle. */
-    function renderMarkdown(src: string): string {
-      const blocks = escapeHtml(src).split(/\n{2,}/);
-      return blocks
-        .map(block => {
-          const trimmed = block.trim();
-          if (!trimmed) return '';
-
-          if (trimmed.startsWith('```')) {
-            const code = trimmed.replace(/^```[^\n]*\n?/, '').replace(/```$/, '');
-            return `<pre><code>${code}</code></pre>`;
-          }
-          const heading = trimmed.match(/^(#{1,3})\s+(.*)$/);
-          if (heading) {
-            const level = heading[1].length;
-            return `<h${level}>${inline(heading[2])}</h${level}>`;
-          }
-          if (/^>\s/.test(trimmed)) {
-            return `<blockquote>${inline(trimmed.replace(/^>\s?/gm, ''))}</blockquote>`;
-          }
-          if (/^[-*]\s/.test(trimmed)) {
-            const items = trimmed.split('\n').map(l => `<li>${inline(l.replace(/^[-*]\s+/, ''))}</li>`).join('');
-            return `<ul>${items}</ul>`;
-          }
-          if (/^\d+\.\s/.test(trimmed)) {
-            const items = trimmed.split('\n').map(l => `<li>${inline(l.replace(/^\d+\.\s+/, ''))}</li>`).join('');
-            return `<ol>${items}</ol>`;
-          }
-          return `<p>${inline(trimmed.replace(/\n/g, ' '))}</p>`;
-        })
-        .join('');
-    }
-
-    function inline(s: string): string {
-      return s
-        .replace(/`([^`]+)`/g, '<code>$1</code>')
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        .replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>')
-        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, label, url) => `<a href="${safeHref(url)}">${label}</a>`);
-    }
-
-    const STATUS_HELP: Record<string, string> = {
-      draft: 'Kept out of production builds. Visible here and in `npm run dev`.',
-      published: 'Live on the site after the next build.',
-      unpublished: 'Withdrawn: no listing, no page, the URL returns 404.',
-    };
-
-    function currentStatus(): PostStatus {
-      return (statusInputs.find(i => i.checked)?.value ?? 'draft') as PostStatus;
-    }
-
-    const thumbFrame = $<HTMLElement>('thumb-frame');
-    const thumbPreview = $<HTMLImageElement>('thumb-preview');
-
-    function render() {
-      previewTitle.textContent = fields.title.value || 'Post Title...';
-      previewBody.innerHTML = renderMarkdown(fields.body.value);
-      /* A new entry takes its filename from the title; an open one already has
-         a filename, and rewriting it on every keystroke would promise a rename
-         this screen deliberately does not do. */
-      if (editing === null) slugOut.textContent = `${slugify(fields.title.value)}.md`;
-      $('status-help').textContent = STATUS_HELP[currentStatus()] ?? '';
-
-      /* Same scheme rule the preview's links use: the thumbnail is a value the
-         author just typed, and it ends up in an attribute. */
-      const hero = safeHref(fields.hero.value);
-      const show = Boolean(fields.hero.value.trim()) && hero !== '#';
-      thumbFrame.hidden = !show;
-      if (show) thumbPreview.src = hero;
-    }
-
-    function snapshot() {
-      return {
-        title: fields.title.value,
-        summary: fields.summary.value,
-        date: fields.date.value,
-        tags: fields.tags.value,
-        readTime: fields.readTime.value,
-        duration: fields.duration.value,
-        hero: fields.hero.value,
-        body: fields.body.value,
-        status: currentStatus(),
-        /* Which post this draft belongs to, so a browser reload does not turn
-           an edit of a published entry into a brand-new file. */
-        editing,
-      };
-    }
-
-    /** The form as schema-shaped frontmatter, for both the export and the commit. */
-    function readFields(): PostFields {
-      return {
-        title: fields.title.value.trim(),
-        summary: fields.summary.value.trim(),
-        date: fields.date.value,
-        tags: fields.tags.value.split(',').map(tag => tag.trim()).filter(Boolean),
-        readTime: fields.readTime.value.trim() || undefined,
-        videoDuration: fields.duration.value.trim() || undefined,
-        heroImage: fields.hero.value.trim() || undefined,
-        status: currentStatus(),
-      };
-    }
-
-    /**
-     * Point the editor at a post, or at nothing.
-     *
-     * The header is the whole affordance here: it says which file the Commit
-     * button is about to write, because that is the one thing this screen could
-     * otherwise get catastrophically wrong.
-     */
-    function setEditing(slug: string | null) {
-      editing = slug;
-      const isEdit = slug !== null;
-
-      $('editor-mode').textContent = isEdit ? 'MODULE: EDIT_ENTRY' : 'MODULE: NEW_ENTRY';
-      $('editor-heading').textContent = isEdit ? `Editing ${slug}` : 'Create New Journal Entry';
-      $<HTMLButtonElement>('new-entry').hidden = !isEdit;
-      commitBtn.textContent = isEdit ? 'Commit changes' : 'Commit to GitHub';
-      slugOut.textContent = isEdit ? `${slug}.md` : `${slugify(fields.title.value)}.md`;
-      /* An open post owns its filename, so the title no longer drives it — see
-         `render()`, which stops rewriting the line. */
-      document.querySelectorAll<HTMLElement>('.existing-row').forEach(row => {
-        row.classList.toggle('is-editing', row.dataset.slug === slug);
-      });
-    }
-
-    /** Load one of the entries below into the editor. */
-    function openEntry(slug: string) {
-      const entry = seed[slug];
-      if (!entry) return;
-
-      fields.title.value = entry.fields.title;
-      fields.summary.value = entry.fields.summary;
-      fields.date.value = (entry.fields.date ?? '').slice(0, 10);
-      fields.tags.value = entry.fields.tags.join(', ');
-      fields.readTime.value = entry.fields.readTime ?? '';
-      fields.duration.value = entry.fields.videoDuration ?? '';
-      fields.hero.value = entry.fields.heroImage ?? '';
-      fields.body.value = entry.body;
-      statusInputs.forEach(input => { input.checked = input.value === entry.fields.status; });
-
-      setEditing(slug);
-      render();
-      stamp.textContent = `Loaded from the last build of src/content/journal/${slug}.md`;
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      fields.title.focus();
-    }
-
-    /** Back to a blank editor, and back to creating rather than updating. */
-    function resetEditor() {
-      Object.values(fields).forEach(field => { field.value = ''; });
-      /* `defaultValue` is the `value={today}` the server rendered — today's
-         date, without this script having to be told it a second time. */
-      fields.date.value = fields.date.defaultValue;
-      statusInputs.forEach(input => { input.checked = input.value === 'draft'; });
-      localStorage.removeItem(KEY);
-      setEditing(null);
-      render();
-      stamp.textContent = 'Draft mode. Not saved yet.';
-      fields.title.focus();
-    }
-
-    function restore() {
-      try {
-        const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-        if (!saved) return;
-        fields.title.value = saved.title ?? '';
-        fields.summary.value = saved.summary ?? '';
-        if (saved.date) fields.date.value = saved.date;
-        fields.tags.value = saved.tags ?? '';
-        fields.readTime.value = saved.readTime ?? '';
-        fields.duration.value = saved.duration ?? '';
-        fields.hero.value = saved.hero ?? '';
-        fields.body.value = saved.body ?? '';
-        statusInputs.forEach(i => { i.checked = i.value === (saved.status ?? 'draft'); });
-        /* Only if the post is still there: a draft pointing at a file that has
-           since been deleted would otherwise commit under a slug nothing owns. */
-        setEditing(saved.editing && seed[saved.editing] ? saved.editing : null);
-        stamp.textContent = saved.editing
-          ? `Restored from this browser — still editing ${saved.editing}.`
-          : 'Draft mode. Restored from this browser.';
-      } catch {
-        /* ignore a corrupt draft */
-      }
-    }
-
-    Object.values(fields).forEach(el => el.addEventListener('input', render));
-    statusInputs.forEach(i => i.addEventListener('change', render));
-
-    /* Formatting buttons wrap the selection. `setRangeText` keeps the undo stack
-       intact, which reassigning `.value` would throw away. */
-    document.querySelectorAll<HTMLButtonElement>('.md-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const body = fields.body;
-        const { selectionStart: start, selectionEnd: end } = body;
-        const wrapped = `${btn.dataset.before}${body.value.slice(start, end)}${btn.dataset.after}`;
-        body.setRangeText(wrapped, start, end, 'end');
-        body.focus();
-        render();
-      });
-    });
-
-    $<HTMLButtonElement>('save-draft').addEventListener('click', () => {
-      localStorage.setItem(KEY, JSON.stringify(snapshot()));
-      const btn = $<HTMLButtonElement>('save-draft');
-      btn.textContent = 'Saved ✓';
-      stamp.textContent = `Draft mode. Last saved: ${new Date().toLocaleTimeString()}`;
-      setTimeout(() => { btn.textContent = 'Save Draft'; }, 1200);
-    });
-
-    $<HTMLButtonElement>('export-md').addEventListener('click', () => {
-      const slug = editing ?? slugify(fields.title.value);
-      const blob = new Blob([buildPostMarkdown(readFields(), fields.body.value)], {
-        type: 'text/markdown',
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${slug}.md`;
-      a.click();
-      URL.revokeObjectURL(url);
-    });
-
-    /* Commit straight to the repository. The export above stays: it is the only
-       path that works when you are not signed in, or when you want to review the
-       file before it lands.
-
-       Two write paths, and which one runs is `editing`. A new entry is built
-       whole — there is nothing to preserve. An open one is patched field by
-       field with its body swapped, because the file on the branch may carry a
-       comment or a key this editor has never heard of, and regenerating it
-       would drop both. Same split as the project screens; see
-       `content-store.ts`. */
-    const commitBtn = $<HTMLButtonElement>('commit-md');
-
-    if (!getToken()) {
-      commitBtn.disabled = true;
-      commitBtn.title = 'Sign in with GitHub to commit.';
-    }
-
-    commitBtn.addEventListener('click', async () => {
-      const post = readFields();
-      if (!post.title) {
-        stamp.textContent = 'A title is required — it is also where the filename comes from.';
-        return;
-      }
-
-      const slug = editing ?? slugify(post.title);
-      const path = `src/content/journal/${slug}.md`;
-      const label = commitBtn.textContent;
-
-      commitBtn.disabled = true;
-      commitBtn.textContent = 'Committing…';
-      stamp.textContent = `Writing ${path}…`;
-
-      try {
-        const result = editing
-          ? await updatePost(editing, post, fields.body.value)
-          : await createPost(slug, post, fields.body.value);
-
-        if (!result) {
-          stamp.textContent = 'Nothing changed — the file already says exactly this.';
-        } else {
-          const link = document.createElement('a');
-          link.href = result.url;
-          link.target = '_blank';
-          link.rel = 'noopener';
-          link.textContent = 'view commit ↗';
-          stamp.replaceChildren(
-            document.createTextNode(`${editing ? 'Updated' : 'Created'} ${path} — `),
-            link
-          );
-          /* The list below is prerendered, so the row this just changed would
-             otherwise keep showing the old status until the next build. */
-          if (editing) markRowStatus(editing, post.status);
-          seed[slug] = { fields: post, body: fields.body.value };
-        }
-        commitBtn.textContent = 'Committed ✓';
-      } catch (error) {
-        stamp.textContent = error instanceof Error ? error.message : 'Commit failed.';
-        commitBtn.textContent = label;
-      } finally {
-        commitBtn.disabled = false;
-        setTimeout(() => { commitBtn.textContent = label; }, 2000);
-      }
-    });
-
-    $<HTMLButtonElement>('new-entry').addEventListener('click', resetEditor);
-
-    /* — existing entries —
-
-       This list is where all three statuses meet, and it is the reason the state
-       is one enum in the file rather than a flag here and a draft store
-       somewhere else: `getPosts(true)` already returned everything, so filtering
-       is one predicate and moving a post between states is one frontmatter
-       patch on a file this screen never had to parse. */
     const rows = Array.from(document.querySelectorAll<HTMLElement>('.existing-row'));
+    if (!rows.length) return;
+
     const entrySearch = document.getElementById('entry-search') as HTMLInputElement | null;
     const entryFilters = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="entry-filter"]'));
-
+    const entriesEmpty = document.getElementById('entries-empty')!;
     const rowBySlug = new Map(rows.map(row => [row.dataset.slug!, row]));
-    const entriesEmpty = $('entries-empty');
 
     function applyEntryFilters() {
       const term = (entrySearch?.value ?? '').trim().toLowerCase();
@@ -636,9 +214,7 @@ const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
         row.hidden = hide;
         if (!hide) shown += 1;
       });
-      /* Only when there were rows to filter — "nothing matched" on a journal
-         with no posts at all would be answering the wrong question. */
-      entriesEmpty.hidden = shown > 0 || rows.length === 0;
+      entriesEmpty.hidden = shown > 0;
     }
 
     entrySearch?.addEventListener('input', applyEntryFilters);
@@ -656,7 +232,6 @@ const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
         if (on) item.setAttribute('aria-current', 'true');
         else item.removeAttribute('aria-current');
       });
-      if (seed[slug]) seed[slug].fields.status = status;
       applyEntryFilters();
     }
 
@@ -683,18 +258,11 @@ const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
         line.textContent = text;
       };
 
-      /* Editing is a local read — the seed already holds every post's fields
-         and body — so it is the one action in this list that works signed out.
-         Committing the result still does not. */
-      row.querySelector<HTMLButtonElement>('[data-action="edit"]')!
-        .addEventListener('click', () => {
-          menu.open = false;
-          openEntry(slug);
-        });
-
       const statusItems = Array.from(row.querySelectorAll<HTMLButtonElement>('[data-status]'));
       const deleteItem = row.querySelector<HTMLButtonElement>('[data-action="delete"]')!;
 
+      /* Editing is a link to a prerendered page, so it works signed out. Every
+         control in this menu is a commit, and none of them does. */
       if (!getToken()) {
         [...statusItems, deleteItem].forEach(item => {
           item.disabled = true;
@@ -765,11 +333,12 @@ const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
         try {
           const result = await removePost(slug);
           row.classList.add('is-removed');
-          row.querySelectorAll('button').forEach(button => { button.disabled = true; });
-          /* The editor may be pointing at the file that just stopped existing;
-             leaving it open would turn the next commit into a silent re-create. */
-          if (editing === slug) resetEditor();
-          delete seed[slug];
+          /* The editor page for this post is still in the build until the next
+             one, so the link out of here has to stop being offered. */
+          row.querySelectorAll('button, a').forEach(control => {
+            if (control instanceof HTMLButtonElement) control.disabled = true;
+            else control.removeAttribute('href');
+          });
 
           const anchor = document.createElement('a');
           anchor.href = result.url;
@@ -784,46 +353,14 @@ const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
         }
       });
     });
-
-    const shell = document.getElementById('admin-shell')!;
-    const focusBtn = $<HTMLButtonElement>('focus-toggle');
-    focusBtn.addEventListener('click', () => {
-      const on = shell.classList.toggle('is-focus');
-      focusBtn.textContent = on ? 'Exit Focus' : 'Focus';
-      focusBtn.setAttribute('aria-pressed', String(on));
-    });
-
-    restore();
-    render();
   });
 </script>
 
 <style>
-  /* The mockup's bento: writing surface left, everything that describes the
-     post right. Focus mode hides the right column outright. */
-  .editor-grid { display: grid; grid-template-columns: 8fr 4fr; gap: var(--space-4); align-items: start; }
-  .editor-col { display: flex; flex-direction: column; gap: var(--space-4); }
-  .editor-side { display: flex; flex-direction: column; gap: var(--space-4); }
-  .editor-title { font-size: 20px; font-family: var(--font-heading); height: 48px; border-left: 3px solid var(--color-accent); }
+  .jl-desc { opacity: 0.8; max-width: 70ch; margin: 0; }
+  .jl-summary { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: var(--space-4); }
+  .jl-note { margin-top: var(--space-4); max-width: 76ch; }
 
-  .thumb-frame { aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid var(--color-divider); }
-  .thumb-frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .md-toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
-  .md-toolbar .md-btn { font-size: 12px; padding: 4px 10px; font-family: var(--font-mono); }
-  .summary-input { min-height: 56px; }
-  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
-  .field-row label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
-  .editor-body { min-height: 220px; font-family: var(--font-mono); font-size: 13px; }
-
-  .preview-heading { margin-bottom: var(--space-2); }
-  .preview-card { min-height: 320px; }
-  .preview-title { margin: 0; }
-
-  @media (max-width: 1000px) {
-    .editor-grid { grid-template-columns: 1fr; }
-  }
-
-  .existing { margin-top: var(--space-6); }
   .existing-head {
     display: flex;
     justify-content: space-between;
@@ -837,14 +374,19 @@ const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
   .entry-search { width: 220px; font-size: 13px; padding: 6px 10px; }
 
   .existing-card { gap: 0; }
-  /* Title | date | edit | menu | message — the message spans the row so a
-     commit link never squeezes the controls. */
+  /* Title | date | edit | menu, with the summary tucked under the title and any
+     commit message spanning the whole row beneath — so a long sentence never
+     squeezes the controls out of alignment with the row above it.
+
+     Every cell is placed explicitly. Mixing definite rows with auto-placed
+     columns makes the order depend on the auto-placement algorithm's two
+     passes, which is not a thing to leave to chance in a list. */
   .existing-row {
     display: grid;
-    grid-template-columns: 1fr auto auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
     align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-2) 0;
+    gap: 2px var(--space-3);
+    padding: var(--space-3) 0;
     border-bottom: 1px solid var(--color-divider);
     font-size: 14px;
   }
@@ -852,16 +394,25 @@ const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
   .existing-row[hidden] { display: none; }
   .existing-row.is-removed { opacity: 0.5; }
 
-  /* The row the editor above is currently pointing at, so "which file does
-     Commit write" is answered in two places at once. */
-  .existing-row.is-editing {
-    background: var(--color-accent-100);
-    box-shadow: -3px 0 0 var(--color-accent);
+  .existing-id { grid-column: 1; grid-row: 1; display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+  .existing-title { font-weight: 600; color: inherit; text-decoration: none; overflow-wrap: anywhere; }
+  .existing-title:hover { color: var(--color-accent); }
+  .existing-summary {
+    grid-column: 1;
+    grid-row: 2;
+    margin: 0;
+    font-size: 12px;
+    /* One line: this is a manifest, and the summary is here to tell two similar
+       titles apart rather than to be read. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
+  .existing-date { grid-column: 2; grid-row: 1 / span 2; white-space: nowrap; }
+  .existing-row > .btn { grid-column: 3; grid-row: 1 / span 2; }
+  .entry-menu { grid-column: 4; grid-row: 1 / span 2; }
 
-  .existing-id { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
-  .existing-date { white-space: nowrap; }
-  .entry-line { grid-column: 1 / -1; min-height: 0; }
+  .entry-line { grid-column: 1 / -1; grid-row: 3; min-height: 0; margin: 6px 0 0; }
   .entry-line:empty { display: none; }
   .entry-line[data-tone='error'] { color: var(--color-accent-700); }
 
@@ -881,12 +432,15 @@ const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
     color: var(--color-neutral-800);
   }
 
-  .status-help { margin-top: 6px; }
-
-  @media (max-width: 700px) {
-    .existing-row { grid-template-columns: 1fr auto; }
-    .existing-date { grid-column: 1; }
-  }
-
   code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+
+  /* Narrow, the date drops below the summary rather than eating the width the
+     title needs, and the two controls keep their own columns. */
+  @media (max-width: 700px) {
+    .existing-row { grid-template-columns: minmax(0, 1fr) auto auto; }
+    .existing-date { grid-column: 1; grid-row: 3; }
+    .existing-row > .btn { grid-column: 2; grid-row: 1 / span 3; }
+    .entry-menu { grid-column: 3; grid-row: 1 / span 3; }
+    .entry-line { grid-row: 4; }
+  }
 </style>

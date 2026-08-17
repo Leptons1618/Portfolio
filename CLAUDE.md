@@ -56,7 +56,7 @@ Do not add a `slug:` frontmatter field. Astro derives the slug from the filename
 
 ### The `/admin` surface signs in with GitHub
 
-`src/pages/admin/*` is an authoring surface. It runs in the browser; the only server in the system is `workers/github-oauth/`, a stateless Cloudflare Worker that does the OAuth code→token exchange and nothing else. Four screens — `dashboard`, `projects` (a manifest, plus `projects/[slug]` for one project and its case study), `journal` and `resume` — and one dialog for site identity, which stays export-only because its JSON has to be hand-merged into `src/lib/site.ts`.
+`src/pages/admin/*` is an authoring surface. It runs in the browser; the only server in the system is `workers/github-oauth/`, a stateless Cloudflare Worker that does the OAuth code→token exchange and nothing else. Four sections — `dashboard`, `projects` (a manifest, plus `projects/[slug]` for one project and its case study), `journal` (a manifest, plus `journal/new` and `journal/[slug]`, which are the same `JournalEditor.astro`) and `resume` — and one dialog for site identity, which stays export-only because its JSON has to be hand-merged into `src/lib/site.ts`.
 
 Details live in `.claude/rules/admin-surface.md`, which loads when you touch those files. Five rules worth repeating here:
 
@@ -64,7 +64,9 @@ Details live in `.claude/rules/admin-surface.md`, which loads when you touch tho
 - **`buildModule()` in the resume editor regenerates all of `src/lib/resume.ts`**, so any export you add to that module must be added there in the same change.
 - **`AdminLayout` mounts `<ClientRouter />` and the sidebar is `transition:persist`.** A page `<script>` therefore executes at most once per session, so every admin page script goes through `onAdminPage()` in `src/lib/admin.ts`. Read decision 11 in `docs/DECISIONS.md` before changing anything in the admin shell.
 - **Anything rendered inside the persisted `<aside>` persists too** — the identity modal is there deliberately, so it survives a navigation and binds once.
-- **The journal editor writes an existing post by patching it**, and an open post keeps its filename however the title is edited. Astro derives the slug from the filename, so a rename would orphan a live URL.
+- **The journal editor writes an existing post by patching it**, and an open post keeps its filename however the title is edited. Astro derives the slug from the filename, so a rename would orphan a live URL. Which post is open is the *route*, not a variable — decision 13.
+- **DOM built in a client script never carries the page's `data-astro-cid`**, so a plain scoped selector will not reach it. Hang the rule off a server-rendered ancestor with `:global()`, the way `#import-list` and the resume editor's generated fields do.
+- **Never write a literal `<script>` tag in an `.astro` frontmatter comment.** Vite's dependency scanner regex-matches it in the raw source and hands the markup that follows to esbuild as JavaScript, which breaks `npm run dev` while leaving `npm run build` green.
 
 ### Styling: token themes, plain CSS
 
