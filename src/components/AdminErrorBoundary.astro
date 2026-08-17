@@ -1,0 +1,98 @@
+---
+/**
+ * What an admin screen shows when its script has fallen over.
+ *
+ * There is no framework here to catch a render error — every admin page is
+ * static HTML wired up by one client `<script>` — so the failure this guards
+ * against is the JavaScript one: an uncaught throw, a rejected promise, or an
+ * `init` that never finished. When any of those happen the markup still paints
+ * and every control silently does nothing, which on a surface whose buttons
+ * commit to a repository is the worst way to fail.
+ *
+ * Rendered by `AdminLayout` above the page content, hidden until
+ * `showAdminError()` in `src/lib/admin.ts` fills it in. The reporting half
+ * lives there because it has to be callable from any page's script; this file
+ * is only the markup it writes into.
+ */
+import { Icon } from 'astro-icon/components';
+import Illustration from './Illustration.astro';
+import { ERROR_BOUNDARY_ID } from '../lib/admin';
+---
+<section class="admin-error" id={ERROR_BOUNDARY_ID} role="alert" aria-live="assertive" hidden>
+  <div class="admin-error-art"><Illustration name="fixing-bugs" /></div>
+
+  <div class="admin-error-copy">
+    <h6 class="admin-eyebrow-mono">SCREEN FAULT</h6>
+    <h2 class="admin-error-title">This screen stopped wiring itself up</h2>
+    <p class="admin-error-message" data-role="message"></p>
+    <p class="text-muted admin-note">
+      Nothing was committed. Reloading rebuilds the page from the last deploy —
+      drafts held in this browser are untouched.
+      <span class="admin-error-context cell-mono" data-role="context"></span>
+    </p>
+    <div class="admin-error-actions">
+      <button type="button" class="btn btn-primary btn-sm" data-role="reload">
+        <Icon name="lucide:refresh-cw" class="admin-nav-icon" />Reload the screen
+      </button>
+      <button type="button" class="btn btn-secondary btn-sm" data-role="dismiss">Dismiss</button>
+    </div>
+  </div>
+</section>
+
+<script>
+  import { ERROR_BOUNDARY_ID, mountAdminErrorBoundary } from '../lib/admin';
+
+  mountAdminErrorBoundary();
+
+  /* Delegated at the document, because this element is rebuilt on every
+     navigation while this module is evaluated exactly once — a listener bound
+     to the node above would be attached to a detached one by the second
+     screen. */
+  document.addEventListener('click', event => {
+    const button = (event.target as Element | null)?.closest?.('[data-role]');
+    if (!button || !button.closest(`#${ERROR_BOUNDARY_ID}`)) return;
+
+    if (button.getAttribute('data-role') === 'reload') window.location.reload();
+    if (button.getAttribute('data-role') === 'dismiss') {
+      document.getElementById(ERROR_BOUNDARY_ID)!.hidden = true;
+    }
+  });
+</script>
+
+<style>
+  .admin-error {
+    display: grid;
+    grid-template-columns: 220px 1fr;
+    align-items: center;
+    gap: var(--space-6);
+    padding: var(--space-4);
+    margin-bottom: var(--space-6);
+    border: 2px solid var(--color-accent);
+    background: var(--color-accent-100);
+  }
+
+  .admin-error[hidden] { display: none; }
+
+  /* `currentColor` is unDraw's accent slot — here it is the alarm. */
+  .admin-error-art { color: var(--color-accent); }
+
+  .admin-error-copy { min-width: 0; }
+  .admin-error-title { font-size: 22px; margin: 2px 0 var(--space-2); }
+
+  .admin-error-message {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--color-accent-800);
+    margin: 0 0 var(--space-2);
+    overflow-wrap: anywhere;
+  }
+
+  .admin-error-context { display: block; font-size: 11px; margin-top: 2px; }
+  .admin-error-context:empty { display: none; }
+  .admin-error-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-3); }
+
+  @media (max-width: 860px) {
+    .admin-error { grid-template-columns: 1fr; }
+    .admin-error-art { width: min(200px, 50vw); }
+  }
+</style>

@@ -197,3 +197,27 @@ Short records of the choices that are not obvious from the code. Newest last.
 **Consequences.** The persisted rail binds its listeners once, at module scope, and refreshes only the current-section marker per page — so `AdminLayout` no longer takes a `section` prop, and the URL is the single source of that fact. Anything added to the sidebar must be re-entrant in the same way. Focus mode still lives on `.admin-shell`, which is *not* persisted, so it resets on navigation — which is the wanted behaviour.
 
 **Revisit if** the public site grows a stateful shell (a persistent audio player, a chat) — that, not "transitions look nice", would be the reason to extend it.
+
+---
+
+## 12. A screen is something that writes; everything else is a dialog or a detail page
+
+**Status:** accepted
+
+**Context.** The admin rail had five destinations. Four of them commit to the repository. The fifth, `/admin/settings`, could not: its fields export a JSON blob that a human then merges into `src/lib/site.ts` by hand, because the target is a TypeScript module, not a content file. It looked exactly like the four that write, and it was one navigation away from a form of six inputs.
+
+Meanwhile the projects screen had the opposite problem. One modal was doing two unrelated jobs: filling in the two fields GitHub cannot answer when a repository is *imported*, and editing a project that had been in the portfolio for a year. The first is a short one-off form and the modal is right for it. The second wants room, the repository's live state next to the fields, and the case study the project points at — none of which fits in a dialog opened on top of a grid of twenty cards.
+
+**Decision.** Sort admin surfaces by what they do, not by how much markup they have.
+
+- **Identity is a dialog.** `AdminSettingsModal.astro` is rendered inside the persisted `<aside>`, so it survives a view transition with the rail and binds once at module scope. Any element carrying `data-open-settings` opens it, through a delegated listener — the dashboard's quick action does, and nothing had to be taught the element's id. `/admin/settings` is gone.
+- **Editing an existing project is a page.** `/admin/projects/[slug]` is prerendered per project, hidden ones included. It carries the full frontmatter form, the repository panel, a danger zone, and the linked case study's structured fields.
+- **The import modal creates only.** No edit mode, no second `mode` field, no "which of these two things is the Commit button about to do".
+
+**What this cost.** One more prerendered page per project — twenty-one at the time of writing, each about 150 KB before compression, none of them in the sitemap or crawlable. Cheap, and it buys the ability to link to a project's editor.
+
+**What it bought elsewhere.** The case study stopped being a `<select>` labelled "linked" and became something editable: `patchCaseStudy()` reaches every structured field. The MDX body is still written in git — decision 6 has not moved, and should not.
+
+**Consequences.** The rail's foot now carries two actions rather than one, in a deliberate hierarchy: **New Post** primary, **Identity** secondary. The nav above it is four entries, all of which write, which is the rule this decision exists to keep.
+
+**Revisit if** a fifth *writing* surface appears. A sixth read-only form is not a reason to add a sixth destination.

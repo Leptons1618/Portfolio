@@ -10,8 +10,10 @@
 import assert from 'node:assert/strict';
 import {
   FrontmatterError,
+  readBody,
   readFrontmatterField,
   removeFrontmatterField,
+  setBody,
   setFrontmatterField,
   setFrontmatterList,
 } from '../src/lib/frontmatter.ts';
@@ -136,6 +138,47 @@ const FILE = [
   assert.throws(() => setFrontmatterList(FILE, 'title', ['x']), FrontmatterError);
   const scalarBlock = ['---', 'summary: |', '  line one', '---', ''].join('\n');
   assert.throws(() => setFrontmatterList(scalarBlock, 'summary', ['x']), FrontmatterError);
+}
+
+/* The body half — how the journal editor rewrites a post it did not author.
+   The block has to come back byte-identical, including a `---` in the prose. */
+{
+  assert.equal(readBody(FILE), 'Body text with a --- inside it, and a `key: value` line.');
+
+  const out = setBody(FILE, 'Rewritten body.\n\nWith a second paragraph.');
+  assert.equal(
+    out,
+    [
+      '---',
+      'title: "AXCAD"',
+      'summary: "Web-based 2D CAD editor."',
+      'tags: ["cad", "parametric"]',
+      'year: 2024',
+      'caseStudySlug: axcad',
+      '---',
+      '',
+      'Rewritten body.',
+      '',
+      'With a second paragraph.',
+      '',
+    ].join('\n'),
+    'the frontmatter block is untouched and the body is replaced whole'
+  );
+
+  assert.equal(readBody(out), 'Rewritten body.\n\nWith a second paragraph.');
+  assert.equal(setBody(out, readBody(out)), out, 'a read/write round trip is a no-op');
+
+  /* Whatever the caller pads it with, the file ends with exactly one newline. */
+  assert.equal(setBody(FILE, '\n\n  Padded.  \n\n\n'), setBody(FILE, '  Padded.'));
+
+  /* CRLF survives both directions. */
+  const crlf = FILE.replace(/\n/g, '\r\n');
+  assert.ok(setBody(crlf, 'One line.').endsWith('---\r\n\r\nOne line.\r\n'));
+  assert.equal(readBody(crlf), 'Body text with a --- inside it, and a `key: value` line.');
+
+  /* A post with no body yet is a body of nothing, not a crash. */
+  assert.equal(readBody(['---', 'title: "X"', '---', ''].join('\n')), '');
+  assert.throws(() => setBody('no frontmatter here', 'x'), FrontmatterError);
 }
 
 console.log('frontmatter self-test: ok');

@@ -177,3 +177,33 @@ export function readFrontmatterField(source: string, key: string): string | null
   if (at === -1 || !isInlineValue(block.lines[at])) return null;
   return block.lines[at].slice(block.lines[at].indexOf(':') + 1).trim();
 }
+
+/**
+ * Replace everything after the frontmatter block, leaving the block itself
+ * byte-identical.
+ *
+ * The mirror of the functions above, and the other half of editing a journal
+ * post that already exists: the fields get patched one line at a time, the body
+ * gets swapped wholesale, and no key the editor has never heard of is touched
+ * by either. The delimiter's own line ending is preserved, so a CRLF file stays
+ * CRLF.
+ */
+export function setBody(source: string, body: string): string {
+  const block = parseBlock(source);
+  const head = block.lines.slice(0, block.end + 1);
+  return [...head, '', body.replace(/^[\r\n]+/, '').replace(/\s+$/, ''), ''].join(block.eol);
+}
+
+/**
+ * Everything after the frontmatter block, with the blank line that follows the
+ * delimiter dropped. Throws, like the rest of this module, on a file that does
+ * not open with a block.
+ */
+export function readBody(source: string): string {
+  const block = parseBlock(source);
+  return block.lines
+    .slice(block.end + 1)
+    .join(block.eol)
+    .replace(/^[\r\n]+/, '')
+    .replace(/\s+$/, '');
+}
