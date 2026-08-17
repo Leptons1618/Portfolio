@@ -1,0 +1,50 @@
+---
+/**
+ * One journal entry, open for editing.
+ *
+ * Prerendered per post, every status included — `getPosts(true)`, the same rule
+ * the entries list and the dashboard follow, because managing the two states
+ * the public site never renders is what this surface exists for.
+ *
+ * Frontmatter *and* body come from the last build, so opening a post is a local
+ * read rather than a round trip to GitHub: it works signed out, and the editor
+ * is prefilled from exactly what the build saw. Only committing needs a token,
+ * and that path reads the file again for its SHA.
+ *
+ * An unpublished post drops out of `getStaticPaths` on the *public* side, so
+ * `/journal/<slug>` 404s — but its page here still exists, which is the point:
+ * withdrawing a post must not also take away the screen that could bring it
+ * back.
+ */
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import JournalEditor from '../../../components/JournalEditor.astro';
+import { getPosts } from '../../../lib/content';
+import type { PostFields } from '../../../lib/content-store';
+
+export async function getStaticPaths() {
+  const posts = await getPosts(true);
+  return posts.map(post => ({
+    params: { slug: post.slug },
+    props: { post },
+  }));
+}
+
+const { post } = Astro.props;
+const { slug } = Astro.params;
+
+const fields: PostFields = {
+  title: post.data.title,
+  summary: post.data.summary,
+  date: post.data.date,
+  tags: post.data.tags,
+  readTime: post.data.readTime,
+  videoDuration: post.data.videoDuration,
+  heroImage: post.data.heroImage,
+  status: post.data.status,
+};
+
+const today = new Date().toISOString().slice(0, 10);
+---
+<AdminLayout title={`Editing ${post.data.title}`}>
+  <JournalEditor slug={slug!} fields={fields} body={post.body} today={today} />
+</AdminLayout>

@@ -221,3 +221,31 @@ Meanwhile the projects screen had the opposite problem. One modal was doing two 
 **Consequences.** The rail's foot now carries two actions rather than one, in a deliberate hierarchy: **New Post** primary, **Identity** secondary. The nav above it is four entries, all of which write, which is the rule this decision exists to keep.
 
 **Revisit if** a fifth *writing* surface appears. A sixth read-only form is not a reason to add a sixth destination.
+
+---
+
+## 13. Which post is open is a URL, not a variable — and writing is not previewing
+
+**Status:** accepted
+
+**Context.** `/admin/journal` was one screen doing three jobs: a blank editor, a "you are editing *this* post instead" mode, and the list of every entry. Which of those was true lived in a single JavaScript variable, `editing`, and four other things had to be kept in step with it by hand — the eyebrow, the heading, the filename line, the highlighted row, the Commit button's label, and whether the draft in `localStorage` belonged to a new post or an existing one. That is a state machine held together by `setEditing()`, on the one surface where being wrong means committing to the wrong file.
+
+Decision 12 had already sorted the project screens this way — a manifest at `/admin/projects`, a page per project underneath it. The journal was the last screen still arguing with itself.
+
+The second problem was smaller and more constant: the editor and its live preview were stacked in the same column, so the writing surface got about 220px of height and the preview was a card you scrolled past to reach the entries list.
+
+**Decision.** Three routes, and a tablist.
+
+- **`/admin/journal`** is a manifest: every entry whatever its status, search and filter, a status menu, delete, and one primary action — **Create journal entry**.
+- **`/admin/journal/new`** and **`/admin/journal/[slug]`** are the same component, `JournalEditor.astro`, rendered with `slug: null` or with the post. The URL is now the only thing that says which file Commit writes, so nothing has to be kept in sync with anything.
+- **Write and Preview are tabs**, not two panels in one column. Both are the same document at different fidelities; side by side neither had enough room, and the preview is not something you read while typing. The textarea gets the whole column height instead.
+
+**What this cost.** One prerendered page per post, on top of one per project. Same trade as decision 12, same reasoning: they are `noindex`, out of the sitemap, and the ability to link straight to a post's editor is worth more than the bytes.
+
+`localStorage` still holds exactly one journal draft under one key. It now carries the slug it belongs to and a screen refuses a draft that is not its own, so a half-written new entry cannot be restored on top of a published post — which the single shared editor could do, and did.
+
+**Consequences.** `setEditing()`, `resetEditor()`, `openEntry()` and the `is-editing` row highlight are all gone; there is nothing for them to do. The editor no longer renders the entries list, so committing a status no longer has to reach back into a prerendered row it is standing next to — that lives on the manifest, where the rows are. An open post still keeps its filename however the title is edited: that rule did not change, it just stopped needing a variable to enforce it, because the slug arrives as a prop.
+
+`wireTabs()` in `src/lib/admin.ts` is shared with `/admin/projects/[slug]`, which had the same one-long-column problem between its frontmatter form and its case study.
+
+**Revisit if** an editor ever needs to write two files at once. Then the URL stops being able to name its target, and this goes back to being state.

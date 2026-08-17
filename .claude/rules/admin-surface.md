@@ -36,7 +36,9 @@ localStorage key names live in `src/lib/admin.ts` (`ADMIN_KEYS`, `SIDEBAR_KEY`) 
 
 | Screen | Key | Writes | Target |
 | --- | --- | --- | --- |
-| `journal` | `journalDraft` | export **and commit** | `src/content/journal/<slug>.md` — create, update-in-place, status patch, delete |
+| `journal` | — | **commit** only | status patch and delete on `src/content/journal/<slug>.md` |
+| `journal/new` | `journalDraft` | export **and commit** | creates `src/content/journal/<slug>.md` |
+| `journal/[slug]` | `journalDraft` | export **and commit** | updates `src/content/journal/<slug>.md` in place |
 | `resume` | `resumeDraft` | export **and commit** | `src/lib/resume.ts` |
 | `projects` | — | **commit** only | creates `src/content/projects/<slug>.md`; patches `hidden` |
 | `projects/[slug]` | — | **commit** only | `src/content/projects/<slug>.md` and `src/content/case-studies/<slug>.mdx` |
@@ -46,7 +48,13 @@ localStorage key names live in `src/lib/admin.ts` (`ADMIN_KEYS`, `SIDEBAR_KEY`) 
 
 **Two project screens, and the split is the point.** `/admin/projects` is a manifest — cards, a visibility switch each, and an import modal. `/admin/projects/[slug]` is one project in full, plus its case study. The modal on the list screen is **creation only**; editing an existing project is the detail page. Do not give the modal an edit mode back: it was doing both jobs and doing the second one badly.
 
-**The journal editor edits existing posts, published ones included.** `editing` — the slug of the open post, or `null` — is the one piece of state that decides which path is written, whether an overwrite is allowed, and that **the filename does not follow the title**. Astro derives the slug from the filename, so renaming on a title edit would orphan a live URL. The entries list seeds frontmatter *and* `entry.body` from the build, so opening a post is a local read and works signed out; only committing needs a token.
+**Three journal screens, and the URL is the state.** `/admin/journal` is the manifest — every entry, search, filter, the status menu, delete. `/admin/journal/new` and `/admin/journal/[slug]` both render `src/components/JournalEditor.astro`; the only difference between them is the `slug` prop, `null` or the post's. That prop decides which path is written, whether the write is a create or a patch, and that **the filename does not follow the title** — Astro derives the slug from the filename, so renaming on a title edit would orphan a live URL. Do not reintroduce an `editing` variable: it was six pieces of UI kept in sync by hand, and decision 13 in `docs/DECISIONS.md` says why it is gone.
+
+The editor's frontmatter and body are prerendered from the last build, so opening a post is a local read and works signed out; only committing needs a token. `getPosts(true)` feeds `getStaticPaths` here, so an unpublished post keeps its *admin* page while losing its public one — withdrawing a post must not take away the screen that could bring it back.
+
+There is still exactly one `journalDraft` key. The snapshot carries the slug it belongs to and a screen refuses a draft that is not its own, so a half-written new entry cannot be restored on top of a published post.
+
+**Tabs are `wireTabs()` in `src/lib/admin.ts`**, shared by the journal editor (write / preview) and a project's page (frontmatter / case study). The markup is the contract — you pass it the `[role="tablist"]` element, and each `[role="tab"]` inside names its panel through `aria-controls` — and panels hide with the `hidden` attribute so their inputs leave the focus order. Two things to keep: the server marks the initially-selected tab so the right panel shows before the script runs, and **a panel must not also carry a page-scoped layout class**. Astro's scoping adds an attribute, which then outranks `.tab-panel[hidden]` and leaves a hidden panel on screen; put the layout on a child.
 
 ## `src/lib/content-store.ts` is the write half
 
@@ -86,9 +94,13 @@ Repositories are matched to projects on **`repoUrl`**, not on name — a project
 
 Rows are built node by node with `createElement`. The name, description and URL all come back from GitHub; none of them goes near an HTML parser. Keep it that way.
 
+Because they are built in script, **those nodes never get the page's `data-astro-cid`**, so a plain scoped selector in the page's `<style>` matches none of them — the rows silently rendered unstyled for a while. Every `.repo-*` rule is written as `#import-list :global(.repo-…)`, hung off a server-rendered ancestor that *does* carry the attribute. Same seam the resume editor's generated fields use. Anything added to `repoRow()` has to be declared through that door too.
+
 `site.githubUser` reaches the client through a `data-user` attribute — frontmatter constants are not visible to client scripts, so that attribute is the seam. Larger server data (the project seed) goes through `<script type="application/json">` with `<` escaped, the same pattern the resume editor uses.
 
 Every modal is a native `<dialog>`, styled by `.modal*` in `src/styles/admin.css` — the import list, the import form and the identity dialog share it, so those rules do not belong to a page. The top layer, focus trapping and Escape are the platform's job: do not reimplement any of them; only the backdrop click is wired up. The journal's row menus are `<details>` for the same reason — the open/close and the button semantics come free, and all the script adds is closing the siblings.
+
+A dialog is three bands — `.modal-head`, `.modal-body`, `.modal-foot` — because scrolling the whole thing took the title, the search field and the commit button off screen exactly when the content was long enough to need them. Only the body scrolls, and the padding therefore belongs to the bands rather than to the dialog. **`display` is declared on `.modal[open]`, never on `.modal`**: a closed `<dialog>` is hidden by `dialog:not([open])` in the UA stylesheet, and any author `display` outranks a UA one whatever its specificity, so an unconditional `display: flex` leaves every dialog sitting open in the page.
 
 `.admin-empty` in `admin.css` is the one empty state, with different copy per use. When a screen can be empty, say what would fill it — a bare grid and a rule is not a state, it is a bug that has not been noticed yet.
 

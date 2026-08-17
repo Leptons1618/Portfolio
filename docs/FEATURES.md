@@ -60,7 +60,7 @@ it does not get re-derived as a good idea six months from now.
 | Visibility switch → commits `hidden` | ✅ | Frontmatter patch under the SHA that was read |
 | Fetch repository metadata (branch, last push, stars) | ✅ | The one action that works signed out |
 | Delete a project file | ✅ | Two-click confirm; recoverable from git history |
-| A page per project (`/admin/projects/<slug>`) | ✅ | Prerendered for every project, hidden ones included; the card's **Edit** links to it |
+| A page per project (`/admin/projects/<slug>`) | ✅ | Prerendered for every project, hidden ones included; the card's **Edit** links to it. Frontmatter and case study are tabs; `#case-study` opens the second |
 | Edit every frontmatter field | ✅ | One read, N in-memory patches, one commit |
 | Import modal: search, four filters, three honest states | ✅ | `GET /user/installations/{id}/repositories` + the public listing |
 | Import → form prefilled from GitHub → one commit | ✅ | Seven of nine fields come from the repo; `category` and `highlights` cannot. Creation only — editing is the detail page |
@@ -76,7 +76,8 @@ it does not get re-derived as a good idea six months from now.
 
 | Feature | State | Notes |
 | --- | --- | --- |
-| Write a post, live Markdown preview, focus mode | ✅ | Preview is a deliberate subset with escaping and a link-scheme allowlist |
+| A manifest at `/admin/journal`, a page per entry underneath | ✅ | `journal/new` and `journal/<slug>` are the same `JournalEditor.astro`; the URL is the state — decision 13 |
+| Write a post, Markdown preview, focus mode | ✅ | Write and Preview are tabs, not two panels in one column. The preview is a deliberate subset with escaping and a link-scheme allowlist |
 | Local draft in `localStorage` | ✅ | This browser only; cleared from the dashboard |
 | Export `.md` | ✅ | The path that works signed out |
 | Commit to the repository | ✅ | `src/content/journal/<slug>.md` |
@@ -84,7 +85,7 @@ it does not get re-derived as a good idea six months from now.
 | Change an existing post's status | ✅ | One frontmatter patch; body untouched |
 | Search + status filter over existing entries | ✅ | |
 | Unpublish means a true 404 | ✅ | The post leaves `getStaticPaths`, not just the listing |
-| Load an existing post back into the editor | ✅ | **Edit** on any entry, published ones included. Seeded from the build, so it works signed out |
+| Load an existing post back into the editor | ✅ | **Edit** on any entry, published ones included, opens `/admin/journal/<slug>`. Prerendered from the build, so it works signed out |
 | Update an existing post | ✅ | Fields patched line by line, body swapped whole — anything the editor does not know about survives |
 | Per-entry menu: status, open, delete | ✅ | `<details>`; delete is a two-click confirm |
 | Renaming a post's file from the editor | ✂️ | An open post keeps its slug. Astro derives it from the filename, so a rename orphans a live URL — move the file in git and add a redirect if it ever matters |

@@ -53,7 +53,9 @@ const linked = caseStudies.find(entry => entry.slug === fields.caseStudySlug);
 
 /* Both forms prefill from the real frontmatter rather than from what the page
    happens to display, so a field neither form shows still round-trips.
-   `<` is escaped because this lands inside a `<script>` element. */
+   `<` is escaped because this lands inside a script element. Never write that
+   tag literally in a comment: Vite's dependency scanner matches it in the raw
+   `.astro` source and parses the markup after it as JavaScript. */
 const seed = {
   slug,
   project: fields as ProjectFields,
@@ -124,6 +126,40 @@ const STATUS_VARIANT: Record<string, string> = {
 
     <p class="admin-note pd-message" id="pd-message"></p>
 
+    {/* Two forms, one column, and stacked they were a very long scroll with the
+        case study's Commit button somewhere below the fold — the two halves are
+        siblings rather than a hierarchy, so a tablist is the honest shape.
+        `pd-message` stays *above* the bar on purpose: visibility, the fetch and
+        the delete all report there, and those controls belong to the project
+        rather than to either tab. */}
+    <div class="tab-bar" role="tablist" aria-label="Project sections" id="pd-tabs">
+      <button
+        type="button"
+        class="tab"
+        role="tab"
+        id="pd-tab-fields"
+        aria-controls="pd-panel-fields"
+        aria-selected="true"
+      >
+        <Icon name="lucide:list" class="admin-nav-icon" />Frontmatter
+      </button>
+      <button
+        type="button"
+        class="tab"
+        role="tab"
+        id="pd-tab-case"
+        aria-controls="pd-panel-case"
+        aria-selected="false"
+      >
+        <Icon name="lucide:book-open" class="admin-nav-icon" />Case study
+        <span class="tab-badge">{linked ? linked.slug : 'none'}</span>
+      </button>
+    </div>
+
+    {/* The layout is on a child rather than on the panel itself: Astro's scoping
+        adds an attribute to `.pd-grid`, which would then outrank
+        `.tab-panel[hidden]` and leave a "hidden" panel on screen. */}
+    <div class="tab-panel" id="pd-panel-fields" role="tabpanel" aria-labelledby="pd-tab-fields">
     <div class="pd-grid">
       <section class="card elev-sm">
         <h6 class="admin-eyebrow">Project Frontmatter</h6>
@@ -223,12 +259,9 @@ const STATUS_VARIANT: Record<string, string> = {
         </section>
       </aside>
     </div>
-
-    <div class="section-head-rule pd-cs-head">
-      <h6 class="admin-eyebrow">Case Study</h6>
-      <hr class="rule" />
     </div>
 
+    <div class="tab-panel" id="pd-panel-case" role="tabpanel" aria-labelledby="pd-tab-case" hidden>
     {linked ? (
       <section class="card elev-sm" id="pd-case-study" data-slug={linked.slug}>
         <div class="pd-cs-bar">
@@ -330,13 +363,14 @@ const STATUS_VARIANT: Record<string, string> = {
         </div>
       </section>
     )}
+    </div>
   </div>
 
   <script is:inline type="application/json" id="project-detail-seed" set:html={seedJson}></script>
 </AdminLayout>
 
 <script>
-  import { onAdminPage } from '../../../lib/admin';
+  import { onAdminPage, wireTabs } from '../../../lib/admin';
   import { relativeTime } from '../../../lib/format';
   import {
     createCaseStudy,
@@ -377,6 +411,13 @@ const STATUS_VARIANT: Record<string, string> = {
       host.dataset.tone = 'info';
       host.replaceChildren(document.createTextNode(`${text} — `), anchor);
     }
+
+    /* Wired before anything else: a throw further down would otherwise leave a
+       tablist where both panels are showing at once. `#case-study` in the URL
+       opens the second tab, so the case-study half is linkable — the empty
+       state's "scaffold one" is a place people arrive at from elsewhere. */
+    const tabs = wireTabs($('pd-tabs'));
+    if (window.location.hash === '#case-study') tabs.select('pd-panel-case');
 
     const pageMessage = $('pd-message');
     if (!signedIn) {
@@ -776,8 +817,6 @@ const STATUS_VARIANT: Record<string, string> = {
   .pd-facts dt { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-faint); }
   .pd-facts dd { margin: 0; font-family: var(--font-mono); text-align: right; overflow-wrap: anywhere; }
 
-  .pd-cs-head { margin: var(--space-8) 0 var(--space-3); }
-  .pd-cs-head h6 { margin: 0; }
   .pd-cs-bar { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); flex-wrap: wrap; }
   .pd-cs-title { font-size: 18px; margin: 0 0 4px; }
   .pd-cs-pick { width: auto; font-size: 13px; padding: 6px 10px; }
