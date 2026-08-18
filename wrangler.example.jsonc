@@ -1,0 +1,83 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "portfolio",
+
+  // ---------------------------------------------------------------------
+  // The file wrangler reads, `wrangler.jsonc`, is generated from
+  // `wrangler.example.jsonc` by `npm run config`, and is gitignored. Edit the
+  // example; anything typed into the generated copy is lost on the next
+  // install.
+  //
+  // Why the indirection: `database_id` names *a specific database in a
+  // specific Cloudflare account*. Committed, it means every fork of this
+  // repository ships a config pointing at someone else's database — a
+  // clone can't `wrangler dev` or deploy without first noticing and editing
+  // it. Wrangler has no environment-variable interpolation and no local
+  // override file (checked against the config schema and the docs), so a
+  // template plus a fifteen-line generator is the whole mechanism.
+  //
+  // To run this project you need your own database, not access to anyone
+  // else's:
+  //
+  //     npx wrangler d1 create portfolio-content
+  //     echo "D1_DATABASE_ID=<the id it prints>" >> .env
+  //     npm run config
+  //     npm run db:migrate:local
+  //
+  // In CI it comes from the `D1_DATABASE_ID` repository secret.
+  // See `docs/DECISIONS.md` 21.
+  // ---------------------------------------------------------------------
+
+  // `account_id` is deliberately absent, and no substitution exists for it:
+  // nothing local needs it. `wrangler dev` runs without an account, and an
+  // interactive `wrangler deploy` resolves one through the OAuth login. CI
+  // passes it as the `accountId` input to `cloudflare/wrangler-action`, from
+  // the `CLOUDFLARE_ACCOUNT_ID` secret — which is also what lets the deploy
+  // token skip `Account Settings: Read`, since that permission exists only so
+  // wrangler can list accounts to work out which one is meant.
+
+  // Astro's Cloudflare adapter emits the server entry here and leaves every
+  // prerendered page beside it in `dist/`, which is why `assets.directory` and
+  // `main` point into the same folder.
+  //
+  // That overlap is why `public/.assetsignore` exists: without it `wrangler
+  // deploy` refuses to run, because uploading `dist/` wholesale would serve
+  // `_worker.js` — the server bundle — as a public static file. Adapter 12
+  // emits the Pages-era `_routes.json` and does *not* write `.assetsignore`,
+  // so it is a checked-in file that Astro copies verbatim out of `public/`
+  // rather than anything generated. Check 7 in `scripts/check-content.mjs`.
+  "main": "./dist/_worker.js/index.js",
+  "compatibility_date": "2026-08-18",
+  // The Astro server bundle reaches for Node built-ins.
+  "compatibility_flags": ["nodejs_compat"],
+
+  "assets": {
+    "directory": "./dist",
+    // Static assets are checked first and served without invoking the Worker,
+    // so the prerendered pages — /about, /resume, the whole admin surface —
+    // cost nothing at runtime. Only the D1-backed routes run code.
+    "binding": "ASSETS"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "portfolio-content",
+      // Substituted by `npm run config`. A fork points this at its own
+      // database by setting D1_DATABASE_ID, not by editing this line.
+      "database_id": "__D1_DATABASE_ID__",
+      "migrations_dir": "./migrations"
+    }
+  ],
+
+  "observability": { "enabled": true }
+
+  // There is deliberately no setting here disabling `wrangler types`. There
+  // isn't one to set: `dev.types.includeRuntime` used to sit at this spot and
+  // is not a field wrangler has — it parsed, did nothing, and announced itself
+  // as "Unexpected fields found in dev field" on every CI run. The generated
+  // `worker-configuration.d.ts` breaks every DOM type in the admin's client
+  // scripts (see `src/env.d.ts`), and what actually keeps it out of the tree is
+  // check 6 in `scripts/check-content.mjs`, which fails the build if the file
+  // exists.
+}

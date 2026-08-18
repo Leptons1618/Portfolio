@@ -142,3 +142,7 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 mockups/
+
+# Generated from wrangler.example.jsonc by `npm run config` — it carries the
+# D1 database id, which is per-account. Edit the template, not this.
+/wrangler.jsonc
