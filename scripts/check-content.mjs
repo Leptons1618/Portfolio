@@ -32,6 +32,36 @@ import { dirname, join, resolve } from 'node:path';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const p = (...parts) => join(root, ...parts);
 
+/**
+ * The build inputs this script checks come from `.env` locally and from the
+ * environment in CI, and it has to see both.
+ *
+ * Astro reads `.env` through Vite; a plain Node script does not, so without
+ * this the `PUBLIC_GITHUB_OAUTH_WORKER` check below would pass locally for the
+ * only reason that makes a check worthless — it never saw the value. CI has no
+ * `.env` file and passes the variable in the environment, which is why the
+ * existing entries win: `loadEnvFile` overwrites, and a repository variable is
+ * the more authoritative of the two wherever both exist.
+ *
+ * `process.loadEnvFile` is stdlib on the Node this repo already requires
+ * (>= 22.18, `engines` in package.json), so this needs no parser and no
+ * dependency.
+ */
+function loadDotEnv() {
+  if (!existsSync(p('.env'))) return;
+  const preset = { ...process.env };
+  try {
+    process.loadEnvFile(p('.env'));
+  } catch {
+    /* Unreadable or malformed. The checks below then see whatever the real
+       environment holds, which is the same position as having no file. */
+    return;
+  }
+  for (const [key, value] of Object.entries(preset)) {
+    if (value !== undefined) process.env[key] = value;
+  }
+}
+
 /** Every file under a directory, recursively, as repo-relative paths. */
 export function walk(dir, base = dir) {
   if (!existsSync(p(dir))) return [];
@@ -209,6 +239,32 @@ function check() {
     fail('public/.assetsignore', 'does not list `_worker.js` — the server bundle would be served as a public static file');
   }
 
+  /* — the OAuth Worker origin must be absolute —
+
+     `src/lib/github.ts` interpolates this into `fetch(`${WORKER_ORIGIN}/token`)`,
+     so a value with no scheme is a *relative* URL. Set to `anishgiri.dev`, a
+     sign-in from `https://anishgiri.dev/admin/` requested
+     `https://anishgiri.dev/admin/anishgiri.dev/token` and reported "Token
+     exchange failed (404)" — a message that names neither the setting nor the
+     URL it built, on a flow whose other failure modes all have precise
+     messages. It shipped to production and stayed broken for a day.
+
+     Checked here rather than only in `github.ts` because this is a *build*
+     input: the value is inlined into the bundle, so the moment to refuse it is
+     before the bundle exists, not when a visitor clicks sign in. Unset stays a
+     supported state — that is the ungated, export-only mode the admin already
+     handles — so only a set-but-unusable value fails. */
+  loadDotEnv();
+  const workerOrigin = (process.env.PUBLIC_GITHUB_OAUTH_WORKER ?? '').trim();
+  if (workerOrigin && !/^https?:\/\/./.test(workerOrigin)) {
+    fail(
+      'PUBLIC_GITHUB_OAUTH_WORKER',
+      `is "${workerOrigin}", which has no scheme — it must be the token Worker's full origin ` +
+        '(e.g. https://name.subdomain.workers.dev). A bare host is a relative URL and the token ' +
+        'exchange would 404 against this site instead of reaching the Worker',
+    );
+  }
+
   return { errors, counts: { dynamicRoutes: dynamic, pages: pages.length, migrations } };
 }
 
@@ -239,6 +295,15 @@ function selfTest() {
      not a disguised one. */
 
   assert(walk('scripts').includes('scripts/check-content.mjs'), 'walk finds a known file');
+
+  /* The OAuth origin matcher. A bare host and a scheme-relative one are the two
+     shapes that look like a URL and are not one. */
+  const absolute = value => /^https?:\/\/./.test(value);
+  assert(absolute('https://portfolio-github-oauth.example.workers.dev'), 'accepts an https origin');
+  assert(absolute('http://localhost:8787'), 'accepts a local http origin');
+  assert(!absolute('anishgiri.dev'), 'rejects a bare host');
+  assert(!absolute('//anishgiri.dev'), 'rejects a scheme-relative host');
+  assert(!absolute('https://'), 'rejects a scheme with no host');
 
   console.log('check-content self-test: ok');
 }

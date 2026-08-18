@@ -7,6 +7,32 @@
 @tailwind utilities;
 
 /* ==========================================================================
+   `hidden` actually hides.
+
+   Tailwind 3's preflight asserts `[hidden] { display: none }` with no weight
+   behind it, so the attribute loses to *any* author rule that sets `display`
+   at equal specificity and later source order — and this stylesheet is nothing
+   but such rules. `.btn { display: inline-flex }` two hundred lines below is
+   the whole of it: every `<button class="btn" hidden>` on this site was
+   rendering, and the sidebar's Sign out button showed to signed-out visitors
+   for exactly that reason. A component-scoped rule loses even harder, since
+   Astro adds a `data-astro-cid` to it — which is how `AskWidget`'s launcher
+   came to appear on every public page whether or not the assistant was
+   configured, wired to nothing, because the code that unhides it is also the
+   code that binds its click handler.
+
+   Tailwind 4 ships this line for the same reason; it is a correction to
+   preflight, not a new opinion. `until-found` is excluded because the point of
+   that value is to be found by in-page search, which needs the element laid
+   out. Anything that must show while carrying `hidden` has to drop the
+   attribute instead — which is what every caller here already does.
+   ========================================================================== */
+
+[hidden]:where(:not([hidden='until-found'])) {
+  display: none !important;
+}
+
+/* ==========================================================================
    Modernist component layer.
 
    Ported from the design system's `styles.css`. Plain CSS on plain HTML —

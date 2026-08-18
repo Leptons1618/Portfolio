@@ -2,7 +2,15 @@ import type { APIRoute } from 'astro';
 import { json } from '../../../lib/authorize';
 import { ProviderError, callChat, getAiSettings, ndjsonFromSSE, usableProviders } from '../../../lib/ai';
 import { buildCorpus } from '../../../lib/ai-corpus';
-import { GuardError, boundTurns, callerKey, charge, dayStamp, scopePrompt } from '../../../lib/ai-guard';
+import {
+  GuardError,
+  boundTurns,
+  callerKey,
+  charge,
+  dayStamp,
+  scopePrompt,
+  screenQuestion,
+} from '../../../lib/ai-guard';
 import { getCaseStudies, getPosts, getProjects } from '../../../lib/content';
 import { getResume } from '../../../lib/resume';
 import { site } from '../../../lib/site';
@@ -19,9 +27,10 @@ import { site } from '../../../lib/site';
  *
  *   1. Is the assistant switched on at all? One row.
  *   2. Is the request well-formed and within its caps? No I/O.
- *   3. Has this caller, or this day, run out of budget? Two writes.
- *   4. Is there a provider with a key? One query.
- *   5. Only now: build the corpus and call the model.
+ *   3. Is it one of the misuse shapes that need no model to recognise? No I/O.
+ *   4. Has this caller, or this day, run out of budget? Two writes.
+ *   5. Is there a provider with a key? One query.
+ *   6. Only now: build the corpus and call the model.
  *
  * `src/lib/ai-guard.ts` explains what this is and is not defending against, and
  * is honest that the scope prompt is the weakest of the three mechanisms. The
@@ -36,6 +45,24 @@ const refuse = (message: string, status: number, headers: Record<string, string>
   new Response(JSON.stringify({ error: message }), {
     status,
     headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers },
+  });
+
+/**
+ * A guard refusal, delivered as an ordinary answer.
+ *
+ * `200` and one NDJSON frame rather than a `4xx`, because this is not an error:
+ * the visitor asked something out of scope and the assistant is telling them so.
+ * The widget renders a non-ok response as a red note beside the conversation and
+ * a stream as an assistant bubble, and a refusal belongs in the bubble — it is
+ * the answer to what they typed, and it should read like every other one. It
+ * also keeps the transcript coherent, since the turn stays in `history`.
+ */
+const refusalStream = (answer: string) =>
+  new Response(`${JSON.stringify({ delta: answer })}\n`, {
+    headers: {
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
   });
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -59,14 +86,33 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   const caller = await callerKey(request, dayStamp());
-  const verdict = await charge(DB, caller, settings);
-  if (!verdict.ok) {
-    return refuse(
+
+  const tooMany = (verdict: { reason?: string; retryAfterSeconds?: number }) =>
+    refuse(
       verdict.reason ?? 'Too many questions for now.',
       429,
       verdict.retryAfterSeconds ? { 'Retry-After': String(verdict.retryAfterSeconds) } : {},
     );
+
+  /* The cheap half of the scope defence, before the budget is spent on it.
+     `screenQuestion` recognises only the unmistakable shapes — "write me a
+     python script", "ignore your instructions" — and everything it is unsure
+     about goes to the model under the scope prompt, which is still what decides
+     scope in general. See the comment on the function; it is deliberately a
+     narrow filter and not a wall.
+
+     Metered against the caller's own hour but not against the site's day: this
+     answer costs nothing to produce, so it must not consume the allowance that
+     pays for real ones — while still not being free to hammer. */
+  const screening = screenQuestion(turns, site.name.split(' ')[0]);
+  if (!screening.allowed) {
+    const metered = await charge(DB, caller, settings, Date.now(), { countsAgainstDay: false });
+    if (!metered.ok) return tooMany(metered);
+    return refusalStream(screening.answer);
   }
+
+  const verdict = await charge(DB, caller, settings);
+  if (!verdict.ok) return tooMany(verdict);
 
   const providers = await usableProviders(DB);
   if (!providers.length) return refuse('The assistant is not available right now.', 503);

@@ -101,7 +101,7 @@ Repository → **Settings → Secrets and variables → Actions → Variables**:
 | Variable | Value |
 | --- | --- |
 | `OAUTH_CLIENT_ID` | the GitHub App Client ID |
-| `OAUTH_WORKER_URL` | the Worker origin, **no trailing slash** |
+| `OAUTH_WORKER_URL` | the Worker origin — **full URL, no trailing slash** |
 | `OAUTH_APP_SLUG` | the App slug — optional, link-building only |
 
 These are variables, not secrets: all three are public by design, and
@@ -115,6 +115,18 @@ Or from the CLI:
 ```sh
 gh variable set OAUTH_CLIENT_ID --body "Iv23…"
 ```
+
+> **The scheme is not optional.** `OAUTH_WORKER_URL` (and
+> `PUBLIC_GITHUB_OAUTH_WORKER` in a local `.env`) must start `https://`. The
+> value is interpolated into ``fetch(`${WORKER_ORIGIN}/token`)``, so a bare host
+> is a *relative* URL: set to `anishgiri.dev`, a sign-in from
+> `https://anishgiri.dev/admin/` requests
+> `https://anishgiri.dev/admin/anishgiri.dev/token` and reports **"Token
+> exchange failed (404)"** — a message that names neither the setting nor the
+> URL it built. `scripts/check-content.mjs` refuses a scheme-less value at build
+> time now, and `github.ts` disables sign-in rather than using one, but the
+> quickest way to recognise it is the 404 itself: every other failure in this
+> flow has a specific message.
 
 ## 4. Reaching the admin locally
 

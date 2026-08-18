@@ -12,7 +12,79 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- **GitHub sign-in failed with "Token exchange failed (404)", because the Worker
+  URL had no scheme.** `PUBLIC_GITHUB_OAUTH_WORKER` was `anishgiri.dev`, and
+  that value is interpolated into ``fetch(`${WORKER_ORIGIN}/token`)`` — so a
+  bare host is a *relative* URL, and a sign-in from `/admin/` requested
+  `https://anishgiri.dev/admin/anishgiri.dev/token`. The token Worker was never
+  contacted. It reached production through a manual `npm run deploy`, which
+  built from the local `.env` and overwrote a correct CI build whose repository
+  variable had the full `https://…workers.dev` origin all along.
+
+  Three changes so it cannot recur silently: `check-content.mjs` refuses a
+  scheme-less value at build time (and now reads `.env`, so it sees the value
+  locally as well as in CI); `github.ts` treats one as unset, which drops the
+  admin into the ungated export-only mode it already handles instead of
+  offering a sign-in button that cannot work; and **`npm run deploy` now runs
+  `npm run check` first**, matching what CI already did — a manual deploy
+  skipping the gate is how this shipped.
+
+- **Dropdowns and the chat panel were invisible, and the cause was one line of
+  Tailwind preflight.** `[hidden] { display: none }` carries no weight, so it
+  lost to every later author rule that sets `display` — `.btn`, and any
+  component-scoped rule, which Astro compiles with a `data-astro-cid` and so one
+  specificity step higher. Three things were broken by it:
+
+  - **Every dropdown on the admin opened into the top layer and painted
+    nothing.** `select.ts` set `hidden` on the popup and called `showPopover()`
+    to open it — and `showPopover()` promotes an element and clears the *UA*
+    rule, it does not remove an attribute. Confirmed in Chrome: with `hidden`
+    on an open popup, `:popover-open` is `true` and `display` is `none`. The
+    popup is now driven by an `.is-shown` class in both directions and depends
+    on no spec detail about attributes.
+  - **The public chat launcher appeared on every page whether or not the
+    assistant was configured, and did nothing when pressed** — because the
+    branch that unhides it is the branch that binds its click handler.
+  - **The sidebar's Sign out button showed to signed-out visitors.**
+
+  Fixed once, in `global.css`, with the `!important` correction Tailwind 4 ships
+  for the same reason — decision 26.
+
 ### Added
+
+- **Write a whole journal post from a topic, into every field, live.** The new
+  `compose` task fills title, summary, tags, read time and body from one
+  sentence, streaming into the fields in that order so the form is visibly
+  filling in before the body starts. A task now declares `live` and writes
+  straight into the editor, or does not and keeps the panel and its Insert
+  button; that one field is the whole rule. Every live run is undoable in one
+  press, Stop leaves what arrived, and `revise` rewrites a whole draft to an
+  instruction the same way — decision 28.
+
+- **The writing assistant is a docked panel rather than a modal.** A backdrop
+  over the editor was fine when everything landed in a box behind Insert, and
+  wrong the moment a task writes into the fields — the editor is the thing being
+  watched. Escape-to-close is re-added in script; the top layer is deliberately
+  not, so select popovers and toasts still appear over it. The selection is also
+  read at run time now, so text can be selected with the panel already open.
+
+- **Per-field assist buttons.** Title, summary, tags and the body toolbar each
+  carry `data-assist-task`, which opens the panel *and* runs that field's task
+  in one press.
+
+- **The public assistant refuses obvious misuse before calling a provider.**
+  `screenQuestion()` recognises the unmistakable shapes — "write me a python
+  script", "ignore your instructions", translate, arithmetic, weather, general
+  knowledge — deterministically, instantly and for free. It is explicitly a
+  supplement and not the scope defence: the guarantees remain the budget and the
+  corpus. Precision over recall throughout, so "what has he written in Python?"
+  and "show me the code from his projects" are still answered; seventeen such
+  questions are a test. A refusal is charged to the caller's hour but not to the
+  site's daily budget, and is delivered as an ordinary answer rather than an
+  error — decision 27.
+
 
 - **An AI assistant, in two halves that share one credential and nothing else.**
 
@@ -25,10 +97,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   cannot be extracted by any prompt, because it is never in the context. Email,
   phone and address are not in there either.
 
-  **In the journal editor**, an Assist panel with eight tasks: draft an outline,
-  expand or tighten the selection, write the summary, suggest titles, suggest
-  tags, draw a diagram, describe the hero image. Everything it produces lands
-  beside an Insert button — it never writes a row, and Save is still the only
+  **In the journal editor**, an Assist panel with ten tasks: write the whole
+  post, draft an outline, expand or tighten the selection, write the summary,
+  revise the draft, suggest titles, suggest tags, draw a diagram, describe the
+  hero image. Some write into the fields as they stream and some land beside an
+  Insert button — but none of them writes a row, and Save is still the only
   thing that does.
 
   **Ships off.** `migrations/0004_ai.sql` seeds `enabled: false` and no key, so

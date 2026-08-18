@@ -50,6 +50,17 @@
 
 const ENHANCED = 'data-enhanced';
 
+/**
+ * The class that displays the popup, in both the promoted and the fallback
+ * path. It is a class rather than the `hidden` attribute because `hidden` is
+ * honoured by an author rule (Tailwind's preflight ships `[hidden] { display:
+ * none }`) that `showPopover()` has no way to lift — it promotes the element to
+ * the top layer and clears the *UA* rule, and nothing in the algorithm removes
+ * the attribute. A popover opened while still carrying it is in the top layer
+ * and painting nothing.
+ */
+const SHOWN = 'is-shown';
+
 /** How long the leave transition in `admin.css` runs. */
 const CLOSE_MS = 130;
 
@@ -118,14 +129,16 @@ function closeMenu(instance: Enhanced, focusButton = false) {
      never fires under `prefers-reduced-motion: reduce`. */
   window.setTimeout(() => {
     instance.menu.classList.remove('is-closing');
-    /* `:popover-open` is a syntax error where the feature is unsupported, and
-       `matches()` throws on one — so the whole pair goes in the guard rather
-       than only the call. Either way the element ends up not displayed. */
+    /* `.is-shown` is what actually displays this — see `openMenu`. Dropping it
+       is therefore the close, and `hidePopover()` only has to give the top
+       layer back. `:popover-open` is a syntax error where the feature is
+       unsupported and `matches()` throws on one, so the whole pair is guarded
+       rather than only the call. */
+    instance.menu.classList.remove(SHOWN);
     try {
       if (instance.menu.matches(':popover-open')) instance.menu.hidePopover();
-      else instance.menu.hidden = true;
     } catch {
-      instance.menu.hidden = true;
+      /* Unsupported, or already hidden. The class above did the work. */
     }
   }, CLOSE_MS);
 
@@ -141,16 +154,21 @@ function openMenu(instance: Enhanced) {
 
   /* Top layer where it is available; a plain fixed element where it is not.
      The fallback is only wrong inside a `<dialog>`, which is where `popover`
-     is supported anyway. */
-  if (typeof instance.menu.showPopover === 'function') {
-    try {
-      instance.menu.showPopover();
-    } catch {
-      instance.menu.hidden = false;
-    }
-  } else {
-    instance.menu.hidden = false;
+     is supported anyway.
+
+     **`showPopover()` is promotion, not display.** What hides a popover is the
+     UA rule `[popover]:not(:popover-open) { display: none }`, and a *UA* rule
+     is outranked by any author `display` whatever its specificity — the same
+     cascade fact `.modal[open]` in `admin.css` is written the way it is for.
+     So the display state has to be an author class this code controls in both
+     directions, or the promotion happens to an element another author rule is
+     still holding at `display: none` and the list opens invisibly. */
+  try {
+    instance.menu.showPopover?.();
+  } catch {
+    /* Unsupported, or already showing. `.is-shown` below is what paints it. */
   }
+  instance.menu.classList.add(SHOWN);
 
   instance.button.setAttribute('aria-expanded', 'true');
   instance.active = Math.max(0, instance.select.selectedIndex);
@@ -383,7 +401,6 @@ export function enhanceSelect(select: HTMLSelectElement): void {
   menu.id = id;
   menu.setAttribute('role', 'listbox');
   menu.setAttribute('popover', 'manual');
-  menu.hidden = true;
 
   wrap.append(select, button);
   document.body.appendChild(menu);

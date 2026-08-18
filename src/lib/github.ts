@@ -52,7 +52,37 @@
 import { site } from './site';
 
 const CLIENT_ID = import.meta.env.PUBLIC_GITHUB_CLIENT_ID ?? '';
-const WORKER_ORIGIN = (import.meta.env.PUBLIC_GITHUB_OAUTH_WORKER ?? '').replace(/\/$/, '');
+
+/**
+ * The token Worker's origin. **Absolute, or treated as unset.**
+ *
+ * The scheme is not decoration here. This value is interpolated into
+ * `fetch(`${WORKER_ORIGIN}/token`)`, and a bare host is a *relative* URL: with
+ * `PUBLIC_GITHUB_OAUTH_WORKER=anishgiri.dev`, a sign-in from
+ * `https://anishgiri.dev/admin/` requested
+ * `https://anishgiri.dev/admin/anishgiri.dev/token` and reported "Token
+ * exchange failed (404)" — a message naming neither the setting nor the URL it
+ * had built. Nothing else in the flow can go wrong in a way that looks like
+ * that, and it stayed broken in production for a day.
+ *
+ * A scheme-less value is therefore rejected rather than used. `isConfigured()`
+ * reads this, so the failure is the one the admin already handles well: the
+ * screens stay reachable and export-only and the sidebar says so, instead of
+ * offering a sign-in button that cannot work. `scripts/check-content.mjs`
+ * refuses the same value at build time, which is where this should be caught.
+ */
+const WORKER_ORIGIN = (() => {
+  const raw = (import.meta.env.PUBLIC_GITHUB_OAUTH_WORKER ?? '').trim().replace(/\/$/, '');
+  if (!raw) return '';
+  if (/^https?:\/\/./.test(raw)) return raw;
+  console.error(
+    `PUBLIC_GITHUB_OAUTH_WORKER is "${raw}", which has no scheme. It must be the token ` +
+      'Worker\'s full origin, e.g. https://<name>.<subdomain>.workers.dev — a bare host is a ' +
+      'relative URL and the token exchange would 404 against this site instead. Sign-in is ' +
+      'disabled until it is fixed.',
+  );
+  return '';
+})();
 
 /**
  * The App's slug — the last segment of `github.com/settings/apps/<slug>`.
