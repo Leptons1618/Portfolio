@@ -127,6 +127,74 @@ export function encode(value: unknown, as: Encoder): string | number | null {
 }
 
 /**
+ * `repoUrl` → `Repo URL`. The admin speaks camelCase; a person does not.
+ */
+const humanise = (field: string) =>
+  field
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/\burl\b/i, 'URL')
+    .replace(/^./, character => character.toUpperCase());
+
+/** The camelCase field a column came from, for turning a refusal back into copy. */
+function fieldFor(table: string, column: string): string | null {
+  if (!isTable(table)) return null;
+  const entry = Object.entries(TABLES[table].columns).find(([, [name]]) => name === column);
+  return entry ? humanise(entry[0]) : null;
+}
+
+/**
+ * Turn a database refusal into a sentence naming what to do about it.
+ *
+ * The constraints in `migrations/` are the validation now — that is the whole
+ * point of decision 18 — but a constraint speaks SQLite. Leaving a post's
+ * summary blank and pressing save produced, verbatim on screen:
+ *
+ *     D1_ERROR: NOT NULL constraint failed: journal.summary: SQLITE_CONSTRAINT
+ *
+ * which is correct, useless, and reads as a fault in the site rather than as an
+ * empty field twenty pixels away from the button. The editors validate their
+ * own required fields before saving, so this is the backstop for the ones they
+ * miss and for anything reaching the endpoint another way — but a backstop that
+ * a person can act on.
+ *
+ * It lives here because the answer is this file's data: the map that turns
+ * `journal.summary` back into "Summary" is the same map `bind()` uses to go the
+ * other way, and a second copy of it somewhere else would drift the first time
+ * a column was renamed.
+ *
+ * Returns `null` for anything it does not recognise, so the caller falls back
+ * to the raw message rather than swallowing a failure it cannot explain.
+ */
+export function explainConstraint(message: string, slug?: string): string | null {
+  const notNull = /NOT NULL constraint failed: (\w+)\.(\w+)/.exec(message);
+  if (notNull) {
+    const [, table, column] = notNull;
+    const label = fieldFor(table, column) ?? humanise(column);
+    return `${label} is required, and was left empty. Fill it in and save again.`;
+  }
+
+  const unique = /UNIQUE constraint failed: (\w+)\.slug/.exec(message);
+  if (unique) {
+    const where = slug ? `"${slug}"` : 'that slug';
+    return `${where} already exists in ${unique[1]}. Open it and edit it rather than creating a second one.`;
+  }
+
+  if (/FOREIGN KEY constraint failed/i.test(message)) {
+    return (
+      'A link is in the way: either the case study being pointed at does not exist, or a project ' +
+      'still points at the case study being deleted. Unlink the two first, then try again.'
+    );
+  }
+
+  const check = /CHECK constraint failed: (\w+)/.exec(message);
+  if (check) {
+    return `${humanise(check[1])} is not one of the values this table accepts.`;
+  }
+
+  return null;
+}
+
+/**
  * Translate a request's fields into column identifiers and bound values.
  *
  * Throws `BadRequest` for any key not in the map — including, deliberately,

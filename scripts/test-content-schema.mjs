@@ -14,8 +14,22 @@
 
 import assert from 'node:assert/strict';
 
-import { BadRequest, SLUG, TABLES, bind, encode, isTable } from '../src/lib/content-schema.ts';
-import { MAX_MEDIA_BYTES, MEDIA_MIME, MEDIA_TYPES, mediaPath } from '../src/lib/media.ts';
+import {
+  BadRequest,
+  SLUG,
+  TABLES,
+  bind,
+  encode,
+  explainConstraint,
+  isTable,
+} from '../src/lib/content-schema.ts';
+import {
+  MAX_MEDIA_BYTES,
+  MEDIA_MIME,
+  MEDIA_TYPES,
+  mediaBytes,
+  mediaPath,
+} from '../src/lib/media.ts';
 
 let checks = 0;
 const check = (name, fn) => {
@@ -150,6 +164,78 @@ check('every accepted type maps back to its own MIME', () => {
 
 check('the size cap stays inside what D1 can hold in one BLOB', () => {
   assert.ok(MAX_MEDIA_BYTES <= 2_000_000, 'D1 refuses a BLOB over 2,000,000 bytes');
+});
+
+/* ---------- BLOB decoding ----------
+
+   The regression this exists for: D1 returns a BLOB as a `number[]`, the media
+   route declared it `ArrayBuffer` in a type parameter — an assertion, which
+   converts nothing — and `new Response(theArray)` stringified it. Every
+   uploaded image was served as `200 OK`, `Content-Type: image/jpeg`, with a
+   body reading `255,216,255,224,…`. A type cannot catch that, because the type
+   was the thing that was wrong. */
+
+const JPEG_MAGIC = [0xff, 0xd8, 0xff];
+
+check('a BLOB returned as an array of byte values becomes those bytes', () => {
+  const decoded = mediaBytes([...JPEG_MAGIC, 0, 16]);
+  assert.ok(decoded instanceof Uint8Array, 'must be bytes, not an array');
+  assert.deepEqual([...decoded], [255, 216, 255, 0, 16]);
+});
+
+check('every shape a D1 driver might hand back decodes to the same bytes', () => {
+  const expected = [...JPEG_MAGIC];
+  const source = Uint8Array.from(expected);
+  for (const [label, value] of [
+    ['number[]', expected],
+    ['Uint8Array', source],
+    ['ArrayBuffer', source.buffer.slice(0)],
+    ['DataView', new DataView(source.buffer.slice(0))],
+  ]) {
+    assert.deepEqual([...mediaBytes(value)], expected, `${label} should decode`);
+  }
+});
+
+check('a view onto a larger buffer yields only its own window', () => {
+  // Never the whole backing store: that would serve neighbouring bytes.
+  const backing = Uint8Array.from([1, 2, 3, 4, 5, 6]);
+  assert.deepEqual([...mediaBytes(backing.subarray(2, 5))], [3, 4, 5]);
+});
+
+check('a shape that is not bytes is refused rather than stringified', () => {
+  // The bug was silence. Anything unrecognised has to be loud.
+  for (const value of [null, undefined, 'ffd8ff', 42, {}]) {
+    assert.throws(() => mediaBytes(value), `${JSON.stringify(value)} is not a BLOB`);
+  }
+});
+
+/* ---------- constraint messages ---------- */
+
+check('a NOT NULL refusal names the field, not the column', () => {
+  const said = explainConstraint('D1_ERROR: NOT NULL constraint failed: journal.summary: SQLITE_CONSTRAINT');
+  assert.match(said, /^Summary is required/);
+  // The raw driver text must not survive into the sentence shown on screen.
+  assert.doesNotMatch(said, /SQLITE_CONSTRAINT|D1_ERROR|journal\.summary/);
+});
+
+check('a snake_case column maps back through the field map', () => {
+  const said = explainConstraint('NOT NULL constraint failed: projects.repo_url');
+  assert.match(said, /^Repo URL is required/);
+});
+
+check('a duplicate slug quotes the slug it was given', () => {
+  assert.match(explainConstraint('UNIQUE constraint failed: journal.slug', 'a-post'), /"a-post" already exists/);
+  // And says something useful without one.
+  assert.match(explainConstraint('UNIQUE constraint failed: journal.slug'), /that slug already exists/);
+});
+
+check('a foreign key refusal explains the link rather than the SQL', () => {
+  assert.match(explainConstraint('FOREIGN KEY constraint failed'), /Unlink/);
+});
+
+check('an unrecognised constraint is left alone for the caller to show raw', () => {
+  // Better a driver message nobody can explain than a confident wrong one.
+  assert.equal(explainConstraint('D1_ERROR: something entirely new'), null);
 });
 
 process.stdout.write(`\ncontent-schema: ${checks} checks passed\n`);

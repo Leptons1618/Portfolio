@@ -29,6 +29,7 @@
 import { slugify } from './content-store';
 import { getToken } from './github';
 import { MAX_MEDIA_BYTES, MEDIA_TYPES } from './media';
+import { openMediaLibrary } from './media-library';
 import { toast } from './admin';
 
 export interface ImageUploadOptions {
@@ -122,6 +123,15 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
   choose.className = 'btn btn-secondary btn-sm';
   choose.textContent = 'Upload image';
 
+  /* The other half of "put an image in this field": reusing one that is
+     already here. Without it the only way to reference an existing image was to
+     remember its path and retype it, which is exactly how a field comes to
+     point at bytes that were written under a slightly different name. */
+  const browse = document.createElement('button');
+  browse.type = 'button';
+  browse.className = 'btn btn-secondary btn-sm';
+  browse.textContent = 'Browse library';
+
   const clear = document.createElement('button');
   clear.type = 'button';
   clear.className = 'btn btn-ghost btn-sm';
@@ -132,7 +142,7 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
 
   const bar = document.createElement('div');
   bar.className = 'image-upload-bar';
-  bar.append(choose, clear, status);
+  bar.append(choose, browse, clear, status);
 
   frame.append(preview, empty, veil);
   box.append(frame, bar, picker);
@@ -230,6 +240,17 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
   const openPicker = () => picker.click();
   choose.addEventListener('click', openPicker);
   frame.addEventListener('click', openPicker);
+
+  /* The library's own "Upload new" comes back here rather than opening a second
+     picker of its own: this control already owns the picker, the directory and
+     the naming rule, and the modal is shared by every field on the page. */
+  browse.addEventListener('click', () => {
+    void openMediaLibrary({ current: input.value.trim(), onUpload: openPicker }).then(url => {
+      if (!url) return;
+      input.value = url;
+      say('Picked from the library. Save the form to reference it.', 'success');
+    });
+  });
 
   picker.addEventListener('change', () => {
     const file = picker.files?.[0];

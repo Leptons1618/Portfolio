@@ -46,6 +46,47 @@ export const MEDIA_MIME: Record<string, string> = Object.fromEntries(
  */
 export const MAX_MEDIA_BYTES = 2_000_000;
 
+/**
+ * Whatever D1 handed back for a BLOB column, as bytes that can be a response.
+ *
+ * **D1 does not return an `ArrayBuffer`.** A BLOB comes back as a plain
+ * `number[]` — one element per byte — because D1's wire format is JSON and JSON
+ * has no binary type. Miniflare's local D1 does the same, so this is not a
+ * development-only quirk.
+ *
+ * `/media/[...path]` declared the column as `ArrayBuffer` in the type parameter
+ * of `first<…>()`, which is an *assertion*: it changes what TypeScript believes
+ * and converts nothing. `new Response(anArray)` then does what `Response` does
+ * with any non-body object — stringifies it — so every uploaded image was
+ * served as `200 OK`, `Content-Type: image/jpeg`, with a body reading
+ * `255,216,255,224,0,16,74,70,73,70,…`. The bytes were in the database the
+ * whole time and the URL was right; the response was a text rendering of them,
+ * which decodes to no image at all. On screen that is an upload control saying
+ * "Nothing loads from that path" about a path that is perfectly correct.
+ *
+ * Nothing catches this by type: the assertion is the bug, so the compiler was
+ * being told the answer rather than checking it. Hence a runtime conversion
+ * that accepts every shape a D1 driver might plausibly return, and a test.
+ */
+export function mediaBytes(value: unknown): Uint8Array<ArrayBuffer> {
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  /* The shape D1 actually returns, and the one the bug was about. */
+  if (Array.isArray(value)) return Uint8Array.from(value as number[]);
+  /* A typed array or a `DataView`, possibly a window onto a larger buffer.
+     Copied into a buffer of its own rather than wrapped: a view carries only
+     part of what it is backed by, and handing `Response` the whole backing
+     store would append whatever is next to the image. The copy also gives the
+     return type an `ArrayBuffer` it definitely owns, which is what `BodyInit`
+     asks for — a `SharedArrayBuffer` is not a valid body, and asserting that
+     one is not present is the class of shortcut that caused this bug. */
+  if (ArrayBuffer.isView(value)) {
+    const bytes = new Uint8Array(value.byteLength);
+    bytes.set(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+    return bytes;
+  }
+  throw new Error(`Unsupported BLOB shape from D1: ${Object.prototype.toString.call(value)}`);
+}
+
 /** One path segment: no dots, no slashes, so nothing can climb out of `dir`. */
 const SEGMENT = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
