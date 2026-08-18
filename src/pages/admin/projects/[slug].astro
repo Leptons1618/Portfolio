@@ -11,9 +11,9 @@
  * beside them, and the case study in the same place rather than behind a
  * select that only ever said "linked".
  *
- * Read from D1 per request, hidden ones included — `getProjects(db, true)`,
- * the same rule the list screen follows. Everything it commits goes through
- * `content-store.ts`.
+ * Read from D1 per request, hidden ones included — `getProject(db, slug, true)`,
+ * the same rule the list screen follows. Everything it writes goes through
+ * `content-store.ts`, and every write is live on the site as it returns.
  */
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import Illustration from '../../../components/Illustration.astro';
@@ -104,8 +104,8 @@ const STATUS_VARIANT: Record<string, string> = {
           <a class="btn btn-secondary btn-sm" href={fields.repoUrl} target="_blank" rel="noopener">
             <Icon name="lucide:github" class="admin-nav-icon" />{owner}/{repoName}
           </a>
-          {/* A hidden project has no detail page in the build, so the link
-              would 404 — say so instead of handing one out. */}
+          {/* A hidden project's public page 404s, so the link would be a dead
+              one — say so instead of handing it out. */}
           {fields.hidden
             ? <span class="text-muted cell-mono pd-nopage">no public page</span>
             : (
@@ -120,7 +120,7 @@ const STATUS_VARIANT: Record<string, string> = {
     <p class="admin-note pd-message" id="pd-message"></p>
 
     {/* Two forms, one column, and stacked they were a very long scroll with the
-        case study's Commit button somewhere below the fold — the two halves are
+        case study's Save button somewhere below the fold — the two halves are
         siblings rather than a hierarchy, so a tablist is the honest shape.
         `pd-message` stays *above* the bar on purpose: visibility, the fetch and
         the delete all report there, and those controls belong to the project
@@ -219,7 +219,7 @@ const STATUS_VARIANT: Record<string, string> = {
 
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" id="pf-reset">Revert</button>
-          <button type="button" class="btn btn-primary" id="pf-save">Commit changes</button>
+          <button type="button" class="btn btn-primary" id="pf-save">Save changes</button>
         </div>
       </section>
 
@@ -243,8 +243,10 @@ const STATUS_VARIANT: Record<string, string> = {
         <section class="card elev-sm">
           <h6 class="admin-eyebrow">Danger Zone</h6>
           <p class="text-muted admin-note">
-            Deleting removes the row <code>{projectPath(slug)}</code>. Nothing stays
-            in the history, so a revert brings it back. A linked case study is left alone.
+            Deleting removes the row <code>{projectPath(slug)}</code> outright. There is no
+            history holding a copy, so nothing brings it back — hide it with the switch
+            above if you only want it off the site. A linked case study is left alone, and
+            the database refuses the delete while one still points here.
           </p>
           <button type="button" class="btn btn-secondary btn-block pm-danger" id="pd-delete">
             <Icon name="lucide:trash-2" class="admin-nav-icon" />Delete this project
@@ -261,8 +263,8 @@ const STATUS_VARIANT: Record<string, string> = {
           <div>
             <h3 class="pd-cs-title">{linked.data.title}</h3>
             <p class="text-muted admin-note">
-              <code>{caseStudyPath(linked.slug)}</code> — the structured half. The body is
-              MDX and is written in git.
+              <code>{caseStudyPath(linked.slug)}</code> — the structured half. Saving any
+              of it is live on <code>/case-studies/{linked.slug}</code> immediately.
             </p>
           </div>
           <div class="admin-actions">
@@ -330,7 +332,7 @@ const STATUS_VARIANT: Record<string, string> = {
 
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" id="cs-reset">Revert</button>
-          <button type="button" class="btn btn-primary" id="cs-save">Commit changes</button>
+          <button type="button" class="btn btn-primary" id="cs-save">Save changes</button>
         </div>
       </section>
     ) : (
@@ -347,7 +349,7 @@ const STATUS_VARIANT: Record<string, string> = {
             <button type="button" class="btn btn-primary btn-sm" id="cs-scaffold">
               <Icon name="lucide:file-plus-2" class="admin-nav-icon" />Scaffold one from this project
             </button>
-            <select class="input pd-cs-pick" id="cs-pick" aria-label="Link an existing case study">
+            <select class="input is-auto pd-cs-pick" id="cs-pick" aria-label="Link an existing case study">
               <option value="">— link an existing one —</option>
               {caseStudies.map(entry => <option value={entry.slug}>{entry.data.title} ({entry.slug})</option>)}
             </select>
@@ -363,18 +365,18 @@ const STATUS_VARIANT: Record<string, string> = {
 </AdminLayout>
 
 <script>
-  import { onAdminPage, wireTabs } from '../../../lib/admin';
+  import { onAdminPage, setBusy, setLabel, toast, wireTabs } from '../../../lib/admin';
   import { relativeTime } from '../../../lib/format';
   import {
     createCaseStudy,
     patchCaseStudy,
     patchProject,
+    projectPath,
     removeProject,
     type CaseStudyFields,
     type ProjectFields,
   } from '../../../lib/content-store';
   import {
-    CONTENT_REPO,
     canWriteContent,
     fetchRepoMeta,
     getToken,
@@ -403,12 +405,14 @@ const STATUS_VARIANT: Record<string, string> = {
       host.textContent = text;
     }
 
+    /* The URL a save returns is the live page, not a commit: there is no commit
+       and no build between pressing the button and the page changing. */
     function sayLink(host: HTMLElement, text: string, url: string) {
       const anchor = document.createElement('a');
       anchor.href = url;
       anchor.target = '_blank';
       anchor.rel = 'noopener';
-      anchor.textContent = 'view commit ↗';
+      anchor.textContent = 'view live ↗';
       host.dataset.tone = 'info';
       host.replaceChildren(document.createTextNode(`${text} — `), anchor);
     }
@@ -424,21 +428,21 @@ const STATUS_VARIANT: Record<string, string> = {
     if (!signedIn) {
       say(
         pageMessage,
-        'Signed out: this screen reads fine, but every button on it is a commit. Sign in from the rail to use them.'
+        'Signed out: this screen reads fine, but every button on it writes to the live site. Sign in from the rail to use them.'
       );
     } else {
-      /* Every button here writes to the portfolio repository, not to the
-         repository this project is *about* — so a read-only installation makes
-         all of them fail, and saying it once up front beats discovering it one
-         failed commit at a time. */
+      /* What decides a write is who the token belongs to — `requireOwner()` on
+         the endpoint admits one account and refuses everything else. Asking the
+         same question here beats discovering the answer one failed save at a
+         time. */
       canWriteContent().then(allowed => {
         if (allowed || pageMessage.textContent) return;
-        say(
-          pageMessage,
-          `This session is read-only on ${CONTENT_REPO}, so Commit, visibility and delete will fail. ` +
-            'Check the GitHub App is installed there with Contents set to read and write.',
-          'error'
-        );
+        const text =
+          'GitHub does not report this session as the owner of this site, so saving, ' +
+          'visibility and delete will all be refused. Sign out and back in with the ' +
+          'account this site belongs to.';
+        say(pageMessage, text, 'error');
+        toast(text, { tone: 'error' });
       });
     }
 
@@ -520,25 +524,31 @@ const STATUS_VARIANT: Record<string, string> = {
 
     const saveProject = $<HTMLButtonElement>('pf-save');
     saveProject.addEventListener('click', async () => {
-      if (!signedIn) return say(pageMessage, 'Sign in with GitHub to commit.', 'error');
+      if (!signedIn) return say(pageMessage, 'Sign in with GitHub to save.', 'error');
 
       const fields = readProject();
       if (typeof fields === 'string') return say(pageMessage, fields, 'error');
 
-      saveProject.disabled = true;
+      setBusy(saveProject, true, 'Saving…');
       say(pageMessage, 'Saving…');
+      const pending = toast('Saving the project…', { tone: 'pending' });
       try {
         /* `hidden` and `caseStudySlug` are deliberately not in this patch: the
            first belongs to the switch above, the second to the section below.
-           Writing either here would add a line to a hand-authored file the
-           first time anyone edited a summary. */
+           A patch writes only the columns handed to it, which is what keeps a
+           field this form has never heard of from being cleared by it. */
         const result = await patchProject(seed.slug, fields);
         sayLink(pageMessage, 'Saved. Live now', result.url);
+        pending.update('Project saved and live.', {
+          tone: 'success',
+          action: { label: 'view live ↗', href: result.url },
+        });
         seed.project = { ...fields, hidden: seed.project.hidden, caseStudySlug: seed.project.caseStudySlug };
       } catch (error) {
         say(pageMessage, message(error), 'error');
+        pending.update(message(error), { tone: 'error' });
       } finally {
-        saveProject.disabled = false;
+        setBusy(saveProject, false);
       }
     });
 
@@ -556,15 +566,25 @@ const STATUS_VARIANT: Record<string, string> = {
         toggle.setAttribute('aria-checked', String(visible));
         toggle.disabled = true;
         say(pageMessage, visible ? 'Publishing…' : 'Hiding…');
+        const pending = toast(visible ? 'Publishing…' : 'Hiding…', { tone: 'pending' });
         try {
           const result = await patchProject(seed.slug, { hidden: !visible });
           seed.project.hidden = !visible;
           visibilityFlag.textContent = visible ? 'visible' : 'hidden';
-          if (visible) sayLink(pageMessage, 'Visible now', result.url);
-          else say(pageMessage, 'Hidden — its page now 404s.');
+          if (visible) {
+            sayLink(pageMessage, 'Visible now', result.url);
+            pending.update('The project is visible.', {
+              tone: 'success',
+              action: { label: 'view live ↗', href: result.url },
+            });
+          } else {
+            say(pageMessage, 'Hidden — its page now 404s.');
+            pending.update('The project is hidden. Its page now 404s.', { tone: 'success' });
+          }
         } catch (error) {
           toggle.setAttribute('aria-checked', String(!visible));
           say(pageMessage, message(error), 'error');
+          pending.update(message(error), { tone: 'error' });
         } finally {
           toggle.disabled = false;
         }
@@ -575,7 +595,7 @@ const STATUS_VARIANT: Record<string, string> = {
 
     const fetchButton = $<HTMLButtonElement>('pd-fetch');
     fetchButton.addEventListener('click', async () => {
-      fetchButton.disabled = true;
+      setBusy(fetchButton, true, 'Reading…');
       say(pageMessage, 'Reading the repository…');
       try {
         const { owner, name } = parseRepoUrl(seed.project.repoUrl);
@@ -586,28 +606,37 @@ const STATUS_VARIANT: Record<string, string> = {
         say(pageMessage, `Read ${meta.fullName}.`);
       } catch (error) {
         say(pageMessage, message(error), 'error');
+        toast(message(error), { tone: 'error' });
       } finally {
-        fetchButton.disabled = false;
+        setBusy(fetchButton, false);
       }
     });
 
     /* Two clicks, because the first one is the one people mean to take back.
-       The file stays in the history either way — this is a commit, not an
-       erasure — which is why a confirm is enough and a typed name is not. */
+       Nothing holds a copy of the row, so the confirm is the only thing between
+       a mis-click and a project that is simply gone — and `setLabel` rather
+       than `textContent`, because this button carries an inlined trash icon
+       that writing over would delete for good. */
     const deleteButton = $<HTMLButtonElement>('pd-delete');
     let armed = false;
     let disarm: ReturnType<typeof setTimeout>;
 
     deleteButton.addEventListener('click', async () => {
-      if (!signedIn) return say(pageMessage, 'Sign in to delete a project file.', 'error');
+      if (!signedIn) return say(pageMessage, 'Sign in to delete a project.', 'error');
 
       if (!armed) {
         armed = true;
-        deleteButton.textContent = 'Confirm delete';
-        say(pageMessage, `This commits a deletion of src/content/projects/${seed.slug}.md. Click again to confirm.`, 'error');
+        setLabel(deleteButton, 'Confirm delete');
+        say(
+          pageMessage,
+          `This deletes ${projectPath(seed.slug)} for good — nothing restores it. ` +
+            'Use the visibility switch instead if you only want it off the site. ' +
+            'Click again to confirm.',
+          'error'
+        );
         disarm = setTimeout(() => {
           armed = false;
-          deleteButton.textContent = 'Delete this project';
+          setLabel(deleteButton, null);
           say(pageMessage, '');
         }, 5000);
         return;
@@ -615,17 +644,19 @@ const STATUS_VARIANT: Record<string, string> = {
 
       clearTimeout(disarm);
       armed = false;
-      deleteButton.disabled = true;
+      setBusy(deleteButton, true, 'Deleting…');
       say(pageMessage, 'Deleting…');
+      const pending = toast(`Deleting ${seed.slug}…`, { tone: 'pending' });
       try {
         await removeProject(seed.slug);
-        /* The page this is standing on stops being built, so there is nowhere
-           useful to stay. */
+        /* The row this page renders from is gone, so this URL now 404s — there
+           is nowhere useful to stay. */
+        pending.update(`${seed.slug} is deleted.`, { tone: 'success' });
         window.location.assign('/admin/projects');
       } catch (error) {
-        deleteButton.disabled = false;
-        deleteButton.textContent = 'Delete this project';
+        setBusy(deleteButton, false);
         say(pageMessage, message(error), 'error');
+        pending.update(message(error), { tone: 'error' });
       }
     });
 
@@ -640,6 +671,10 @@ const STATUS_VARIANT: Record<string, string> = {
     async function relink(next: string | undefined, verb: string) {
       const result = await patchProject(seed.slug, { caseStudySlug: next });
       sayLink(csMessage, `Saved (${verb}). Reload to see this page catch up`, result.url);
+      toast(`Saved — ${verb}. Reload this screen to see it catch up.`, {
+        tone: 'success',
+        action: { label: 'view live ↗', href: result.url },
+      });
     }
 
     if (linkedSlug) {
@@ -690,15 +725,16 @@ const STATUS_VARIANT: Record<string, string> = {
 
       const saveStudy = $<HTMLButtonElement>('cs-save');
       saveStudy.addEventListener('click', async () => {
-        if (!signedIn) return say(csMessage, 'Sign in with GitHub to commit.', 'error');
+        if (!signedIn) return say(csMessage, 'Sign in with GitHub to save.', 'error');
 
         const title = study.title.value.trim();
         const subtitle = study.subtitle.value.trim();
         if (!title || !subtitle) return say(csMessage, 'Title and subtitle are both required by the schema.', 'error');
         if (!study.date.value) return say(csMessage, 'A date is required — it is what orders the listing.', 'error');
 
-        saveStudy.disabled = true;
+        setBusy(saveStudy, true, 'Saving…');
         say(csMessage, 'Saving…');
+        const pending = toast('Saving the case study…', { tone: 'pending' });
         try {
           const changes: Partial<CaseStudyFields> = {
             title,
@@ -717,28 +753,34 @@ const STATUS_VARIANT: Record<string, string> = {
 
           const result = await patchCaseStudy(linkedSlug, changes);
           sayLink(csMessage, 'Saved. Live now', result.url);
+          pending.update('Case study saved and live.', {
+            tone: 'success',
+            action: { label: 'view live ↗', href: result.url },
+          });
           seed.caseStudy = { slug: linkedSlug, data: { ...seed.caseStudy!.data, ...changes } };
         } catch (error) {
           say(csMessage, message(error), 'error');
+          pending.update(message(error), { tone: 'error' });
         } finally {
-          saveStudy.disabled = false;
+          setBusy(saveStudy, false);
         }
       });
 
       const unlink = $<HTMLButtonElement>('cs-unlink');
       unlink.addEventListener('click', async () => {
-        if (!signedIn) return say(csMessage, 'Sign in with GitHub to commit.', 'error');
-        unlink.disabled = true;
+        if (!signedIn) return say(csMessage, 'Sign in with GitHub to save.', 'error');
+        setBusy(unlink, true, 'Unlinking…');
         say(csMessage, 'Unlinking…');
         try {
-          /* The case-study file is left where it is. Removing the pointer is
+          /* The case-study row is left where it is. Removing the pointer is
              recoverable in one click; deleting prose is not. */
           await relink(undefined, 'unlink case study from');
           seed.project.caseStudySlug = undefined;
         } catch (error) {
           say(csMessage, message(error), 'error');
+          toast(message(error), { tone: 'error' });
         } finally {
-          unlink.disabled = false;
+          setBusy(unlink, false);
         }
       });
     } else {
@@ -746,8 +788,8 @@ const STATUS_VARIANT: Record<string, string> = {
       const pick = $<HTMLSelectElement>('cs-pick');
 
       scaffold.addEventListener('click', async () => {
-        if (!signedIn) return say(csMessage, 'Sign in with GitHub to commit.', 'error');
-        scaffold.disabled = true;
+        if (!signedIn) return say(csMessage, 'Sign in with GitHub to save.', 'error');
+        setBusy(scaffold, true, 'Scaffolding…');
         say(csMessage, 'Scaffolding…');
         try {
           await createCaseStudy(seed.slug, {
@@ -765,8 +807,9 @@ const STATUS_VARIANT: Record<string, string> = {
           seed.project.caseStudySlug = seed.slug;
         } catch (error) {
           say(csMessage, message(error), 'error');
+          toast(message(error), { tone: 'error' });
         } finally {
-          scaffold.disabled = false;
+          setBusy(scaffold, false);
         }
       });
 
@@ -774,7 +817,7 @@ const STATUS_VARIANT: Record<string, string> = {
         if (!pick.value) return;
         if (!signedIn) {
           pick.value = '';
-          return say(csMessage, 'Sign in with GitHub to commit.', 'error');
+          return say(csMessage, 'Sign in with GitHub to save.', 'error');
         }
         const chosen = pick.value;
         pick.disabled = true;
@@ -785,6 +828,7 @@ const STATUS_VARIANT: Record<string, string> = {
         } catch (error) {
           pick.value = '';
           say(csMessage, message(error), 'error');
+          toast(message(error), { tone: 'error' });
         } finally {
           pick.disabled = false;
         }

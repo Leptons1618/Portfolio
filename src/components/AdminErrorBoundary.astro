@@ -3,11 +3,17 @@
  * What an admin screen shows when its script has fallen over.
  *
  * There is no framework here to catch a render error — every admin page is
- * static HTML wired up by one client script element — so the failure this
- * guards against is the JavaScript one: an uncaught throw, a rejected promise,
- * or an `init` that never finished. When any of those happen the markup paints
- * and every control silently does nothing, which on a surface whose buttons
- * commit to a repository is the worst way to fail.
+ * server-rendered HTML wired up by one client script element — so the failure
+ * this guards against is the JavaScript one: an uncaught throw, a rejected
+ * promise, or an `init` that never finished. When any of those happen the
+ * markup paints and every control silently does nothing, which on a surface
+ * whose buttons write to a live database is the worst way to fail.
+ *
+ * It is deliberately quiet about things that are not that. A view transition
+ * the router abandoned mid-navigation rejects a promise nobody handles, and
+ * showing this panel for one meant a full-width alarm over a screen that had
+ * just navigated perfectly well — `isTransitionAbort()` in `src/lib/admin.ts`
+ * is what filters it out, and why.
  *
  * Rendered by `AdminLayout` above the page content, hidden until
  * `showAdminError()` in `src/lib/admin.ts` fills it in. The reporting half
@@ -26,7 +32,7 @@ import { ERROR_BOUNDARY_ID } from '../lib/admin';
     <h2 class="admin-error-title">This screen stopped wiring itself up</h2>
     <p class="admin-error-message" data-role="message"></p>
     <p class="text-muted admin-note">
-      Nothing was committed. Reloading rebuilds the page from the last deploy —
+      Nothing was saved. Reloading reads this screen back from the database —
       drafts held in this browser are untouched.
       <span class="admin-error-context cell-mono" data-role="context"></span>
     </p>

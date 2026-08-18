@@ -2,7 +2,7 @@
  * Resume content, shared by the public /resume page and the admin editor.
  *
  * This module used to *be* the resume: five exported constants that the editor
- * regenerated wholesale and committed back over its own source. That made
+ * regenerated wholesale and written back over its own source. That made
  * saving a resume a write to the repository, and it was the last one left after
  * the collections moved to D1 — so the body moved too, into a single row of the
  * `documents` table, and what stays here is the shape and the reader.

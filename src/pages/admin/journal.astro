@@ -4,17 +4,16 @@
  * that starts a new one.
  *
  * This screen used to be an editor with a list bolted underneath it, which
- * meant the answer to "which file does Commit write" lived in a JavaScript
- * variable and had to be mirrored into the heading, the filename line and a
+ * meant the answer to "which post does Save write" lived in a JavaScript
+ * variable and had to be mirrored into the heading, the path line and a
  * highlighted row. Writing is now `/admin/journal/new` and
  * `/admin/journal/<slug>`, so the URL answers it and this screen has one job:
  * say what exists and move a post between states.
  *
- * The three statuses meet here, and that is why the state is one enum in the
- * file rather than a flag in the frontmatter and a draft store somewhere else:
- * `getPosts(true)` already returned everything, so filtering is one predicate
- * and moving a post between states is one frontmatter patch on a file this
- * screen never had to parse.
+ * The three statuses meet here, and that is why the state is one enum on the
+ * row rather than a flag plus a draft store somewhere else: `getPosts(db, true)`
+ * already returns everything, so filtering is one predicate and moving a post
+ * between states is one column patch.
  */
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import Illustration from '../../components/Illustration.astro';
@@ -48,9 +47,9 @@ const counts = {
         <h6 class="admin-eyebrow-mono">MODULE: JOURNAL</h6>
         <h1 class="admin-title">Journal</h1>
         <p class="jl-desc">
-          Everything in <code>src/content/journal/</code>, drafts and withdrawn posts
-          included. <strong>Edit</strong> opens an entry on its own page; a status change
-          is its own commit from the row menu.
+          Every row in <code>journal</code>, drafts and withdrawn posts included.
+          <strong>Edit</strong> opens an entry on its own page; a status change is one
+          click in the row menu and takes effect on the site immediately.
         </p>
       </div>
       <div class="admin-actions">
@@ -77,9 +76,9 @@ const counts = {
           <div class="admin-empty-art"><Illustration name="taking-notes" /></div>
           <h3 class="admin-empty-title">Nothing written yet</h3>
           <p class="admin-empty-copy">
-            <code>src/content/journal/</code> is empty. A new entry starts as a draft — it
-            stays out of production builds until you publish it, which is one menu click
-            from this list.
+            The <code>journal</code> table is empty. A new entry starts as a draft — it
+            stays off the public site until you publish it, which is one menu click from
+            this list.
           </p>
           <div class="admin-empty-actions">
             <a class="btn btn-primary btn-sm" href="/admin/journal/new">
@@ -168,7 +167,7 @@ const counts = {
                     </a>
                   )}
                   <button type="button" class="menu-item menu-item-danger" role="menuitem" data-action="delete">
-                    <Icon name="lucide:trash-2" class="admin-nav-icon" />Delete the file
+                    <Icon name="lucide:trash-2" class="admin-nav-icon" />Delete the post
                   </button>
                 </div>
               </details>
@@ -186,9 +185,9 @@ const counts = {
         </div>
 
         <p class="text-muted admin-note jl-note">
-          Changing a status is its own commit — unpublishing removes the page from the
-          build outright, so its URL starts returning 404. Deleting commits a removal of
-          the file, which stays in the history either way.
+          A status change is live the moment it saves — unpublishing takes the page away
+          outright, so its URL starts returning 404, and publishing puts it back. Deleting
+          is the one that does not come back: the row is the only copy there is.
         </p>
       </>
     )}
@@ -196,8 +195,8 @@ const counts = {
 </AdminLayout>
 
 <script>
-  import { onAdminPage } from '../../lib/admin';
-  import { removePost, setPostStatus, type PostStatus } from '../../lib/content-store';
+  import { onAdminPage, setBusy, setLabel, toast } from '../../lib/admin';
+  import { removePost, setPostStatus, postPath, type PostStatus } from '../../lib/content-store';
   import { getToken } from '../../lib/github';
 
   /* The admin client-routes, so this runs on first paint and again every time
@@ -269,12 +268,12 @@ const counts = {
       const statusItems = Array.from(row.querySelectorAll<HTMLButtonElement>('[data-status]'));
       const deleteItem = row.querySelector<HTMLButtonElement>('[data-action="delete"]')!;
 
-      /* Editing is a link to a prerendered page, so it works signed out. Every
-         control in this menu is a commit, and none of them does. */
+      /* Editing is a link to a page that reads the same row, so it works signed
+         out. Every control in this menu writes one, and none of them can. */
       if (!getToken()) {
         [...statusItems, deleteItem].forEach(item => {
           item.disabled = true;
-          item.title = 'Sign in with GitHub — each of these is a commit.';
+          item.title = 'Sign in with GitHub — each of these writes to the live site.';
         });
         return;
       }
@@ -288,6 +287,10 @@ const counts = {
 
           statusItems.forEach(other => { other.disabled = true; });
           say('Saving…');
+          /* The menu closed the moment this started and the row can scroll out
+             from under the reader, so the durable line below is not enough on
+             its own — the toast is the half that actually gets seen. */
+          const pending = toast(`Moving ${slug} to ${next}…`, { tone: 'pending' });
 
           try {
             const result = await setPostStatus(slug, next);
@@ -303,12 +306,22 @@ const counts = {
               anchor.textContent = 'view live ↗';
               line.dataset.tone = 'info';
               line.replaceChildren(document.createTextNode('Published — live now — '), anchor);
+              pending.update(`${slug} is published and live.`, {
+                tone: 'success',
+                action: { label: 'view live ↗', href: result.url },
+              });
+            } else if (next === 'unpublished') {
+              say('Unpublished — its URL now 404s.');
+              pending.update(`${slug} is withdrawn. Its URL now 404s.`, { tone: 'success' });
             } else {
-              say(next === 'unpublished' ? 'Unpublished — its URL now 404s.' : 'Saved as a draft.');
+              say('Saved as a draft.');
+              pending.update(`${slug} is back to a draft — off the public site.`, { tone: 'success' });
             }
           } catch (error) {
             markRowStatus(slug, previous);
-            say(error instanceof Error ? error.message : 'Save failed.', 'error');
+            const text = error instanceof Error ? error.message : 'Save failed.';
+            say(text, 'error');
+            pending.update(text, { tone: 'error' });
           } finally {
             statusItems.forEach(other => { other.disabled = false; });
           }
@@ -316,7 +329,14 @@ const counts = {
       });
 
       /* Two clicks, like the project cards: the first is the one people mean to
-         take back. The file stays in the history, so a confirm is enough. */
+         take back. Unlike every delete on this surface before decision 18 there
+         is no history holding a copy — the row is the only one there is — so the
+         copy has to say the deletion is final, and it has to point at the
+         reversible control that does the job people usually mean.
+
+         `setLabel` rather than `textContent`: this menu item carries an inlined
+         trash icon, and writing text straight onto it deleted that glyph for the
+         life of the page. */
       let armed = false;
       let disarm: ReturnType<typeof setTimeout>;
 
@@ -325,11 +345,16 @@ const counts = {
 
         if (!armed) {
           armed = true;
-          deleteItem.textContent = 'Confirm delete';
-          say(`This commits a deletion of src/content/journal/${slug}.md. Open the menu and click again.`, 'error');
+          setLabel(deleteItem, 'Confirm delete');
+          say(
+            `This deletes ${postPath(slug)} for good — there is no copy to restore it from. ` +
+              'Unpublish instead if you only want it off the site. Open the menu and click ' +
+              'again to confirm.',
+            'error'
+          );
           disarm = setTimeout(() => {
             armed = false;
-            deleteItem.textContent = 'Delete the file';
+            setLabel(deleteItem, null);
             say('');
           }, 6000);
           return;
@@ -337,9 +362,9 @@ const counts = {
 
         clearTimeout(disarm);
         armed = false;
-        deleteItem.textContent = 'Delete the post';
-        deleteItem.disabled = true;
+        setBusy(deleteItem, true, 'Deleting…');
         say('Deleting…');
+        const pending = toast(`Deleting ${slug}…`, { tone: 'pending' });
 
         try {
           await removePost(slug);
@@ -351,9 +376,12 @@ const counts = {
             else control.removeAttribute('href');
           });
           say('Deleted. The post is gone from the site.');
+          pending.update(`${slug} is deleted.`, { tone: 'success' });
         } catch (error) {
-          deleteItem.disabled = false;
-          say(error instanceof Error ? error.message : 'Delete failed.', 'error');
+          setBusy(deleteItem, false);
+          const text = error instanceof Error ? error.message : 'Delete failed.';
+          say(text, 'error');
+          pending.update(text, { tone: 'error' });
         }
       });
     });
@@ -379,7 +407,7 @@ const counts = {
 
   .existing-card { gap: 0; }
   /* Title | date | edit | menu, with the summary tucked under the title and any
-     commit message spanning the whole row beneath — so a long sentence never
+     status message spanning the whole row beneath — so a long sentence never
      squeezes the controls out of alignment with the row above it.
 
      Every cell is placed explicitly. Mixing definite rows with auto-placed

@@ -10,7 +10,7 @@ import '../styles/admin.css';
 import { ClientRouter } from 'astro:transitions';
 import AdminErrorBoundary from '../components/AdminErrorBoundary.astro';
 import AdminSidebar from '../components/AdminSidebar.astro';
-import { SIDEBAR_KEY } from '../lib/admin';
+import { SIDEBAR_KEY, TOAST_HOST_ID } from '../lib/admin';
 import { EXPIRY_KEY, TOKEN_KEY, isConfigured } from '../lib/github';
 import { DEFAULT_THEME, THEME_KEY, THEMES } from '../lib/theme';
 
@@ -80,14 +80,32 @@ const { title } = Astro.props;
       // The bar is the only thing that says a navigation is in flight. It is
       // `transition:persist`, so this is the same node for the whole session
       // and these two listeners are all it needs.
-      document.addEventListener('astro:before-preparation', function () {
-        var bar = document.getElementById('route-progress');
-        if (bar) bar.hidden = false;
-      });
-      document.addEventListener('astro:page-load', function () {
+      function hideProgress() {
         var bar = document.getElementById('route-progress');
         if (bar) bar.hidden = true;
+      }
+
+      document.addEventListener('astro:before-preparation', function () {
+        var bar = document.getElementById('route-progress');
+        if (!bar) return;
+        // Restart the animation. Without this the bar is already parked at 92%
+        // from the previous navigation and the second click looks like nothing
+        // happened at all — which is the exact failure the bar exists to fix.
+        bar.hidden = false;
+        bar.style.animation = 'none';
+        void bar.offsetWidth;
+        bar.style.animation = '';
       });
+
+      // Both, and deliberately. `astro:page-load` is the normal end of a
+      // navigation, but it is dispatched from a `.finally()` hung off the view
+      // transition — and a navigation the router aborts before preparation
+      // finishes never reaches it, which used to leave the bar crawling across
+      // the top of a page that had already arrived. `astro:after-swap` fires
+      // before paint on every completed swap, so it closes that hole without
+      // ever hiding the bar early.
+      document.addEventListener('astro:after-swap', hideProgress);
+      document.addEventListener('astro:page-load', hideProgress);
     })();
   </script>
 </head>
@@ -107,5 +125,24 @@ const { title } = Astro.props;
       <slot />
     </main>
   </div>
+
+  {/* Outside the shell and `transition:persist`ed, for the same two reasons the
+      progress bar is: a toast belongs to the *session*, not to the screen that
+      raised it, and a save that finishes just as you navigate away must not
+      have its result thrown out mid-swap. Empty until `toast()` in
+      `src/lib/admin.ts` puts something in it. */}
+  {/* `popover="manual"` puts the stack in the top layer, which is the only
+      place a toast can be seen over an open `<dialog>` — `raiseHost()` in
+      `src/lib/admin.ts` explains the re-show. Manual, not `auto`: a toast is
+      not a menu and must not light-dismiss on the next click anywhere. */}
+  <div
+    class="toast-host"
+    id={TOAST_HOST_ID}
+    role="region"
+    aria-label="Notifications"
+    aria-live="polite"
+    popover="manual"
+    transition:persist
+  ></div>
 </body>
 </html>

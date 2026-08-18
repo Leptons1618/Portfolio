@@ -10,8 +10,8 @@
  * typed. It is a screen now — decision 14.
  *
  * Still **export only**, and that has not changed: these values land in
- * `src/lib/site.ts`, a TypeScript module, not frontmatter. `frontmatter.ts`
- * cannot patch it and regenerating it would drop the comments that explain why
+ * `src/lib/site.ts`, a TypeScript module, not a row. `content-store.ts` cannot
+ * patch a module, and regenerating one would drop the comments that explain why
  * `url` is written down three times. The page says so next to the buttons.
  */
 import AdminLayout from '../../layouts/AdminLayout.astro';
@@ -108,15 +108,17 @@ const defaults = {
         </section>
 
         {/* The one thing about this screen that surprises people: nothing here
-            is a commit. It is said next to the fields, not only in a footnote. */}
+            reaches the site. It is said next to the fields, not only in a
+            footnote — every other editor on this surface saves for real. */}
         <section class="card elev-sm">
           <h6 class="admin-eyebrow">How this lands</h6>
           <div class="st-art"><Illustration name="personal-settings" /></div>
           <p class="text-muted admin-note">
             <strong>Save</strong> keeps a copy in this browser so the fields survive a
             reload. <strong>Export</strong> downloads <code>site-identity.json</code>.
-            Neither commits: the target is <code>src/lib/site.ts</code>, a TypeScript
-            module, so the values are merged in by hand.
+            Neither reaches the site: the target is <code>src/lib/site.ts</code>, a
+            TypeScript module read at build time, so the values are merged in by hand
+            and deployed.
           </p>
         </section>
       </aside>
@@ -125,7 +127,7 @@ const defaults = {
 </AdminLayout>
 
 <script>
-  import { ADMIN_KEYS, onAdminPage } from '../../lib/admin';
+  import { ADMIN_KEYS, onAdminPage, toast } from '../../lib/admin';
   import { THEME_EVENT, currentTheme, isThemeId, selectTheme } from '../../lib/theme';
 
   onAdminPage('#admin-settings', () => {
@@ -202,12 +204,18 @@ const defaults = {
     $<HTMLButtonElement>('save-settings').addEventListener('click', () => {
       localStorage.setItem(KEY, JSON.stringify(snapshot()));
       say('Saved to this browser. Export it, then merge into src/lib/site.ts.');
+      /* Deliberately not a success tone: nothing about the site changed, and
+         this is the one screen where "Saved" could be read as meaning it did. */
+      toast('Held in this browser only — the site still reads src/lib/site.ts.', {
+        tone: 'info',
+      });
     });
 
     $<HTMLButtonElement>('reset-settings').addEventListener('click', () => {
       localStorage.removeItem(KEY);
       for (const id of ids) fields[id].value = published[id];
       say('Reverted to what src/lib/site.ts says, and cleared the browser copy.');
+      toast('Reverted to what the site currently reads.', { tone: 'info' });
     });
 
     $<HTMLButtonElement>('export-settings').addEventListener('click', () => {
@@ -219,6 +227,9 @@ const defaults = {
       a.click();
       URL.revokeObjectURL(url);
       say('Exported site-identity.json.');
+      toast('Downloaded site-identity.json. Merge it into src/lib/site.ts.', {
+        tone: 'success',
+      });
     });
   });
 </script>

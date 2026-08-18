@@ -113,8 +113,8 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
   <div class="tab-panel" id="re-panel-preview" role="tabpanel" aria-labelledby="re-tab-preview" hidden>
     <div class="preview-wrap">
       {/* These three switches compose the *preview* and nothing else — they
-          have never touched what `buildModule()` writes. Sitting on the editing
-          cards as "Show in preview", beside fields that do get committed, they
+          have never touched what `buildDocument()` writes. Sitting on the editing
+          cards as "Show in preview", beside fields that do get saved, they
           read as a publish control for the section they were attached to. They
           belong to the thing they change, so they live above it, and Skills
           gets one too rather than being the odd section out. */}
@@ -144,7 +144,7 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
       </div>
       <p class="text-muted admin-note preview-note">
         Shape only, and only on this screen — hiding a section here changes nothing that
-        gets committed. <a href="/resume" target="_blank" rel="noopener">/resume</a> is what
+        gets saved. <a href="/resume" target="_blank" rel="noopener">/resume</a> is what
         the site renders.
       </p>
     </div>
@@ -163,7 +163,7 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
 </AdminLayout>
 
 <script>
-  import { ADMIN_KEYS, onAdminPage, wireTabs } from '../../lib/admin';
+  import { ADMIN_KEYS, onAdminPage, setBusy, toast, wireTabs } from '../../lib/admin';
   import { saveResume } from '../../lib/content-store';
   import { getToken } from '../../lib/github';
 
@@ -180,7 +180,7 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
       summary: string;
       experience: Entry[];
       skills: Group[];
-      /* Not editable in this screen, but carried so the export can rebuild the
+      /* Not editable in this screen, but carried so the save can write back the
          whole module rather than truncating it. */
       certifications: string[];
       education: Education[];
@@ -406,6 +406,7 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
       state = structuredClone(seed);
       $('resume-stamp').textContent = '[ status: editing // reset to published content ]';
       renderAll();
+      toast('Local edits discarded. This is what is saved.', { tone: 'info' });
     });
 
     /* The document exactly as it is stored: the five keys of `ResumeDocument`,
@@ -430,6 +431,7 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
       a.download = 'resume.json';
       a.click();
       URL.revokeObjectURL(url);
+      toast('Downloaded resume.json.', { tone: 'success' });
     });
 
     /* Save the whole document. The download stays as the offline path and as
@@ -443,9 +445,9 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
     }
 
     commitBtn.addEventListener('click', async () => {
-      commitBtn.disabled = true;
-      commitBtn.textContent = 'Saving…';
+      setBusy(commitBtn, true, 'Saving…');
       stamp.textContent = '[ status: saving documents/resume ]';
+      const pending = toast('Saving the resume…', { tone: 'pending' });
 
       try {
         const { url } = await saveResume(buildDocument());
@@ -456,13 +458,16 @@ const seed = { summary: person.summary, experience, skills, certifications, educ
         link.rel = 'noopener';
         link.textContent = 'view live ↗';
         stamp.replaceChildren(document.createTextNode('[ status: saved // '), link, document.createTextNode(' ]'));
-        commitBtn.textContent = 'Saved ✓';
+        pending.update('Resume saved and live.', {
+          tone: 'success',
+          action: { label: 'view live ↗', href: url },
+        });
       } catch (error) {
-        stamp.textContent = error instanceof Error ? error.message : 'Save failed.';
-        commitBtn.textContent = 'Save';
+        const text = error instanceof Error ? error.message : 'Save failed.';
+        stamp.textContent = text;
+        pending.update(text, { tone: 'error' });
       } finally {
-        commitBtn.disabled = false;
-        setTimeout(() => { commitBtn.textContent = 'Save'; }, 2000);
+        setBusy(commitBtn, false);
       }
     });
 

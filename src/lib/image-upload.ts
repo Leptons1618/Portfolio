@@ -2,35 +2,37 @@
  * Upload an image from an admin screen, and see it before anything references it.
  *
  * Every image field on this surface is a text input holding a site-relative
- * path — `/images/projects/thing.webp` — and the build only resolves that path
- * if the file is already in `public/`. Until now the admin had no way to put it
- * there: you left, committed the file by hand, came back and retyped the path
- * from memory, with `check-content.mjs` as the only thing standing between a
- * typo and a broken image. This attaches the missing half to inputs that
- * already exist. Pick or drop a file, it is committed under `public/<dir>/`,
- * and the field is filled in with the path that file now answers to.
+ * path — `/media/images/projects/thing.webp` — and until this existed the admin
+ * had no way to put the bytes anywhere: you left, added the file by hand, came
+ * back and retyped the path from memory. This attaches the missing half to
+ * inputs that already exist. Pick or drop a file, it is stored, and the field
+ * is filled in with the path that file now answers to.
  *
- * **It commits on pick, not on the form's Commit.** An asset is not frontmatter:
- * the form's own save patches one content file under the SHA it read, and
- * folding a binary write into that would be two commits pretending to be one,
- * with a rollback path for the case where the second fails. The asymmetry
- * decides it — an uploaded image nobody references is a harmless orphan in
- * `public/`, while a frontmatter path pointing at a file that was never written
- * fails `npm run check` and then the build.
+ * **It uploads on pick, not with the form's save.** An asset is not a field:
+ * folding a binary write into the form's own save would be two writes
+ * pretending to be one, with a rollback path for the case where the second
+ * fails. The asymmetry decides it — an uploaded image nobody references is a
+ * harmless orphan, while a saved path pointing at bytes that were never written
+ * is a broken image on a live page.
  *
- * It no longer commits. Bytes go to `POST /api/media`, which stores them in
- * D1 and serves them back from `/media/…` — so the path this writes into the
- * field resolves the instant it is written, on this origin, including in
- * `npm run dev`. That removed the last thing on this site that wrote to the
- * repository, which is what let the GitHub App drop to read-only.
+ * Bytes go to `POST /api/media`, which stores them in D1 and serves them back
+ * from `/media/…` — so the path this writes into the field resolves on the very
+ * next request, on this origin, including in `npm run dev`. Nothing here
+ * touches the repository; that is what let the GitHub App drop to read-only.
+ *
+ * The control is built in the browser, so none of its nodes carries a page's
+ * `data-astro-cid` and a page-scoped rule would never reach them. Its styles
+ * live in `src/styles/admin.css`, which is global — the rule for anything a
+ * shared module builds.
  */
 
 import { slugify } from './content-store';
 import { getToken } from './github';
 import { MAX_MEDIA_BYTES, MEDIA_TYPES } from './media';
+import { toast } from './admin';
 
 export interface ImageUploadOptions {
-  /** Directory under `public/`, unslashed at both ends — `images/projects`. */
+  /** Storage directory, unslashed at both ends — `images/projects`. */
   dir: string;
   /**
    * The filename stem, read at upload time rather than passed as a string: on
@@ -42,6 +44,13 @@ export interface ImageUploadOptions {
 
 /** `photo (1).PNG` → `photo-1`. Empty when there is nothing usable left. */
 const stemOf = (filename: string) => slugify(filename.replace(/\.[^.]+$/, ''));
+
+/** `WEBP · AVIF · …`, from the one list both sides of the wire agree on. */
+const ACCEPTED = [...new Set(Object.values(MEDIA_TYPES))].map(e => e.toUpperCase()).join(', ');
+
+/** `1.4 MB`. Rounded the way a file manager rounds it, not the way a byte does. */
+const fileSize = (bytes: number) =>
+  bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
 /**
  * Attach upload + preview to an existing image path input.
@@ -55,18 +64,53 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
   const box = document.createElement('div');
   box.className = 'image-upload';
 
-  const frame = document.createElement('div');
+  /**
+   * The frame is a button.
+   *
+   * It was a `<div>` that accepted a drop, which meant the largest, most
+   * obviously clickable thing on the control did nothing when clicked, and the
+   * only working affordance was the small secondary button underneath it. As a
+   * button, click, Enter and Space all open the picker, it takes a focus ring
+   * from the surface's own rules, and assistive technology is told it is
+   * pressable rather than told nothing at all.
+   */
+  const frame = document.createElement('button');
+  frame.type = 'button';
   frame.className = 'image-upload-frame';
+  frame.dataset.state = 'empty';
 
   const preview = document.createElement('img');
+  preview.className = 'image-upload-preview';
   preview.alt = '';
   preview.hidden = true;
 
-  const DROP_HINT = 'Drop an image here, or upload one';
+  /* Three lines rather than one, because the old single line answered only the
+     first of the three questions this control gets asked: how do I use it,
+     what else can I do, and what will it take. */
+  const empty = document.createElement('span');
+  empty.className = 'image-upload-empty';
+
+  const glyph = document.createElement('span');
+  glyph.className = 'image-upload-glyph';
+  glyph.textContent = '↑';
 
   const hint = document.createElement('span');
   hint.className = 'image-upload-hint';
-  hint.textContent = DROP_HINT;
+
+  const sub = document.createElement('span');
+  sub.className = 'image-upload-sub';
+
+  const DROP_HINT = 'Drop an image, or click to choose';
+  const DROP_SUB = `${ACCEPTED} — up to ${fileSize(MAX_MEDIA_BYTES)}`;
+
+  empty.append(glyph, hint, sub);
+
+  /* Over the frame, not beside it: what has to be unmistakable while bytes are
+     in flight is *which* field is waiting, and a message under a form with two
+     image pickers on it does not say that. */
+  const veil = document.createElement('span');
+  veil.className = 'image-upload-veil';
+  veil.hidden = true;
 
   const picker = document.createElement('input');
   picker.type = 'file';
@@ -90,21 +134,21 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
   bar.className = 'image-upload-bar';
   bar.append(choose, clear, status);
 
-  frame.append(preview, hint);
+  frame.append(preview, empty, veil);
   box.append(frame, bar, picker);
   input.after(box);
 
-  const say = (text: string, tone: 'info' | 'error' = 'info') => {
+  const say = (text: string, tone: 'info' | 'error' | 'success' = 'info') => {
     status.dataset.tone = tone;
     status.textContent = text;
   };
 
-  /* There is deliberately no object-URL cache here any more. An upload used to
-     be a commit, so the bytes existed in the repository while this origin went
-     on 404ing them until the next deploy — and the preview had to show the
-     local file to show anything at all. The upload now lands in the database
-     this origin reads, so `/media/…` answers on the very next request and the
-     field's own value is the honest thing to preview. */
+  /* There is deliberately no object-URL cache here. An upload used to be a
+     commit, so the bytes existed in the repository while this origin went on
+     404ing them until the next deploy — and the preview had to show the local
+     file to show anything at all. The upload lands in the database this origin
+     reads now, so `/media/…` answers on the very next request and the field's
+     own value is the honest thing to preview. */
 
   function show() {
     const value = input.value.trim();
@@ -123,16 +167,18 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
     if (!value || (!value.startsWith('/') && !/^https?:\/\//i.test(value))) {
       preview.hidden = true;
       preview.removeAttribute('src');
-      hint.hidden = false;
-      hint.textContent = value
-        ? 'A path starts with / and resolves under public/ — or paste an http(s) URL'
-        : DROP_HINT;
+      empty.hidden = false;
+      frame.dataset.state = 'empty';
+      const typing = Boolean(value);
+      glyph.textContent = typing ? '!' : '↑';
+      hint.textContent = typing ? 'That is not a path this site can resolve' : DROP_HINT;
+      sub.textContent = typing ? 'A path starts with / — or paste an http(s) URL' : DROP_SUB;
       return;
     }
 
-    hint.hidden = true;
+    empty.hidden = true;
     preview.hidden = false;
-
+    frame.dataset.state = 'filled';
     preview.src = value;
   }
 
@@ -142,9 +188,12 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
   preview.addEventListener('error', () => {
     const value = input.value.trim();
     preview.hidden = true;
-    hint.hidden = false;
-    hint.textContent = DROP_HINT;
-    say(`Nothing loads from ${value} — check the path, or upload the image here.`, 'error');
+    empty.hidden = false;
+    frame.dataset.state = 'empty';
+    glyph.textContent = '!';
+    hint.textContent = 'Nothing loads from that path';
+    sub.textContent = DROP_HINT;
+    say(`${value} did not load — check the path, or upload the image here.`, 'error');
   });
 
   /**
@@ -178,7 +227,10 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
     say('Cleared here. The field is saved with the form.');
   });
 
-  choose.addEventListener('click', () => picker.click());
+  const openPicker = () => picker.click();
+  choose.addEventListener('click', openPicker);
+  frame.addEventListener('click', openPicker);
+
   picker.addEventListener('change', () => {
     const file = picker.files?.[0];
     /* Reset first: picking the same file twice in a row fires no `change` at
@@ -203,30 +255,49 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
     if (file) void upload(file);
   });
 
+  /** The frame's busy state — a spinner over whatever it is currently showing. */
+  function setUploading(on: boolean, label = 'Uploading…') {
+    frame.disabled = on;
+    choose.disabled = on;
+    veil.hidden = !on;
+    if (!on) return;
+    const spinner = document.createElement('span');
+    spinner.className = 'spinner';
+    veil.replaceChildren(spinner, document.createTextNode(label));
+  }
+
   async function upload(file: File): Promise<void> {
     const extension = MEDIA_TYPES[file.type];
     if (!extension) {
-      return say(
-        `${file.type || 'That file'} is not an image this site can serve. Use PNG, JPEG, WebP, AVIF, GIF or SVG.`,
-        'error'
-      );
+      const message = `${file.type || 'That file'} is not an image this site can serve. Use ${ACCEPTED}.`;
+      say(message, 'error');
+      toast(message, { tone: 'error' });
+      return;
     }
     if (file.size > MAX_MEDIA_BYTES) {
-      return say(
-        `${(file.size / 1024 / 1024).toFixed(1)} MB is too large for a page image — resize it under ` +
-          `${MAX_MEDIA_BYTES / 1024 / 1024} MB first. WebP at about 1600px wide is what the rest of the site uses.`,
-        'error'
-      );
+      const message =
+        `${fileSize(file.size)} is too large for a page image — resize it under ` +
+        `${fileSize(MAX_MEDIA_BYTES)} first. WebP at about 1600px wide is what the rest of the site uses.`;
+      say(message, 'error');
+      toast(`That image is ${fileSize(file.size)} — the ceiling is ${fileSize(MAX_MEDIA_BYTES)}.`, {
+        tone: 'error',
+      });
+      return;
     }
     const token = getToken();
     if (!token) {
-      return say('Uploading writes to the site, so it needs a session. Sign in from the rail.', 'error');
+      const message = 'Uploading writes to the site, so it needs a session. Sign in from the rail.';
+      say(message, 'error');
+      toast(message, { tone: 'error' });
+      return;
     }
 
     const stem = slugify(options.name()) || stemOf(file.name) || 'image';
 
-    choose.disabled = true;
-    say('Uploading…');
+    setUploading(true);
+    say(`Uploading ${file.name} — ${fileSize(file.size)}…`);
+    const pending = toast(`Uploading ${file.name}…`, { tone: 'pending' });
+
     try {
       /* The bytes go up as the request body rather than base64 inside JSON: the
          endpoint stores them as a BLOB, so there is no envelope inflating them
@@ -243,11 +314,17 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
       }
 
       input.value = result.url;
-      say(`Uploaded ${result.url}. Save the form to reference it.`);
+      say(`Uploaded — ${fileSize(file.size)}. Save the form to reference it.`, 'success');
+      pending.update('Image uploaded. Save the form to reference it.', {
+        tone: 'success',
+        action: { label: 'open the file ↗', href: result.url },
+      });
     } catch (error) {
-      say(error instanceof Error ? error.message : 'The upload failed.', 'error');
+      const message = error instanceof Error ? error.message : 'The upload failed.';
+      say(message, 'error');
+      pending.update(message, { tone: 'error' });
     } finally {
-      choose.disabled = false;
+      setUploading(false);
     }
   }
 
