@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { MEDIA_MIME } from '../../lib/media';
+import { MEDIA_MIME, mediaBytes } from '../../lib/media';
 
 /**
  * Serve an uploaded image out of the database.
@@ -21,9 +21,15 @@ export const GET: APIRoute = async ({ params, locals }) => {
   const path = params.path ?? '';
   const { DB } = locals.runtime.env;
 
+  /* `bytes` is deliberately typed `unknown`. It used to be declared
+     `ArrayBuffer`, which was an assertion rather than a conversion — D1 returns
+     a BLOB as a `number[]`, `Response` stringified it, and every image on this
+     site was served as a comma-separated list of decimal byte values under an
+     `image/jpeg` header. `mediaBytes()` is the conversion, and saying `unknown`
+     here is what stops the next person from asserting the answer again. */
   const row = await DB.prepare('SELECT mime, bytes, updated_at FROM media WHERE path = ?')
     .bind(path)
-    .first<{ mime: string; bytes: ArrayBuffer; updated_at: string }>();
+    .first<{ mime: string; bytes: unknown; updated_at: string }>();
 
   if (!row) return new Response('Not found', { status: 404 });
 
@@ -34,9 +40,15 @@ export const GET: APIRoute = async ({ params, locals }) => {
   const extension = path.split('.').pop() ?? '';
   const type = MEDIA_MIME[extension] ?? 'application/octet-stream';
 
-  return new Response(row.bytes, {
+  const bytes = mediaBytes(row.bytes);
+
+  return new Response(bytes, {
     headers: {
       'Content-Type': type,
+      /* From the bytes actually being sent, not from the `size` column: the two
+         agree, and the one that would be wrong if they ever stopped agreeing is
+         the one that was not measured here. */
+      'Content-Length': String(bytes.byteLength),
       /* An upload replaces by path, so a URL's bytes *can* change. A year-long
          immutable cache would strand the old image in every reader's browser;
          a short shared cache keeps the database out of the hot path while

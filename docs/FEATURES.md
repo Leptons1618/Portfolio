@@ -75,14 +75,14 @@ it does not get re-derived as a good idea six months from now.
 | Import modal: search, four filters, three honest states | ✅ | `GET /user/installations/{id}/repositories` + the public listing |
 | Import → form prefilled from GitHub → one commit | ✅ | Seven of nine fields come from the repo; `category` and `highlights` cannot. Creation only — editing is the detail page |
 | Link / unlink a case study | ✅ | On the project's own page, beside the case study itself |
-| Scaffold a new case study from a project | 🟡 | Structured frontmatter and a placeholder body — bodies are written in git |
-| Edit a case study's structured fields | ✅ | `patchCaseStudy()`, in place; the MDX body is untouched |
+| Scaffold a new case study from a project | 🟡 | Structured fields and a placeholder body, inserted and linked in one go |
+| Edit a case study's structured fields | ✅ | `patchCaseStudy()` writes only the columns it is handed, so the body is untouched |
 | Private repositories in the import list | 🟡 | Only where the App is installed; a private repo it cannot see cannot be listed |
 | Reorder `featuredRank` by dragging | ⬜ | It is a number field in the form today |
 | Case-study body editing | ✂️ | A second editor as capable as the journal one, a preview that cannot be a 40-line subset, and a real chance of committing MDX that fails the build |
-| Image upload with preview | ✅ | `src/lib/image-upload.ts`, attached to all five image path fields. Drop or pick a file, it commits to `public/images/<collection>/<slug>-<field>.<ext>` and fills the field in. Commits on pick, not with the form — an orphaned image is harmless, a path to a file that was never written fails `check-content.mjs` |
-| The preview works before the site has rebuilt | ✅ | Object URL for what was just uploaded, `raw.githubusercontent.com` for anything else this origin does not serve yet — which is every uploaded image in `npm run dev` |
-| Resizing or converting on upload | ✂️ | The browser can do it, but a lossy re-encode of the author's original, silently, is not a thing an upload button should do. It refuses over 5 MB and says what the rest of the site uses instead |
+| Image upload with preview | ✅ | `src/lib/image-upload.ts`, attached to all five image path fields. Drop, pick, or click the frame — it is a `<button>`, so Enter and Space work too. Bytes go to `POST /api/media`, land in the `media` table as a BLOB, and the field is filled with the `/media/…` path that already resolves. Uploads on pick, not with the form — an unreferenced image is harmless, a saved path to bytes that were never written is a broken image on a live page |
+| Browse and reuse an uploaded image | ✅ | `src/lib/media-library.ts` — a `<dialog>` of everything in the `media` table, read from `GET /api/media`, shared by every image field on the page. Thumbnails are the real `/media/…` URLs, so a tile that renders is a path that works and there is no way to pick one that does not exist |
+| Resizing or converting on upload | ✂️ | The browser can do it, but a lossy re-encode of the author's original, silently, is not a thing an upload button should do. It refuses anything over D1's 2,000,000-byte BLOB ceiling and says what the rest of the site uses instead |
 
 ## Admin — journal
 
@@ -100,7 +100,7 @@ it does not get re-derived as a good idea six months from now.
 | Load an existing post back into the editor | ✅ | **Edit** on any entry, published ones included, opens `/admin/journal/<slug>`. Prerendered from the build, so it works signed out |
 | Update an existing post | ✅ | Fields patched line by line, body swapped whole — anything the editor does not know about survives |
 | Per-entry menu: status, open, delete | ✅ | `<details>`; delete is a two-click confirm |
-| Featured image upload | ✅ | The same `attachImageUpload` the project screens use, into `public/images/journal/`. Replaced the editor's own thumbnail, which was this control without the upload |
+| Featured image upload | ✅ | The same `attachImageUpload` the project screens use, into `images/journal/`, with the same library picker beside it. Replaced the editor's own thumbnail, which was this control without the upload |
 | Renaming a post's file from the editor | ✂️ | An open post keeps its slug. Astro derives it from the filename, so a rename orphans a live URL — move the file in git and add a redirect if it ever matters |
 | A repository dedicated to journal content | ✂️ | Its only real motive was writing from elsewhere, which the status enum covers; it would have dragged in a Content Layer migration and a `repository_dispatch` rebuild trigger |
 | A draft database (Cloudflare D1) | ✂️ | A post committed as `status: draft` is already cross-device, versioned and listed, at zero infrastructure cost |

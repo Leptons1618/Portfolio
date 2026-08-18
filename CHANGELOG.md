@@ -12,73 +12,25 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
-### Added
-
-- **Toasts.** `toast()` in `src/lib/admin.ts` is the surface's transient
-  feedback channel, rendered into a `transition:persist`ed host in
-  `AdminLayout`. Every write already reported into a message line beside the
-  control that started it, and those lines stay — but the control is frequently
-  in a dialog that closes, below the fold, or on a row that has scrolled away,
-  and a save that reported somewhere nobody was looking reported nothing. A save
-  opens one `pending` toast and `update()`s it with the outcome, so a save is
-  one toast rather than three. The host is a **manual popover**, because half
-  the writes here start inside a `<dialog>` and a native dialog renders in the
-  top layer where no `z-index` reaches; re-showing it per toast keeps the stack
-  above whatever was promoted last. Where `popover` is unsupported it falls back
-  to a fixed-position element, which is the behaviour that was there before.
-
-- **Busy states and skeletons.** `setBusy()` puts a turning ring and a verb on
-  the button that started a request; `setLabel()` is the same machinery for the
-  two-click delete confirms. Both **move the button's children aside** rather
-  than writing `textContent` over them — every button here carries an SVG
-  `astro-icon` inlined at build, and the old `textContent` swaps deleted those
-  glyphs permanently the first time a delete was armed. `.skeleton` is the
-  loading shape for a list that arrives over the network.
-
-### Fixed
-
-- **The admin stopped reporting a working navigation as a SCREEN FAULT.**
-  Astro's `ClientRouter` drives every admin navigation through
-  `document.startViewTransition()`, and when a second navigation begins before
-  the first has finished the browser abandons the running transition and rejects
-  its `finished` promise — `InvalidStateError: Transition was aborted because of
-  invalid state`. The router attaches only a `.finally()` to that promise, and
-  `.finally()` on a rejected promise returns a rejected promise, so nothing
-  handled it and the error boundary painted a full-width alarm over a screen
-  that had just navigated perfectly well. `isTransitionAbort()` filters it, and
-  is deliberately narrow: the name has to be one of the three a view transition
-  uses *and* the message has to name a transition, so an aborted `fetch` still
-  reports. The route progress bar picked up the same class of bug — a navigation
-  aborted before preparation finished never reached `astro:page-load`, so the
-  bar crawled across the top of a page that had already arrived; it now also
-  clears on `astro:after-swap`, and restarts its animation per navigation
-  instead of staying parked at 92% from the last one.
-
-- **The import dialog stopped resizing while it loaded.** Sized by its content,
-  it opened as a head and a foot with a two-line gap between them and then
-  snapped to full height a second later as twenty repositories landed —
-  everything in the foot moving several hundred pixels while it was being read,
-  and the search field jumping out from under the pointer already on it.
-  `.modal-fixed` decides the height before the fetch, and skeleton rows give the
-  *inside* of the body the same treatment.
-
-- **Selects look like they belong to the site.** A `<select class="input">`
-  inherited the border and the type and then drew the platform's own control on
-  top: a rounded chevron in a grey well, on a system with zero corner radius.
-  `appearance: none` plus a caret built from two hard-stop gradients — not an
-  SVG data URI, which cannot read a custom property and would therefore be a hex
-  code that survives every theme switch unchanged.
-
-- **The image upload control is a control.** The 16/9 frame was a `<div>` that
-  accepted a drop, so the largest and most obviously clickable thing on it did
-  nothing when clicked and the only working affordance was the small button
-  underneath. It is a `<button>` now — click, Enter and Space all open the
-  picker — capped in height so a full-width panel does not get a 400px empty
-  rectangle above every image field, and its empty state says what to do, how
-  else to do it and what will be accepted rather than only the first of those. A
-  spinner over the frame says which field is waiting while bytes are in flight.
-
 ### Changed
+
+- **"Save Draft" saves a draft.** It wrote `localStorage` and nothing else,
+  which made it the one button on this surface whose label was untrue: the
+  schema has a `draft` status, the entries list has a Draft filter, and pressing
+  it put an entry in neither. It is **Save as draft** now — it forces the status
+  and writes the row, so a draft is a draft on every screen that has an opinion
+  about drafts. Creating a post also navigates to `/admin/journal/<slug>`
+  afterwards, because which post is open is the route (decision 13) and staying
+  on the new-entry screen meant a second press was a duplicate-slug refusal.
+
+- **The browser snapshot is offered, not applied.** It is a crash guard — the
+  saved state of a post has been its row since content moved to D1 — but it was
+  restored on sight, so every visit to `/admin/journal/new` opened last week's
+  abandoned paragraph already in the fields, with one line of grey mono
+  explaining why and no way to clear it short of the dashboard's Clear Local
+  Drafts. It autosaves as you type and surfaces as a bar with **Restore** and
+  **Discard**; nothing reaches the form until one of them is pressed, and a
+  snapshot identical to what is already on screen is not offered at all.
 
 - **Every screen that still described a commit, a build or a deploy was
   rewritten.** The D1 migration below made "commits a deletion of
@@ -126,6 +78,40 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **A media library.** `src/lib/media-library.ts` — a `<dialog>` showing
+  everything in the `media` table, read from a new owner-only `GET /api/media`,
+  shared by every image field on the page and reached from a **Browse library**
+  button beside each one. Until now the only way to reference an image that had
+  already been uploaded was to remember its path and retype it, which is exactly
+  how a field comes to point at bytes written under a slightly different name.
+  Thumbnails are the real `/media/…` URLs, so the grid doubles as a check: a
+  tile that renders is a path that works, and a tile that does not says so in
+  place instead of letting the path be chosen. Selection is two steps —
+  highlight, then confirm — because in a grid of same-sized tiles a single click
+  that both chose and closed would make overwriting the current image the
+  easiest accident available. The listing never selects `bytes`.
+
+- **Toasts.** `toast()` in `src/lib/admin.ts` is the surface's transient
+  feedback channel, rendered into a `transition:persist`ed host in
+  `AdminLayout`. Every write already reported into a message line beside the
+  control that started it, and those lines stay — but the control is frequently
+  in a dialog that closes, below the fold, or on a row that has scrolled away,
+  and a save that reported somewhere nobody was looking reported nothing. A save
+  opens one `pending` toast and `update()`s it with the outcome, so a save is
+  one toast rather than three. The host is a **manual popover**, because half
+  the writes here start inside a `<dialog>` and a native dialog renders in the
+  top layer where no `z-index` reaches; re-showing it per toast keeps the stack
+  above whatever was promoted last. Where `popover` is unsupported it falls back
+  to a fixed-position element, which is the behaviour that was there before.
+
+- **Busy states and skeletons.** `setBusy()` puts a turning ring and a verb on
+  the button that started a request; `setLabel()` is the same machinery for the
+  two-click delete confirms. Both **move the button's children aside** rather
+  than writing `textContent` over them — every button here carries an SVG
+  `astro-icon` inlined at build, and the old `textContent` swaps deleted those
+  glyphs permanently the first time a delete was armed. `.skeleton` is the
+  loading shape for a list that arrives over the network.
+
 - `src/pages/api/content.ts` and `src/pages/api/media.ts` — the write endpoints,
   both gated by `src/lib/authorize.ts`.
 - `src/lib/content-schema.ts` — the column allowlist a write must pass through,
@@ -146,6 +132,94 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the in-place frontmatter patcher has nothing to do.
 
 ### Fixed
+
+- **Focus mode left a third of the screen blank.** `.is-focus` hid the sidebar
+  and the metadata column and stopped there — which left the *grid* untouched:
+  still two tracks, the second now empty, so the writing surface kept two thirds
+  of the width and the rest was empty paper. Hiding a column is not removing it.
+  One track now, capped to a reading measure and centred, with the header capped
+  to match so the toolbar does not float off to the right of what it belongs to.
+
+- **The dropdown was the operating system's.** `appearance: none` and a
+  hand-drawn caret got the closed *field* to match the surface, but the list it
+  opened was drawn by the platform — system fonts, system colours, system corner
+  radius, no transition — on a design system with zero radius and a hand-set
+  accent. `src/lib/select.ts` replaces the popup with a `role="combobox"` button
+  and a `role="listbox"` this system owns: accent highlight, a check on the
+  chosen row, an animated caret and an open/close transition, arrow keys,
+  Home/End, type-ahead and Escape. The native `<select>` stays in the DOM and
+  stays the value, so every `select.value` read and write on the surface is
+  unchanged; the popup renders as a popover so it can escape a scrolling
+  `.modal-body` and a `<dialog>`'s top layer. Without JavaScript the native
+  element is never hidden and the forms work exactly as before.
+
+- **Uploaded images were never actually served.** `/media/[...path]` declared the
+  BLOB column as `ArrayBuffer` in the type parameter of `first<…>()`, which is
+  an *assertion* — it changes what TypeScript believes and converts nothing. D1
+  returns a BLOB as a `number[]`, because its wire format is JSON and JSON has
+  no binary type, so `new Response(theArray)` did what `Response` does with any
+  non-body object and stringified it. Every image on the site was served as
+  `200 OK`, `Content-Type: image/jpeg`, with a body reading
+  `255,216,255,224,0,16,74,70,73,70,…`. The bytes were in the database the whole
+  time and the URL was correct; on screen it was an upload control reporting
+  "Nothing loads from that path" about a path that was perfectly good.
+
+  Nothing could have caught it by type — the type was the bug. `mediaBytes()`
+  in `src/lib/media.ts` is the runtime conversion, the column is now typed
+  `unknown` at the query so the answer cannot be asserted again, and
+  `npm run check:schema` pins every shape a driver might return plus the refusal
+  of anything that is not bytes.
+
+- **A blank required field answered in SQLite.** Saving a post with an empty
+  summary produced `D1_ERROR: NOT NULL constraint failed: journal.summary:
+  SQLITE_CONSTRAINT` — correct, useless, and it reads as a broken site rather
+  than as an empty field twenty pixels from the button. `explainConstraint()` in
+  `content-schema.ts` turns a refusal back into the field's own name, using the
+  same map `bind()` uses in the other direction; the journal editor and the case
+  study form now check their NOT NULL columns before the round trip and focus
+  the offending field. Problem and solution were missing from the case study's
+  checks entirely, which is how an emptied one reached D1.
+
+- **The admin stopped reporting a working navigation as a SCREEN FAULT.**
+  Astro's `ClientRouter` drives every admin navigation through
+  `document.startViewTransition()`, and when a second navigation begins before
+  the first has finished the browser abandons the running transition and rejects
+  its `finished` promise — `InvalidStateError: Transition was aborted because of
+  invalid state`. The router attaches only a `.finally()` to that promise, and
+  `.finally()` on a rejected promise returns a rejected promise, so nothing
+  handled it and the error boundary painted a full-width alarm over a screen
+  that had just navigated perfectly well. `isTransitionAbort()` filters it, and
+  is deliberately narrow: the name has to be one of the three a view transition
+  uses *and* the message has to name a transition, so an aborted `fetch` still
+  reports. The route progress bar picked up the same class of bug — a navigation
+  aborted before preparation finished never reached `astro:page-load`, so the
+  bar crawled across the top of a page that had already arrived; it now also
+  clears on `astro:after-swap`, and restarts its animation per navigation
+  instead of staying parked at 92% from the last one.
+
+- **The import dialog stopped resizing while it loaded.** Sized by its content,
+  it opened as a head and a foot with a two-line gap between them and then
+  snapped to full height a second later as twenty repositories landed —
+  everything in the foot moving several hundred pixels while it was being read,
+  and the search field jumping out from under the pointer already on it.
+  `.modal-fixed` decides the height before the fetch, and skeleton rows give the
+  *inside* of the body the same treatment.
+
+- **Selects look like they belong to the site.** A `<select class="input">`
+  inherited the border and the type and then drew the platform's own control on
+  top: a rounded chevron in a grey well, on a system with zero corner radius.
+  `appearance: none` plus a caret built from two hard-stop gradients — not an
+  SVG data URI, which cannot read a custom property and would therefore be a hex
+  code that survives every theme switch unchanged.
+
+- **The image upload control is a control.** The 16/9 frame was a `<div>` that
+  accepted a drop, so the largest and most obviously clickable thing on it did
+  nothing when clicked and the only working affordance was the small button
+  underneath. It is a `<button>` now — click, Enter and Space all open the
+  picker — capped in height so a full-width panel does not get a 400px empty
+  rectangle above every image field, and its empty state says what to do, how
+  else to do it and what will be accepted rather than only the first of those. A
+  spinner over the frame says which field is waiting while bytes are in flight.
 
 - The image upload size cap was `2 * 1024 * 1024` against D1's documented
   2,000,000-byte BLOB limit, leaving a 97 KB window where the client check
