@@ -1,17 +1,19 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import Tag from '../../components/Tag.astro';
-import { categoryLabel, getProjects } from '../../lib/content';
+import { categoryLabel, getProject, getProjects } from '../../lib/content';
 
-export async function getStaticPaths() {
-  const projects = await getProjects();
-  return projects.map(p => ({ params: { slug: p.slug }, props: { project: p } }));
-}
+/* Read from D1 per request. `getProject` applies the same `hidden` filter the
+   listing does, so a retired project's URL 404s rather than staying reachable
+   by anyone who kept the link. */
+export const prerender = false;
 
-const { project } = Astro.props;
+const { DB } = Astro.locals.runtime.env;
+const project = Astro.params.slug ? await getProject(DB, Astro.params.slug) : undefined;
+if (!project) return new Response(null, { status: 404 });
 const { title, summary, category, tags, stack, status, year, highlights, repoUrl, demoUrl, caseStudySlug } = project.data;
 
-const related = (await getProjects())
+const related = (await getProjects(DB))
   .filter(p => p.slug !== project.slug && p.data.tags.some(t => tags.includes(t)))
   .slice(0, 8);
 ---

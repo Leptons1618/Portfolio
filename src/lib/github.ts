@@ -437,51 +437,57 @@ async function request<T>(path: string, init: RequestInit = {}, explicitToken?: 
 }
 
 /**
- * Whether this session can actually commit to the content repository.
+ * Whether this session may write to the site.
  *
- * Being signed in is not the same thing, and the admin used to treat it as if
- * it were: the projects screen announced "commits enabled" the moment a token
- * existed, and then every switch on it failed with a permission error, which
- * reads as a broken editor rather than as a GitHub App installed read-only.
+ * It used to mean "may commit to the content repository", and asked GitHub two
+ * questions to find out: whether a user-to-server token could reach the repo at
+ * all, and whether the installation's `permissions.contents` said `write`.
+ * Content is in D1 now and nothing here commits, so that answer would be `no`
+ * for the best possible reason — the App was deliberately narrowed to read-only
+ * — and every switch on the projects screen would be disabled by the very
+ * change that was supposed to be invisible.
  *
- * Two questions, because the two ways to fail are independent:
+ * The authority moved, so the question does. What decides a write now is
+ * `requireOwner()` in `src/lib/authorize.ts`: the token is presented to GitHub,
+ * GitHub says whose it is, and only `site.githubUser` gets through. This asks
+ * GitHub the same thing, so the screens keep the property decision 16 is about
+ * — **no screen claims write access it has not checked** — against the
+ * authority that now grants it.
  *
- *   - **Reach.** A user-to-server token 403s on a repository the App was never
- *     installed on, public or not — so the repository read either succeeds or
- *     answers the question by throwing.
- *   - **Scope.** The `permissions` object on that repository payload is the
- *     *user's* (`push: true` for the owner), not the App's, so it cannot see
- *     the case being looked for. The installation's own `permissions.contents`
- *     is the App's grant, and `write` is the only value that can commit.
+ * It stays `canWriteContent` because that is still exactly what it reports.
  *
- * Cached for the session: it cannot change without the owner going to GitHub
- * and coming back, which ends this tab's session anyway.
- *
- * ponytail: one page of installations, and "some installation grants write"
- * rather than "the installation covering this repository grants write". A
- * personal account has one. Pair them up if that stops being true.
+ * Cached for the session: the answer cannot change without signing in again.
  */
 let writeAccess: Promise<boolean> | null = null;
 
 export function canWriteContent(): Promise<boolean> {
-  writeAccess ??= Promise.all([
-    request<unknown>(`/repos/${CONTENT_REPO}`),
-    request<{ installations: { id: number; permissions?: Record<string, string> }[] }>(
-      '/user/installations?per_page=100'
-    ),
-  ])
-    .then(([, { installations }]) => {
-      /* The one call that knows the installation id, so it is the one that
-         remembers it — `grantAccessUrl()` can then link straight at the page
-         where access is widened rather than at the list it sits in. */
-      if (installations[0]) installationId = installations[0].id;
-      return installations.some(app => app.permissions?.contents === 'write');
-    })
-    /* Any throw is a "no". A 403 is the installation answering; a 404 is the
-       App unable to see the repository at all. Neither is worth surfacing
-       twice — the action that follows says it properly. */
+  writeAccess ??= request<{ login?: string }>('/user')
+    .then(user => user.login === site.githubUser)
+    /* Any throw is a "no": an expired token, a revoked authorisation, or GitHub
+       being unreachable. The endpoint would refuse the write in all three
+       cases, so the screen must not offer it. */
     .catch(() => false);
   return writeAccess;
+}
+
+/**
+ * Learn the installation id, so `grantAccessUrl()` can link at the installation
+ * rather than at the list it sits in.
+ *
+ * Separate from `canWriteContent()` now that the two are unrelated: writing does
+ * not need an installation at all, and this is only about where to send someone
+ * who wants the import list to see their private repositories.
+ */
+export async function discoverInstallation(): Promise<void> {
+  if (installationId !== null || !getToken()) return;
+  try {
+    const { installations } = await request<{ installations: { id: number }[] }>(
+      '/user/installations?per_page=100',
+    );
+    if (installations[0]) installationId = installations[0].id;
+  } catch {
+    // Not knowing the id only costs a less direct link.
+  }
 }
 
 /**
@@ -512,89 +518,6 @@ async function publicJson(path: string): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
 
-/**
- * Base64 for the Contents API, chunked so a large file cannot blow the stack.
- *
- * Takes bytes as well as text because not everything the admin commits is a
- * file it can read back as a string — an uploaded image arrives as an
- * `ArrayBuffer` and must not go near `TextEncoder`, which would round-trip
- * every byte outside ASCII through U+FFFD and commit a corrupt file that looks
- * like a successful upload right up until the page tries to display it.
- */
-function toBase64(content: string | Uint8Array): string {
-  const bytes = typeof content === 'string' ? new TextEncoder().encode(content) : content;
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
-  }
-  return btoa(binary);
-}
-
-/** The blob SHA of an existing file, or `null` when the path is new. */
-async function existingSha(path: string): Promise<string | null> {
-  try {
-    const file = await request<{ sha: string }>(
-      `/repos/${REPO_OWNER}/${REPO_NAME}/contents/${encodeURI(path)}`
-    );
-    return file.sha;
-  } catch (error) {
-    // The Contents API 404s for a path that does not exist yet; that is the
-    // "new file" case. Anything else is a real failure.
-    if (error instanceof GitHubError && error.status === 404) return null;
-    throw error;
-  }
-}
-
-/** Decode the Contents API's base64 payload back to text. */
-function fromBase64(encoded: string): string {
-  const binary = atob(encoded.replace(/\n/g, ''));
-  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
-export interface RepoFile {
-  text: string;
-  /** Pass back to `commitFile`/`deleteFile` so a concurrent edit cannot be lost. */
-  sha: string;
-}
-
-/**
- * Read one file from the default branch.
- *
- * Editing existing content is read-modify-write, and the SHA that comes back
- * here is what makes the write half safe: hand it to `commitFile` and GitHub
- * rejects the commit if anything changed in between, instead of overwriting
- * a change made from another tab, another machine, or a plain `git push`.
- */
-export async function readFile(path: string): Promise<RepoFile> {
-  const file = await request<{ content: string; sha: string; encoding: string }>(
-    `/repos/${REPO_OWNER}/${REPO_NAME}/contents/${encodeURI(path)}`
-  );
-  if (file.encoding !== 'base64') {
-    throw new GitHubError(`GitHub returned ${path} as "${file.encoding}", which is not supported.`);
-  }
-  return { text: fromBase64(file.content), sha: file.sha };
-}
-
-/**
- * A repository path as a URL that serves the file's actual bytes.
- *
- * The admin previews images it has just committed, and this origin is the wrong
- * place to ask for one: a static site serves what its last build produced, so a
- * file committed a moment ago is a 404 here until Pages redeploys — and in
- * `npm run dev` it is a 404 forever, because the commit went to GitHub and the
- * local `public/` never heard about it. `raw.githubusercontent.com` has it as
- * soon as the commit lands.
- *
- * `HEAD` rather than a branch name so this does not become a fourth place the
- * default branch is written down. No token: the content repository is public,
- * which is what makes this a plain `<img src>` rather than a fetch and a blob.
- */
-export function rawUrl(path: string): string {
-  return `https://raw.githubusercontent.com/${CONTENT_REPO}/HEAD/${path.replace(/^\/+/, '')}`;
-}
-
-/** Public metadata for a repository — what the admin's Fetch button reads. */
 export interface RepoMeta {
   fullName: string;
   defaultBranch: string;
@@ -712,6 +635,9 @@ export async function listRepositories(user: string): Promise<RepoSummary[]> {
     const { installations } = await request<{ installations: { id: number }[] }>(
       '/user/installations?per_page=100'
     );
+    // The only remaining caller that enumerates installations, so it is the one
+    // that remembers the id for `grantAccessUrl()`.
+    if (installations[0]) installationId = installations[0].id;
     const lists = await Promise.all(
       installations.map(app =>
         request<{ repositories: RawRepo[] }>(`/user/installations/${app.id}/repositories?per_page=100`)
@@ -766,72 +692,4 @@ export async function fetchRepoLanguages(owner: string, repo: string): Promise<s
   } catch {
     return [];
   }
-}
-
-export interface CommitResult {
-  /** Link to the commit on github.com. */
-  url: string;
-  /** True when the file did not exist before this commit. */
-  created: boolean;
-}
-
-/**
- * Create or update one file on the default branch.
- *
- * Passing the current SHA is what makes this safe to run twice: GitHub rejects
- * the write if the file moved underneath us, rather than silently clobbering
- * whatever landed in between.
- */
-export async function commitFile(options: {
-  path: string;
-  /** Text for content files; bytes for anything binary — see `toBase64`. */
-  content: string | Uint8Array;
-  message: string;
-  /** From `readFile`. Omit to look the SHA up now — fine for a whole-file write,
-      wrong for read-modify-write, where the lookup would race the edit. */
-  sha?: string;
-}): Promise<CommitResult> {
-  const sha = options.sha ?? (await existingSha(options.path));
-
-  const result = await request<{ commit: { html_url: string } }>(
-    `/repos/${REPO_OWNER}/${REPO_NAME}/contents/${encodeURI(options.path)}`,
-    {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: options.message,
-        content: toBase64(options.content),
-        ...(sha ? { sha } : {}),
-      }),
-    }
-  );
-
-  return { url: result.commit.html_url, created: sha === null };
-}
-
-/**
- * Delete one file from the default branch.
- *
- * The Contents API requires the current SHA, so a delete cannot be issued
- * blind. Nothing here is unrecoverable — the file stays in the history and a
- * revert brings it back — but the caller is expected to confirm first.
- */
-export async function deleteFile(options: {
-  path: string;
-  message: string;
-  sha?: string;
-}): Promise<CommitResult> {
-  const sha = options.sha ?? (await existingSha(options.path));
-  if (!sha) throw new GitHubError(`${options.path} does not exist.`, 404);
-
-  const result = await request<{ commit: { html_url: string } }>(
-    `/repos/${REPO_OWNER}/${REPO_NAME}/contents/${encodeURI(options.path)}`,
-    {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: options.message, sha }),
-    }
-  );
-
-  return { url: result.commit.html_url, created: false };
 }

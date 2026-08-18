@@ -1,7 +1,7 @@
 import { defineConfig } from 'astro/config';
+import cloudflare from '@astrojs/cloudflare';
 import mdx from '@astrojs/mdx';
 import tailwind from '@astrojs/tailwind';
-import sitemap from '@astrojs/sitemap';
 import icon from 'astro-icon';
 
 export default defineConfig({
@@ -11,7 +11,18 @@ export default defineConfig({
      invisible locally and wrong in production.
      `scripts/check-content.mjs` asserts the fallback against `public/CNAME`. */
   site: process.env.SITE_URL || 'https://anishgiri.dev',
+  /* Still `static`: every page is prerendered unless it says otherwise, and
+     only the handful of routes that read content opt out with
+     `export const prerender = false`. /about, /resume, the whole admin shell
+     and the 404 are files on disk that the Worker never runs for — Cloudflare
+     serves them from the asset store ahead of the script. */
   output: 'static',
+  /* The adapter is what makes `prerender = false` mean anything, and what puts
+     `Astro.locals.runtime.env` — the D1 binding — in front of those routes.
+     `platformProxy` gives `astro dev` the same bindings against the local
+     database in `.wrangler/state`, so development reads real rows without
+     touching the deployed one. */
+  adapter: cloudflare({ platformProxy: { enabled: true } }),
   /* The dev port is part of the admin's OAuth identity, not a convenience.
      `http://localhost:4321/admin/` is a registered callback on the GitHub App
      and `http://localhost:4321` is an entry in the token Worker's
@@ -35,7 +46,11 @@ export default defineConfig({
        uses them; the public pages stay on the illustrations in
        `src/assets/illustrations/`. */
     icon(),
-    // The admin surface is an authoring tool, not public content.
-    sitemap({ filter: page => !/\/admin(\/|$)/.test(new URL(page).pathname) }),
+    /* `@astrojs/sitemap` is gone, not forgotten. It enumerates the routes the
+       build emitted, and the content routes are no longer among them — it
+       would have shipped a sitemap listing /about and /resume and silently
+       dropping every project, case study and post. `src/pages/sitemap.xml.ts`
+       replaces it by asking D1 the same question at request time, and keeps
+       the admin exclusion the `filter` above used to do. */
   ],
 });

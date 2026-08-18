@@ -10,7 +10,7 @@ export const GET: APIRoute = ({ site }) => {
 Allow: /
 Disallow: /admin
 
-Sitemap: ${new URL('sitemap-index.xml', origin).href}
+Sitemap: ${new URL('sitemap.xml', origin).href}
 `,
     { headers: { 'Content-Type': 'text/plain; charset=utf-8' } }
   );
