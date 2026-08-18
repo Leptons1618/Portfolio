@@ -1,6 +1,7 @@
 ---
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
+import AskWidget from '../components/AskWidget.astro';
 import '@fontsource/archivo/400.css';
 import '@fontsource/archivo/600.css';
 import '@fontsource/archivo/800.css';
@@ -63,5 +64,10 @@ const imageURL = absoluteUrl(image, origin);
   <Header />
   <main><slot /></main>
   <Footer />
+  {/* Renders hidden and unhides itself only if the assistant is switched on —
+      a prerendered page cannot read the row that decides it, so the launcher
+      asks once per session. See `src/pages/api/ai/status.ts`. Costs nothing
+      when the feature is off, and nothing at all without JavaScript. */}
+  <AskWidget />
 </body>
 </html>

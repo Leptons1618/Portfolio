@@ -450,3 +450,92 @@ The general rule this leaves: **treat the token as the secret; keep identifiers 
 **Expiry.** The token is set to expire. A CI credential that never expires is one nobody ever revisits; a failed deploy with a 403 is a cheap, loud reminder, and re-issuing it is a two-minute dashboard task. This trades a scheduled annoyance for an unbounded window, which is the right way round for a credential that can overwrite the live site.
 
 **Revisit if** the deploy grows a step that needs a third product. Add the one permission that step needs, not the template.
+
+---
+
+## 22. The AI assistant's API key lives in D1, not in a Worker secret
+
+**Status:** accepted
+
+**Context.** The site gained an AI assistant, and an assistant needs a credential at a third party. Every other decision in this document has chased credentials *down* — the GitHub App is read-only (19), the deploy token has two permissions (21), and `authorize.ts` mints nothing at all because "the admin already holds a GitHub token" was a better answer than inventing a second secret. So a new API key is a step in the other direction and deserves an explicit argument.
+
+The requirement was that a provider be configurable from the admin: add OpenRouter, paste a key, pick a model, turn it on, without a deploy. A `wrangler secret` cannot do that. Adding a provider would be a CLI step plus a redeploy, which makes the settings screen a form that configures everything except the thing that makes it work.
+
+**Decision.** The key is a column in `ai_providers`, and it is **write-only from the admin's point of view**: the admin can replace one and can never read one back.
+
+The security argument, stated plainly rather than hand-waved:
+
+- **Against an account compromise, the two are identical.** Anyone with the Cloudflare account can read a Worker secret from the dashboard and can read a D1 row from the console. There is no tier of protection a secret binding has that a row does not.
+- **Against everything else, the difference is that a row can be `SELECT`ed into a response.** A secret binding cannot accidentally end up in JSON. So that is the risk this design actually has, and it is the one that is defended: `GET /api/ai/providers` selects columns by name, `summarise()` builds its payload key by key rather than spreading a row, and `scripts/test-ai.mjs` asserts against the **serialised** payload that neither the key nor an unknown field survives. Same shape, and the same reasoning, as the OAuth Worker never spreading GitHub's token response (decision 9).
+- **The admin screen never receives a key, so it never renders one.** The key field is empty with a fingerprint (`sk-o…cdef`) as its placeholder, and `ai-store.ts` omits the field from a save when it is untouched — otherwise editing a provider's model would blank its credential, and the failure would appear later, to a visitor, as "the assistant is unavailable".
+- **Removing a key is a different button from not typing in a field.** `clearKey()` is the one caller that sends an empty `apiKey`.
+
+**What this does not claim.** A stolen admin session can add a provider, activate it, and read the *fingerprint* of the existing key. It cannot read the key. That is a real reduction and it is not the same thing as safety.
+
+**Consequences.** `ai_providers` goes through the same tested column allowlist in `content-schema.ts` as every other table, so there is no second write endpoint. `.env.example` gained nothing — the feature adds no build-time configuration at all, and a fork that never opens the AI screen never has a key anywhere.
+
+---
+
+## 23. The public assistant is guarded by a budget, not by a prompt
+
+**Status:** accepted
+
+**Context.** `POST /api/ai/chat` is the first endpoint this site has that is **unauthenticated and spends money**. Every other route is a static asset, a read of public content, or gated by `requireOwner()`. Three things could go wrong, and the tempting answer to all three is a longer system prompt.
+
+**Decision.** Three mechanisms, matched to the three threats, and an honest ranking of how much each is worth.
+
+| Threat | Mechanism | Reliable? |
+| --- | --- | --- |
+| Cost — someone loops the endpoint | Per-IP hourly budget and a site-wide daily budget in `ai_rate`, plus hard caps on question length, history depth and output tokens | **Yes.** Arithmetic. |
+| Disclosure — someone asks about unpublished content | The corpus physically cannot contain it: `ai-corpus.ts` re-filters hidden projects and non-`published` posts, and contact details are never included at all | **Yes.** Structural — no prompt extracts a string that is not in the context. |
+| Scope — someone uses it as a free general-purpose model | The scope prompt in `ai-guard.ts` | **No.** A strong default, not a guarantee. |
+
+The third row is the point of writing this down. There is no system prompt that cannot eventually be talked around, and a design that *relies* on one is a design with an unpriced failure. This one does not: a visitor who defeats the scope prompt gets a few hundred tokens, a handful of times an hour, from a context containing nothing private. The blast radius is bounded by the rows above it.
+
+**Details worth keeping.**
+
+- **The counter is charged before the model is called, and is not refunded on failure.** A refund is the obvious courtesy and the wrong shape: the failure mode being defended against is a loop, and a loop that errors upstream is still a loop hitting this endpoint. The cost is that a question lost to a vendor outage still spends one of fifteen.
+- **The increment is one statement.** `INSERT … ON CONFLICT DO UPDATE … RETURNING hits`, so two simultaneous requests cannot both read 14 and both write 15.
+- **The IP is hashed, salted with the day.** `ai_rate` is a counter, not a log: it never holds an address anyone can read back, and yesterday's rows cannot be correlated with today's. A request with no `CF-Connecting-IP` shares one bucket with every other such request — an unidentifiable caller getting the *shared* budget rather than a fresh one is the safe direction to fail.
+- **The limits are editable and clamped.** `clampSettings()` caps every number again on read, so the settings screen cannot lift its own ceiling however it is edited. A form that can set `perIpPerHour` to 10000 is a form that can hand a stranger the owner's balance.
+- **The feature ships off.** `migrations/0004_ai.sql` inserts `enabled: false`, and `/api/ai/status` reports ready only when the switch is on *and* a provider holds a key.
+
+---
+
+## 24. The journal assistant has a closed task list, and never saves
+
+**Status:** accepted
+
+**Context.** `/api/ai/assist` is behind `requireOwner()`, so the obvious design is to accept a prompt and forward it — the caller is the owner. Two reasons not to.
+
+**Decision.** Eight named tasks in `src/lib/assist-tasks.ts`, each with its own instructions, temperature, token ceiling and **an allowlist of which editor fields are sent**. A task name not in the table is a 400, not a prompt.
+
+- **"The caller is the owner" is a claim about a token in a browser tab.** An endpoint that forwards arbitrary prompts on the owner's API key is a general-purpose model with a billing account attached, one stolen session away from being someone else's. A task table bounds what a stolen session is worth to eight prompts about journal writing.
+- **It also makes the assistant better.** "Suggest five tags" and "draft a 900-word post" want nothing in common — one wants determinism and a list, the other wants room. A single forwarded prompt gives both the same settings.
+- **The field allowlist is not documentation.** `tags` declares `['title', 'summary', 'body']`, so the selection is not sent; without it every task would pay for the whole post body on a request whose useful output is six words.
+
+**Nothing it produces is saved.** Every task returns text into a panel with an Insert button; the row is still written by the editor's Save and by nothing else. The one exception is the diagram task, which uploads an SVG on Insert — and that follows the rule already in `image-upload.ts`: an unreferenced upload is harmless, a saved post pointing at bytes that were never written is not.
+
+**The public switch does not gate this.** `settings.enabled` governs whether strangers may ask questions. Turning it off must not take away the author's own tools, so the only thing checked here is that a provider exists.
+
+---
+
+## 25. A diagram becomes an SVG file, not a rendering library on every page
+
+**Status:** accepted
+
+**Context.** The journal assistant can draw diagrams. Three ways to do it, and only one costs a reader nothing.
+
+**Decision.** The model writes Mermaid, the **admin** renders it in the browser, and the resulting SVG is uploaded to the existing `media` table — `image/svg+xml` was already in `MEDIA_TYPES`, so this needed no new route, no new validator and no new limit. The post references a normal image at a `/media/…` path, exactly like a photograph.
+
+- **Rejected: an image model.** Models draw plausible diagrams with wrong arrows and misspelled labels. A technical post illustrated with an inaccurate technical diagram is worse than one with no illustration.
+- **Rejected: Mermaid source in `body_md`, rendered client-side.** Diagrams would stay editable as text forever, at the cost of shipping ~600 KB of parser to every journal reader — on a site whose entire architecture exists so that a static page wakes nothing.
+
+Mermaid is therefore a dependency of the **authoring surface**, dynamically imported inside `renderMermaid()`: a chunk fetched the first time the diagram button is pressed, not part of the admin bundle and never in a public one. `npm run build` confirms it — a public page's only script is the 4 KB chat widget.
+
+**Two details that are load-bearing.**
+
+- **`securityLevel: 'strict'`, `htmlLabels: false`.** Mermaid's loose mode lets a node label carry HTML and lets a diagram declare click handlers that run script — and this source was written by a language model from a prompt containing the author's own draft. Strict also happens to be what makes the output a self-contained image: a `foreignObject` full of HTML renders in the editor's preview and not at all inside an `<img>`.
+- **The theme colours are baked, and read through a probe element.** `getComputedStyle(root).getPropertyValue('--color-divider')` does *not* return a colour — an unregistered custom property computes to its token sequence with `var()` substituted and nothing else evaluated, and half this site's tokens are `color-mix()`. Assigning the token to `color` on a throwaway element and reading `color` back is what forces the resolution. `currentColor` would have been the elegant alternative and does not work: an `<img>` has no inherited colour.
+
+**The stated cost:** the SVG is the artefact and the Mermaid source is not stored. Editing a diagram means generating a new one. The panel keeps the source visible so it can be copied out first.
