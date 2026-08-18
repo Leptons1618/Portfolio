@@ -6,9 +6,17 @@ import { formatShortDate } from '../../lib/format';
 
 /* The admin sees hidden projects and every journal status; the public site
    sees neither. */
-const projects = await getProjects(true);
-const caseStudies = await getCaseStudies();
-const journal = await getPosts(true);
+/* The admin reads D1 per request, like every content route. Prerendering it
+   would show the author the state of the last deploy while they are editing
+   the state of the database — the two would disagree the moment anything was
+   saved, which is exactly the confusion this surface exists to remove. */
+export const prerender = false;
+
+const { DB } = Astro.locals.runtime.env;
+
+const projects = await getProjects(DB, true);
+const caseStudies = await getCaseStudies(DB);
+const journal = await getPosts(DB, true);
 
 const featuredCount = projects.filter(p => p.data.featuredRank !== undefined).length;
 const hiddenCount = projects.filter(p => p.data.hidden).length;

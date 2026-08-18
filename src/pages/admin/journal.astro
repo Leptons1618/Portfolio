@@ -25,7 +25,15 @@ import { POST_STATUSES } from '../../lib/content-store';
 
 /* Every status, including the two the public site never renders — managing
    them is what this screen exists for. */
-const existing = await getPosts(true);
+/* The admin reads D1 per request, like every content route. Prerendering it
+   would show the author the state of the last deploy while they are editing
+   the state of the database — the two would disagree the moment anything was
+   saved, which is exactly the confusion this surface exists to remove. */
+export const prerender = false;
+
+const { DB } = Astro.locals.runtime.env;
+
+const existing = await getPosts(DB, true);
 
 const counts = {
   draft: existing.filter(entry => entry.data.status === 'draft').length,
@@ -220,7 +228,7 @@ const counts = {
     entrySearch?.addEventListener('input', applyEntryFilters);
     entryFilters.forEach(input => input.addEventListener('change', applyEntryFilters));
 
-    /** Move a row to a status without waiting for the next build to say so. */
+    /** Move a row to a status without re-reading it from the database. */
     function markRowStatus(slug: string, status: PostStatus) {
       const row = rowBySlug.get(slug);
       if (!row) return;
@@ -279,25 +287,28 @@ const counts = {
           if (next === previous) return;
 
           statusItems.forEach(other => { other.disabled = true; });
-          say('Committing…');
+          say('Saving…');
 
           try {
             const result = await setPostStatus(slug, next);
             markRowStatus(slug, next);
-            if (result) {
+
+            /* Unpublishing takes the page away, so there is nothing to link to.
+               The other two states are live the moment this returns. */
+            if (next === 'published') {
               const anchor = document.createElement('a');
               anchor.href = result.url;
               anchor.target = '_blank';
               anchor.rel = 'noopener';
-              anchor.textContent = 'view commit ↗';
+              anchor.textContent = 'view live ↗';
               line.dataset.tone = 'info';
-              line.replaceChildren(document.createTextNode(`${next} after the next build — `), anchor);
+              line.replaceChildren(document.createTextNode('Published — live now — '), anchor);
             } else {
-              say('Already that status on the default branch.');
+              say(next === 'unpublished' ? 'Unpublished — its URL now 404s.' : 'Saved as a draft.');
             }
           } catch (error) {
             markRowStatus(slug, previous);
-            say(error instanceof Error ? error.message : 'Commit failed.', 'error');
+            say(error instanceof Error ? error.message : 'Save failed.', 'error');
           } finally {
             statusItems.forEach(other => { other.disabled = false; });
           }
@@ -326,30 +337,23 @@ const counts = {
 
         clearTimeout(disarm);
         armed = false;
-        deleteItem.textContent = 'Delete the file';
+        deleteItem.textContent = 'Delete the post';
         deleteItem.disabled = true;
         say('Deleting…');
 
         try {
-          const result = await removePost(slug);
+          await removePost(slug);
           row.classList.add('is-removed');
-          /* The editor page for this post is still in the build until the next
-             one, so the link out of here has to stop being offered. */
+          /* Its editor page resolves from the same row, so that link is dead the
+             moment this returns — stop offering it. */
           row.querySelectorAll('button, a').forEach(control => {
             if (control instanceof HTMLButtonElement) control.disabled = true;
             else control.removeAttribute('href');
           });
-
-          const anchor = document.createElement('a');
-          anchor.href = result.url;
-          anchor.target = '_blank';
-          anchor.rel = 'noopener';
-          anchor.textContent = 'view commit ↗';
-          line.dataset.tone = 'info';
-          line.replaceChildren(document.createTextNode('Deleted — gone after the next build — '), anchor);
+          say('Deleted. The post is gone from the site.');
         } catch (error) {
           deleteItem.disabled = false;
-          say(error instanceof Error ? error.message : 'Commit failed.', 'error');
+          say(error instanceof Error ? error.message : 'Delete failed.', 'error');
         }
       });
     });

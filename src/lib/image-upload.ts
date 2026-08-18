@@ -18,39 +18,16 @@
  * `public/`, while a frontmatter path pointing at a file that was never written
  * fails `npm run check` and then the build.
  *
- * This is the second caller of `commitFile`. `content-store.ts` is the other and
- * owns everything that goes *into a collection* — frontmatter, schema, slug.
- * This owns bytes going into `public/`, which have none of those.
+ * It no longer commits. Bytes go to `POST /api/media`, which stores them in
+ * D1 and serves them back from `/media/…` — so the path this writes into the
+ * field resolves the instant it is written, on this origin, including in
+ * `npm run dev`. That removed the last thing on this site that wrote to the
+ * repository, which is what let the GitHub App drop to read-only.
  */
 
 import { slugify } from './content-store';
-import { commitFile, getToken, rawUrl } from './github';
-
-/**
- * Refused above this, with a sentence rather than a stack trace.
- *
- * The Contents API takes the whole file base64-encoded inside a JSON body, so
- * the request is a third larger than the file and is built in memory twice. The
- * real ceiling is far higher; this one is about the site. Every image on it is
- * a photograph or a diagram displayed at most a column wide, and the portrait
- * that ships with the repo is 21 KB — anything near this limit is an original
- * that wanted resizing before it wanted uploading.
- */
-const MAX_BYTES = 5 * 1024 * 1024;
-
-/**
- * MIME → extension, because a file's own name is not to be trusted for it:
- * a browser will happily hand over `screenshot` with no extension at all, and
- * the extension is what every server in the chain uses to pick a content type.
- */
-const EXTENSIONS: Record<string, string> = {
-  'image/avif': 'avif',
-  'image/gif': 'gif',
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/svg+xml': 'svg',
-  'image/webp': 'webp',
-};
+import { getToken } from './github';
+import { MAX_MEDIA_BYTES, MEDIA_TYPES } from './media';
 
 export interface ImageUploadOptions {
   /** Directory under `public/`, unslashed at both ends — `images/projects`. */
@@ -93,7 +70,7 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
 
   const picker = document.createElement('input');
   picker.type = 'file';
-  picker.accept = Object.keys(EXTENSIONS).join(',');
+  picker.accept = Object.keys(MEDIA_TYPES).join(',');
   picker.hidden = true;
 
   const choose = document.createElement('button');
@@ -122,17 +99,12 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
     status.textContent = text;
   };
 
-  /**
-   * The just-uploaded file, kept as an object URL for as long as the field
-   * still names it.
-   *
-   * Without this the preview after an upload is a race nobody can win: the file
-   * is in the repository, but this origin will not serve it until the site is
-   * rebuilt and deployed, which is minutes away in production and never in
-   * `npm run dev`. The bytes are already in the page — showing those is both
-   * instant and the only thing guaranteed to be what was actually committed.
-   */
-  let uploaded: { path: string; url: string } | null = null;
+  /* There is deliberately no object-URL cache here any more. An upload used to
+     be a commit, so the bytes existed in the repository while this origin went
+     on 404ing them until the next deploy — and the preview had to show the
+     local file to show anything at all. The upload now lands in the database
+     this origin reads, so `/media/…` answers on the very next request and the
+     field's own value is the honest thing to preview. */
 
   function show() {
     const value = input.value.trim();
@@ -161,36 +133,18 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
     hint.hidden = true;
     preview.hidden = false;
 
-    /* One retry, then give up: `onerror` fires again on the fallback, and the
-       stage is what stops the two sources handing the failure back and forth. */
-    if (uploaded?.path === value) {
-      preview.dataset.stage = 'local';
-      preview.src = uploaded.url;
-      return;
-    }
-    preview.dataset.stage = 'site';
     preview.src = value;
   }
 
+  /* One source, so one failure mode: whatever the field names does not load,
+     and only the author can fix that. There is no second place to look now
+     that an uploaded image is served by this origin immediately. */
   preview.addEventListener('error', () => {
     const value = input.value.trim();
-    /* An absolute URL has no second place to look — it either loads or the
-       author has the wrong URL, and only they can fix that. */
-    if (preview.dataset.stage !== 'site' || !value.startsWith('/')) {
-      preview.hidden = true;
-      hint.hidden = false;
-      hint.textContent = DROP_HINT;
-      say(`Nothing loads from ${value} — the file is not in public/ or on this origin.`, 'error');
-      return;
-    }
-    preview.dataset.stage = 'raw';
-    preview.src = rawUrl(`public${value}`);
-  });
-
-  preview.addEventListener('load', () => {
-    if (preview.dataset.stage === 'raw') {
-      say('Committed, but this origin has not rebuilt yet — previewing from the repository.');
-    }
+    preview.hidden = true;
+    hint.hidden = false;
+    hint.textContent = DROP_HINT;
+    say(`Nothing loads from ${value} — check the path, or upload the image here.`, 'error');
   });
 
   /**
@@ -250,54 +204,46 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
   });
 
   async function upload(file: File): Promise<void> {
-    const extension = EXTENSIONS[file.type];
+    const extension = MEDIA_TYPES[file.type];
     if (!extension) {
       return say(
         `${file.type || 'That file'} is not an image this site can serve. Use PNG, JPEG, WebP, AVIF, GIF or SVG.`,
         'error'
       );
     }
-    if (file.size > MAX_BYTES) {
+    if (file.size > MAX_MEDIA_BYTES) {
       return say(
-        `${Math.round(file.size / 1024 / 1024)} MB is too large for a page image — resize it under ` +
-          `${MAX_BYTES / 1024 / 1024} MB first. WebP at about 1600px wide is what the rest of the site uses.`,
+        `${(file.size / 1024 / 1024).toFixed(1)} MB is too large for a page image — resize it under ` +
+          `${MAX_MEDIA_BYTES / 1024 / 1024} MB first. WebP at about 1600px wide is what the rest of the site uses.`,
         'error'
       );
     }
-    if (!getToken()) {
-      return say('Uploading is a commit, so it needs a session. Sign in from the rail.', 'error');
+    const token = getToken();
+    if (!token) {
+      return say('Uploading writes to the site, so it needs a session. Sign in from the rail.', 'error');
     }
 
     const stem = slugify(options.name()) || stemOf(file.name) || 'image';
-    const path = `${options.dir}/${stem}.${extension}`;
 
     choose.disabled = true;
-    say('Committing the image…');
+    say('Uploading…');
     try {
-      const result = await commitFile({
-        path: `public/${path}`,
-        content: new Uint8Array(await file.arrayBuffer()),
-        message: `content(images): upload ${path}`,
+      /* The bytes go up as the request body rather than base64 inside JSON: the
+         endpoint stores them as a BLOB, so there is no envelope inflating them
+         by a third on the way. */
+      const query = new URLSearchParams({ dir: options.dir, name: stem });
+      const response = await fetch(`/api/media?${query}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': file.type },
+        body: await file.arrayBuffer(),
       });
+      const result = (await response.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!response.ok || !result.url) {
+        throw new Error(result.error ?? `The upload failed (${response.status}).`);
+      }
 
-      /* Held before the field is written, because writing the field is what
-         triggers the preview that reads it. */
-      if (uploaded) URL.revokeObjectURL(uploaded.url);
-      uploaded = { path: `/${path}`, url: URL.createObjectURL(file) };
-      input.value = `/${path}`;
-
-      const anchor = document.createElement('a');
-      anchor.href = result.url;
-      anchor.target = '_blank';
-      anchor.rel = 'noopener';
-      anchor.textContent = 'view commit ↗';
-      status.dataset.tone = 'info';
-      status.replaceChildren(
-        document.createTextNode(
-          `${result.created ? 'Committed' : 'Replaced'} public/${path}. Save the form to reference it — `
-        ),
-        anchor
-      );
+      input.value = result.url;
+      say(`Uploaded ${result.url}. Save the form to reference it.`);
     } catch (error) {
       say(error instanceof Error ? error.message : 'The upload failed.', 'error');
     } finally {
