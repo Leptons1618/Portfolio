@@ -1,4 +1,4 @@
-name: Deploy to GitHub Pages
+name: Deploy to Cloudflare Workers
 
 on:
   push:
@@ -6,17 +6,17 @@ on:
       - main
   workflow_dispatch:
 
+# No `pages: write` or `id-token: write` any more: the site is not published to
+# GitHub Pages. All this job needs from GitHub is the ability to read the repo.
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: pages
+  group: deploy
   cancel-in-progress: true
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     env:
       # Empty unless the repo sets SITE_URL, and empty is the supported state:
@@ -27,11 +27,11 @@ jobs:
       # github.io while the site served from anishgiri.dev.
       SITE_URL: ${{ vars.SITE_URL }}
       # Admin GitHub sign-in. All three are public values, so they are
-      # repository *variables*, not secrets — the only secret is
-      # GITHUB_CLIENT_SECRET, and it lives in the Cloudflare Worker. Actions
-      # refuses variable names starting with GITHUB_, hence the shorter names.
-      # Leave the first two unset and the admin screens fall back to
-      # export-only; the slug is optional in every case and only builds a link.
+      # repository *variables*, not secrets — the only secret GitHub-side is
+      # GITHUB_CLIENT_SECRET, and it lives in the token-exchange Worker.
+      # Actions refuses variable names starting with GITHUB_, hence the shorter
+      # names. Leave the first two unset and the admin screens stay ungated and
+      # read-only; the slug is optional and only builds a link.
       PUBLIC_GITHUB_CLIENT_ID: ${{ vars.OAUTH_CLIENT_ID }}
       PUBLIC_GITHUB_OAUTH_WORKER: ${{ vars.OAUTH_WORKER_URL }}
       PUBLIC_GITHUB_APP_SLUG: ${{ vars.OAUTH_APP_SLUG }}
@@ -42,40 +42,35 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          # 22.18+ runs TypeScript directly by stripping types, which is how
-          # `scripts/test-frontmatter.mjs` imports `src/lib/frontmatter.ts`
-          # without a build step. On 20 that import is a hard error.
           node-version: 24
           cache: npm
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck
+      - name: Check
         run: npm run check
 
       - name: Build
         run: npm run build
 
-      - name: Add CNAME for custom domain
-        if: ${{ vars.CUSTOM_DOMAIN != '' }}
-        run: echo "${{ vars.CUSTOM_DOMAIN }}" > dist/CNAME
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      # Schema first, and separately from the deploy. A migration that adds a
+      # column the new code reads has to be applied before that code serves a
+      # request; the other order is a live site querying a column that does not
+      # exist yet. `migrations apply` is idempotent — it runs what the
+      # d1_migrations table says has not run.
+      #
+      # It is deliberately not `--yes`-forced past a failure: if a migration
+      # cannot be applied, deploying the code that depends on it is worse than
+      # not deploying at all, so this step failing stops the job.
+      - name: Apply D1 migrations
+        uses: cloudflare/wrangler-action@v3
         with:
-          path: ./dist
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: d1 migrations apply portfolio-content --remote
 
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          command: deploy

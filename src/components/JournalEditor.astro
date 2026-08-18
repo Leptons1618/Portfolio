@@ -284,7 +284,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
     const STATUS_HELP: Record<string, string> = {
       draft: 'Kept out of production builds. Visible here and in `npm run dev`.',
-      published: 'Live on the site after the next build.',
+      published: 'Live on the site as soon as you save.',
       unpublished: 'Withdrawn: no listing, no page, the URL returns 404.',
     };
 
@@ -456,43 +456,36 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       }
 
       const target = editing ?? slugify(post.title);
-      const path = `src/content/journal/${target}.md`;
       const label = commitBtn.textContent;
 
       commitBtn.disabled = true;
-      commitBtn.textContent = 'Committing…';
-      stamp.textContent = `Writing ${path}…`;
+      commitBtn.textContent = 'Saving…';
+      stamp.textContent = `Saving ${target}…`;
 
       try {
         const result = editing
           ? await updatePost(editing, post, fields.body.value)
           : await createPost(target, post, fields.body.value);
 
-        if (!result) {
-          stamp.textContent = 'Nothing changed — the file already says exactly this.';
-        } else {
-          const link = document.createElement('a');
-          link.href = result.url;
-          link.target = '_blank';
-          link.rel = 'noopener';
-          link.textContent = 'view commit ↗';
-          stamp.replaceChildren(
-            document.createTextNode(
-              editing
-                ? `Updated ${path} — `
-                /* There is no `/admin/journal/<slug>` for it yet: this screen is
-                   prerendered, and the file has only just been committed. */
-                : `Created ${path}. Its own editor page exists after the next build — `
-            ),
-            link
-          );
-          /* Committed state is now the file's, not the browser's. Leaving the
-             draft behind would restore it over the next load of this screen. */
-          localStorage.removeItem(KEY);
-        }
-        commitBtn.textContent = 'Committed ✓';
+        const link = document.createElement('a');
+        link.href = result.url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = 'view live ↗';
+        stamp.replaceChildren(
+          document.createTextNode(
+            /* Its editor page resolves from the row that now exists, so unlike
+               the file version there is nothing to wait for before opening it. */
+            editing ? 'Saved — ' : 'Created. Its editor page is at /admin/journal/' + target + ' — '
+          ),
+          link
+        );
+        /* Saved state is now the row's, not the browser's. Leaving the draft
+           behind would restore it over the next load of this screen. */
+        localStorage.removeItem(KEY);
+        commitBtn.textContent = 'Saved ✓';
       } catch (error) {
-        stamp.textContent = error instanceof Error ? error.message : 'Commit failed.';
+        stamp.textContent = error instanceof Error ? error.message : 'Save failed.';
         commitBtn.textContent = label;
       } finally {
         commitBtn.disabled = false;

@@ -1,7 +1,16 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import ResumeAside from '../components/ResumeAside.astro';
-import { person, experience, skills, certifications, education } from '../lib/resume';
+import { getResume } from '../lib/resume';
+
+/* The resume is a row in `documents` now, not a module, so this page reads it
+   per request like every other content route — editing it in the admin changes
+   this page immediately rather than at the next deploy. */
+export const prerender = false;
+
+const { person, experience, skills, certifications, education } = await getResume(
+  Astro.locals.runtime.env.DB,
+);
 ---
 <BaseLayout title="Resume" description={`Resume — ${person.name}, ML/CV Engineer and full-stack developer.`}>
   <header class="container container-resume resume-header no-print">

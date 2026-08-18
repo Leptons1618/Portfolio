@@ -8,8 +8,16 @@ import { grantAccessUrl, parseRepoUrl } from '../../lib/github';
 import { site } from '../../lib/site';
 
 /* Hidden projects are exactly what this screen manages, so it asks for them. */
-const projects = await getProjects(true);
-const caseStudies = await getCaseStudies();
+/* The admin reads D1 per request, like every content route. Prerendering it
+   would show the author the state of the last deploy while they are editing
+   the state of the database — the two would disagree the moment anything was
+   saved, which is exactly the confusion this surface exists to remove. */
+export const prerender = false;
+
+const { DB } = Astro.locals.runtime.env;
+
+const projects = await getProjects(DB, true);
+const caseStudies = await getCaseStudies(DB);
 const GITHUB_USER = site.githubUser;
 
 const rows = projects.map(project => {
@@ -111,7 +119,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
           <p class="admin-empty-copy">
             Nothing in <code>src/content/projects/</code>. Import a repository and fill in
             the two fields GitHub cannot answer — a category and the highlights — and it
-            lands on the site at the next build.
+            is on the site as soon as you save.
           </p>
           <div class="admin-empty-actions">
             <button type="button" class="btn btn-primary btn-sm" id="import-open-empty">
@@ -444,7 +452,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
         if (allowed) {
           note.textContent =
-            'Every action here commits to the default branch. The deploy follows the push.';
+            'Every action here writes to the site immediately. There is no deploy to wait for.';
           return;
         }
 
@@ -511,14 +519,10 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
         say(line, visible ? 'Publishing…' : 'Hiding…');
         try {
-          const result = await patchProject(
-            slug,
-            { hidden: !visible },
-            `content(projects): ${visible ? 'show' : 'hide'} ${slug}`
-          );
+          const result = await patchProject(slug, { hidden: !visible });
           syncToggles(slug, visible);
-          if (result) sayLink(line, visible ? 'Visible after the next build' : 'Hidden after the next build', result.url);
-          else say(line, 'Already in that state on the default branch.');
+          if (visible) sayLink(line, 'Visible now', result.url);
+          else say(line, 'Hidden — its page now 404s.');
         } catch (error) {
           toggle.setAttribute('aria-checked', String(!visible));
           say(line, message(error), 'error');
@@ -592,10 +596,10 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         del.disabled = true;
         say(line, 'Deleting…');
         try {
-          const result = await removeProject(card.dataset.slug!);
+          await removeProject(card.dataset.slug!);
           card.classList.add('is-removed');
           card.querySelectorAll('button').forEach(b => { b.disabled = true; });
-          sayLink(line, 'Deleted — gone after the next build', result.url);
+          say(line, 'Deleted. The project is gone from the site.');
         } catch (error) {
           del.disabled = false;
           say(line, message(error), 'error');
