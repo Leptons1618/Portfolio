@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "check": "node scripts/check-content.mjs && node scripts/test-content-schema.mjs && node workers/github-oauth/test.mjs && astro check",
+    "check": "node scripts/wrangler-config.mjs --self-test && node scripts/check-content.mjs && node scripts/test-content-schema.mjs && node workers/github-oauth/test.mjs && astro check",
     "check:content": "node scripts/check-content.mjs",
     "check:schema": "node scripts/test-content-schema.mjs",
     "check:worker": "node workers/github-oauth/test.mjs",
@@ -18,7 +18,9 @@
     "db:migrate:local": "wrangler d1 migrations apply portfolio-content --local",
     "db:console": "wrangler d1 execute portfolio-content --remote --command",
     "seed:d1": "node scripts/seed-d1.mjs",
-    "astro": "astro"
+    "astro": "astro",
+    "config": "node scripts/wrangler-config.mjs",
+    "prepare": "node scripts/wrangler-config.mjs"
   },
   "dependencies": {
     "@astrojs/cloudflare": "12.6.13",
