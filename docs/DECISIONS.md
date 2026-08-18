@@ -399,8 +399,54 @@ The cause is interface merging. Those types declare a global `Element` — HTMLR
 
 There is no scoping flag for this. A `.d.ts` full of `declare global` is global wherever it is referenced from, and the usual advice — put `@cloudflare/workers-types` in `tsconfig`'s `types` — is the same collision with extra steps.
 
-**Decision.** `src/env.d.ts` declares the binding surface by hand: `D1Database`, `D1PreparedStatement`, `D1Result` and `Env` — five methods in total. `wrangler.jsonc` sets `dev.types.includeRuntime: false` so that a stray `wrangler types` cannot reintroduce the file.
+**Decision.** `src/env.d.ts` declares the binding surface by hand: `D1Database`, `D1PreparedStatement`, `D1Result` and `Env` — five methods in total.
+
+**Correction, and the reason there is a check instead of a setting.** This decision originally claimed `wrangler.jsonc` set `dev.types.includeRuntime: false` to stop a stray `wrangler types` reintroducing the file. **That is not a field wrangler has.** Unknown keys are not an error in `wrangler.jsonc` — the config parsed, the setting did nothing, and every CI run printed `Unexpected fields found in dev field: "types"`, which nobody read. A guard that cannot fail is worse than no guard, because it is written down as protection.
+
+What replaced it is check 6 in `scripts/check-content.mjs`: if `worker-configuration.d.ts` exists, `npm run check` fails and says to delete it. The file's existence is a fact that can be tested; a config field's effect was not.
 
 **Consequences.** Hand-written platform types can drift from the platform. The mitigations are that this is a deliberately tiny and stable slice of a public API, that the `ponytail:` note in `env.d.ts` names the upgrade path, and that `wrangler dev` exercises the real binding every time the site is checked locally.
 
 **Rejected alternative.** Two TypeScript projects, one for the Worker and one for the browser. That is the correct answer if the Worker side ever grows — but it is a build-configuration change to work around a five-method type, and Astro's single-project layout does not want to be split.
+
+---
+
+## 21. CI deploys with a custom-scoped Cloudflare token, not the "Edit Cloudflare Workers" template
+
+**Status:** accepted
+
+**Context.** Decision 19 chased the GitHub App down to read-only. The deploy credential is the same question pointed at Cloudflare, and it is the larger of the two: this token can replace the Worker that serves the site and rewrite the database the site reads. It lives in GitHub Actions, so anyone who can push a workflow to `main` can use it.
+
+Cloudflare's own instructions say to pick the **Edit Cloudflare Workers** template. That template grants Workers KV, R2, Pages, Queues, Hyperdrive, Workers AI, Vectorize, Zone: Workers Routes, and User: Memberships + Details — roughly a dozen permissions for a job that touches two products. It is the convenient answer, and it is the wrong shape for a repository whose stated position is that a permission kept alive by one caller is worth chasing to zero.
+
+**Decision.** A custom token, account-scoped to this account only, with exactly two permissions:
+
+| Permission | Why |
+| --- | --- |
+| **Workers Scripts: Edit** | `wrangler deploy` — uploads the script and its static assets. Static assets go through the Workers Scripts API, not R2, so no storage permission is needed. |
+| **D1: Edit** | `wrangler d1 migrations apply --remote`. |
+
+No zone permission: `wrangler.jsonc` declares no `routes`, so the deploy targets `*.workers.dev` and never touches DNS. Attaching the custom domain is a dashboard action, done once. **If `routes` is ever added to the config, this token will need Zone: Workers Routes: Edit and Zone: Read** — and that is the moment to re-read this table rather than widen it reflexively.
+
+No **Account Settings: Read** either, which the template includes and most guides assume. Wrangler needs it only to list the caller's accounts and work out which one is meant, and the `accountId` input on `cloudflare/wrangler-action` answers that question directly. Locally the permission is moot: `wrangler dev` needs no account, and an interactive `wrangler deploy` resolves one through the OAuth login.
+
+**Which of these identifiers are secrets: neither, and they are still handled differently.** The one credential here is the API token, and it is a repository secret. The Cloudflare account id and the D1 `database_id` are *identifiers* — they name a resource, they do not grant access to it, and neither is usable without a token scoped to that account. Cloudflare's own D1 documentation puts `database_id` in the committed `wrangler.jsonc`.
+
+Both are nonetheless kept out of the repository, and **the reason is portability, not secrecy**:
+
+- **`account_id`** is supplied by the `CLOUDFLARE_ACCOUNT_ID` secret through `wrangler-action`'s `accountId` input. Nothing local needs it, so keeping it out cost nothing.
+- **`database_id`** is substituted into a generated `wrangler.jsonc` by `npm run config`, from `.env` locally and the `D1_DATABASE_ID` secret in CI. `wrangler.example.jsonc` is the committed template and carries a `__D1_DATABASE_ID__` placeholder.
+
+The argument that settled the second one is not that the id is dangerous — it is that **a committed `database_id` makes the repository unusable by anyone else.** It names one database in one account, so every clone and fork ships a config pointing at the original author's data. The first `wrangler dev` either fails confusingly or, with the right credentials already in the environment, succeeds against the wrong database. Nothing in the repo would have said so. Now a fork creates its own database, sets one variable, and runs.
+
+That reframing is what justified the machinery. As a secrecy measure it would have been theatre: the id was already published in `ae1ede3`, so removing it un-publishes nothing — that needs a history rewrite *and* a new database. As a portability fix it pays for itself on the first clone.
+
+**Cost, honestly.** `wrangler.jsonc` is now a build artifact, and the file that must be right is one step removed from the one that is reviewed. Three things hold it together: `npm run config` runs from `prepare`, so an install produces it; `check-content` fails in CI if it is absent and fails anywhere if its id is still the placeholder; and the generator's self-test asserts the template still carries the placeholder, which is the failure that would otherwise silently bake a literal id into every generated config.
+
+The general rule this leaves: **treat the token as the secret; keep identifiers out when it is cheap or when leaving them in would tie a fork to your account; and do not build machinery purely to hide something that is not sensitive.** If the account is ever compromised, the response is to roll the token — the thing that actually grants access — not the ids.
+
+**Why the token is not created from here.** Because it cannot be. Creating a token through the Cloudflare API requires a token that already holds **API Tokens Write**, and wrangler's OAuth login does not carry that scope — `wrangler whoami` lists what it does carry, and token management is not on it. This is deliberate on Cloudflare's part and worth stating plainly: a credential that can deploy cannot mint further credentials. The first token is a dashboard action, once, by a human. The Global API Key would sidestep it and is exactly the wrong instrument — it is unscoped, unexpirable and account-wide.
+
+**Expiry.** The token is set to expire. A CI credential that never expires is one nobody ever revisits; a failed deploy with a 403 is a cheap, loud reminder, and re-issuing it is a two-minute dashboard task. This trades a scheduled annoyance for an unbounded window, which is the right way round for a credential that can overwrite the live site.
+
+**Revisit if** the deploy grows a step that needs a third product. Add the one permission that step needs, not the template.
