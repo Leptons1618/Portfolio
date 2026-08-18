@@ -3,10 +3,10 @@
  * A blank journal entry.
  *
  * Nothing here but the editor with no post behind it — `slug: null` is what
- * tells `JournalEditor` to build a whole file on commit rather than patch one,
- * and to let the filename follow the title until it does. The entries list at
+ * tells `JournalEditor` to insert a whole row on save rather than patch one,
+ * and to let the slug follow the title until it does. The entries list at
  * `/admin/journal` is the way in; `/admin/journal/<slug>` is the same component
- * pointed at a file that already exists.
+ * pointed at a row that already exists.
  */
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import JournalEditor from '../../../components/JournalEditor.astro';

@@ -111,7 +111,7 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
     signOutButton.hidden = false;
 
     /* GitHub App user tokens expire after 8 hours. Saying how much is left
-       beats discovering it when a commit fails. */
+       beats discovering it when a save fails. */
     const expiresAt = sessionExpiresAt();
     const hoursLeft = expiresAt === null ? null : Math.max(0, Math.round((expiresAt - Date.now()) / 36e5));
     sessionLine.textContent = hoursLeft === null ? `@${user.login}` : `@${user.login} · ${hoursLeft}h left`;
@@ -122,7 +122,7 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
   } else if (!isConfigured()) {
     /* No client ID in this build — a fork, or a local checkout with no `.env`.
        The screens stay reachable so the repository is usable without secrets,
-       but nothing here can commit, and the rail should say which it is. */
+       but nothing here can save, and the rail should say which it is. */
     sessionLine.textContent = 'local · export only';
   }
 

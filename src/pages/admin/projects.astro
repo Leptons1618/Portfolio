@@ -3,7 +3,13 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 import Illustration from '../../components/Illustration.astro';
 import { Icon } from 'astro-icon/components';
 import { getCaseStudies, getProjects } from '../../lib/content';
-import { PROJECT_CATEGORIES, PROJECT_STATUSES, type ProjectFields } from '../../lib/content-store';
+import {
+  PROJECT_CATEGORIES,
+  PROJECT_STATUSES,
+  caseStudyPath,
+  projectPath,
+  type ProjectFields,
+} from '../../lib/content-store';
 import { grantAccessUrl, parseRepoUrl } from '../../lib/github';
 import { site } from '../../lib/site';
 
@@ -24,9 +30,10 @@ const rows = projects.map(project => {
   const { owner, name } = parseRepoUrl(project.data.repoUrl);
   return {
     slug: project.slug,
-    /* The file every action on this card commits to. Astro derives the slug
-       from the filename, so the path is the slug — see `docs/DECISIONS.md`. */
-    path: `src/content/projects/${project.slug}.md`,
+    /* The row every action on this card writes to. Content is in D1, so this
+       is a table and a primary key rather than a path in the repository —
+       `projectPath()` is the one place that spelling is decided. */
+    path: projectPath(project.slug),
     owner,
     repoName: name,
     data: project.data,
@@ -64,8 +71,8 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     <p class="pm-desc">
       Import repositories and manage what is visible. <strong>Edit</strong> on a card
       opens that project's own page, where the fields and its case study live. Every
-      change is a commit to <code>src/content/</code> on the default branch, which is
-      what triggers a rebuild.
+      change here writes a row in <code>projects</code> and is live on the site
+      immediately — there is no build to wait for.
     </p>
 
     <section class="card elev-sm source-control">
@@ -117,9 +124,9 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
           <div class="admin-empty-art"><Illustration name="the-void" /></div>
           <h3 class="admin-empty-title">No projects tracked yet</h3>
           <p class="admin-empty-copy">
-            Nothing in <code>src/content/projects/</code>. Import a repository and fill in
-            the two fields GitHub cannot answer — a category and the highlights — and it
-            is on the site as soon as you save.
+            The <code>projects</code> table is empty. Import a repository and fill in the
+            two fields GitHub cannot answer — a category and the highlights — and it is on
+            the site as soon as you save.
           </p>
           <div class="admin-empty-actions">
             <button type="button" class="btn btn-primary btn-sm" id="import-open-empty">
@@ -212,16 +219,24 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
     <p class="text-muted admin-note visibility-note" id="write-note">
       Signed out, this screen is read-only — visibility, editing and delete all need a
-      GitHub session, because each one is a commit to <code>src/content/</code>.
+      GitHub session, because each one writes to the live database.
     </p>
   </div>
 
   {/* — import modal —
 
       Three honest states per repository, which only became possible once
-      sign-in was a GitHub App: the installation says what this session may
-      actually write to, the public listing says what else exists. */}
-  <dialog class="modal" id="import-modal" aria-labelledby="import-title">
+      sign-in was a GitHub App: the installation says what this session can
+      actually read — private repositories included — and the public listing
+      says what else exists that access could be granted to. */}
+  {/* `.modal-fixed` because the list arrives over the network. Sized by its
+      content, this dialog opened as a head and a foot with a two-line gap
+      between them and then snapped to full height a second later as the
+      repositories landed — every control in the foot moving several hundred
+      pixels while it was being read, and the search field jumping out from
+      under the pointer already on it. The height is decided before the fetch;
+      the skeleton rows below give the *inside* of the body the same treatment. */}
+  <dialog class="modal modal-fixed" id="import-modal" aria-labelledby="import-title">
     {/* Head and foot are pinned by `.modal`; the repository list is the band
         that scrolls. With twenty-odd rows, scrolling the whole dialog put the
         search field out of reach exactly when it was needed. */}
@@ -262,7 +277,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
           <div class="admin-empty-art admin-empty-art-sm"><Illustration name="empty-mailbox" /></div>
           <p class="admin-empty-copy">
             No repository matches that search and filter. "Not granted" hides everything the
-            App can already write to — try All.
+            App can already see — try All.
           </p>
         </div>
       </template>
@@ -271,7 +286,9 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     <div class="modal-foot">
       <p class="text-muted modal-foot-note">
         "Granted" means the GitHub App is installed on that repository, so this session can
-        write to it. Anything else needs
+        read it here — a private one will not appear at all otherwise. The App is read-only
+        and nothing on this site writes to a repository; importing copies the metadata into
+        this portfolio's own database. Anything not granted needs
         <a href={grantAccessUrl()} target="_blank" rel="noopener">the App's repository
         access</a> widening first — "All repositories", or "Only select repositories"
         with that one added.
@@ -292,8 +309,8 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         <h6 class="admin-eyebrow-mono">MODULE: IMPORT_FORM</h6>
         <h2 class="modal-title" id="project-form-title">Import project</h2>
         <p class="text-muted admin-note modal-lede">
-          Writes <code id="pf-path">src/content/projects/…</code>. Fields left blank are
-          removed from the frontmatter when they are optional.
+          Inserts <code id="pf-path">projects/…</code>. Fields left blank are left unset
+          when they are optional.
         </p>
       </div>
       <form method="dialog" class="modal-close-form">
@@ -365,8 +382,8 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
             <option value="__new__">+ scaffold a new case study from this project</option>
           </select>
           <p class="text-muted admin-note">
-            Scaffolding writes <code>src/content/case-studies/&lt;slug&gt;.mdx</code> with the
-            structured fields filled in and a placeholder body. Bodies are written in git.
+            Scaffolding inserts <code>{caseStudyPath('<slug>')}</code> with the structured
+            fields filled in from this project and a placeholder body, then links the two.
           </p>
         </div>
       </div>
@@ -386,7 +403,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 </AdminLayout>
 
 <script>
-  import { onAdminPage } from '../../lib/admin';
+  import { onAdminPage, setBusy, setLabel, toast } from '../../lib/admin';
   import { relativeTime } from '../../lib/format';
   import {
     createCaseStudy,
@@ -423,11 +440,16 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     const signedIn = Boolean(getToken() && getUser());
     const message = (error: unknown) => (error instanceof Error ? error.message : 'Request failed.');
 
+    /* `site.githubUser` is a frontmatter constant, so a client script cannot
+       see it — the `data-user` attribute on the import button is the seam, the
+       same one `listRepositories()` reads it through. */
+    const OWNER = (document.getElementById('import-open') as HTMLElement).dataset.user!;
+
     /* — session banner —
 
-       Signed in, every switch on this screen is a commit; signed out it is
-       nothing at all. The screen says which of the two it is doing rather than
-       looking identical in both states. */
+       Signed in, every switch on this screen writes a row; signed out none of
+       them does anything at all. The screen says which of the two it is in
+       rather than looking identical in both states. */
     const account = getUser();
     if (signedIn && account) {
       document.getElementById('source-account')!.textContent = `Connected Account: @${account.login}`;
@@ -440,19 +462,21 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       avatar.hidden = false;
       document.getElementById('connect-github')!.remove();
 
-      /* Holding a token is not the same as being able to commit, and this
-         banner used to claim it was — "signed in · commits enabled" appeared
-         the moment a session existed, and then every switch below it failed
-         with a permission error, which reads as a broken screen rather than as
-         a GitHub App that was installed read-only. Ask GitHub instead. */
+      /* Holding a token is not the same as being able to write, and this banner
+         used to claim it was — a "writes enabled" pill appeared the moment a
+         session existed, and then every switch below it failed, which reads as
+         a broken screen rather than as a session the endpoint will not accept.
+         Ask GitHub instead: `canWriteContent()` asks who the token belongs to,
+         which is the same question `requireOwner()` asks server-side and the
+         one that actually decides whether a save lands. */
       const note = document.getElementById('write-note')!;
       canWriteContent().then(allowed => {
-        pill.textContent = allowed ? 'signed in · commits enabled' : `signed in · read-only on ${CONTENT_REPO}`;
+        pill.textContent = allowed ? 'signed in · writes enabled' : 'signed in · not the site owner';
         pill.className = allowed ? 'tag tag-accent' : 'tag tag-neutral';
 
         if (allowed) {
           note.textContent =
-            'Every action here writes to the site immediately. There is no deploy to wait for.';
+            'Every action here writes to the site immediately. There is no build or deploy to wait for.';
           return;
         }
 
@@ -463,19 +487,21 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         link.href = grantAccessUrl();
         link.target = '_blank';
         link.rel = 'noopener';
-        link.textContent = "choose repository access ↗";
+        link.textContent = 'the App’s installation ↗';
         note.dataset.tone = 'error';
         note.replaceChildren(
           document.createTextNode(
-            `This session cannot write to ${CONTENT_REPO}, so visibility, editing and delete will all ` +
-              'fail. Signing in authorises the App; installing it is what grants repository ' +
-              `access. Either it is not installed on ${CONTENT_REPO}, or its Contents permission ` +
-              'is still read-only — a permission raised after installation has to be accepted ' +
-              'before it applies. Both are fixed in one place: '
+            'GitHub does not report this session as the owner of this site, so visibility, ' +
+              'editing and delete will all be refused — the write endpoint admits one account ' +
+              `and it is @${OWNER}. Sign out and back in with that account. Repository ` +
+              `access for the import list is a separate grant on ${CONTENT_REPO}, at `
           ),
           link,
           document.createTextNode('.')
         );
+        toast('This session is signed in, but not as the site owner — saves will be refused.', {
+          tone: 'error',
+        });
       });
     }
 
@@ -484,12 +510,15 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       host.textContent = text;
     }
 
+    /* The URL a save returns is the **live page**, not a commit — there is no
+       commit and no build between pressing the button and the page changing.
+       Any "view commit" left on this surface is stale by definition. */
     function sayLink(host: HTMLElement, text: string, url: string) {
       const anchor = document.createElement('a');
       anchor.href = url;
       anchor.target = '_blank';
       anchor.rel = 'noopener';
-      anchor.textContent = 'view commit ↗';
+      anchor.textContent = 'view live ↗';
       host.dataset.tone = 'info';
       host.replaceChildren(document.createTextNode(`${text} — `), anchor);
     }
@@ -499,11 +528,15 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     const cards = Array.from(document.querySelectorAll<HTMLElement>('.pm-card'));
     const statusOf = (card: HTMLElement) => card.querySelector<HTMLElement>('[data-role="status"]')!;
 
-    /* Visibility. The file on the default branch is the only truth; signed out
-       there is nowhere to write, so the switch is disabled rather than
-       recording an intention in this browser that nothing will ever apply.
-       `line` is where this switch reports, which differs between the card and
-       the import modal — the same project can carry both. */
+    /* Visibility. The row is the only truth; signed out there is nowhere to
+       write, so the switch is disabled rather than recording an intention in
+       this browser that nothing will ever apply. `line` is where this switch
+       reports, which differs between the card and the import modal — the same
+       project can carry both.
+
+       The toast is the second report, and on this control it is the one that
+       gets read: the switch is on a card in a grid, and the line under it is
+       frequently off screen by the time the request comes back. */
     function bindToggle(toggle: HTMLButtonElement, line: HTMLElement) {
       if (!signedIn) {
         toggle.disabled = true;
@@ -518,14 +551,24 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         toggle.disabled = true;
 
         say(line, visible ? 'Publishing…' : 'Hiding…');
+        const pending = toast(`${visible ? 'Publishing' : 'Hiding'} ${slug}…`, { tone: 'pending' });
         try {
           const result = await patchProject(slug, { hidden: !visible });
           syncToggles(slug, visible);
-          if (visible) sayLink(line, 'Visible now', result.url);
-          else say(line, 'Hidden — its page now 404s.');
+          if (visible) {
+            sayLink(line, 'Visible now', result.url);
+            pending.update(`${slug} is visible.`, {
+              tone: 'success',
+              action: { label: 'view live ↗', href: result.url },
+            });
+          } else {
+            say(line, 'Hidden — its page now 404s.');
+            pending.update(`${slug} is hidden. Its page now 404s.`, { tone: 'success' });
+          }
         } catch (error) {
           toggle.setAttribute('aria-checked', String(!visible));
           say(line, message(error), 'error');
+          pending.update(message(error), { tone: 'error' });
         } finally {
           toggle.disabled = false;
         }
@@ -553,7 +596,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
          an unauthenticated read, and the branch and push time are public facts. */
       button('fetch').addEventListener('click', async () => {
         const fetchButton = button('fetch');
-        fetchButton.disabled = true;
+        setBusy(fetchButton, true, 'Reading…');
         say(line, 'Reading the repository…');
         try {
           const meta = await fetchRepoMeta(card.dataset.owner!, card.dataset.repo!);
@@ -564,27 +607,29 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
           say(line, notes.join(' · '));
         } catch (error) {
           say(line, message(error), 'error');
+          toast(message(error), { tone: 'error' });
         } finally {
-          fetchButton.disabled = false;
+          setBusy(fetchButton, false);
         }
       });
 
       /* Two clicks, because the first one is the one people mean to take back.
-         The file stays in the history either way — this is a commit, not an
-         erasure — which is why a confirm is enough and a typed name is not. */
+         There is no history holding a copy any more — the row is the only one
+         there is — so the confirm is doing more work than it used to and the
+         copy has to say the deletion is final. */
       let armed = false;
       let disarm: ReturnType<typeof setTimeout>;
       button('delete').addEventListener('click', async () => {
         const del = button('delete');
-        if (!signedIn) return say(line, 'Sign in to delete a project file.', 'error');
+        if (!signedIn) return say(line, 'Sign in to delete a project.', 'error');
 
         if (!armed) {
           armed = true;
-          del.textContent = 'Confirm delete';
-          say(line, `This commits a deletion of ${card.dataset.path}. Click again to confirm.`, 'error');
+          setLabel(del, 'Confirm delete');
+          say(line, `This deletes the row ${card.dataset.path} for good. Click again to confirm.`, 'error');
           disarm = setTimeout(() => {
             armed = false;
-            del.textContent = 'Delete';
+            setLabel(del, null);
             say(line, '');
           }, 5000);
           return;
@@ -592,17 +637,19 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
         clearTimeout(disarm);
         armed = false;
-        del.textContent = 'Delete';
-        del.disabled = true;
+        setBusy(del, true, 'Deleting…');
         say(line, 'Deleting…');
+        const pending = toast(`Deleting ${card.dataset.slug}…`, { tone: 'pending' });
         try {
           await removeProject(card.dataset.slug!);
           card.classList.add('is-removed');
           card.querySelectorAll('button').forEach(b => { b.disabled = true; });
           say(line, 'Deleted. The project is gone from the site.');
+          pending.update(`${card.dataset.slug} is deleted.`, { tone: 'success' });
         } catch (error) {
-          del.disabled = false;
+          setBusy(del, false);
           say(line, message(error), 'error');
+          pending.update(message(error), { tone: 'error' });
         }
       });
     });
@@ -742,31 +789,35 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
     saveButton.addEventListener('click', async () => {
       if (!target) return;
-      if (!signedIn) return say(formMessage, 'Sign in with GitHub to commit.', 'error');
+      if (!signedIn) return say(formMessage, 'Sign in with GitHub to save.', 'error');
 
       const fields = readForm();
       if (typeof fields === 'string') return say(formMessage, fields, 'error');
 
       const slug = slugify(fields.title);
-      if (!slug) return say(formMessage, 'That title does not produce a usable filename.', 'error');
+      if (!slug) return say(formMessage, 'That title does not produce a usable slug.', 'error');
 
-      saveButton.disabled = true;
+      setBusy(saveButton, true, 'Creating…');
       say(formMessage, 'Creating…');
+      /* The toast matters more here than anywhere else on this screen: this
+         message line is inside a dialog, and the dialog is the first thing that
+         gets closed once the button has been pressed. */
+      const pending = toast(`Creating ${slug}…`, { tone: 'pending' });
 
       try {
         const caseStudySlug = await resolveCaseStudy(slug, fields);
 
         /* `hidden` is deliberately not written: it belongs to the visibility
-           switch, and a `hidden: false` line on every imported file would be
-           noise the hand-authored ones do not carry. */
+           switch, and an explicit `hidden: false` on every imported row would
+           be noise the hand-authored ones do not carry. */
         const result = await createProject(slug, { ...fields, caseStudySlug });
         afterCreate(slug, { ...fields, caseStudySlug });
 
-        const commit = document.createElement('a');
-        commit.href = result.url;
-        commit.target = '_blank';
-        commit.rel = 'noopener';
-        commit.textContent = 'view commit ↗';
+        const live = document.createElement('a');
+        live.href = result.url;
+        live.target = '_blank';
+        live.rel = 'noopener';
+        live.textContent = 'view live ↗';
 
         const detail = document.createElement('a');
         detail.href = `/admin/projects/${slug}`;
@@ -774,20 +825,26 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
         formMessage.dataset.tone = 'info';
         formMessage.replaceChildren(
-          document.createTextNode('Created. It joins the grid at the next build — '),
-          commit,
+          document.createTextNode('Created and live. Reload this screen to see its card — '),
+          live,
           document.createTextNode(' · '),
           detail
         );
+        pending.update(`${slug} created and live.`, {
+          tone: 'success',
+          action: { label: 'open its page →', href: `/admin/projects/${slug}`, external: false },
+        });
       } catch (error) {
         say(formMessage, message(error), 'error');
+        pending.update(message(error), { tone: 'error' });
       } finally {
-        saveButton.disabled = false;
+        setBusy(saveButton, false);
       }
     });
 
-    /* The page is prerendered, so a commit does not change what is on screen —
-       the new project has no card until the next build. What *can* be corrected
+    /* This screen's cards were rendered from the rows that existed when the
+       request came in, so a create does not change what is on screen — the new
+       project has no card until this page is reloaded. What *can* be corrected
        is the import list's idea of what exists, so the row it came from stops
        offering to import it a second time. */
     function afterCreate(slug: string, fields: ProjectFields) {
@@ -958,13 +1015,13 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       add.className = 'btn btn-primary btn-sm';
       add.textContent = 'Add';
       add.addEventListener('click', async () => {
-        add.disabled = true;
-        add.textContent = 'Reading…';
+        setBusy(add, true, 'Reading…');
         /* `stack` is worth one extra call: languages are the only field GitHub
-           can fill that the form would otherwise leave empty. */
+           can fill that the form would otherwise leave empty. A failure is not
+           worth surfacing — `fetchRepoLanguages` returns an empty list and the
+           field is editable. */
         const languages = await fetchRepoLanguages(repo.owner, repo.name);
-        add.disabled = false;
-        add.textContent = 'Add';
+        setBusy(add, false);
         importModal.close();
         openForm(slugify(repo.name), fieldsFromRepo(repo, languages));
       });
@@ -972,9 +1029,45 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       return host;
     }
 
+    /* The list while it is being fetched.
+
+       The dialog's height is fixed by `.modal-fixed`, so the frame no longer
+       moves — this is the other half: the *rows* have a shape before they have
+       content, so nothing inside the body jumps either when the response lands.
+       Six is roughly a screenful at this height and is not a guess at how many
+       repositories there are; the count in the head is where that answer goes.
+
+       Built with `createElement` like `repoRow()`, so every rule for it has to
+       come through the `#import-list :global(…)` door for the same reason. */
+    function renderImportSkeleton() {
+      const rows = Array.from({ length: 6 }, () => {
+        const row = document.createElement('div');
+        row.className = 'repo-row repo-skeleton';
+        row.setAttribute('aria-hidden', 'true');
+
+        const identity = document.createElement('div');
+        identity.className = 'repo-id';
+        const name = document.createElement('div');
+        name.className = 'skeleton skeleton-line repo-skeleton-name';
+        const description = document.createElement('div');
+        description.className = 'skeleton skeleton-line-sm repo-skeleton-desc';
+        identity.append(name, description);
+
+        const action = document.createElement('div');
+        action.className = 'repo-action';
+        const button = document.createElement('div');
+        button.className = 'skeleton repo-skeleton-action';
+        action.appendChild(button);
+
+        row.append(identity, action);
+        return row;
+      });
+      importList.replaceChildren(...rows);
+    }
+
     async function loadRepositories() {
       importStatus.textContent = 'Reading repositories…';
-      importList.replaceChildren();
+      renderImportSkeleton();
       try {
         importState.repos = await listRepositories(importOpen.dataset.user!);
         importState.loaded = true;
@@ -986,6 +1079,11 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         renderImportList();
       } catch (error) {
         importStatus.textContent = message(error);
+        /* The skeleton is a promise that rows are coming. When they are not,
+           it has to come down and say so — six shimmering placeholders over a
+           failure message is the worst of both. */
+        importList.replaceChildren();
+        toast(message(error), { tone: 'error' });
       }
     }
 
@@ -1086,6 +1184,14 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
   #import-list :global(.repo-line) { grid-column: 1 / -1; margin: 0; }
   #import-list :global(.repo-line:empty) { display: none; }
   #import-list :global(.repo-line[data-tone='error']) { color: var(--color-accent-700); }
+
+  /* The loading rows. Same grid as a real one, so the list does not reflow when
+     the response replaces them — that is the entire point of them being here
+     rather than a spinner in the middle of an empty box. */
+  #import-list :global(.repo-skeleton) { pointer-events: none; }
+  #import-list :global(.repo-skeleton-name) { width: 42%; max-width: 260px; }
+  #import-list :global(.repo-skeleton-desc) { width: 72%; max-width: 420px; margin-top: 8px; }
+  #import-list :global(.repo-skeleton-action) { width: 76px; height: 26px; }
 
   /* State reads off the row, so the row builder sets one attribute rather than
      picking between three global tag variants. */

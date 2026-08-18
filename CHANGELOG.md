@@ -12,7 +12,85 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+
+- **Toasts.** `toast()` in `src/lib/admin.ts` is the surface's transient
+  feedback channel, rendered into a `transition:persist`ed host in
+  `AdminLayout`. Every write already reported into a message line beside the
+  control that started it, and those lines stay — but the control is frequently
+  in a dialog that closes, below the fold, or on a row that has scrolled away,
+  and a save that reported somewhere nobody was looking reported nothing. A save
+  opens one `pending` toast and `update()`s it with the outcome, so a save is
+  one toast rather than three. The host is a **manual popover**, because half
+  the writes here start inside a `<dialog>` and a native dialog renders in the
+  top layer where no `z-index` reaches; re-showing it per toast keeps the stack
+  above whatever was promoted last. Where `popover` is unsupported it falls back
+  to a fixed-position element, which is the behaviour that was there before.
+
+- **Busy states and skeletons.** `setBusy()` puts a turning ring and a verb on
+  the button that started a request; `setLabel()` is the same machinery for the
+  two-click delete confirms. Both **move the button's children aside** rather
+  than writing `textContent` over them — every button here carries an SVG
+  `astro-icon` inlined at build, and the old `textContent` swaps deleted those
+  glyphs permanently the first time a delete was armed. `.skeleton` is the
+  loading shape for a list that arrives over the network.
+
+### Fixed
+
+- **The admin stopped reporting a working navigation as a SCREEN FAULT.**
+  Astro's `ClientRouter` drives every admin navigation through
+  `document.startViewTransition()`, and when a second navigation begins before
+  the first has finished the browser abandons the running transition and rejects
+  its `finished` promise — `InvalidStateError: Transition was aborted because of
+  invalid state`. The router attaches only a `.finally()` to that promise, and
+  `.finally()` on a rejected promise returns a rejected promise, so nothing
+  handled it and the error boundary painted a full-width alarm over a screen
+  that had just navigated perfectly well. `isTransitionAbort()` filters it, and
+  is deliberately narrow: the name has to be one of the three a view transition
+  uses *and* the message has to name a transition, so an aborted `fetch` still
+  reports. The route progress bar picked up the same class of bug — a navigation
+  aborted before preparation finished never reached `astro:page-load`, so the
+  bar crawled across the top of a page that had already arrived; it now also
+  clears on `astro:after-swap`, and restarts its animation per navigation
+  instead of staying parked at 92% from the last one.
+
+- **The import dialog stopped resizing while it loaded.** Sized by its content,
+  it opened as a head and a foot with a two-line gap between them and then
+  snapped to full height a second later as twenty repositories landed —
+  everything in the foot moving several hundred pixels while it was being read,
+  and the search field jumping out from under the pointer already on it.
+  `.modal-fixed` decides the height before the fetch, and skeleton rows give the
+  *inside* of the body the same treatment.
+
+- **Selects look like they belong to the site.** A `<select class="input">`
+  inherited the border and the type and then drew the platform's own control on
+  top: a rounded chevron in a grey well, on a system with zero corner radius.
+  `appearance: none` plus a caret built from two hard-stop gradients — not an
+  SVG data URI, which cannot read a custom property and would therefore be a hex
+  code that survives every theme switch unchanged.
+
+- **The image upload control is a control.** The 16/9 frame was a `<div>` that
+  accepted a drop, so the largest and most obviously clickable thing on it did
+  nothing when clicked and the only working affordance was the small button
+  underneath. It is a `<button>` now — click, Enter and Space all open the
+  picker — capped in height so a full-width panel does not get a 400px empty
+  rectangle above every image field, and its empty state says what to do, how
+  else to do it and what will be accepted rather than only the first of those. A
+  spinner over the frame says which field is waiting while bytes are in flight.
+
 ### Changed
+
+- **Every screen that still described a commit, a build or a deploy was
+  rewritten.** The D1 migration below made "commits a deletion of
+  `src/content/journal/<slug>.md`", "it joins the grid at the next build" and
+  "Loaded from the last build" wrong on nine screens; the delete confirms were
+  the worst of them, because they promised a git history that no longer holds a
+  copy of anything. Delete copy now says the row does not come back and points
+  at the reversible control — hide, or unpublish — that does the job people
+  usually mean. `canWriteContent()` has asked GitHub *who the token belongs to*
+  since decision 19, so the banners that read "read-only on `owner/repo`" and
+  told the owner to set Contents to read and write were naming the wrong fix
+  entirely.
 
 - **Content moved to Cloudflare D1, and publishing stopped waiting for a build.**
   Saving a project, a post, a case study or the resume used to be a commit, a

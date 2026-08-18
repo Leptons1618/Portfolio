@@ -1,7 +1,13 @@
 /**
- * GitHub sign-in and repository writes for the admin surface.
+ * GitHub sign-in, and the repository *reads* the admin surface makes.
  *
- * The site is static, so the OAuth client secret cannot live here. It lives in
+ * It writes nothing. `commitFile`, `deleteFile`, `readFile` and `rawUrl` are
+ * gone with decision 19: content lives in D1 and is saved through this site's
+ * own `POST /api/content`, so the only thing a GitHub token is still for here
+ * is proving to that endpoint who is asking — plus reading public repository
+ * metadata for the import screen.
+ *
+ * The OAuth client secret cannot live here. It lives in
  * `workers/github-oauth/`, which does the code→token exchange and nothing
  * else; this module drives the browser half of the flow and then talks to the
  * GitHub REST API directly.
@@ -29,15 +35,18 @@
  *     code never reaches a history entry or a `Referer` header.
  *   - **Identity is checked after the exchange.** Any GitHub user can complete
  *     the flow; only `site.githubUser` is allowed to keep the token.
- *   - **Least privilege.** The App asks for Contents (write) and Metadata
- *     (read) on the repositories it is installed on, and nothing else. There is
- *     no `scope` parameter — GitHub Apps ignore it; permissions come from the
- *     App's own configuration.
+ *   - **Least privilege.** The App asks for Contents (**read**) and Metadata
+ *     (read) on the repositories it is installed on, and nothing else — read
+ *     access exists only so the import screen can list repositories. Do not
+ *     widen either: if something appears to need write access to a repository,
+ *     it is in the wrong place. There is no `scope` parameter — GitHub Apps
+ *     ignore it; permissions come from the App's own configuration.
  *
- * What this is *not*: `/admin` is prerendered public HTML. Gating it in the
- * browser hides the screens, it does not protect them. What is actually
- * protected is the repository — a write needs a token GitHub issued to the
- * owner. Treat the admin gate as convenience, not as a security boundary.
+ * What this is *not*: `/admin` is public HTML, server-rendered or otherwise.
+ * Gating it in the browser hides the screens, it does not protect them. What is
+ * actually protected is `POST /api/content`, which presents the caller's token
+ * to GitHub and admits only `site.githubUser` — see `src/lib/authorize.ts`.
+ * Treat the admin gate as convenience, not as a security boundary.
  */
 
 import { site } from './site';
@@ -49,7 +58,7 @@ const WORKER_ORIGIN = (import.meta.env.PUBLIC_GITHUB_OAUTH_WORKER ?? '').replace
  * The App's slug — the last segment of `github.com/settings/apps/<slug>`.
  *
  * Optional, and it authorises nothing: it only builds a link. Without it the
- * admin signs in and commits exactly as before; what it buys is the one-click
+ * admin signs in and saves exactly as before; what it buys is the one-click
  * repository picker in `grantAccessUrl()`, which is the only route that works
  * on an account where the App is not installed at all.
  */
@@ -92,12 +101,13 @@ export function parseRepoUrl(url: string): { owner: string; name: string } {
 const { owner: REPO_OWNER, name: REPO_NAME } = parseRepoUrl(site.repo);
 
 /**
- * The repository every admin write lands in — `owner/name`, for saying so.
+ * This site's own repository — `owner/name`, for saying so on screen.
  *
- * Worth naming out loud on screen: a project card is *about* some other
- * repository, so a permission error raised while committing a change to that
- * project reads as being about that repository. It never is. Every commit this
- * module makes goes to this one.
+ * No admin write lands here any more: content is in D1 and this module makes
+ * only reads (decision 19). What it is still for is naming which repository a
+ * message is about. A project card is *about* some other repository, so an
+ * access error raised while reading that project's metadata has to say which of
+ * the two it happened on, or the owner goes looking in the wrong place.
  */
 export const CONTENT_REPO = `${REPO_OWNER}/${REPO_NAME}`;
 
@@ -381,27 +391,32 @@ export function grantAccessUrl(): string {
  * Translate GitHub's one-line 403 into something that names the fix.
  *
  * "Resource not accessible by integration" is what a GitHub App user token gets
- * for two different situations, and neither is fixable from this code: the App
- * was never installed on that repository, or it is installed without the
- * permission the call needs — Contents stuck on *read* is the common one,
- * because adding a permission to an App does not apply to an existing
- * installation until the owner accepts it. Verbatim, that sentence sends people
- * looking for a bug in the editor.
+ * when the App was never installed on that repository, or is installed without
+ * the permission the call needs. Verbatim, that sentence sends people looking
+ * for a bug in the editor.
+ *
+ * Every call this module makes is a *read* — repository metadata, languages,
+ * the installation's repository list — because nothing on this site writes to a
+ * repository any more (decision 19). So the fix this names is an installation
+ * and Metadata/Contents on **read**, and it must not go on asking for write
+ * access the App deliberately does not have: someone following that advice
+ * would widen a permission to fix an error it has nothing to do with.
  *
  * The repository is pulled out of the request path rather than assumed, because
- * which one it is decides where to go: an edit to the "AXCAD" project fails on
- * the *portfolio* repository, and an error that does not say so sends the owner
- * to check the App's access to AXCAD, where there is nothing to find.
+ * which one it is decides where to go: reading the "AXCAD" project's metadata
+ * fails on *AXCAD*, and an error naming the portfolio instead sends the owner
+ * to check access on a repository where there is nothing to find.
  */
 function explainFailure(status: number, message: string | undefined, path: string): string {
   if (status === 403 && /not accessible by integration/i.test(message ?? '')) {
     const repo = /^\/repos\/([^/]+\/[^/]+)/.exec(path)?.[1] ?? CONTENT_REPO;
     return (
-      `GitHub refused this call on ${repo}. Signing in authorises the App; it does not install ` +
-      `it, and only an installation carries repository access. Open ${grantAccessUrl()} and ` +
-      `choose "All repositories", or "Only select repositories" with ${repo} among them, with ` +
-      'Contents set to read and write. If it is already installed, the same page is where a ' +
-      'permission raised afterwards has to be accepted before it applies.'
+      `GitHub refused this read of ${repo}. Signing in authorises the App; it does not ` +
+      `install it, and only an installation carries repository access. Open ${grantAccessUrl()} ` +
+      `and choose "All repositories", or "Only select repositories" with ${repo} among them. ` +
+      'Read-only access is enough — nothing on this site writes to a repository. If it is ' +
+      'already installed, the same page is where a permission raised afterwards has to be ' +
+      'accepted before it applies.'
     );
   }
   return message ?? `GitHub responded ${status}.`;

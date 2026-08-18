@@ -434,6 +434,71 @@ textarea.input {
   resize: vertical;
 }
 
+/* — selects —
+
+   A `<select class="input">` inherited the border, the ground and the type and
+   then drew the platform's own control on top of it: a rounded Windows chevron
+   in a grey well, on a system with zero corner radius and a hand-set red
+   accent. It was the one control on the surface that did not look like it
+   belonged to the site.
+
+   `appearance: none` takes the platform's chrome away; the caret below puts one
+   back. It is drawn with two hard-stop gradients rather than an SVG data URI
+   for exactly the reason `.btn-primary`'s sweep is — **a data URI cannot read a
+   custom property**, so an icon written that way is a hex code that survives
+   every theme switch unchanged. `currentColor` in a gradient does resolve, so
+   this caret is the field's own text colour in any theme, present or future.
+
+   `background-color` is declared separately from `background-image` on purpose:
+   `.input` sets the shorthand, which resets `background-image` to `none`, so
+   the two have to be reasserted here rather than inherited. */
+select.input {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  /* Room for the caret plus its inset, so a long option label never runs
+     underneath it. */
+  padding-right: calc(var(--space-6) + var(--space-2));
+  background-color: var(--color-surface);
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - var(--space-4)) calc(50% - 1px),
+    calc(100% - var(--space-3) + 1px) calc(50% - 1px);
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  /* Truncate rather than let a long case-study label push the caret out of the
+     field — `text-overflow` works on a select in every engine that matters. */
+  text-overflow: ellipsis;
+}
+
+/* Hover is the ground lifting, not the text changing colour. The caret is drawn
+   in `currentColor`, so tinting it on hover would tint the selected value with
+   it — a field whose own text turns red under the pointer, which no other
+   input here does. The border already answers, from `.input:hover`. */
+select.input:hover {
+  background-color: var(--color-bg);
+}
+
+select.input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+/* The dropdown list itself is the OS's, and this is the whole of what can be
+   said about it — but it is worth saying: without it, a themed field opens onto
+   a list in the platform's default colours. */
+select.input option {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* A select in a row of buttons is sized by its content, not by the column. */
+select.input.is-auto {
+  width: auto;
+}
+
 .radio {
   display: inline-flex;
   align-items: center;
