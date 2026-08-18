@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import { createMarkdownProcessor } from '@astrojs/markdown-remark';
 import { json, refusal, requireOwner } from '../../lib/authorize';
-import { BadRequest, SLUG, TABLES, bind, isTable } from '../../lib/content-schema';
+import { BadRequest, SLUG, TABLES, bind, explainConstraint, isTable } from '../../lib/content-schema';
 
 /**
  * The write end of the content tables.
@@ -63,13 +63,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const { DB } = locals.runtime.env;
 
+  /* Held outside the `try` so the constraint explainer below can quote it —
+     "that slug already exists" is worth a great deal more with the slug in it. */
+  let slug = '';
+
   try {
     const payload = (await request.json()) as WriteBody;
 
     const table = payload.table;
     if (!isTable(table)) throw new BadRequest('Unknown table.');
 
-    const slug = String(payload.slug ?? '');
+    slug = String(payload.slug ?? '');
     if (!SLUG.test(slug)) throw new BadRequest('Slug must be lowercase words joined by hyphens.');
 
     const op = payload.op ?? 'patch';
@@ -116,11 +120,18 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (error instanceof BadRequest) return json({ error: error.message }, 400);
 
     /* A constraint failure is the database refusing a write that the build-time
-       gate would have refused — a dangling `caseStudySlug`, a category outside
-       the enum, a duplicate slug. That is the caller's mistake, not a fault, so
-       it deserves the message rather than a 500. */
+       gate would have refused — a missing required field, a dangling
+       `caseStudySlug`, a category outside the enum, a duplicate slug. That is
+       the caller's mistake, not a fault, so it deserves a message rather than a
+       500 — and a message a person can act on rather than the driver's own,
+       which reads as a broken site: `D1_ERROR: NOT NULL constraint failed:
+       journal.summary: SQLITE_CONSTRAINT` is a blank field twenty pixels from
+       the button that reported it. The raw text is kept when nothing recognises
+       it, because a refusal nobody can explain is still worth showing. */
     const message = error instanceof Error ? error.message : String(error);
-    if (/constraint/i.test(message)) return json({ error: message }, 409);
+    if (/constraint/i.test(message)) {
+      return json({ error: explainConstraint(message, slug) ?? message }, 409);
+    }
 
     return json({ error: message }, 500);
   }

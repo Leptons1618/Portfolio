@@ -70,13 +70,39 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
   <div class="admin-actions">
     <button type="button" class="btn btn-secondary" id="focus-toggle">Focus</button>
-    <button type="button" class="btn btn-secondary" id="save-draft">Save Draft</button>
+    {/* This used to write `localStorage` and nothing else, which made it the
+        one button on the surface whose label was a lie: the schema has a
+        `draft` status, the entries list has a Draft filter, and pressing "Save
+        Draft" put an entry in neither. It saves a row now — status forced to
+        draft — so a draft is a draft everywhere. */}
+    <button type="button" class="btn btn-secondary" id="save-draft">Save as draft</button>
     <button type="button" class="btn btn-secondary" id="export-md">
       <Icon name="lucide:download" class="admin-nav-icon" />Export .md
     </button>
     <button type="button" class="btn btn-primary" id="commit-md">
       {editing ? 'Save changes' : 'Save to the site'}
     </button>
+  </div>
+</div>
+
+{/* — unsaved work, offered rather than applied —
+
+    The browser snapshot is a crash guard, and it used to be restored on sight:
+    open `/admin/journal/new` and last week's abandoned paragraph was already in
+    the fields, with one line of grey mono explaining why and no way to get rid
+    of it short of the dashboard's Clear Local Drafts. Every new entry started
+    as someone else's old one.
+
+    So it is an offer. Nothing is written into the form until this says so, and
+    Discard is right next to it. */}
+<div class="je-restore" id="je-restore" role="status" hidden>
+  <div class="je-restore-copy">
+    <p class="je-restore-title">Unsaved changes are being held in this browser</p>
+    <p class="text-muted admin-note" id="je-restore-when"></p>
+  </div>
+  <div class="je-restore-actions">
+    <button type="button" class="btn btn-primary btn-sm" id="je-restore-apply">Restore them</button>
+    <button type="button" class="btn btn-secondary btn-sm" id="je-restore-discard">Discard</button>
   </div>
 </div>
 
@@ -171,8 +197,9 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         <input class="input" id="f-hero" placeholder="/images/post.jpg or https://…" />
       </div>
       <p class="text-muted admin-note">
-        Upload a file and it is stored under <code>images/journal/</code>; the field then
-        holds the <code>/media/…</code> path this origin already answers on. An absolute
+        <strong>Browse library</strong> picks an image that is already here;
+        <strong>Upload image</strong> adds a new one under <code>images/journal/</code> and
+        fills the field with the <code>/media/…</code> path it now answers on. An absolute
         URL to somewhere else works too, and is never fetched by this site.
       </p>
     </div>
@@ -182,6 +209,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 <script is:inline type="application/json" id="journal-editor-seed" set:html={seedJson}></script>
 
 <script>
+  import { navigate } from 'astro:transitions/client';
   import { ADMIN_KEYS, onAdminPage, setBusy, toast, wireTabs } from '../lib/admin';
   import {
     buildPostMarkdown,
@@ -339,10 +367,13 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         hero: fields.hero.value,
         body: fields.body.value,
         status: currentStatus(),
-        /* Which post this draft belongs to. The restore below refuses a draft
+        /* Which post this draft belongs to. The offer below refuses a snapshot
            whose `editing` does not match this screen, so a half-written new
            entry cannot be resurrected on top of a published post. */
         editing,
+        /* When, so the offer can say how old it is. A snapshot with no answer
+           to that is a decision made blind. */
+        savedAt: Date.now(),
       };
     }
 
@@ -373,32 +404,101 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       fields.hero.value = seed.fields.heroImage ?? '';
     }
 
-    /* A draft belongs to exactly one screen. `editing` is part of the snapshot
-       so this can tell: a draft of the new-entry screen must not reappear on
-       top of a post, and a draft of one post must not reappear on another. */
-    function restore() {
+    /* — the browser snapshot —
+
+       A crash guard, and nothing more: the *saved* state of a post is its row,
+       and has been since content moved to D1. This used to be applied on sight,
+       which turned every visit to `/admin/journal/new` into last week's
+       abandoned paragraph, already in the fields, with no way to clear it short
+       of the dashboard's Clear Local Drafts.
+
+       `editing` is part of the snapshot so this can tell which screen it
+       belongs to: a draft of the new-entry screen must not reappear on top of a
+       post, and a draft of one post must not reappear on another. */
+    const restoreBar = $('je-restore');
+
+    function readSnapshot(): Record<string, unknown> | null {
       try {
         const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-        if (!saved || (saved.editing ?? null) !== editing) return;
-        fields.title.value = saved.title ?? '';
-        fields.summary.value = saved.summary ?? '';
-        if (saved.date) fields.date.value = saved.date;
-        fields.tags.value = saved.tags ?? '';
-        fields.readTime.value = saved.readTime ?? '';
-        fields.duration.value = saved.duration ?? '';
-        fields.hero.value = saved.hero ?? '';
-        fields.body.value = saved.body ?? '';
-        statusInputs.forEach(i => { i.checked = i.value === (saved.status ?? 'draft'); });
-        stamp.textContent = editing
-          ? `Restored from this browser — unsaved changes to ${editing}.md.`
-          : 'Draft mode. Restored from this browser.';
+        if (!saved || (saved.editing ?? null) !== editing) return null;
+        return saved;
       } catch {
-        /* ignore a corrupt draft */
+        /* A corrupt snapshot is worth less than the space it takes up. */
+        localStorage.removeItem(KEY);
+        return null;
       }
     }
 
-    Object.values(fields).forEach(el => el.addEventListener('input', render));
-    statusInputs.forEach(i => i.addEventListener('change', render));
+    function applySnapshot(saved: Record<string, any>) {
+      fields.title.value = saved.title ?? '';
+      fields.summary.value = saved.summary ?? '';
+      if (saved.date) fields.date.value = saved.date;
+      fields.tags.value = saved.tags ?? '';
+      fields.readTime.value = saved.readTime ?? '';
+      fields.duration.value = saved.duration ?? '';
+      fields.hero.value = saved.hero ?? '';
+      fields.body.value = saved.body ?? '';
+      statusInputs.forEach(i => { i.checked = i.value === (saved.status ?? 'draft'); });
+      render();
+    }
+
+    /* Only worth offering if it actually differs from what is already on
+       screen — a snapshot identical to the row it came from is not unsaved
+       work, and offering to "restore" it is a bar that never goes away. */
+    function differsFromForm(saved: Record<string, any>): boolean {
+      const now = snapshot();
+      return (['title', 'summary', 'date', 'tags', 'readTime', 'duration', 'hero', 'body', 'status'] as const)
+        .some(key => String(saved[key] ?? '') !== String((now as Record<string, unknown>)[key] ?? ''));
+    }
+
+    function offerRestore() {
+      const saved = readSnapshot();
+      if (!saved || !differsFromForm(saved)) {
+        restoreBar.hidden = true;
+        return;
+      }
+      const when = typeof saved.savedAt === 'number' ? new Date(saved.savedAt) : null;
+      $('je-restore-when').textContent = when
+        ? `Last typed ${when.toLocaleString()}. Restoring replaces what is on screen.`
+        : 'Restoring replaces what is on screen.';
+      restoreBar.hidden = false;
+    }
+
+    $<HTMLButtonElement>('je-restore-apply').addEventListener('click', () => {
+      const saved = readSnapshot();
+      if (saved) applySnapshot(saved as Record<string, any>);
+      restoreBar.hidden = true;
+      toast('Unsaved changes restored. Save to put them on the site.', { tone: 'info' });
+    });
+
+    $<HTMLButtonElement>('je-restore-discard').addEventListener('click', () => {
+      localStorage.removeItem(KEY);
+      restoreBar.hidden = true;
+      toast('Held changes discarded. The screen is on what is saved.', { tone: 'info' });
+    });
+
+    /* Autosaved rather than saved by a button, because the button that said
+       "Save Draft" now saves a row and the snapshot has no user-facing job
+       left. Debounced: this runs per keystroke over a whole post body. */
+    let autosave: ReturnType<typeof setTimeout>;
+    function holdLocally() {
+      clearTimeout(autosave);
+      autosave = setTimeout(() => {
+        /* Nothing typed is not work to protect, and writing it would make the
+           next visit offer to restore an empty form. */
+        if (!fields.title.value.trim() && !fields.body.value.trim()) return;
+        localStorage.setItem(KEY, JSON.stringify(snapshot()));
+      }, 700);
+    }
+
+    Object.values(fields).forEach(el => {
+      el.addEventListener('input', render);
+      el.addEventListener('input', holdLocally);
+    });
+    statusInputs.forEach(i => {
+      i.addEventListener('change', render);
+      i.addEventListener('change', holdLocally);
+    });
 
     /* Formatting buttons wrap the selection. `setRangeText` keeps the undo stack
        intact, which reassigning `.value` would throw away. */
@@ -413,16 +513,14 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       });
     });
 
-    $<HTMLButtonElement>('save-draft').addEventListener('click', () => {
-      localStorage.setItem(KEY, JSON.stringify(snapshot()));
-      const btn = $<HTMLButtonElement>('save-draft');
-      btn.textContent = 'Saved ✓';
-      stamp.textContent = `Draft held in this browser. Last saved: ${new Date().toLocaleTimeString()}`;
-      /* Explicitly *not* a save to the site, and the toast says which of the two
-         happened — the two buttons sit next to each other and the difference
-         between them is the whole point. */
-      toast('Draft held in this browser only. Save to put it on the site.', { tone: 'info' });
-      setTimeout(() => { btn.textContent = 'Save Draft'; }, 1200);
+    /* Forces the status and saves, so a draft ends up where every screen looks
+       for one: a `journal` row with `status = 'draft'`, in the entries list,
+       under the Draft filter, on the dashboard. */
+    const draftBtn = $<HTMLButtonElement>('save-draft');
+    draftBtn.addEventListener('click', () => {
+      statusInputs.forEach(input => { input.checked = input.value === 'draft'; });
+      render();
+      void save(draftBtn);
     });
 
     $<HTMLButtonElement>('export-md').addEventListener('click', () => {
@@ -449,22 +547,65 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
        editor has never heard of and rewriting it whole would drop it. Same
        split as the project screens; see `content-store.ts`. */
     if (!getToken()) {
-      commitBtn.disabled = true;
-      commitBtn.title = 'Sign in with GitHub to save.';
+      /* Both save paths write a row, so both need a session. Export and the
+         browser snapshot are what still work signed out. */
+      for (const button of [commitBtn, draftBtn]) {
+        button.disabled = true;
+        button.title = 'Sign in with GitHub to save.';
+      }
     }
 
-    commitBtn.addEventListener('click', async () => {
+    /**
+     * The three columns `journal` declares NOT NULL, checked before the round
+     * trip rather than after it.
+     *
+     * The database is the validation now (decision 18), and it does refuse
+     * these — but it refuses them in SQLite: saving with an empty summary
+     * answered `D1_ERROR: NOT NULL constraint failed: journal.summary:
+     * SQLITE_CONSTRAINT`, which is a correct sentence about a blank field a few
+     * pixels away and reads as a broken site. `explainConstraint()` on the
+     * endpoint turns that into English for anything that gets past here; this
+     * is the half that never sends the request at all, and can therefore name
+     * the field in the terms this screen uses for it.
+     *
+     * Keep the two in step: a column that becomes NOT NULL wants a line here.
+     */
+    function whatIsMissing(post: PostFields): string | null {
+      if (!post.title) return 'A title is required — it is also where the slug comes from.';
+      if (!post.summary) return 'A summary is required: it is the card body and the meta description.';
+      if (!post.date) return 'A publish date is required — it is what orders the listing.';
+      return null;
+    }
+
+    /* Which field to put the cursor in, for each of the above. Reporting what is
+       wrong and leaving the author to find it is half an error message. */
+    const FIELD_FOR_ERROR: [keyof typeof fields, () => boolean][] = [
+      ['title', () => !fields.title.value.trim()],
+      ['summary', () => !fields.summary.value.trim()],
+      ['date', () => !fields.date.value],
+    ];
+
+    /**
+     * Write the post, from whichever button asked.
+     *
+     * Shared by "Save as draft" and the primary save, which differ only in
+     * whether the status is forced first — so there is one write path, one set
+     * of required-field checks and one place the busy state is released.
+     */
+    async function save(button: HTMLButtonElement): Promise<void> {
       const post = readFields();
-      if (!post.title) {
-        const why = 'A title is required — it is also where the slug comes from.';
-        stamp.textContent = why;
-        toast(why, { tone: 'error' });
+      const missing = whatIsMissing(post);
+      if (missing) {
+        stamp.textContent = missing;
+        toast(missing, { tone: 'error' });
+        const blank = FIELD_FOR_ERROR.find(([, isEmpty]) => isEmpty());
+        if (blank) fields[blank[0]].focus();
         return;
       }
 
       const target = editing ?? slugify(post.title);
 
-      setBusy(commitBtn, true, 'Saving…');
+      setBusy(button, true, 'Saving…');
       stamp.textContent = `Saving ${postPath(target)}…`;
       const pending = toast(`Saving ${target}…`, { tone: 'pending' });
 
@@ -473,22 +614,11 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
           ? await updatePost(editing, post, fields.body.value)
           : await createPost(target, post, fields.body.value);
 
-        const link = document.createElement('a');
-        link.href = result.url;
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.textContent = 'view live ↗';
-        stamp.replaceChildren(
-          document.createTextNode(
-            /* Its editor page resolves from the row that now exists, so there is
-               nothing to wait for before opening it. */
-            editing ? 'Saved — ' : `Created. Its editor page is at /admin/journal/${target} — `
-          ),
-          link
-        );
-        /* Saved state is now the row's, not the browser's. Leaving the draft
-           behind would restore it over the next load of this screen. */
+        /* The row is the saved state now, so the browser snapshot has nothing
+           left to protect — and leaving it would have the restore bar offering
+           to put the same content back on the next visit. */
         localStorage.removeItem(KEY);
+        restoreBar.hidden = true;
 
         /* An unpublished post has no public page, so offering a link to one
            would be offering a 404 — the same reason the entries list only links
@@ -497,20 +627,42 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         pending.update(
           live
             ? `${target} is saved and live.`
-            : `${target} is saved as ${post.status} — not on the public site.`,
+            : `${target} is saved as a ${post.status === 'draft' ? 'draft' : post.status} post — in the entries list, not on the public site.`,
           {
             tone: 'success',
             action: live ? { label: 'view live ↗', href: result.url } : undefined,
-          }
+          },
         );
-        setBusy(commitBtn, false);
+
+        if (editing) {
+          const link = document.createElement('a');
+          link.href = result.url;
+          link.target = '_blank';
+          link.rel = 'noopener';
+          link.textContent = 'view live ↗';
+          stamp.replaceChildren(document.createTextNode('Saved — '), link);
+          setBusy(button, false);
+          return;
+        }
+
+        /* A new post now exists at a slug, and this screen is still
+           `/admin/journal/new` — which is the screen that *creates* one. Press
+           save twice and the second one is a duplicate-slug refusal. Which post
+           is open is the route (decision 13), so the route has to catch up.
+           `navigate()` rather than a location assignment, so it is a client
+           route and the toast reporting the save survives the swap. */
+        stamp.textContent = `Created ${postPath(target)}. Opening it…`;
+        setBusy(button, false);
+        await navigate(`/admin/journal/${target}`);
       } catch (error) {
         const text = error instanceof Error ? error.message : 'Save failed.';
         stamp.textContent = text;
         pending.update(text, { tone: 'error' });
-        setBusy(commitBtn, false);
+        setBusy(button, false);
       }
-    });
+    }
+
+    commitBtn.addEventListener('click', () => void save(commitBtn));
 
     const shell = document.getElementById('admin-shell')!;
     const focusBtn = $<HTMLButtonElement>('focus-toggle');
@@ -520,8 +672,10 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       focusBtn.setAttribute('aria-pressed', String(on));
     });
 
-    restore();
     render();
+    /* Last, and only ever an offer: it compares against the form as it now
+       stands, which needs the seed and the first render to have happened. */
+    offerRestore();
   });
 </script>
 
@@ -539,9 +693,62 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
   .je-path code { font-family: var(--font-mono); background: var(--color-surface); padding: 1px 5px; }
   .je-path-note { font-size: 11px; }
 
+  /* The offer to put unsaved work back. Accent-edged rather than red: nothing
+     has gone wrong, there is simply a decision to make, and it is a decision
+     that used to be taken silently on the author's behalf. */
+  .je-restore {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-4);
+    border: 1px solid var(--color-accent);
+    border-left-width: 3px;
+    border-radius: var(--radius-md);
+    background: var(--color-accent-100);
+  }
+
+  .je-restore[hidden] { display: none; }
+  .je-restore-copy { min-width: 0; }
+  .je-restore-title { margin: 0; font-weight: 600; font-size: 14px; }
+  .je-restore-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
   /* The mockup's bento: writing surface left, everything that describes the
      post right. Focus mode hides the right column outright. */
   .editor-grid { display: grid; grid-template-columns: 8fr 4fr; gap: var(--space-4); align-items: start; }
+
+  /* — focus mode —
+
+     `.is-focus` hid the sidebar and the metadata column and stopped there,
+     which left the *grid* untouched: still two tracks, the second one now
+     empty, so the writing surface kept two thirds of the width and a third of
+     the screen was blank paper. Hiding a column is not the same as removing it.
+
+     One track, and a measure. A textarea the full width of a 1790px screen is
+     not a better place to write a paragraph than one the width of a page, so
+     the column is capped and centred — the same pairing every other width cap
+     on this surface uses — and the header above it is capped to match, or the
+     toolbar floats off to the right of the thing it belongs to.
+
+     `.admin-shell` is rendered by `AdminLayout`, so it carries no cid of this
+     component's and has to be reached through `:global()`. */
+  :global(.admin-shell.is-focus) .editor-grid { grid-template-columns: minmax(0, 1fr); }
+
+  :global(.admin-shell.is-focus) .editor-col,
+  :global(.admin-shell.is-focus) .admin-head {
+    max-width: var(--wrap-mid);
+    margin-inline: auto;
+    width: 100%;
+  }
+
+  /* The point of focus mode is the body, so give it the height the metadata
+     column was using. */
+  :global(.admin-shell.is-focus) .editor-body,
+  :global(.admin-shell.is-focus) .preview-card {
+    min-height: min(70dvh, 900px);
+  }
   .editor-col { display: flex; flex-direction: column; gap: var(--space-4); }
   .editor-side { display: flex; flex-direction: column; gap: var(--space-4); }
   .editor-title { font-size: 20px; font-family: var(--font-heading); height: 48px; border-left: 3px solid var(--color-accent); }

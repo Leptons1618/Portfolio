@@ -25,6 +25,52 @@ import { MAX_MEDIA_BYTES, MEDIA_TYPES, mediaPath } from '../../lib/media';
 
 export const prerender = false;
 
+/**
+ * What has already been uploaded — the media library's index.
+ *
+ * Without this, the only way to reference an existing image was to remember its
+ * path and retype it, which is how a field ends up pointing at bytes that were
+ * never written under quite that name. The modal in `src/lib/media-library.ts`
+ * is the reader.
+ *
+ * **`bytes` is deliberately not selected.** It is the whole point of the table
+ * and up to 2 MB a row; a listing that fetched it would pull the entire library
+ * through the Worker to render a grid of thumbnails, which the `/media/…` URLs
+ * already serve one at a time and with a cache in front.
+ *
+ * Owner-only, like every other route here. The bytes themselves are public to
+ * anyone holding a path — they are page images — but the *index* of everything
+ * ever uploaded is not something to hand out, and the only screens that need it
+ * are already behind a session.
+ */
+export const GET: APIRoute = async ({ request, locals }) => {
+  try {
+    await requireOwner(request);
+  } catch (error) {
+    return refusal(error) ?? json({ error: 'Unauthorized.' }, 401);
+  }
+
+  const { DB } = locals.runtime.env;
+
+  /* Newest first, because the thing just uploaded is overwhelmingly the thing
+     being looked for. The cap is a guard rather than a paging scheme: this is a
+     personal portfolio, and a library that outgrows it wants a search endpoint
+     rather than a longer list. */
+  const { results } = await DB.prepare(
+    'SELECT path, mime, size, updated_at FROM media ORDER BY updated_at DESC LIMIT 200',
+  ).all<{ path: string; mime: string; size: number; updated_at: string }>();
+
+  return json({
+    items: (results ?? []).map(row => ({
+      path: row.path,
+      url: `/media/${row.path}`,
+      mime: row.mime,
+      size: row.size,
+      updatedAt: row.updated_at,
+    })),
+  });
+};
+
 export const POST: APIRoute = async ({ request, locals }) => {
   try {
     await requireOwner(request);

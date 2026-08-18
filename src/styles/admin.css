@@ -1164,3 +1164,294 @@
     align-items: stretch;
   }
 }
+
+/* — media library —
+
+   The picker for an image that already exists, built by
+   `src/lib/media-library.ts`. Global rules for the usual reason: the dialog is
+   created with `createElement` and shares one node between every upload control
+   on the page, so it carries no page's `data-astro-cid` and belongs to no page.
+
+   The tiles are the point. Each thumbnail is the real `/media/…` URL the field
+   would hold, so the grid doubles as a check — a tile that will not render is
+   an image the page would not render either, and it says so in place rather
+   than letting the path be chosen. */
+.media-modal { width: min(900px, 94vw); }
+
+.media-grid {
+  display: grid;
+  /* Four across at full width, and it degrades by itself: `auto-fill` with a
+     floor means the count drops rather than the tiles being squeezed. */
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr));
+  gap: var(--space-3);
+  align-content: start;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.media-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-2);
+  min-width: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  appearance: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+}
+
+.media-tile:hover { border-color: var(--color-accent); background: var(--color-accent-100); }
+.media-tile:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+/* Selection is a 2px accent edge rather than a tint, because the tile's ground
+   is already doing hover and the thing being selected is a picture — anything
+   that recolours the tile competes with what is inside it. */
+.media-tile[data-selected] {
+  border-color: var(--color-accent);
+  border-width: 2px;
+  padding: calc(var(--space-2) - 1px);
+  background: var(--color-accent-100);
+}
+
+/* An image that does not load must not look like one that does — it is the
+   single thing this grid exists to make visible. */
+.media-tile[data-broken] { border-style: dashed; opacity: 0.7; }
+
+.media-tile-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  /* The checkerboard is what makes a transparent PNG read as transparent
+     rather than as white — the same ground the upload preview uses. */
+  background-color: var(--color-neutral-100);
+  background-image:
+    linear-gradient(45deg, var(--color-neutral-200) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--color-neutral-200) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--color-neutral-200) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--color-neutral-200) 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+}
+
+/* `contain`: a diagram cropped to fill a 4/3 tile is a picture of its middle,
+   and the tile is here to be recognised rather than admired. */
+.media-tile-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.media-tile-broken {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--color-accent-700);
+}
+
+.media-tile-name {
+  font-size: 12px;
+  font-weight: 600;
+  /* The stem is what tells two images apart and the extension is what tells you
+     which one it is — so clip in the middle of neither: one line, ellipsis. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-tile-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-text-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Loading tiles, at the size the real ones will be — so the grid does not
+   reflow when the response lands. Same pairing as the import dialog. */
+.media-tile-skeleton { cursor: default; pointer-events: none; }
+.media-tile-skeleton .media-tile-frame { background-image: none; }
+.media-tile-skeleton-line { width: 70%; }
+
+/* The grid is a grid even when it has nothing in it, so the empty state has to
+   be told to take the whole width rather than sit in the first cell. */
+.media-empty { grid-column: 1 / -1; }
+
+/* — dropdowns —
+
+   Built by `src/lib/select.ts`, so global rules for the usual reason: none of
+   these nodes carries a page's `data-astro-cid` and the control belongs to no
+   page. The native `<select>` is still in the DOM and still the value; it is
+   hidden once the script has replaced it, which is also why there is no flash
+   and no no-JS regression — until `mountSelects()` runs, `select.input` in
+   `global.css` is what is on screen.
+
+   The closed button borrows `.input`, deliberately: the border, ground, radius
+   and focus ring are the field's, not a second set of tokens that would drift
+   from it the first time one of them changed. */
+.select { position: relative; width: 100%; }
+
+.select-native { display: none; }
+
+.select-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  cursor: pointer;
+  text-align: left;
+  /* `.input` sets a min-height and a padding; this only has to stop the flex
+     children from stretching the row. */
+  line-height: 1.2;
+}
+
+.select-button:hover:not(:disabled) { background: var(--color-bg); }
+
+/* Open is a state worth showing on the field, not only in the popup — it is
+   what connects the two while the list is covering everything else. */
+.select-button[aria-expanded='true'] {
+  border-color: var(--color-accent);
+}
+
+.select-button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+.select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A placeholder choice — "— none —" — is not a value and should not read like
+   one. */
+.select-button[data-empty='true'] .select-value { color: var(--color-text-faint); }
+
+/* The caret is a triangle in `currentColor` rather than an SVG data URI, for
+   the same reason `.btn-primary`'s sweep is a gradient: a data URI cannot read
+   a custom property, so an icon written that way is a hex code that survives
+   every theme switch unchanged. Being an element rather than a background is
+   what lets it turn. */
+.select-caret {
+  width: 0;
+  height: 0;
+  flex: none;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+  transition: transform 0.18s cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+.select-button[aria-expanded='true'] .select-caret { transform: rotate(180deg); }
+
+/* — the popup —
+
+   In the top layer, because it has to escape two things that would clip it:
+   `.modal-body`, which scrolls, and `<dialog>`, which renders above every
+   `z-index` there is. Position comes from script — a popover is anchored to
+   nothing by itself — so everything here is appearance only. */
+.select-menu {
+  position: fixed;
+  z-index: 90;
+  margin: 0;
+  padding: var(--space-1);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--color-text);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  box-shadow: var(--shadow-lg);
+  /* Entry state. `.is-open` is added a frame later and `.is-closing` on the way
+     out, so both directions run the same transition. */
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+  transform-origin: top center;
+  transition:
+    opacity 0.14s ease-out,
+    transform 0.14s cubic-bezier(0.2, 0, 0.2, 1);
+}
+
+/* Opening upward should grow from the bottom edge, or the animation reads as
+   the list sliding out of the button it is covering. */
+.select-menu[data-placement='above'] {
+  transform-origin: bottom center;
+  transform: translateY(4px) scale(0.98);
+}
+
+.select-menu.is-open { opacity: 1; transform: none; }
+.select-menu.is-closing { opacity: 0; transform: translateY(-2px) scale(0.99); }
+.select-menu[data-placement='above'].is-closing { transform: translateY(2px) scale(0.99); }
+
+.select-menu[hidden] { display: none; }
+
+/* A popover's UA rules set `inset: 0; margin: auto` and a border — all three
+   are overridden above, but `inset` has to be neutralised explicitly or the
+   computed `left`/`top` fight a `right`/`bottom` of 0. */
+.select-menu:popover-open {
+  inset: auto;
+  width: max-content;
+  max-width: min(92vw, 420px);
+}
+
+.select-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px 10px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.3;
+  border-radius: var(--radius-md);
+  /* Long case-study titles are the reason the menu has a max-width at all. */
+  overflow-wrap: anywhere;
+}
+
+/* One highlight, driven by the keyboard *and* the pointer — `mousemove` moves
+   the active row — so there is never a hover ring and a keyboard ring in two
+   different places arguing about which one Enter will take. */
+.select-option[data-active] {
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+.select-option[aria-selected='true'] { font-weight: 600; }
+.select-option[aria-disabled='true'] { opacity: 0.4; cursor: not-allowed; }
+
+/* Reserved whether or not it is showing, so rows do not shift by a tick's
+   width as the selection moves down the list. */
+.select-tick {
+  width: 12px;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-accent);
+}
+
+.select-option[data-active] .select-tick { color: var(--color-bg); }
+
+.select-option-text { min-width: 0; }
+
+/* Motion is the affordance, not the information: reduced motion keeps the
+   state change and drops the travel. */
+@media (prefers-reduced-motion: reduce) {
+  .select-caret,
+  .select-menu {
+    transition-duration: 0.01ms;
+  }
+  .select-menu,
+  .select-menu[data-placement='above'] { transform: none; }
+}
+
+/* Sized by its content rather than by the column — mirrored from `.is-auto` on
+   the native element, which is hidden by the time it would have applied. */
+.select-auto { width: auto; }
+.select-auto .select-button { width: auto; }

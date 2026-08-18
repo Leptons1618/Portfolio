@@ -727,10 +727,38 @@ const STATUS_VARIANT: Record<string, string> = {
       saveStudy.addEventListener('click', async () => {
         if (!signedIn) return say(csMessage, 'Sign in with GitHub to save.', 'error');
 
+        /* Every column `case_studies` declares NOT NULL, checked here rather
+           than left to the database. It does refuse them — but it refuses them
+           as `NOT NULL constraint failed: case_studies.problem`, which names
+           the column and not the field, and reads as a fault rather than as an
+           empty textarea further up this same panel. Problem and solution were
+           missing from this list, which is how an emptied one got as far as
+           D1. Keep it in step with the migration. */
         const title = study.title.value.trim();
         const subtitle = study.subtitle.value.trim();
-        if (!title || !subtitle) return say(csMessage, 'Title and subtitle are both required by the schema.', 'error');
-        if (!study.date.value) return say(csMessage, 'A date is required — it is what orders the listing.', 'error');
+        const problem = study.problem.value.trim();
+        const solution = study.solution.value.trim();
+
+        const missing = !title
+          ? ['Title', study.title] as const
+          : !subtitle
+            ? ['Subtitle', study.subtitle] as const
+            : !problem
+              ? ['Problem', study.problem] as const
+              : !solution
+                ? ['Solution', study.solution] as const
+                : !study.date.value
+                  ? ['Date', study.date] as const
+                  : null;
+
+        if (missing) {
+          const [label, field] = missing;
+          const why = `${label} is required by the schema, and is empty.`;
+          say(csMessage, why, 'error');
+          toast(why, { tone: 'error' });
+          field.focus();
+          return;
+        }
 
         setBusy(saveStudy, true, 'Saving…');
         say(csMessage, 'Saving…');
@@ -739,8 +767,8 @@ const STATUS_VARIANT: Record<string, string> = {
           const changes: Partial<CaseStudyFields> = {
             title,
             subtitle,
-            problem: study.problem.value.trim(),
-            solution: study.solution.value.trim(),
+            problem,
+            solution,
             achievements: lines(study.achievements.value),
             stack: csv(study.stack.value),
             date: study.date.value,
