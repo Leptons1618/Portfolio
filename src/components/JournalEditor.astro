@@ -115,12 +115,28 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
 <div class="editor-grid">
   <div class="editor-col">
-    <input
-      class="input editor-title"
-      id="f-title"
-      placeholder="Post Title..."
-      value={editing ? fields!.title : ''}
-    />
+    {/* Each field that the assistant can write gets its own button, because
+        "ask the assistant to do this to this field" is one intention and
+        making it two — open a panel, then find the right task in a list of ten
+        — is the thing that stops people using it. The button carries the task
+        name; the panel is opened *and run* from it. */}
+    <div class="editor-title-row">
+      <input
+        class="input editor-title"
+        id="f-title"
+        placeholder="Post Title..."
+        value={editing ? fields!.title : ''}
+      />
+      <button
+        type="button"
+        class="btn btn-secondary je-spark"
+        data-assist-task="titles"
+        title="Suggest titles"
+        aria-label="Suggest titles"
+      >
+        <Icon name="lucide:sparkles" class="admin-nav-icon" />
+      </button>
+    </div>
 
     <div class="tab-bar" role="tablist" aria-label="Editor view" id="je-tabs">
       <button type="button" class="tab" role="tab" id="je-tab-write" aria-controls="je-panel-write" aria-selected="true">
@@ -138,6 +154,14 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         <button type="button" class="btn btn-secondary md-btn" data-before="`" data-after="`" title="Inline code">&lt;/&gt;</button>
         <button type="button" class="btn btn-secondary md-btn" data-before="[" data-after="](https://)" title="Link">link</button>
         <button type="button" class="btn btn-secondary md-btn" data-before="![" data-after="](/images/)" title="Image">image</button>
+        <button
+          type="button"
+          class="btn btn-secondary md-assist"
+          data-assist-task="compose"
+          title="Write the whole post from a topic"
+        >
+          <Icon name="lucide:sparkles" class="admin-nav-icon" />Write with AI
+        </button>
       </div>
       <textarea class="input editor-body" id="f-body" placeholder="Write your post using Markdown...">{body}</textarea>
     </div>
@@ -158,7 +182,17 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     <div class="card elev-sm">
       <h6 class="admin-eyebrow">Metadata</h6>
       <div class="field">
-        <label for="f-summary">Summary</label>
+        <div class="je-field-head">
+          <label for="f-summary">Summary</label>
+          <button
+            type="button"
+            class="btn btn-ghost je-spark je-spark-sm"
+            data-assist-task="summary"
+            title="Write the summary from the draft"
+          >
+            <Icon name="lucide:sparkles" class="admin-nav-icon" />Write it
+          </button>
+        </div>
         <textarea class="input summary-input" id="f-summary" placeholder="One line for the card and the meta description."></textarea>
       </div>
       <div class="field">
@@ -166,7 +200,17 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         <input class="input" type="date" id="f-date" value={today} />
       </div>
       <div class="field">
-        <label for="f-tags">Tags (comma separated)</label>
+        <div class="je-field-head">
+          <label for="f-tags">Tags (comma separated)</label>
+          <button
+            type="button"
+            class="btn btn-ghost je-spark je-spark-sm"
+            data-assist-task="tags"
+            title="Suggest tags, reusing ones already on the site"
+          >
+            <Icon name="lucide:sparkles" class="admin-nav-icon" />Suggest
+          </button>
+        </div>
         <input class="input" id="f-tags" placeholder="e.g. Design Systems, Astro" />
       </div>
       <div class="field field-row">
@@ -215,75 +259,102 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
 {/* — the writing assistant —
 
-    A `<dialog>` rather than a third column, for the reason decision 12 gives
-    about screens: this is not a place you *are*, it is something you ask for
-    and then apply. `.modal-fixed` because its content arrives over the network
-    — without a held height the box would grow line by line as the model
-    streams, moving every control in the foot while the author is reading.
+    A **non-modal** `<dialog>`, docked to the corner, and that is the whole
+    design rather than a styling choice. It used to be `showModal()`, which put
+    a backdrop over the editor — fine when the assistant's entire output was a
+    block of text in a panel waiting for Insert, and wrong the moment a task
+    started writing into the fields themselves. The point of `compose` is that
+    the author *watches the form fill in*; a modal is a sheet pulled over the
+    only thing worth looking at.
 
-    Everything it produces lands in the output panel and goes nowhere else. The
-    Insert button is what puts text in the post, and Save is still the only
-    thing that writes a row. */}
-<dialog class="modal modal-fixed" id="assist-dialog">
-  <form method="dialog" class="modal-head">
-    <h3 class="modal-title">Writing assistant</h3>
-    <button class="btn btn-icon" value="cancel" aria-label="Close">
+    Non-modal costs three things the platform gives a modal for free, and each
+    is re-added in the script below because each is worth having: Escape to
+    close, focus moving in on open, and the top layer. The last one is not
+    re-added — it is not wanted. A docked panel that sits *under* the select
+    popovers and the toast host is correct, and those are the only two things
+    on this surface that outrank it.
+
+    Everything the assistant produces still ends in the editor and nowhere else.
+    `save()` remains the only thing that writes a row. */}
+<dialog class="asx" id="assist-dialog" aria-label="Writing assistant">
+  <header class="asx-head">
+    <div class="asx-head-copy">
+      <h3 class="asx-title">
+        <Icon name="lucide:sparkles" class="admin-nav-icon" />Writing assistant
+      </h3>
+      <p class="asx-sub">Writes into the editor. Nothing is saved until you press Save.</p>
+    </div>
+    <button type="button" class="btn btn-icon" id="assist-close" aria-label="Close assistant">
       <Icon name="lucide:x" class="admin-nav-icon" />
     </button>
-  </form>
+  </header>
 
-  <div class="modal-body">
-    <div class="as-tasks" id="assist-tasks">
+  <div class="asx-body">
+    {/* The topic box is first and always visible, because "write a post about
+        X" is the thing this panel exists for and burying it under ten task
+        buttons would make the headline feature the least reachable one. */}
+    <div class="asx-ask">
+      <label class="asx-ask-label" for="assist-instruction">What should it write about?</label>
+      <textarea
+        class="input asx-ask-input"
+        id="assist-instruction"
+        rows="2"
+        placeholder="e.g. why we replaced cache invalidation with a five minute TTL"
+      ></textarea>
+      <div class="asx-ask-row">
+        <span class="text-muted asx-ask-hint" id="assist-hint"></span>
+        <button type="button" class="btn btn-primary btn-sm" id="assist-run">Write the whole post</button>
+      </div>
+    </div>
+
+    <div class="asx-tasks" id="assist-tasks">
       {ASSIST_MENU.map(task => (
         <button
           type="button"
-          class="as-task"
+          class="asx-task"
           data-task={task.name}
           data-needs-selection={task.needsSelection ? '1' : undefined}
+          data-needs-topic={task.needsTopic ? '1' : undefined}
+          data-live={task.live ?? undefined}
+          aria-pressed="false"
         >
-          <span class="as-task-label">{task.label}</span>
-          <span class="as-task-hint">{task.hint}</span>
+          <span class="asx-task-label">{task.label}</span>
+          <span class="asx-task-hint">{task.hint}</span>
         </button>
       ))}
     </div>
 
-    <div class="field">
-      <label for="assist-instruction">Anything specific? (optional)</label>
-      <input
-        class="input"
-        id="assist-instruction"
-        placeholder="e.g. keep it under 400 words, focus on the caching part"
-      />
-    </div>
-
-    <p class="admin-note as-status" id="assist-status">
-      Pick a task. Nothing is sent until you do, and nothing is saved until you press Insert.
+    <p class="admin-note asx-status" id="assist-status">
+      Pick a task, or describe a post and press Write. Nothing is sent until you do.
     </p>
 
-    <div class="as-output" id="assist-output" hidden>
-      <pre class="as-text" id="assist-text"></pre>
-      {/* Only the diagram task fills this. The SVG is rendered in the browser
-          from the Mermaid the model returned, so what is previewed here is
-          exactly the file that would be uploaded. */}
-      <div class="as-preview" id="assist-preview" hidden></div>
+    {/* Only the tasks that *offer* something fill this. A task that writes
+        straight into a field shows its progress on the status line instead —
+        the author is looking at the form, and a second copy of the same text
+        beside it is noise competing with the thing it duplicates. */}
+    <div class="asx-output" id="assist-output" hidden>
+      <pre class="asx-text" id="assist-text"></pre>
+      <div class="asx-preview" id="assist-preview" hidden></div>
     </div>
   </div>
 
-  <div class="modal-foot as-foot">
-    <span class="text-muted as-note" id="assist-note"></span>
-    <div class="as-foot-actions">
-      <button type="button" class="btn btn-secondary" id="assist-copy" disabled>Copy</button>
-      <button type="button" class="btn btn-secondary" id="assist-retry" disabled>Try again</button>
-      <button type="button" class="btn btn-primary" id="assist-insert" disabled>Insert</button>
+  <footer class="asx-foot">
+    <span class="text-muted asx-note" id="assist-note"></span>
+    <div class="asx-foot-actions">
+      <button type="button" class="btn btn-secondary btn-sm" id="assist-stop" hidden>Stop</button>
+      <button type="button" class="btn btn-secondary btn-sm" id="assist-undo" hidden>Undo</button>
+      <button type="button" class="btn btn-secondary btn-sm" id="assist-copy" hidden>Copy</button>
+      <button type="button" class="btn btn-secondary btn-sm" id="assist-retry" hidden>Try again</button>
+      <button type="button" class="btn btn-primary btn-sm" id="assist-insert" hidden>Insert</button>
     </div>
-  </div>
+  </footer>
 </dialog>
 
 <script is:inline type="application/json" id="journal-editor-seed" set:html={seedJson}></script>
 
 <script>
   import { navigate } from 'astro:transitions/client';
-  import { ADMIN_KEYS, onAdminPage, setBusy, toast, wireTabs } from '../lib/admin';
+  import { ADMIN_KEYS, onAdminPage, setBusy, setLabel, toast, wireTabs } from '../lib/admin';
   import {
     buildPostMarkdown,
     createPost,
@@ -296,7 +367,14 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
   import { attachImageUpload } from '../lib/image-upload';
   import { copyText } from '../lib/clipboard';
   import { runAssist } from '../lib/ai-store';
-  import { ASSIST_TASKS, isAssistTask } from '../lib/assist-tasks';
+  import {
+    ASSIST_TASKS,
+    isAssistTask,
+    parseDocument,
+    type AssistTarget,
+    type AssistTask,
+    type AssistTaskName,
+  } from '../lib/assist-tasks';
   import {
     DiagramError,
     diagramMarkdown,
@@ -587,7 +665,12 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
     /* Formatting buttons wrap the selection. `setRangeText` keeps the undo stack
        intact, which reassigning `.value` would throw away. */
-    document.querySelectorAll<HTMLButtonElement>('.md-btn').forEach(btn => {
+    /* `[data-before]`, not just `.md-btn`: this handler reads `dataset.before`
+       and `dataset.after` and interpolates both into a template literal, so a
+       button in this toolbar that carries the class without the data pastes the
+       string `undefined` into the post — twice, once for each end. The Write
+       with AI button was exactly that until the selector said what it needs. */
+    document.querySelectorAll<HTMLButtonElement>('.md-btn[data-before]').forEach(btn => {
       btn.addEventListener('click', () => {
         const body = fields.body;
         const { selectionStart: start, selectionEnd: end } = body;
@@ -751,55 +834,72 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
     /* — the writing assistant —
 
-       Drafts, never saves. Everything below ends in text sitting in a panel
-       with an Insert button beside it; the row is still written by `save()`
-       above and by nothing else.
+       Two ways for a task's output to arrive, and which one applies is data on
+       the task rather than a branch here: `task.live` names a field, or it is
+       absent.
 
-       The one exception is the diagram task, which *does* write — an SVG into
-       the media table, through the same `/api/media` the upload control uses.
-       That asymmetry is deliberate and it matches the rule already in
-       `image-upload.ts`: an unreferenced upload is harmless, and a saved post
-       pointing at bytes that were never written is not. */
+         - **Live.** The text is written into the field *as it streams*, and the
+           panel's job shrinks to a progress line and an Undo. `compose` fills
+           the whole form this way, which is the feature — a title appearing
+           letter by letter, then a summary, then tags, then the body building
+           underneath them, is the difference between a tool and a spinner.
+         - **Panel.** The output lands in the box with an Insert button, because
+           it is a *choice*: five titles, six tags, a paragraph that could go in
+           three places. Insert is where the author says which and where.
+
+       Neither writes a row. `save()` is still the only thing that does, and the
+       diagram task's upload on Insert is still the one exception — same rule as
+       `image-upload.ts`, an unreferenced upload is harmless and a saved post
+       pointing at bytes that were never written is not.
+
+       **Every live run is undoable in one press.** The affected fields are
+       snapshotted before the first token arrives, which is the thing that makes
+       writing straight into the form reasonable rather than reckless. */
     const assistDialog = $<HTMLDialogElement>('assist-dialog');
     const assistOutput = $('assist-output');
     const assistText = $('assist-text');
     const assistPreview = $('assist-preview');
     const assistStatus = $('assist-status');
     const assistNote = $('assist-note');
-    const assistInstruction = $<HTMLInputElement>('assist-instruction');
+    const assistHint = $('assist-hint');
+    const assistInstruction = $<HTMLTextAreaElement>('assist-instruction');
+    const runBtn = $<HTMLButtonElement>('assist-run');
+    const stopBtn = $<HTMLButtonElement>('assist-stop');
+    const undoBtn = $<HTMLButtonElement>('assist-undo');
     const insertBtn = $<HTMLButtonElement>('assist-insert');
     const copyBtn = $<HTMLButtonElement>('assist-copy');
     const retryBtn = $<HTMLButtonElement>('assist-retry');
     const assistOpen = $<HTMLButtonElement>('assist-open');
 
-    /* What the last run produced, and how to apply it. `apply` is set per task
-       because "insert" means four different things — replace the selection,
-       append to the body, fill a field, merge tags — and branching on the task
-       name at click time would put that knowledge in two places. */
+    /* What the last panel run produced, and how to apply it. `apply` is set per
+       task because "insert" means four different things — replace the
+       selection, append to the body, fill a field, merge tags — and branching
+       on the task name at click time would put that knowledge in two places. */
     let result: { text: string; apply: () => void } | null = null;
-    let lastTask: string | null = null;
+    let lastTask: AssistTaskName | null = null;
+    let selected: AssistTaskName | null = null;
 
-    /* The selection is captured when the dialog *opens*, not when Insert is
-       pressed. Opening a dialog moves focus, and a textarea that has lost focus
-       still reports its range — but the author is about to click buttons inside
-       the panel, and by the time the model has answered there is nothing left
-       to replace. Capturing once, up front, is what makes "replace the
-       selection" mean the selection they were looking at. */
+    /* The range a selection task will replace, taken at the moment the run
+       starts rather than when the panel opened. The panel is non-modal now, so
+       the author can select text with it already on screen — capturing on open
+       would mean the panel had to be closed and reopened to notice. A textarea
+       keeps `selectionStart`/`selectionEnd` after it loses focus, which is what
+       makes reading them from a button click work at all. */
     let captured = { start: 0, end: 0, text: '' };
 
-    const setAssistStatus = (text: string, tone: 'info' | 'error' = 'info') => {
-      assistStatus.dataset.tone = tone;
-      assistStatus.textContent = text;
-    };
-
-    function captureSelection() {
+    function currentSelection() {
       const body = fields.body;
-      captured = {
+      return {
         start: body.selectionStart,
         end: body.selectionEnd,
         text: body.value.slice(body.selectionStart, body.selectionEnd),
       };
     }
+
+    const setAssistStatus = (text: string, tone: 'info' | 'error' = 'info') => {
+      assistStatus.dataset.tone = tone;
+      assistStatus.textContent = text;
+    };
 
     /** Put text where the selection was. `setRangeText` keeps the undo stack. */
     function replaceSelection(text: string) {
@@ -829,25 +929,94 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         .map(line => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim())
         .filter(Boolean);
 
+    /* — live targets —
+
+       Which inputs a live task touches, so the snapshot behind Undo covers
+       exactly those and no more. Undoing a summary rewrite must not also revert
+       the paragraph the author typed while it was running. */
+    const LIVE_FIELDS: Record<AssistTarget, (keyof typeof fields)[]> = {
+      document: ['title', 'summary', 'tags', 'readTime', 'body'],
+      summary: ['summary'],
+      body: ['body'],
+    };
+
+    let undoable: { target: AssistTarget; values: Partial<Record<string, string>> } | null = null;
+
+    function takeSnapshot(target: AssistTarget) {
+      const values: Record<string, string> = {};
+      for (const key of LIVE_FIELDS[target]) values[key] = fields[key].value;
+      undoable = { target, values };
+    }
+
+    function undoLive() {
+      if (!undoable) return;
+      for (const [key, value] of Object.entries(undoable.values)) {
+        fields[key as keyof typeof fields].value = value ?? '';
+      }
+      undoable = null;
+      render();
+      holdLocally();
+      setFoot('idle');
+      setAssistStatus('Put back the way it was.');
+      toast('Reverted.', { tone: 'success' });
+    }
+
     /**
-     * Turn the model's output into something applicable.
+     * Write a partially-arrived response into the fields it belongs to.
+     *
+     * Called on every animation frame while a live task streams, and once more
+     * when it finishes. `final` is not a formality: `parseDocument` falls back
+     * to treating an unrecognised response as body text, which is the right
+     * recovery for a *finished* response that ignored the format and exactly
+     * the wrong thing to do to the first three characters of a good one — the
+     * body would be set to `TIT` and then never corrected, because by the time
+     * `TITLE:` parses the fallback has stopped firing. So a live body is only
+     * written once the parser has actually seen `BODY:`, and the fallback is
+     * honoured at the end or not at all.
+     */
+    function applyLive(target: AssistTarget, raw: string, final: boolean) {
+      if (target === 'document') {
+        const doc = parseDocument(raw);
+        if (doc.title) fields.title.value = doc.title;
+        if (doc.summary) fields.summary.value = doc.summary;
+        if (doc.tags) fields.tags.value = doc.tags;
+        if (doc.readTime) fields.readTime.value = doc.readTime;
+        if (doc.bodyStarted) fields.body.value = doc.body;
+        else if (final && doc.body) fields.body.value = doc.body;
+      } else if (target === 'summary') {
+        /* Models quote a one-line answer about a third of the time, and a
+           quoted summary goes into the card and the meta description with the
+           quotes in it. */
+        fields.summary.value = raw.trim().replace(/^["']|["']$/g, '');
+      } else {
+        fields.body.value = final ? raw.trim() : raw;
+      }
+      render();
+      holdLocally();
+    }
+
+    /** A short, honest description of how far a live run has got. */
+    function liveProgress(target: AssistTarget, raw: string): string {
+      if (target !== 'document') return `Writing… ${raw.length.toLocaleString()} characters.`;
+      const doc = parseDocument(raw);
+      const landed = [
+        doc.title && 'title',
+        doc.summary && 'summary',
+        doc.tags && 'tags',
+        doc.readTime && 'read time',
+        doc.bodyStarted && `body (${doc.body.length.toLocaleString()} characters)`,
+      ].filter(Boolean);
+      return landed.length ? `Writing… ${landed.join(', ')}.` : 'Writing…';
+    }
+
+    /**
+     * Turn a panel task's output into something applicable.
      *
      * Every branch returns an `apply` that touches exactly one thing, so the
      * Insert button is never ambiguous about what it is about to change.
      */
     function prepare(task: string, output: string): { text: string; apply: () => void } {
       switch (task) {
-        case 'summary':
-          return {
-            text: output.trim(),
-            apply: () => {
-              fields.summary.value = output.trim().replace(/^["']|["']$/g, '');
-              render();
-              holdLocally();
-              toast('Summary filled in.', { tone: 'success' });
-            },
-          };
-
         case 'titles': {
           const options = asLines(output);
           return {
@@ -918,8 +1087,9 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
           };
 
         default:
-          /* `outline`, and anything added to the table later. Appending is the
-             safe default: it cannot destroy what is already written. */
+          /* `outline`, and anything added to the table later without a `live`
+             target. Appending is the safe default: it cannot destroy what is
+             already written. */
           return {
             text: output.trim(),
             apply: () => {
@@ -975,33 +1145,111 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       };
     }
 
-    let assisting: AbortController | null = null;
+    /* — the footer, as one state rather than five booleans —
 
-    async function runTask(name: string) {
-      if (!isAssistTask(name)) return;
-      const task = ASSIST_TASKS[name];
-      lastTask = name;
+       Every button down there is meaningful in exactly one state, and the bug
+       this replaces was a `disabled` flag per button set from four places that
+       did not all agree. `hidden` rather than `disabled` for most of them: a
+       greyed-out Insert beside a live task is an offer that will never make
+       sense, and hiding it is the honest rendering. */
+    type FootState = 'idle' | 'running' | 'live-done' | 'panel-done' | 'error';
 
+    function setFoot(state: FootState) {
+      const live = state === 'live-done';
+      stopBtn.hidden = state !== 'running';
+      undoBtn.hidden = !(live && undoable !== null);
+      copyBtn.hidden = state !== 'panel-done';
+      insertBtn.hidden = state !== 'panel-done';
+      retryBtn.hidden = state === 'idle' || state === 'running';
+      runBtn.disabled = state === 'running';
+    }
+
+    /* — choosing a task — */
+
+    const taskButtons = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('#assist-tasks .asx-task'),
+    );
+
+    /**
+     * Why this task cannot run yet, or `null`.
+     *
+     * Returned as the sentence to show rather than a boolean, because the two
+     * reasons need two different fixes and "that button is disabled" tells the
+     * author neither of them.
+     */
+    function blockedBecause(name: AssistTaskName): string | null {
+      /* Typed as the interface rather than inferred. `ASSIST_TASKS` is `as
+         const satisfies`, so indexing it yields a union of ten literal object
+         types and `live` exists on only three of them — the union has no such
+         property and the optional fields are unreachable. Assigning to
+         `AssistTask` is what widens each member back to the declared shape. */
+      const task: AssistTask = ASSIST_TASKS[name];
       /* `ASSIST_TASKS` is `as const`, so each task's `context` is a readonly
          tuple of its own literals and the union across tasks narrows `includes`
-         to `never`. Widening here asks the question that is actually being
-         asked: does this task want a selection. */
+         to `never`. Widening here asks the question actually being asked. */
       const wants = task.context as readonly string[];
-      if (wants.includes('selection') && !captured.text.trim()) {
-        setAssistStatus('Select the part of the draft to work on first, then reopen this panel.', 'error');
+      if (wants.includes('selection') && !currentSelection().text.trim()) {
+        return 'Select the part of the draft to work on, then press this again.';
+      }
+      if (task.needsTopic && !assistInstruction.value.trim()) {
+        return 'Say what it should write about in the box above, then press Write.';
+      }
+      return null;
+    }
+
+    function selectTask(name: AssistTaskName) {
+      selected = name;
+      const task: AssistTask = ASSIST_TASKS[name];
+      taskButtons.forEach(button => {
+        button.setAttribute('aria-pressed', String(button.dataset.task === name));
+      });
+      setLabel(runBtn, task.label);
+      assistHint.textContent = task.hint;
+      assistNote.textContent = task.live
+        ? 'Writes into the editor as it goes. Undo puts it back.'
+        : 'Lands here first. Insert is what puts it in the post.';
+    }
+
+    /** Select, then run if it has everything it needs — otherwise say what is missing. */
+    function chooseAndRun(name: AssistTaskName) {
+      selectTask(name);
+      const blocked = blockedBecause(name);
+      if (blocked) {
+        setAssistStatus(blocked, 'error');
+        const task: AssistTask = ASSIST_TASKS[name];
+        if (task.needsTopic) assistInstruction.focus();
         return;
       }
+      void runTask(name);
+    }
 
+    /* — running — */
+
+    let assisting: AbortController | null = null;
+
+    async function runTask(name: AssistTaskName) {
+      const task: AssistTask = ASSIST_TASKS[name];
+      lastTask = name;
+      selectTask(name);
+
+      const blocked = blockedBecause(name);
+      if (blocked) return setAssistStatus(blocked, 'error');
+
+      const live = (task.live ?? null) as AssistTarget | null;
+
+      captured = currentSelection();
       result = null;
-      insertBtn.disabled = true;
-      copyBtn.disabled = true;
-      retryBtn.disabled = true;
-      assistOutput.hidden = false;
+      undoable = null;
       assistPreview.hidden = true;
       assistPreview.replaceChildren();
       assistText.textContent = '';
-      assistNote.textContent = task.hint;
-      setAssistStatus(`${task.label}…`);
+      /* A live task has nothing to show in the panel — the output is going
+         where the author is already looking. */
+      assistOutput.hidden = live !== null;
+      setFoot('running');
+      setAssistStatus(live ? 'Writing…' : `${task.label}…`);
+
+      if (live) takeSnapshot(live);
 
       /* Only the fields this task declares. The allowlist on the task is what
          keeps "suggest tags" from paying for the whole post body twice over. */
@@ -1016,7 +1264,32 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       for (const key of task.context) context[key] = source[key] ?? '';
 
       assisting?.abort();
-      assisting = new AbortController();
+      const controller = new AbortController();
+      assisting = controller;
+
+      let raw = '';
+      /* One repaint per frame, not one per token. A live `document` run reparses
+         the whole response and rewrites five inputs; at a fast provider's token
+         rate that is a few hundred passes a second, all but sixty of which are
+         overwritten before anything is painted. `render()` inside also rebuilds
+         the markdown preview when that tab is open, which is the expensive one. */
+      let queued = false;
+      /* A frame can still be queued when the last chunk lands, and it would run
+         *after* the completion handler below — repainting the fields from a
+         non-final parse and putting "Writing…" back over the "Done" line. The
+         abort signal does not cover it, because a run that finished normally
+         was never aborted. */
+      let settled = false;
+      const paint = () => {
+        if (queued || !live) return;
+        queued = true;
+        requestAnimationFrame(() => {
+          queued = false;
+          if (settled || controller.signal.aborted) return;
+          applyLive(live, raw, false);
+          setAssistStatus(liveProgress(live, raw));
+        });
+      };
 
       try {
         const output = await runAssist(
@@ -1025,14 +1298,31 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
           assistInstruction.value,
           {
             onDelta: chunk => {
-              assistText.textContent += chunk;
-              assistText.scrollTop = assistText.scrollHeight;
+              raw += chunk;
+              if (live) {
+                paint();
+              } else {
+                assistText.textContent = raw;
+                assistText.scrollTop = assistText.scrollHeight;
+              }
             },
           },
-          assisting.signal,
+          controller.signal,
         );
 
         if (!output.trim()) throw new Error('The model returned nothing.');
+        settled = true;
+
+        if (live) {
+          applyLive(live, output, true);
+          setFoot('live-done');
+          setAssistStatus('Done — it is in the editor. Undo puts it back; nothing is saved until you press Save.');
+          toast(
+            live === 'document' ? 'Draft written into the fields.' : 'Rewritten in place.',
+            { tone: 'success' },
+          );
+          return;
+        }
 
         setAssistStatus('Reading it back…');
         result = name === 'diagram' ? await prepareDiagram(output) : prepare(name, output);
@@ -1041,73 +1331,139 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
            than the fenced block it arrived wrapped in. Showing what will
            actually be used beats showing what arrived. */
         assistText.textContent = result.text;
-        insertBtn.disabled = false;
-        copyBtn.disabled = false;
-        retryBtn.disabled = false;
+        setFoot('panel-done');
         setAssistStatus('Ready. Insert puts it in the post; nothing is saved until you press Save.');
       } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') return;
+        settled = true;
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          /* Stopped on purpose. Whatever arrived stays where it was written —
+             that is what "live" means — and Undo is still the way back. */
+          if (live) {
+            applyLive(live, raw, true);
+            setFoot('live-done');
+            setAssistStatus(
+              `Stopped. ${raw.length.toLocaleString()} characters were written; Undo puts it back.`,
+            );
+          }
+          return;
+        }
         const text =
           error instanceof DiagramError || error instanceof Error
             ? error.message
             : 'The assistant failed.';
+        /* A live run that failed part-way has already written into the fields,
+           so the snapshot is the only way out and Undo has to stay offered. */
+        setFoot(live && undoable ? 'live-done' : 'error');
         setAssistStatus(text, 'error');
-        retryBtn.disabled = false;
         toast(text, { tone: 'error' });
+      } finally {
+        if (assisting === controller) assisting = null;
       }
     }
 
-    const taskButtons = Array.from(
-      document.querySelectorAll<HTMLButtonElement>('#assist-tasks .as-task'),
-    );
-
     taskButtons.forEach(button => {
-      button.addEventListener('click', () => void runTask(button.dataset.task ?? ''));
+      button.addEventListener('click', () => {
+        const name = button.dataset.task ?? '';
+        if (isAssistTask(name)) chooseAndRun(name);
+      });
     });
 
+    runBtn.addEventListener('click', () => {
+      /* Nothing chosen means the headline task — the box above it says "what
+         should it write about", and Write is the answer to that question. */
+      chooseAndRun(selected ?? 'compose');
+    });
+
+    /* Cmd/Ctrl+Enter from the topic box, the shortcut every prompt field has.
+       Plain Enter stays a newline: this is a textarea because a topic is often
+       two sentences. */
+    assistInstruction.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        chooseAndRun(selected ?? 'compose');
+      }
+    });
+
+    stopBtn.addEventListener('click', () => assisting?.abort());
+    undoBtn.addEventListener('click', undoLive);
     retryBtn.addEventListener('click', () => {
       if (lastTask) void runTask(lastTask);
     });
 
     insertBtn.addEventListener('click', () => {
       result?.apply();
-      assistDialog.close();
+      closeAssist();
     });
 
     copyBtn.addEventListener('click', () => {
       if (result) void copyText(result.text).then(() => toast('Copied.', { tone: 'success' }));
     });
 
+    /* — opening and closing — */
+
+    function openAssist(task?: AssistTaskName) {
+      if (!assistDialog.open) {
+        /* `show()`, not `showModal()`: the editor behind this has to stay
+           visible and usable, because watching the fields fill is the point. */
+        assistDialog.show();
+      }
+      if (task) chooseAndRun(task);
+      else if (!selected) selectTask('compose');
+      const opened: AssistTask | null = task ? ASSIST_TASKS[task] : null;
+      if (!opened || opened.needsTopic) assistInstruction.focus();
+    }
+
+    function closeAssist() {
+      assistDialog.close();
+    }
+
     assistOpen.addEventListener('click', () => {
-      captureSelection();
-      /* Tasks needing a selection are disabled rather than hidden, so the panel
-         does not change shape depending on where the caret happened to be. */
-      taskButtons.forEach(button => {
-        const needs = button.dataset.needsSelection === '1';
-        button.disabled = needs && !captured.text.trim();
-        button.title = button.disabled ? 'Select some text in the draft first.' : '';
-      });
-      setAssistStatus(
-        captured.text.trim()
-          ? `Working from ${captured.text.trim().length} selected characters.`
-          : 'Pick a task. Nothing is sent until you do, and nothing is saved until you press Insert.',
-      );
-      assistDialog.showModal();
+      if (assistDialog.open) closeAssist();
+      else openAssist();
     });
 
-    /* Backdrop click — the one dismissal a `<dialog>` does not give for free.
-       A run still in flight is abandoned rather than left billing in the
-       background with nobody watching. */
-    assistDialog.addEventListener('click', event => {
-      if (event.target === assistDialog) assistDialog.close();
+    $<HTMLButtonElement>('assist-close').addEventListener('click', closeAssist);
+
+    /* Every per-field button on the editor: open the panel and run that field's
+       task in one press. `data-assist-task` is the whole wiring — a new field
+       gets a button and nothing here changes. */
+    document.querySelectorAll<HTMLButtonElement>('[data-assist-task]').forEach(button => {
+      button.addEventListener('click', () => {
+        const name = button.dataset.assistTask ?? '';
+        if (isAssistTask(name)) openAssist(name);
+      });
     });
-    assistDialog.addEventListener('close', () => assisting?.abort());
+
+    /* Escape is a modal dialog's for free and a non-modal one's to wire. Scoped
+       to the panel having focus inside it, so Escape in the editor is still the
+       editor's. */
+    assistDialog.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeAssist();
+      }
+    });
+
+    /* A run still in flight is abandoned rather than left billing in the
+       background with nobody watching. Anything already written into the fields
+       stays there — closing the panel is not an undo. */
+    assistDialog.addEventListener('close', () => {
+      assisting?.abort();
+      setFoot('idle');
+    });
+
+    setFoot('idle');
 
     /* Same rule as the save buttons: the endpoint asks GitHub who is calling,
        so a signed-out screen says so rather than offering a button that 401s. */
     if (!getToken()) {
+      const why = 'Sign in with GitHub to use the assistant.';
       assistOpen.disabled = true;
-      assistOpen.title = 'Sign in with GitHub to use the assistant.';
+      assistOpen.title = why;
+      document.querySelectorAll<HTMLButtonElement>('[data-assist-task]').forEach(button => {
+        button.disabled = true;
+        button.title = why;
+      });
     }
 
     const shell = document.getElementById('admin-shell')!;
@@ -1199,6 +1555,36 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
   .editor-col { display: flex; flex-direction: column; gap: var(--space-4); }
   .editor-side { display: flex; flex-direction: column; gap: var(--space-4); }
   .editor-title { font-size: 20px; font-family: var(--font-heading); height: 48px; border-left: 3px solid var(--color-accent); }
+
+  /* The title and its assist button share a row. `min-width: 0` on the input,
+     because a flex item's default `min-width: auto` refuses to shrink below its
+     content and a long title would push the button off the end. */
+  .editor-title-row { display: flex; gap: var(--space-2); align-items: stretch; }
+  .editor-title-row .editor-title { flex: 1 1 auto; min-width: 0; }
+
+  /* A field that the assistant can write gets its label and its button on one
+     line. `space-between` rather than a gap, so the button sits against the
+     right edge of the field it belongs to and reads as attached to it. */
+  .je-field-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: 5px;
+  }
+  .je-field-head label { margin-bottom: 0; }
+
+  .je-spark { flex: none; }
+  .je-spark-sm { font-size: 11px; padding: 2px 6px; gap: 4px; }
+  /* Deliberately not `.md-btn` — that class enrols a button in the
+     wrap-the-selection handler, and this one opens the assistant. It only wants
+     the toolbar's sizing. */
+  .md-toolbar .md-assist {
+    font-size: 12px;
+    padding: 4px 10px;
+    font-weight: 600;
+    margin-left: auto;
+  }
 
   /* The tab bar sits directly under the title, so it does not need the shared
      gap on top of the column's own. */

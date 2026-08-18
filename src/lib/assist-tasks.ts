@@ -1,5 +1,5 @@
 /**
- * The eight things the journal assistant can be asked to do.
+ * The ten things the journal assistant can be asked to do.
  *
  * A closed table, and that is the security property of the whole authoring
  * agent. `/api/ai/assist` is behind `requireOwner()`, so the obvious design is
@@ -8,7 +8,7 @@
  * token in a browser tab, and an endpoint that forwards arbitrary prompts on
  * the owner's API key is a general-purpose model with a billing account
  * attached, one stolen session away from being someone else's. A table of tasks
- * bounds what a stolen session is worth: eight prompts about journal writing.
+ * bounds what a stolen session is worth: ten prompts about journal writing.
  *
  * It also makes the assistant *better*. Each task carries its own temperature,
  * token ceiling and output contract, because "suggest five tags" and "draft a
@@ -22,13 +22,37 @@
  * title suggestions, and is deliberately not JSON — a model that must close a
  * bracket to be parseable fails completely when it runs out of tokens, whereas
  * a truncated list is still a list. `mermaid` is a fenced diagram, extracted
- * and rendered by `src/lib/mermaid.ts`.
+ * and rendered by `src/lib/diagram.ts`. `document` is the whole post — labelled
+ * header lines and then a body — and it is line-oriented for the same reason
+ * `lines` is: it has to be readable while it is still arriving, and a JSON
+ * object is not readable until its last brace lands. `parseDocument()` at the
+ * bottom of this file is the reader, and it is written to be called on every
+ * delta.
  *
  * This module is imported by the endpoint and by `scripts/test-ai.mjs`, and
  * holds no secret and no I/O, which is why it is here rather than in the route.
  */
 
-export type AssistFormat = 'markdown' | 'lines' | 'mermaid';
+export type AssistFormat = 'markdown' | 'lines' | 'mermaid' | 'document';
+
+/**
+ * Where a task's output goes *while it is still arriving*.
+ *
+ * The split this encodes is the one rule the editor's assistant runs on:
+ *
+ *   - A task whose output can only mean one thing writes that thing **live**,
+ *     token by token, into the field itself. `summary` produces a summary;
+ *     there is no decision to make, so making the author press Insert to watch
+ *     text they already accepted move four inches is ceremony.
+ *   - A task whose output is a *choice* — five titles, six tags, a paragraph to
+ *     put somewhere — lands in the panel and waits, because Insert is where the
+ *     author says which one and where.
+ *
+ * `undefined` is the second case. Every live task is undoable in one press, and
+ * the editor snapshots the affected fields before the first token arrives —
+ * which is what makes writing straight into the form safe rather than reckless.
+ */
+export type AssistTarget = 'document' | 'summary' | 'body';
 
 export interface AssistTask {
   /** Shown on the button in the editor. */
@@ -44,6 +68,10 @@ export interface AssistTask {
   needsCorpus: boolean;
   /** Which fields of the editor are sent. Nothing else is, ever. */
   context: readonly ('title' | 'summary' | 'tags' | 'body' | 'selection')[];
+  /** The field this streams into as it generates. Absent means panel-and-Insert. */
+  live?: AssistTarget;
+  /** Whether the task is useless without a steer in the instruction box. */
+  needsTopic?: true;
 }
 
 /**
@@ -52,6 +80,55 @@ export interface AssistTask {
  * the editor's button list is generated from them rather than retyped.
  */
 export const ASSIST_TASKS = {
+  /**
+   * The whole post, from a topic, into every field at once.
+   *
+   * This is the only task that writes more than one field, and the only one
+   * whose output has a *shape* rather than being prose — which is what the
+   * `document` format is. The field order in the contract below is deliberate:
+   * title, summary, tags and read time are cheap and arrive within the first
+   * few dozen tokens, so the form is visibly filling in before the body has
+   * started. Putting the body first would mean thirty seconds of a spinner
+   * followed by everything at once, which is the same information arriving in
+   * the least useful order.
+   *
+   * `BODY:` on its own line rather than a `---` rule, because `---` is both
+   * frontmatter and a horizontal rule in the thing being generated, and a
+   * separator that can legitimately appear in the payload is not a separator.
+   */
+  compose: {
+    label: 'Write the whole post',
+    hint: 'From a topic: title, summary, tags and a full draft, straight into the fields.',
+    instructions: `Write a complete journal post on the topic the author gives you. It should be publishable: a real argument or a real account of doing something, not an overview of a subject area.
+
+Return it in exactly this shape, with each label at the start of its own line:
+
+TITLE: the post's title, plain text, no quotes
+SUMMARY: one sentence under 160 characters, for the card and the meta description
+TAGS: three to six comma-separated tags in Title Case
+READTIME: an estimate like "6 min"
+BODY:
+the full post in markdown, starting immediately on the next line
+
+Rules for the body:
+- Open with the specific thing this post is about. No throat-clearing, no "in this post we will".
+- Use level-2 headings for sections. Do not repeat the title as a heading.
+- 700 to 1100 words unless the author asked for a different length.
+- Concrete over general: name the actual tool, the actual number, the actual failure.
+- No closing summary paragraph restating what was just said.
+
+Emit nothing before TITLE: and nothing after the body. Do not wrap the response in a code fence.`,
+    format: 'document',
+    maxTokens: 2000,
+    temperature: 0.7,
+    needsCorpus: true,
+    /* The existing draft is sent so "write the whole post" on a half-written
+       entry continues it rather than talking over it. */
+    context: ['title', 'summary', 'tags', 'body'],
+    live: 'document',
+    needsTopic: true,
+  },
+
   outline: {
     label: 'Draft an outline',
     hint: 'Headings and a sentence each, from the title and summary.',
@@ -96,6 +173,38 @@ export const ASSIST_TASKS = {
     temperature: 0.5,
     needsCorpus: false,
     context: ['title', 'body'],
+    /* One field, one unambiguous answer — so it goes straight into the field
+       and the panel's job is only to offer Undo. */
+    live: 'summary',
+  },
+
+  /**
+   * The body, rewritten to an instruction.
+   *
+   * The counterpart to `tighten`, which works on a selection: this one is for
+   * "make the whole thing less formal", "cut it to 600 words", "lead with the
+   * outcome" — changes that are about the piece rather than about a paragraph.
+   *
+   * It is the most destructive task in the table, which is why it is `live`
+   * rather than panel-and-Insert: streaming into the body means the author
+   * watches the rewrite happen and can stop it halfway, and the snapshot behind
+   * Undo is the same one every live task takes. The alternative — a full second
+   * copy of the post in a `<pre>` to be read and then swapped in — is more
+   * ceremony for a worse view of the change.
+   */
+  revise: {
+    label: 'Revise the post',
+    hint: 'Rewrites the whole draft to your instruction. Undoable.',
+    instructions: `Rewrite this post according to what the author asked for. Keep every technical claim exactly as stated unless the instruction is to change it, keep their voice, and keep all markdown structure — headings, lists, code fences and links — intact and valid.
+
+Return only the rewritten post, in markdown, starting at its first line. No preamble, no note about what you changed, and no title line: the title is a separate field and is not yours to write here.`,
+    format: 'markdown',
+    maxTokens: 2000,
+    temperature: 0.4,
+    needsCorpus: false,
+    context: ['title', 'summary', 'body'],
+    live: 'body',
+    needsTopic: true,
   },
 
   titles: {
@@ -165,8 +274,141 @@ export const ASSIST_MENU = (Object.entries(ASSIST_TASKS) as [AssistTaskName, Ass
     /* The editor greys out a task whose required context is empty rather than
        sending an empty selection and getting an apology back. */
     needsSelection: task.context.includes('selection'),
+    needsTopic: task.needsTopic === true,
+    live: task.live ?? null,
   }),
 );
+
+/* ---------- the document format ---------- */
+
+/**
+ * The fields `compose` returns, in the order it is told to return them.
+ *
+ * Exported because the editor maps them onto its inputs and the test asserts
+ * the round trip, and because a second copy of these four strings in either
+ * place is a rename waiting to go wrong.
+ */
+export const DOCUMENT_KEYS = ['title', 'summary', 'tags', 'readTime'] as const;
+
+export interface ComposedDocument {
+  title: string;
+  summary: string;
+  tags: string;
+  readTime: string;
+  body: string;
+  /** Whether `BODY:` has been seen — i.e. the header is final and will not change. */
+  bodyStarted: boolean;
+}
+
+/** `READTIME:` in the contract, `readTime` in the editor. One place to disagree. */
+const DOCUMENT_LABELS: Record<string, (typeof DOCUMENT_KEYS)[number]> = {
+  TITLE: 'title',
+  SUMMARY: 'summary',
+  TAGS: 'tags',
+  READTIME: 'readTime',
+  'READ TIME': 'readTime',
+  READ: 'readTime',
+};
+
+/**
+ * Read a `compose` response — including a half-arrived one.
+ *
+ * **This is called on every delta**, against the whole accumulated string, and
+ * that is the design rather than an inefficiency. A parser that consumed deltas
+ * incrementally would need to hold state across a chunk boundary that can fall
+ * anywhere — mid-label, mid-newline — and the failure mode of getting that
+ * wrong is a title with `TIT` missing from it. Re-reading a few kilobytes a few
+ * hundred times is free, and being a pure function of the text so far is what
+ * makes it testable without a network and idempotent when the stream retries.
+ *
+ * Everything about it is deliberately forgiving, because the input is a model's
+ * best effort at a format rather than a serialisation:
+ *
+ *   - Any preamble before the first recognised label is dropped. Models
+ *     sometimes open with "Here's the post:" however firmly they are told not to.
+ *   - A wrapping code fence is stripped. Same reason.
+ *   - Labels are matched case-insensitively, with or without surrounding
+ *     markdown bold, because `**TITLE:**` is a common variation.
+ *   - An unrecognised line *before* `BODY:` is ignored rather than treated as
+ *     body, so a stray blank line in the header does not silently start the
+ *     post four fields early.
+ *   - The last line is assumed partial while streaming, and is written out
+ *     anyway — that is what makes the title fill in character by character
+ *     rather than appearing all at once.
+ */
+export function parseDocument(text: string): ComposedDocument {
+  const doc: ComposedDocument = {
+    title: '',
+    summary: '',
+    tags: '',
+    readTime: '',
+    body: '',
+    bodyStarted: false,
+  };
+
+  /* A fence around the *whole* response, which some models add however firmly
+     they are told not to. The closing one is only stripped when there was an
+     opening one to match it — a post that legitimately ends in a code block
+     ends in ``` too, and taking that away would break the markdown it is
+     closing. The opening fence is stripped either way: it has already arrived
+     and its partner may still be minutes off. */
+  const wrapped = /^\s*```/.test(text);
+  let source = text.replace(/^\s*```[a-z]*\s*\n?/i, '');
+  if (wrapped) source = source.replace(/\n?```\s*$/, '');
+
+  const lines = source.split('\n');
+  const bodyLines: string[] = [];
+  let seenLabel = false;
+
+  /* `**TITLE:** x` puts the closing bold marker on the *value* side of the
+     colon, so it has to come off there rather than in the label pattern. The
+     same applies to `**BODY:**`, where leaving it in would open every composed
+     post with a stray `**`. */
+  const clean = (value: string) => value.replace(/^\*\*\s*/, '').replace(/\s*\*\*$/, '').trim();
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+
+    if (doc.bodyStarted) {
+      bodyLines.push(line);
+      continue;
+    }
+
+    /* `**TITLE:** x` and `TITLE: x` are the same line as far as this cares. */
+    const match = line.match(/^\s*(?:\*\*)?\s*([A-Za-z ]{3,9})\s*(?:\*\*)?\s*:\s*(.*)$/);
+    const key = match ? DOCUMENT_LABELS[match[1].trim().toUpperCase()] : undefined;
+
+    if (match && /^\s*(?:\*\*)?\s*BODY\s*(?:\*\*)?\s*:/i.test(line)) {
+      doc.bodyStarted = true;
+      seenLabel = true;
+      /* `BODY: first sentence` — the contract says the body starts on the next
+         line, but a model that puts it on the same one has still answered. */
+      const trailing = clean(match[2]);
+      if (trailing) bodyLines.push(trailing);
+      continue;
+    }
+
+    if (key) {
+      seenLabel = true;
+      doc[key] = clean(match![2]);
+      continue;
+    }
+
+    /* Before any label, this is preamble. After one, it is a header line the
+       model invented; neither belongs in the post. */
+    if (!seenLabel) continue;
+  }
+
+  doc.body = bodyLines.join('\n').replace(/^\n+/, '');
+
+  /* Nothing recognisable at all — an early chunk, or a model that ignored the
+     format outright. Treating the lot as body is the recoverable failure: the
+     author sees prose in the editor and can fix the fields, where an empty
+     form and a discarded response looks like a broken feature. */
+  if (!seenLabel && text.trim()) doc.body = text.trim();
+
+  return doc;
+}
 
 export interface AssistContext {
   ownerName: string;

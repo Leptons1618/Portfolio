@@ -539,3 +539,95 @@ Mermaid is therefore a dependency of the **authoring surface**, dynamically impo
 - **The theme colours are baked, and read through a probe element.** `getComputedStyle(root).getPropertyValue('--color-divider')` does *not* return a colour — an unregistered custom property computes to its token sequence with `var()` substituted and nothing else evaluated, and half this site's tokens are `color-mix()`. Assigning the token to `color` on a throwaway element and reading `color` back is what forces the resolution. `currentColor` would have been the elegant alternative and does not work: an `<img>` has no inherited colour.
 
 **The stated cost:** the SVG is the artefact and the Mermaid source is not stored. Editing a diagram means generating a new one. The panel keeps the source visible so it can be copied out first.
+
+---
+
+## 26. `hidden` is restored globally with `!important`, rather than patched per component
+
+**Status:** accepted
+
+**Context.** Three controls on this site were shipped with the `hidden` attribute and unhidden from script: the public chat launcher, the sidebar's Sign out button, and every dropdown popup. All three were visible when they should not have been, and the cause was one line in Tailwind 3's preflight:
+
+```css
+[hidden] { display: none; }
+```
+
+It carries no weight. Specificity (0,1,0), author origin — so it loses to *any* later author rule that sets `display` at the same specificity, and this stylesheet is nothing but such rules. `.btn { display: inline-flex }` in `global.css` outranks it on source order alone, which is why `<button class="btn" hidden>` rendered. A component-scoped rule loses by more, because Astro compiles `.ask` to `.ask[data-astro-cid-…]` — one step *above* `[hidden]`.
+
+The damage was not cosmetic. `AskWidget`'s launcher is unhidden by the same branch that binds its click handler, so an assistant that was switched off produced a button on every public page that looked live and did nothing. The dropdown case was worse and stranger: `select.ts` set `hidden` on the popup at mount and called `showPopover()` to open it, and **`showPopover()` does not remove the attribute** — it promotes the element to the top layer and clears the *UA* rule that hides an unopened popover. The author rule stays. Verified in Chrome: with `hidden` on an open popup, `:popover-open` is `true` and `display` is `none`. Every dropdown on the admin was opening into the top layer and painting nothing.
+
+**Decision.** One rule in `global.css`, after the preflight it corrects:
+
+```css
+[hidden]:where(:not([hidden='until-found'])) { display: none !important; }
+```
+
+- **Rejected: a `[hidden]` rule per component.** That is three fixes for one bug and a fourth waiting for the next `hidden` element anyone adds. Several already existed — `.modal[open]`, `.admin-error[hidden]`, `.tab-panel[hidden]` — which is the evidence that this had been rediscovered and patched locally three times already.
+- **Rejected: dropping the attribute in favour of a class everywhere.** `hidden` also removes an element from the accessibility tree and its inputs from the focus order. A class does neither, and `wireTabs()` depends on both.
+
+`!important` is doing real work here and is not a shortcut: the whole point is to outrank component styles that have not been written yet. Tailwind 4 ships this same line for this same reason, so this is a correction to preflight rather than a new opinion. `until-found` is excluded because that value exists to be found by in-page search, which needs the element laid out.
+
+**The consequence to remember:** an element that must show while carrying `hidden` can no longer be made to. Nothing wanted that, and `select.ts` was rewritten to drive its popup from an `.is-shown` class in both directions — which is better anyway, since it no longer depends on a spec detail about what `showPopover()` does to attributes.
+
+---
+
+## 27. The public assistant gained a pattern filter, and it is not the scope defence
+
+**Status:** accepted
+
+**Context.** Decision 23 said the guard that matters is the budget, not the paragraph, and it was explicit that a keyword denylist is bypassable and false-positives on real questions. That reasoning has not changed. What changed is a direct requirement that obvious misuse — "write me a python script", "ignore your instructions" — be refused rather than answered.
+
+**Decision.** `screenQuestion()` in `ai-guard.ts` refuses a short list of unmistakable shapes before any provider is called. It is a **supplement**, and the file says so in its own header: the guarantees remain the budget and the corpus.
+
+What it buys that a prompt cannot:
+
+- **It costs nothing.** No provider call, so the most common abuse is free to refuse.
+- **It is deterministic.** A model's refusal is a sample from a distribution and occasionally the sample complies. A regex refuses the same way every time, which is why the test asserts exactly that.
+- **It is instant**, which reads as a rule rather than as a failure.
+
+**Precision over recall, everywhere.** A false negative falls through to the scope prompt, which is the behaviour the site already had. A false positive refuses a visitor with a real question, and that is the failure that matters — so every pattern requires an explicit *imperative to produce an artefact*, never the mere presence of a topic word. The verb lists exclude `show`, `give` and `list` for exactly this reason:
+
+| Asked | Verdict |
+| --- | --- |
+| "write me a Python script" | refused |
+| "what has he written in Python?" | answered |
+| "show me the code from his projects" | answered |
+| "build me a website" | refused |
+| "what websites has he built?" | answered |
+
+Seventeen of those legitimate questions are a test, and they are the half of it worth keeping: anyone widening the patterns will break one.
+
+**It reads the whole conversation, not the last message**, because instruction capture is routinely split — "you are now a coding assistant", then "fizzbuzz please", where the second message is innocuous alone. It reads only the *visitor's* turns: screening the assistant's own output would let one refusal, which names the things it will not do, lock the conversation shut for good.
+
+**A refusal is charged to the caller's hour but not to the site's day.** It costs a Worker invocation, so leaving it unmetered would make the filter a free oracle to probe at line rate; but it spends nothing with a vendor, so charging it to `perDayTotal` would let a few visitors typing "write me a poem" exhaust the budget that exists to pay for real answers. That is the only reason `charge()` takes a `countsAgainstDay` option.
+
+**It answers `200` with a one-frame stream, not a `4xx`.** A refusal is not an error — it is the answer to what was typed, and the widget renders a stream as an assistant bubble and a non-ok response as a red note beside the conversation.
+
+---
+
+## 28. The journal assistant writes into the fields as it streams, and the panel stopped being modal
+
+**Status:** accepted
+
+**Context.** Decision 24's assistant put every result in a panel behind an Insert button. That is right for a result the author has to *choose* — five titles, a paragraph that could go three places — and it is ceremony for one that can only mean one thing. It also made the requested feature impossible: "write a post on this topic and fill in every field" has nothing to insert into, because it fills five fields at once.
+
+**Decision.** A task declares `live: 'document' | 'summary' | 'body'`, or does not. That one field is the whole rule:
+
+- **Live** tasks stream straight into the fields. `compose` fills title, summary, tags, read time and body; the author watches the form fill in. The panel shrinks to a progress line and an Undo.
+- **Everything else** keeps the panel and Insert, unchanged.
+
+Consequences that follow from it:
+
+- **The panel is a non-modal `<dialog>`, docked bottom-right.** `showModal()` puts a backdrop over the editor, and the editor is the thing the author is now supposed to be watching. Non-modal costs Escape-to-close and the top layer; the first is re-added in script and the second is not wanted — a dock that sits *under* the select popovers and the toast host is correct.
+- **Every live run is undoable in one press**, and the snapshot is taken before the first token. It covers exactly the fields that task declares, so undoing a summary rewrite does not revert a paragraph typed while it was running.
+- **Stop leaves what arrived.** That is what "live" means; Undo is the way back, and the status says how much was written.
+
+**`compose` returns a line-oriented document, not JSON.** Same reasoning as the `lines` format in decision 24, one step further: the output has to be *readable while it is still arriving*, and a JSON object is not readable until its last brace lands. Labelled header lines then `BODY:` means the title parses after eight characters. `BODY:` rather than a `---` rule because `---` is both frontmatter and a horizontal rule inside the thing being generated, and a separator that can appear in the payload is not a separator.
+
+**`parseDocument()` is called on every delta, against the whole accumulated string.** An incremental parser would have to hold state across a chunk boundary that can fall mid-label, and the failure mode of getting that wrong is a title missing its first three characters. Re-reading a few kilobytes a few hundred times is free, and being a pure function of the text so far is what makes it testable without a network — the test feeds it one character at a time and asserts the title never regresses and no header label ever leaks into the body.
+
+**The `!seenLabel` fallback is honoured at the end and never mid-stream.** A response that ignores the format entirely becomes body text, which is the recoverable failure: an author looking at prose can fix the fields, where an empty form reads as a broken feature. Applying it live would set the body to `TIT` on the first delta and never correct it, because the fallback stops firing the moment `TITLE:` parses.
+
+**Per-field buttons carry `data-assist-task`.** "Ask the assistant to do this to this field" is one intention, and making it two — open a panel, find the right task among ten — is what stops people using it. A new field gets a button and no script changes.
+
+The task list is still closed, and the security property of decision 24 is unchanged: `compose` and `revise` are two more entries in `ASSIST_TASKS`, each with its own field allowlist, not a loosening of the check.
