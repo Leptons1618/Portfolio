@@ -4,7 +4,14 @@ import FilterBar from '../components/FilterBar.astro';
 import Illustration from '../components/Illustration.astro';
 import { CATEGORY_LABELS, categoryLabel, getProjects, topTags } from '../lib/content';
 
-const allProjects = await getProjects();
+/* Reads content from D1 per request — see the note in `src/lib/content.ts`.
+   Prerendering this page would freeze the listing at deploy time, which is the
+   whole thing the database was introduced to stop. */
+export const prerender = false;
+
+const { DB } = Astro.locals.runtime.env;
+
+const allProjects = await getProjects(DB);
 
 /* "Featured" is a pseudo-category: it filters on featuredRank, not on the
    schema's category field, so it is prepended rather than derived. */

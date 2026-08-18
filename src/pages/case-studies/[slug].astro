@@ -1,23 +1,26 @@
 ---
 import CaseStudyLayout from '../../layouts/CaseStudyLayout.astro';
-import { caseStudyNeighbours, categoryLabel, getCaseStudies, projectForCaseStudy } from '../../lib/content';
+import { caseStudyNeighbours, categoryLabel, getCaseStudy, projectForCaseStudy } from '../../lib/content';
 
-export async function getStaticPaths() {
-  const caseStudies = await getCaseStudies();
-  return caseStudies.map(cs => ({ params: { slug: cs.slug }, props: { entry: cs } }));
-}
+/* Read from D1 per request, so a case study published a minute ago is live a
+   minute ago. `getStaticPaths` used to hand this page its entry already
+   filtered; without a build the page looks it up itself, and a slug that no
+   longer resolves has to 404 rather than render an empty layout. */
+export const prerender = false;
 
-const { entry } = Astro.props;
-const { Content } = await entry.render();
+const { DB } = Astro.locals.runtime.env;
+const entry = Astro.params.slug ? await getCaseStudy(DB, Astro.params.slug) : undefined;
+if (!entry) return new Response(null, { status: 404 });
+
 const { title, subtitle, heroImage, heroVideo, problem, solution, architectureImage, achievements, stack, repoUrl, demoUrl, date, readTime } = entry.data;
 
 /* The eyebrow reads "{category} · {year}" — a case study carries neither, so
    both come from the project that links to it. */
-const project = await projectForCaseStudy(entry.slug);
+const project = await projectForCaseStudy(DB, entry.slug);
 const year = project?.data.year ?? new Date(date).getFullYear();
 const eyebrow = project ? `${categoryLabel(project.data.category)} · ${year}` : String(year);
 
-const { prev, next } = await caseStudyNeighbours(entry.slug);
+const { prev, next } = await caseStudyNeighbours(DB, entry.slug);
 const neighbour = (cs: typeof prev) => (cs ? { slug: cs.slug, title: cs.data.title } : null);
 ---
 <CaseStudyLayout
@@ -27,5 +30,5 @@ const neighbour = (cs: typeof prev) => (cs ? { slug: cs.slug, title: cs.data.tit
   date={date} readTime={readTime}
   eyebrow={eyebrow} prev={neighbour(prev)} next={neighbour(next)}
 >
-  <Content />
+  <Fragment set:html={entry.html} />
 </CaseStudyLayout>

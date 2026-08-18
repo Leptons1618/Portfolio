@@ -4,7 +4,14 @@ import Illustration from '../../components/Illustration.astro';
 import { getPosts } from '../../lib/content';
 import { formatShortDate, formatTag, metaLine } from '../../lib/format';
 
-const posts = await getPosts();
+/* Reads content from D1 per request — see the note in `src/lib/content.ts`.
+   Prerendering this page would freeze the listing at deploy time, which is the
+   whole thing the database was introduced to stop. */
+export const prerender = false;
+
+const { DB } = Astro.locals.runtime.env;
+
+const posts = await getPosts(DB);
 const [featured, ...archive] = posts;
 ---
 <BaseLayout title="Journal" description="Field notes from building things — write-ups and the occasional video log.">
