@@ -390,45 +390,143 @@
   margin-top: var(--space-2);
 }
 
+/* The frame is a `<button>`, not a `<div>` with a click handler.
+
+   It used to be a 16/9 box with one line of grey mono in the middle of it, and
+   the only way to actually use it was the "Upload image" button underneath —
+   the box itself was decoration that happened to accept a drop. As a button it
+   is the control it always looked like: click, Enter and Space all open the
+   picker, it takes a focus ring from the same rules everything else does, and
+   a screen reader is told it is pressable instead of being told nothing.
+
+   Height is capped as well as proportioned. `aspect-ratio` alone gave a
+   full-width panel a 400px-tall empty rectangle above every image field, which
+   is most of a screen of nothing on a form with two of them. */
 .image-upload-frame {
   position: relative;
   display: grid;
   place-items: center;
+  width: 100%;
   aspect-ratio: 16 / 9;
+  min-height: 120px;
+  max-height: 220px;
   overflow: hidden;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  appearance: none;
   border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
   background: var(--color-surface);
+  transition: border-color 0.15s, background-color 0.15s;
 }
 
 /* Empty, it is a drop target rather than a picture that failed to arrive, and
-   a dashed edge is the one convention that says so without a label. */
-.image-upload-frame:has(> img[hidden]) { border-style: dashed; }
+   a dashed edge is the one convention that says so without a label. The state
+   is an attribute the script sets rather than `:has(> img[hidden])`, because
+   there are three states now and the third one is not a fact about the image. */
+.image-upload-frame[data-state='empty'] {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--color-text) 30%, transparent);
+}
 
-.image-upload-frame[data-over] {
-  border-style: solid;
-  border-color: var(--color-accent-700);
+.image-upload-frame:hover:not(:disabled) {
+  border-color: var(--color-accent);
   background: var(--color-accent-100);
 }
 
+.image-upload-frame:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Disabled means bytes are already going up — the veil is doing the talking,
+   so this only has to stop the frame from inviting a second one. */
+.image-upload-frame:disabled { cursor: progress; }
+
+/* Dragging over it is the one moment the control should be unmistakable — the
+   pointer is already committed and the only question left is where it lands. */
+.image-upload-frame[data-over] {
+  border-style: solid;
+  border-color: var(--color-accent);
+  background: var(--color-accent-200);
+}
+
 /* `contain`, not `cover`: this is the asset under review, and an architecture
-   diagram cropped to 16/9 is a picture of its own middle. */
-.image-upload-frame img {
+   diagram cropped to 16/9 is a picture of its own middle. The checker is what
+   makes a transparent PNG legible as transparent rather than as white. */
+.image-upload-preview {
   width: 100%;
   height: 100%;
   object-fit: contain;
   display: block;
+  background-color: var(--color-neutral-100);
+  background-image:
+    linear-gradient(45deg, var(--color-neutral-200) 25%, transparent 25%),
+    linear-gradient(-45deg, var(--color-neutral-200) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--color-neutral-200) 75%),
+    linear-gradient(-45deg, transparent 75%, var(--color-neutral-200) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+.image-upload-preview[hidden] { display: none; }
+
+/* The empty state, and it says all three things it has to: what to do, how
+   else to do it, and what will be accepted. One line of grey mono said the
+   first and left the other two to be discovered by failing. */
+.image-upload-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-3);
+  text-align: center;
+  /* The frame is the drop target and the button; nothing inside it may swallow
+     either event. */
+  pointer-events: none;
+}
+
+.image-upload-empty[hidden] { display: none; }
+
+.image-upload-glyph {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  line-height: 1;
+  color: var(--color-accent);
 }
 
 .image-upload-hint {
   font-family: var(--font-mono);
   font-size: 11px;
   letter-spacing: 0.04em;
-  color: var(--color-text-faint);
-  text-align: center;
-  padding: var(--space-2);
-  /* The frame is the drop target; text inside it must not swallow the events. */
-  pointer-events: none;
+  color: var(--color-text-muted);
 }
+
+.image-upload-sub {
+  font-size: 11px;
+  color: var(--color-text-faint);
+  max-width: 34ch;
+}
+
+/* Over the frame rather than beside it: the bytes are already going, and the
+   thing that has to be unambiguous is that *this* field is the one waiting. */
+.image-upload-veil {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+}
+
+.image-upload-veil[hidden] { display: none; }
 
 .image-upload-bar {
   display: flex;
@@ -437,12 +535,17 @@
   gap: var(--space-2);
 }
 
+/* Pushed to the end of the bar so the two buttons stay together on the left
+   however long the message is. */
 .image-upload-status {
   font-size: 12px;
   color: var(--color-text-muted);
   overflow-wrap: anywhere;
+  min-width: 0;
+  flex: 1 1 12ch;
 }
 .image-upload-status[data-tone='error'] { color: var(--color-accent-700); }
+.image-upload-status[data-tone='success'] { color: var(--color-accent-2-700); }
 
 /* — design-system table — */
 .table {
@@ -637,6 +740,31 @@
 
 .modal-narrow { width: min(560px, 92vw); }
 
+/* A dialog whose height is decided before its content arrives.
+
+   `max-height` alone means the box is exactly as tall as whatever is in it, and
+   the import list arrives over the network: the dialog opened as a head and a
+   foot with a two-line gap between them, then snapped to full height a second
+   later as twenty repositories landed in it. Every control in the foot moved
+   several hundred pixels while it was being read, and the search field the
+   author had already put the pointer on jumped out from under it.
+
+   `height` rather than `max-height`, so the frame is the same on the first
+   frame as on the last. The skeleton rows inside are the other half of the
+   same fix — the list has a shape while it is loading, so nothing *inside* the
+   body jumps either. `dvh` because a mobile browser's chrome is part of the
+   viewport it is not. */
+.modal-fixed {
+  height: min(78dvh, 720px);
+  max-height: none;
+}
+
+/* Short viewports have nothing to spare, and a fixed height there would be a
+   dialog taller than the screen holding it. */
+@media (max-height: 560px) {
+  .modal-fixed { height: 92dvh; }
+}
+
 .modal::backdrop { background: color-mix(in srgb, var(--color-neutral-900) 45%, transparent); }
 
 .modal-head {
@@ -698,7 +826,10 @@
    and the foot band cancels it. */
 .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
 .modal-foot .modal-actions { margin-top: 0; margin-left: auto; }
-.modal-list { display: flex; flex-direction: column; }
+/* Grows to fill a `.modal-fixed` body, so the band the rows land in is already
+   the height it will be and the empty state sits in the same box a full list
+   would have. */
+.modal-list { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 
 /* The dialog's own artwork, quiet enough not to compete with the title it sits
    beside, and gone as soon as the head is tight for room. */
@@ -815,4 +946,221 @@
   .admin-main { padding: var(--space-4) var(--space-4) var(--space-8); }
   .admin-grid-3,
   .admin-grid-main { grid-template-columns: 1fr; }
+}
+
+/* — the spinner —
+
+   One shape, three hosts: inside a button that `setBusy()` has taken over, on
+   a pending toast, and over an image that is uploading. It is a ring with a
+   quarter cut out of it, drawn in `currentColor` so it takes the colour of
+   whatever it was dropped into — the button's ink, the toast's tone, the
+   veil's text — instead of naming one. */
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border: 2px solid color-mix(in srgb, currentColor 25%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* A ring that does not turn is a ring. Reduced motion still wants the *state*,
+   so it stops spinning and pulses instead — the same trade the route progress
+   bar makes. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: pulse 1.4s ease-in-out infinite; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* A busy button keeps the width it had, so a row of controls does not reflow
+   the moment one of them is pressed. */
+.btn[aria-busy='true'] {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+/* — skeletons —
+
+   What a list looks like while it is being fetched. The point is not decoration:
+   it is that the box the content will land in already exists at the size it
+   will be, so nothing under it moves when the response arrives. The import
+   dialog is the whole reason this exists — see `.modal-fixed`. */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-neutral-200) 0%,
+    var(--color-neutral-100) 50%,
+    var(--color-neutral-200) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.3s ease-in-out infinite;
+  border-radius: var(--radius-md);
+}
+
+@keyframes skeleton-sweep {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; background: var(--color-neutral-200); }
+}
+
+.skeleton-line { height: 12px; }
+.skeleton-line-sm { height: 9px; }
+
+/* — toasts —
+
+   The transient half of this surface's feedback. Every write already reports
+   into a message line beside the control that started it, and those lines stay:
+   they are the record of what that control did, and they are still there when
+   you look back at the row. What they cannot do is be *seen* — the control is
+   often in a dialog that closes, below the fold, or on a row that scrolled
+   away, and a save that reported into a line nobody was looking at reported
+   nothing at all.
+
+   Built by `toast()` in `src/lib/admin.ts`, so like the import rows and the
+   upload control none of these nodes carries a page's `data-astro-cid` — which
+   is exactly why the rules are here, in the stylesheet the module's own markup
+   belongs to, rather than in any page.
+
+   **The host is a manual popover.** Half the writes on this surface are started
+   from inside a `<dialog>` — the import form's Create, the repository list's
+   Add — and a native dialog renders in the top layer, above every z-index there
+   is. A toast raised behind one is a toast nobody sees. Showing the host as a
+   popover puts it in the top layer too, and re-showing it per toast puts it
+   above whatever was promoted before. Where `popover` is not supported the
+   z-index below is what runs, which is the behaviour without any of this. */
+.toast-host {
+  position: fixed;
+  inset: auto var(--space-4) var(--space-4) auto;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+  width: min(400px, calc(100vw - var(--space-8)));
+  max-height: 100dvh;
+  overflow: visible;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  /* The stack is a report, not a wall: it must never be what a click lands on.
+     The toasts themselves take their events back. */
+  pointer-events: none;
+}
+
+/* A popover's UA rules set `inset: 0; margin: auto` and hide it outright when
+   it is not showing. The first is overridden above; this is the second, for the
+   fallback path where the element is never promoted at all. */
+.toast-host:not(:popover-open) {
+  display: flex;
+}
+
+.toast {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-2) var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  pointer-events: auto;
+  border: 1px solid var(--color-divider);
+  border-left: 3px solid var(--color-neutral-500);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-md);
+  /* Entry state. `.is-in` is added a frame later, `.is-leaving` on the way
+     out, and both are the same transition run in opposite directions. */
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.18s ease-out, transform 0.18s ease-out;
+}
+
+.toast.is-in { opacity: 1; transform: none; }
+.toast.is-leaving { opacity: 0; transform: translateY(4px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { transform: none; transition: opacity 0.18s ease-out; }
+  .toast.is-leaving { transform: none; }
+}
+
+/* The tone is a rule down the leading edge and the colour of the mark — the
+   same two-signal pattern the entry rows and repo rows use, rather than a
+   coloured panel that would fight the ground it sits on. */
+.toast[data-tone='success'] { border-left-color: var(--color-accent-2-600); }
+.toast[data-tone='error'] { border-left-color: var(--color-accent); }
+.toast[data-tone='pending'] { border-left-color: var(--color-neutral-400); }
+.toast[data-tone='info'] { border-left-color: var(--color-neutral-500); }
+
+.toast-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.toast[data-tone='success'] .toast-mark { color: var(--color-accent-2-700); }
+.toast[data-tone='error'] .toast-mark { color: var(--color-accent); }
+.toast[data-tone='pending'] .toast-mark,
+.toast[data-tone='info'] .toast-mark { color: var(--color-text-faint); }
+
+.toast-copy { min-width: 0; }
+
+.toast-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.toast-action {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.toast-close {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--color-text-faint);
+  background: none;
+  border: 0;
+}
+
+.toast-close:hover { color: var(--color-accent); }
+.toast-close:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
+/* Narrow, the stack spans the width it is given rather than sitting in a
+   corner of it — there is no corner left to sit in. */
+@media (max-width: 520px) {
+  .toast-host {
+    inset: auto var(--space-2) var(--space-2) var(--space-2);
+    width: auto;
+    align-items: stretch;
+  }
 }

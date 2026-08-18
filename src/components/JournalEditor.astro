@@ -3,29 +3,29 @@
  * The journal writing surface, shared by the two screens that write a post.
  *
  * `/admin/journal/new` renders it with `slug: null`; `/admin/journal/[slug]`
- * renders it with the post's frontmatter and body from the last build. That
- * split replaced a single screen that was an editor, a "which post am I
- * editing" indicator and the entries list all at once, and had to keep the
- * three in sync in JavaScript. The URL says which post is open now, so this
- * component never has to answer that question — the prop does, once, at build
- * time, and the commit path reads it back out of the seed.
+ * renders it with the post's fields and body read from its row. That split
+ * replaced a single screen that was an editor, a "which post am I editing"
+ * indicator and the entries list all at once, and had to keep the three in
+ * sync in JavaScript. The URL says which post is open now, so this component
+ * never has to answer that question — the prop does, once, and the save path
+ * reads it back out of the seed.
  *
- * The one rule that survived the move intact: **an open post keeps its
- * filename**, however the title is edited. Astro derives a slug from the
- * filename, so a rename would orphan a live URL. `slug` is the file this
- * commits to, and nothing here ever recomputes it.
+ * The one rule that survived the move intact: **an open post keeps its slug**,
+ * however the title is edited. The slug is the row's primary key and the public
+ * URL, so a rename would orphan a live page. `slug` is the row this saves to,
+ * and nothing here ever recomputes it.
  *
  * Writing and previewing are a tablist rather than two stacked panels. Both
  * are the same column of the same document at different fidelities, and side
  * by side neither got enough width to read at.
  */
 import { Icon } from 'astro-icon/components';
-import { POST_STATUSES, type PostFields } from '../lib/content-store';
+import { POST_STATUSES, postPath, type PostFields } from '../lib/content-store';
 
 interface Props {
-  /** The post being edited, or `null` for a new one. Also the filename. */
+  /** The post being edited, or `null` for a new one. Also the row's key. */
   slug: string | null;
-  /** Frontmatter from the last build, or `null` for a new post. */
+  /** The row's fields, or `null` for a new post. */
   fields: PostFields | null;
   body: string;
   /** Today, from the server, so the date field has a sane default. */
@@ -52,18 +52,18 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     <h1 class="admin-title-sm" id="editor-heading">
       {editing ? fields!.title : 'Create New Journal Entry'}
     </h1>
-    {/* The path, not the heading, is where the filename belongs: the heading
-        follows the title as it is typed and the filename deliberately does
-        not, so putting the slug in the h1 said the opposite of what is true. */}
+    {/* The path, not the heading, is where the slug belongs: the heading
+        follows the title as it is typed and the slug deliberately does not, so
+        putting it in the h1 said the opposite of what is true. */}
     <p class="je-path">
-      <code id="f-slug">{editing ? `${slug}.md` : 'untitled.md'}</code>
+      <code id="f-slug">{editing ? postPath(slug!) : postPath('untitled')}</code>
       <span class="text-muted je-path-note">
-        {editing ? 'the file this commits to — a title edit will not rename it' : 'from the title, until it is first committed'}
+        {editing ? 'the row this saves to — a title edit will not rename it' : 'from the title, until it is first saved'}
       </span>
     </p>
     <span class="text-muted admin-stamp" id="save-stamp">
       {editing
-        ? `Loaded from the last build of src/content/journal/${slug}.md`
+        ? `Opened on ${postPath(slug!)} — the same row a reader would see.`
         : 'Draft mode. Not saved yet.'}
     </span>
   </div>
@@ -75,7 +75,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       <Icon name="lucide:download" class="admin-nav-icon" />Export .md
     </button>
     <button type="button" class="btn btn-primary" id="commit-md">
-      {editing ? 'Commit changes' : 'Commit to GitHub'}
+      {editing ? 'Save changes' : 'Save to the site'}
     </button>
   </div>
 </div>
@@ -116,7 +116,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       </div>
       <p class="text-muted admin-note je-preview-note">
         A small hand-rolled Markdown subset — enough to check shape and spelling.
-        The build renders the real thing.
+        Saving renders the real thing, and the post's page is what shows it.
       </p>
     </div>
   </div>
@@ -171,9 +171,9 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         <input class="input" id="f-hero" placeholder="/images/post.jpg or https://…" />
       </div>
       <p class="text-muted admin-note">
-        Upload a file and it is committed to <code>public/images/journal/</code>; the
-        field then holds the path the build resolves. An absolute URL works too, and
-        is not fetched at build time.
+        Upload a file and it is stored under <code>images/journal/</code>; the field then
+        holds the <code>/media/…</code> path this origin already answers on. An absolute
+        URL to somewhere else works too, and is never fetched by this site.
       </p>
     </div>
   </aside>
@@ -182,10 +182,11 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 <script is:inline type="application/json" id="journal-editor-seed" set:html={seedJson}></script>
 
 <script>
-  import { ADMIN_KEYS, onAdminPage, wireTabs } from '../lib/admin';
+  import { ADMIN_KEYS, onAdminPage, setBusy, toast, wireTabs } from '../lib/admin';
   import {
     buildPostMarkdown,
     createPost,
+    postPath,
     updatePost,
     type PostFields,
     type PostStatus,
@@ -283,17 +284,17 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     }
 
     const STATUS_HELP: Record<string, string> = {
-      draft: 'Kept out of production builds. Visible here and in `npm run dev`.',
-      published: 'Live on the site as soon as you save.',
-      unpublished: 'Withdrawn: no listing, no page, the URL returns 404.',
+      draft: 'Off the public site in production. Visible here, and in local development.',
+      published: 'Live on the site the moment you save — there is no build in between.',
+      unpublished: 'Withdrawn: no listing, no page, the URL returns 404. Reversible from here.',
     };
 
     function currentStatus(): PostStatus {
       return (statusInputs.find(i => i.checked)?.value ?? 'draft') as PostStatus;
     }
 
-    /* An open post keeps its filename however the title is edited, so the image
-       is named after whichever of the two is the post's actual identity. */
+    /* An open post keeps its slug however the title is edited, so the image is
+       named after whichever of the two is the post's actual identity. */
     attachImageUpload(fields.hero, {
       dir: 'images/journal',
       name: () => `${editing ?? slugify(fields.title.value)}-hero`,
@@ -312,11 +313,11 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     function render() {
       if (previewing) renderPreview();
 
-      /* A new post's filename follows the title until the first commit. An open
-         one already has a file, and rewriting the line on every keystroke would
+      /* A new post's slug follows the title until the first save. An open one
+         already has a row, and rewriting the line on every keystroke would
          promise a rename this screen deliberately does not do. */
       if (editing === null) {
-        slugOut.textContent = `${slugify(fields.title.value)}.md`;
+        slugOut.textContent = postPath(slugify(fields.title.value));
         heading.textContent = fields.title.value.trim() || 'Create New Journal Entry';
       }
       $('status-help').textContent = STATUS_HELP[currentStatus()] ?? '';
@@ -345,7 +346,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       };
     }
 
-    /** The form as schema-shaped frontmatter, for both the export and the commit. */
+    /** The form as schema-shaped fields, for both the export and the save. */
     function readFields(): PostFields {
       return {
         title: fields.title.value.trim(),
@@ -417,6 +418,10 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       const btn = $<HTMLButtonElement>('save-draft');
       btn.textContent = 'Saved ✓';
       stamp.textContent = `Draft held in this browser. Last saved: ${new Date().toLocaleTimeString()}`;
+      /* Explicitly *not* a save to the site, and the toast says which of the two
+         happened — the two buttons sit next to each other and the difference
+         between them is the whole point. */
+      toast('Draft held in this browser only. Save to put it on the site.', { tone: 'info' });
       setTimeout(() => { btn.textContent = 'Save Draft'; }, 1200);
     });
 
@@ -431,36 +436,37 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       a.download = `${name}.md`;
       a.click();
       URL.revokeObjectURL(url);
+      toast(`Downloaded ${name}.md.`, { tone: 'success' });
     });
 
-    /* Commit straight to the repository. The export above stays: it is the only
-       path that works when you are not signed in, or when you want to review the
-       file before it lands.
+    /* Save straight to the row the public page renders. The export above stays:
+       it is the only path that works when you are not signed in, and the way a
+       post leaves this system.
 
-       Two write paths, and which one runs is the URL. A new entry is built
-       whole — there is nothing to preserve. An open one is patched field by
-       field with its body swapped, because the file on the branch may carry a
-       comment or a key this editor has never heard of, and regenerating it
-       would drop both. Same split as the project screens; see
-       `content-store.ts`. */
+       Two write paths, and which one runs is the URL. A new entry is inserted
+       whole — there is nothing to preserve. An open one is patched column by
+       column with its body swapped, because the row may carry a column this
+       editor has never heard of and rewriting it whole would drop it. Same
+       split as the project screens; see `content-store.ts`. */
     if (!getToken()) {
       commitBtn.disabled = true;
-      commitBtn.title = 'Sign in with GitHub to commit.';
+      commitBtn.title = 'Sign in with GitHub to save.';
     }
 
     commitBtn.addEventListener('click', async () => {
       const post = readFields();
       if (!post.title) {
-        stamp.textContent = 'A title is required — it is also where the filename comes from.';
+        const why = 'A title is required — it is also where the slug comes from.';
+        stamp.textContent = why;
+        toast(why, { tone: 'error' });
         return;
       }
 
       const target = editing ?? slugify(post.title);
-      const label = commitBtn.textContent;
 
-      commitBtn.disabled = true;
-      commitBtn.textContent = 'Saving…';
-      stamp.textContent = `Saving ${target}…`;
+      setBusy(commitBtn, true, 'Saving…');
+      stamp.textContent = `Saving ${postPath(target)}…`;
+      const pending = toast(`Saving ${target}…`, { tone: 'pending' });
 
       try {
         const result = editing
@@ -474,22 +480,35 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         link.textContent = 'view live ↗';
         stamp.replaceChildren(
           document.createTextNode(
-            /* Its editor page resolves from the row that now exists, so unlike
-               the file version there is nothing to wait for before opening it. */
-            editing ? 'Saved — ' : 'Created. Its editor page is at /admin/journal/' + target + ' — '
+            /* Its editor page resolves from the row that now exists, so there is
+               nothing to wait for before opening it. */
+            editing ? 'Saved — ' : `Created. Its editor page is at /admin/journal/${target} — `
           ),
           link
         );
         /* Saved state is now the row's, not the browser's. Leaving the draft
            behind would restore it over the next load of this screen. */
         localStorage.removeItem(KEY);
-        commitBtn.textContent = 'Saved ✓';
+
+        /* An unpublished post has no public page, so offering a link to one
+           would be offering a 404 — the same reason the entries list only links
+           the published state. */
+        const live = post.status === 'published';
+        pending.update(
+          live
+            ? `${target} is saved and live.`
+            : `${target} is saved as ${post.status} — not on the public site.`,
+          {
+            tone: 'success',
+            action: live ? { label: 'view live ↗', href: result.url } : undefined,
+          }
+        );
+        setBusy(commitBtn, false);
       } catch (error) {
-        stamp.textContent = error instanceof Error ? error.message : 'Save failed.';
-        commitBtn.textContent = label;
-      } finally {
-        commitBtn.disabled = false;
-        setTimeout(() => { commitBtn.textContent = label; }, 2000);
+        const text = error instanceof Error ? error.message : 'Save failed.';
+        stamp.textContent = text;
+        pending.update(text, { tone: 'error' });
+        setBusy(commitBtn, false);
       }
     });
 

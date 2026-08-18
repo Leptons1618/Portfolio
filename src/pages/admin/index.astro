@@ -49,12 +49,12 @@ import { DEFAULT_THEME, THEME_KEY, THEMES } from '../../lib/theme';
     <p class="login-status" id="gh-status" hidden></p>
 
     <p class="text-muted login-disclaimer">
-      Signing in uses a GitHub App, which can only reach the repositories it was
-      installed on. The token is held in this browser tab only, never on disk, expires
-      after 8 hours, and is used to commit content straight to the repository. The site
-      itself is static — <code>/admin</code> is public HTML, so this gate hides the
-      editors rather than protecting them. What is protected is the repository: a write
-      needs a token GitHub issued to the owner.
+      Signing in uses a GitHub App. The token is held in this browser tab only, never on
+      disk, and expires after 8 hours. Content lives in this site's own database, and the
+      token is what proves to the write endpoint who is asking — nothing here writes to a
+      repository. <code>/admin</code> is public HTML, so this gate hides the editors
+      rather than protecting them; what is protected is the endpoint, which asks GitHub
+      whose token it is and admits one account.
     </p>
 
     {/* Signing in and granting repository access are two different grants, and
@@ -63,10 +63,11 @@ import { DEFAULT_THEME, THEME_KEY, THEMES } from '../../lib/theme';
         guess, say where it lives and let it be a no-op for anyone already set
         up. Without it the first run dead-ends on a screen full of 403s. */}
     <p class="text-muted login-disclaimer">
-      Repository access is separate: it comes from <em>installing</em> the App, not from
-      signing in. Pick the repositories — all of them, or just this one — under
-      <a href={grantAccessUrl()} target="_blank" rel="noopener">the App's installation ↗</a>,
-      with Contents set to read and write.
+      Repository access is separate, and it is only about the import screen: listing your
+      repositories comes from <em>installing</em> the App, not from signing in. Pick which
+      ones it can see — all of them, or a few — under
+      <a href={grantAccessUrl()} target="_blank" rel="noopener">the App's installation ↗</a>.
+      Read-only is enough; nothing on this site needs more.
     </p>
 
     <a class="login-back" href="/">← Back to the public site</a>

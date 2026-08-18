@@ -128,7 +128,9 @@ Rows are built node by node with `createElement`. The name, description and URL 
 
 Because they are built in script, **those nodes never get the page's `data-astro-cid`**, so a plain scoped selector in the page's `<style>` matches none of them — the rows silently rendered unstyled for a while. Every `.repo-*` rule is written as `#import-list :global(.repo-…)`, hung off a server-rendered ancestor that *does* carry the attribute. Same seam the resume editor's generated fields use. Anything added to `repoRow()` has to be declared through that door too.
 
-The upload control in `src/lib/image-upload.ts` is the third thing built this way, and it has no server-rendered ancestor to hang off — it is mounted next to whichever input it is handed, on three different pages. Its rules live in `src/styles/admin.css`, which is global, so the question does not arise. That is the pattern for anything a shared module builds: **a page's `<style>` is for that page's markup, `admin.css` is for markup a module owns.**
+The upload control in `src/lib/image-upload.ts` is the third thing built this way, and it has no server-rendered ancestor to hang off — it is mounted next to whichever input it is handed, on three different pages. Its rules live in `src/styles/admin.css`, which is global, so the question does not arise. Toasts are the fourth, for the same reason and in the same file. That is the pattern for anything a shared module builds: **a page's `<style>` is for that page's markup, `admin.css` is for markup a module owns.**
+
+**The upload frame is a `<button>`**, not a `div` that accepts a drop — click, Enter and Space all open the picker, and it takes a focus ring from the surface's own rules. It is capped at `max-height: 220px` as well as proportioned `16 / 9`: the ratio alone gave a full-width panel a 400px empty rectangle above every image field. `data-state` on the frame is `empty` / `filled`; the uploading state is the veil, not a third value.
 
 `site.githubUser` reaches the client through a `data-user` attribute — frontmatter constants are not visible to client scripts, so that attribute is the seam. Larger server data (the project seed) goes through `<script type="application/json">` with `<` escaped, the same pattern the resume editor uses.
 
@@ -137,6 +139,8 @@ The upload control in `src/lib/image-upload.ts` is the third thing built this wa
 **`src/styles/admin.css` may only name spacing tokens that exist** — `--space-1/2/3/4/6/8`. There is no `--space-5` or `--space-7`. A bare `var()` on an undefined token is invalid at computed-value time, so it does not fall back to something sensible, it throws away the whole declaration: `padding: var(--space-4) var(--space-5)` computes to `padding: 0`. All three modal bands carried that and every dialog rendered flush against its own border for it. Nothing warns — not `astro check`, not the build. Use a token that exists or the fallback form `var(--x, 20px)`.
 
 Every modal is a native `<dialog>`, styled by `.modal*` in `src/styles/admin.css` — the import list, the import form and the identity dialog share it, so those rules do not belong to a page. The top layer, focus trapping and Escape are the platform's job: do not reimplement any of them; only the backdrop click is wired up. The journal's row menus are `<details>` for the same reason — the open/close and the button semantics come free, and all the script adds is closing the siblings.
+
+`.modal-fixed` is the variant for a dialog whose content is fetched — see the feedback rules above.
 
 A dialog is three bands — `.modal-head`, `.modal-body`, `.modal-foot` — because scrolling the whole thing took the title, the search field and the commit button off screen exactly when the content was long enough to need them. Only the body scrolls, and the padding therefore belongs to the bands rather than to the dialog. **`display` is declared on `.modal[open]`, never on `.modal`**: a closed `<dialog>` is hidden by `dialog:not([open])` in the UA stylesheet, and any author `display` outranks a UA one whatever its specificity, so an unconditional `display: flex` leaves every dialog sitting open in the page.
 
@@ -163,6 +167,46 @@ It is **260px**, and that number is load-bearing: the session line reads `@handl
 **A client-routed click has to show something.** `AdminLayout` renders `#route-progress` — a 2px accent bar, `transition:persist` so it is the same node all session — shown on `astro:before-preparation` and hidden on `astro:page-load`. Without it a navigation to a prerendered project page is a dead click for as long as the fetch takes. It is indeterminate on purpose; do not try to give it a percentage.
 
 **The dashboard's Recent Content links to editors, not to public pages.** A case study has no editor of its own, so its row goes to `/admin/projects/<slug>#case-study` — the page of the project that links it — and an unlinked one goes to the projects manifest, flagged `unlinked`. Because every row now has an admin URL, drafts and unpublished posts appear too; the old published-only filter existed because those have no *public* page, and that reason is gone.
+
+**Feedback is two channels, and both are required.** A write reports into the
+message line beside the control that started it *and* raises a toast. The line
+is the durable record — it is still there when you look back at that row — and
+the toast is the one that gets seen, because the control is often in a dialog
+that closes, below the fold, or on a row that has scrolled away. `toast()` in
+`src/lib/admin.ts` returns a handle: open one `pending` toast, `update()` it
+with the outcome, so a save is one toast rather than three. Its host is a
+**manual popover**, and that is load-bearing — half the writes on this surface
+start inside a `<dialog>`, which renders in the top layer where no `z-index`
+reaches, so `raiseHost()` re-shows the host per toast to promote it above
+whatever went in last.
+
+**Never write `textContent` onto a button on this surface.** Nearly all of them
+carry an SVG that `astro-icon` inlined at build time, and a text assignment
+deletes it with no way back — the delete buttons lost their trash glyph on the
+first arm and never had it again. `setLabel(button, 'Confirm delete')` stashes
+the children in a WeakMap and `setLabel(button, null)` puts them back;
+`setBusy(button, true, 'Saving…')` is the same thing plus a `.spinner` and
+`aria-busy`, and it remembers the prior `disabled` so releasing it cannot enable
+a control that a signed-out screen had disabled.
+
+**A dialog whose content arrives over the network gets `.modal-fixed` and a
+skeleton.** `max-height` alone means the box is exactly as tall as whatever is
+in it, so the import dialog opened as a head and a foot and then snapped to full
+height as the repositories landed — every control in the foot moving several
+hundred pixels while it was being read. The fixed height holds the frame and the
+skeleton rows hold the inside; `renderImportSkeleton()` is the shape to copy.
+
+**The error boundary is deliberately deaf to view-transition aborts.**
+`ClientRouter` runs every navigation through `document.startViewTransition()`,
+and a second navigation starting before the first finishes rejects the running
+transition's `finished` promise. The router attaches only a `.finally()`, which
+on a rejected promise yields another rejected promise nobody handles, so it
+surfaced as `unhandledrejection` and painted a full-width SCREEN FAULT over a
+screen that had navigated perfectly well. `isTransitionAbort()` filters it and is
+narrow on purpose — the `DOMException` name must be one of the three a
+transition uses *and* the message must name a transition, because `AbortError`
+is also what an aborted `fetch` throws and that one is worth seeing. If a real
+failure ever stops reporting, that predicate is the first thing to check.
 
 **Errors are visible.** `AdminErrorBoundary` is rendered by `AdminLayout` above the content and stays hidden until `showAdminError()` fills it in; `mountAdminErrorBoundary()` wires `error` and `unhandledrejection` once per session and clears the panel on `astro:page-load`. Both look the host element up per call rather than holding a reference, because the layout's DOM is rebuilt on every navigation while these modules are evaluated once. The panel is written with text nodes — the message can have originated at GitHub.
 
