@@ -449,6 +449,15 @@ const firstName = site.name.split(' ')[0];
     gap: var(--space-2);
   }
 
+  /* The root and the chip row both ship `hidden` and are shown from script.
+     `display` above would otherwise outrank the attribute — see the `[hidden]`
+     correction at the top of `global.css`, which is what actually holds this
+     now. These stay as the local statement of intent, and because this
+     launcher floats over every page on the site: it is the worst place on it
+     for a control to appear that nothing has wired up. */
+  .ask[hidden],
+  .ask-suggestions[hidden] { display: none; }
+
   .ask-launcher {
     display: inline-flex;
     align-items: center;
