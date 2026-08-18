@@ -1,0 +1,682 @@
+---
+/**
+ * Providers, keys, and the switch that lets strangers spend money.
+ *
+ * The one screen on this surface that configures a *credential* rather than
+ * content, which changes two things about how it is built:
+ *
+ *   - **It never renders a key.** The server does not send one. The key field
+ *     is empty with the stored fingerprint as its placeholder, and an untouched
+ *     field is omitted from the save — `src/lib/ai-store.ts` holds that rule,
+ *     because "the form did not clear the credential" is not something to
+ *     re-derive per screen.
+ *   - **It reads over the network, not from frontmatter.** Every other admin
+ *     screen server-renders its rows. This one cannot: the response would then
+ *     be HTML containing whatever the query selected, on a page that is public
+ *     (`/admin/*` is public HTML — see the rule file), and the safest way to
+ *     guarantee a key is never in that HTML is for the page not to have asked
+ *     for one. So the shell is static and `GET /api/ai/providers` — owner-only,
+ *     masked — fills it in.
+ *
+ * The public switch is deliberately the last thing on the page and says what it
+ * costs. Turning it on is the moment this site starts paying a third party for
+ * requests it did not initiate.
+ */
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import { Icon } from 'astro-icon/components';
+import { SETTINGS_CEILINGS } from '../../lib/ai';
+---
+<AdminLayout title="AI Assistant">
+  <div class="admin-main-wide" id="admin-ai">
+    <div class="admin-head">
+      <div>
+        <h6 class="admin-eyebrow-mono">MODULE: ASSISTANT</h6>
+        <h1 class="admin-title">AI Assistant</h1>
+        <span class="text-muted admin-stamp" id="ai-stamp">Reading providers…</span>
+      </div>
+      <div class="admin-actions">
+        <button type="button" class="btn btn-secondary" id="ai-add">
+          <Icon name="lucide:plus" class="admin-nav-icon" />Add provider
+        </button>
+        <button type="button" class="btn btn-primary" id="ai-save-settings">Save settings</button>
+      </div>
+    </div>
+
+    <p class="admin-note ai-message" id="ai-message"></p>
+
+    <div class="ai-grid">
+      <div class="ai-col">
+        <section class="card elev-sm">
+          <h6 class="admin-eyebrow">Providers</h6>
+          <p class="text-muted admin-note">
+            Any endpoint that speaks the OpenAI chat-completions shape — OpenRouter,
+            OpenAI, Groq, Together, DeepSeek, a local server. The first
+            <strong>active</strong> provider holding a key answers; a second one is
+            tried only if the first fails, which is what makes more than one worth
+            having.
+          </p>
+          <hr class="rule ai-rule" />
+
+          <div id="ai-providers" class="ai-list">
+            <div class="ai-skeleton" aria-hidden="true"></div>
+            <div class="ai-skeleton" aria-hidden="true"></div>
+          </div>
+        </section>
+
+        <section class="card elev-sm">
+          <h6 class="admin-eyebrow">Scope and voice</h6>
+          <div class="field">
+            <label for="ai-persona">House style notes</label>
+            <textarea
+              class="input ai-persona"
+              id="ai-persona"
+              placeholder="e.g. Prefer British spelling. Never claim I am 'passionate' about anything."
+            ></textarea>
+            <p class="text-muted admin-note">
+              Appended to both assistants' instructions. It adds character; it cannot
+              remove the rules — the public assistant still answers only from this
+              site's published content, and still refuses everything else.
+            </p>
+          </div>
+          <div class="field">
+            <label for="ai-greeting">Opening line</label>
+            <input class="input" id="ai-greeting" placeholder="Ask me anything about…" />
+          </div>
+          <div class="field">
+            <label for="ai-suggestions">Starter questions (one per line, up to four)</label>
+            <textarea class="input ai-suggestions" id="ai-suggestions"></textarea>
+          </div>
+        </section>
+      </div>
+
+      <aside class="ai-side">
+        {/* The switch, and the sentence about what it means, in the same box.
+            Every other toggle on this surface changes what a reader sees; this
+            one changes what the owner is billed. */}
+        <section class="card elev-sm ai-switch-card">
+          <h6 class="admin-eyebrow">Public assistant</h6>
+          <label class="ai-switch">
+            <input type="checkbox" id="ai-enabled" />
+            <span>Answer questions from visitors</span>
+          </label>
+          <p class="text-muted admin-note">
+            While this is on, anyone on the public site can ask questions and each
+            answer is billed to the provider's account. Off, the chat launcher does
+            not appear at all and <code>/api/ai/chat</code> refuses. The writing
+            assistant in the journal editor is unaffected either way — it is behind
+            your sign-in.
+          </p>
+        </section>
+
+        <section class="card elev-sm">
+          <h6 class="admin-eyebrow">Limits</h6>
+          <p class="text-muted admin-note">
+            The only thing standing between an unauthenticated endpoint and someone
+            else's bill. Each is capped again on the server, so nothing typed here
+            can lift the ceiling.
+          </p>
+          <div class="ai-limits">
+            <div class="field">
+              <label for="ai-perhour">Questions per visitor, per hour</label>
+              <input class="input" type="number" id="ai-perhour" min="1" max={SETTINGS_CEILINGS.perIpPerHour} />
+              <span class="text-muted ai-cap">max {SETTINGS_CEILINGS.perIpPerHour}</span>
+            </div>
+            <div class="field">
+              <label for="ai-perday">Answers per day, site-wide</label>
+              <input class="input" type="number" id="ai-perday" min="1" max={SETTINGS_CEILINGS.perDayTotal} />
+              <span class="text-muted ai-cap">max {SETTINGS_CEILINGS.perDayTotal}</span>
+            </div>
+            <div class="field">
+              <label for="ai-maxchars">Question length</label>
+              <input class="input" type="number" id="ai-maxchars" min="1" max={SETTINGS_CEILINGS.maxQuestionChars} />
+              <span class="text-muted ai-cap">characters, max {SETTINGS_CEILINGS.maxQuestionChars}</span>
+            </div>
+            <div class="field">
+              <label for="ai-maxturns">Conversation depth</label>
+              <input class="input" type="number" id="ai-maxturns" min="1" max={SETTINGS_CEILINGS.maxTurns} />
+              <span class="text-muted ai-cap">messages kept, max {SETTINGS_CEILINGS.maxTurns}</span>
+            </div>
+            <div class="field">
+              <label for="ai-maxout">Answer length</label>
+              <input class="input" type="number" id="ai-maxout" min="1" max={SETTINGS_CEILINGS.maxOutputTokens} />
+              <span class="text-muted ai-cap">tokens, max {SETTINGS_CEILINGS.maxOutputTokens}</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card elev-sm">
+          <h6 class="admin-eyebrow">What it knows</h6>
+          <p class="text-muted admin-note" id="ai-corpus">Measuring…</p>
+          <p class="text-muted admin-note">
+            Published posts, visible projects, case studies and the resume. Hidden
+            projects, drafts and unpublished posts are never included, and neither
+            are your email, phone or address.
+          </p>
+          <hr class="rule ai-rule" />
+          <h6 class="admin-eyebrow">Today</h6>
+          <p class="text-muted admin-note" id="ai-usage">—</p>
+        </section>
+      </aside>
+    </div>
+  </div>
+
+  {/* Creation and editing share one dialog: a provider is six fields either
+      way, and the only difference is whether the slug is editable. Native
+      `<dialog>`, styled by `.modal*` in admin.css like every other one here. */}
+  <dialog class="modal" id="ai-dialog">
+    <form method="dialog" class="modal-head">
+      <h3 class="modal-title" id="ai-dialog-title">Add a provider</h3>
+      <button class="btn btn-icon" value="cancel" aria-label="Close">
+        <Icon name="lucide:x" class="admin-nav-icon" />
+      </button>
+    </form>
+
+    <div class="modal-body">
+      <div class="field">
+        <label for="ai-f-slug">Key</label>
+        <input class="input" id="ai-f-slug" placeholder="openrouter" />
+        <p class="text-muted admin-note">
+          Lowercase words joined by hyphens. It is the row's primary key and cannot
+          be changed later.
+        </p>
+      </div>
+      <div class="field">
+        <label for="ai-f-label">Name</label>
+        <input class="input" id="ai-f-label" placeholder="OpenRouter" />
+      </div>
+      <div class="field">
+        <label for="ai-f-baseurl">Base URL</label>
+        <input class="input" id="ai-f-baseurl" placeholder="https://openrouter.ai/api/v1" />
+        <p class="text-muted admin-note">
+          No trailing slash. <code>/chat/completions</code> is appended.
+        </p>
+      </div>
+      <div class="field">
+        <label for="ai-f-key">API key</label>
+        <input class="input" type="password" id="ai-f-key" autocomplete="off" spellcheck="false" />
+        <p class="text-muted admin-note" id="ai-f-key-note">
+          Stored in the database and never sent back to this screen. Leave it empty
+          to keep the key already stored.
+        </p>
+      </div>
+      <div class="field">
+        <label for="ai-f-model">Model</label>
+        <input class="input" id="ai-f-model" placeholder="anthropic/claude-3.5-haiku" />
+        <p class="text-muted admin-note">Answers visitors' questions.</p>
+      </div>
+      <div class="field">
+        <label for="ai-f-assist">Writing model (optional)</label>
+        <input class="input" id="ai-f-assist" placeholder="leave empty to use the same one" />
+        <p class="text-muted admin-note">
+          Used by the journal assistant. Drafting a post and answering a question
+          rarely want the same price.
+        </p>
+      </div>
+      <div class="field field-row">
+        <div>
+          <label for="ai-f-priority">Priority</label>
+          <input class="input" type="number" id="ai-f-priority" value="10" min="0" />
+          <p class="text-muted admin-note">Lower runs first.</p>
+        </div>
+        <div>
+          <label class="ai-switch ai-switch-inline">
+            <input type="checkbox" id="ai-f-active" />
+            <span>Active</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-foot">
+      <button type="button" class="btn btn-secondary" id="ai-dialog-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="ai-dialog-save">Save provider</button>
+    </div>
+  </dialog>
+</AdminLayout>
+
+<script>
+  import { onAdminPage, setBusy, setLabel, toast } from '../../lib/admin';
+  import {
+    clearKey,
+    createProvider,
+    loadOverview,
+    removeProvider,
+    saveAiSettings,
+    saveProvider,
+    setProviderActive,
+    testProvider,
+    type AiOverview,
+    type ProviderSummary,
+  } from '../../lib/ai-store';
+  import { DEFAULTS, type AiSettings } from '../../lib/ai';
+  import { getToken } from '../../lib/github';
+
+  onAdminPage('#admin-ai', () => {
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+    const message = $('ai-message');
+    const stamp = $('ai-stamp');
+    const list = $('ai-providers');
+    const dialog = $<HTMLDialogElement>('ai-dialog');
+
+    const say = (text: string, tone: 'info' | 'error' = 'info') => {
+      message.dataset.tone = tone;
+      message.textContent = text;
+    };
+
+    /* The settings inputs, as one map, because they are read and written
+       together and naming them twice is how a field ends up saved but not
+       restored. */
+    const settingsFields = {
+      enabled: $<HTMLInputElement>('ai-enabled'),
+      persona: $<HTMLTextAreaElement>('ai-persona'),
+      greeting: $<HTMLInputElement>('ai-greeting'),
+      suggestions: $<HTMLTextAreaElement>('ai-suggestions'),
+      perIpPerHour: $<HTMLInputElement>('ai-perhour'),
+      perDayTotal: $<HTMLInputElement>('ai-perday'),
+      maxQuestionChars: $<HTMLInputElement>('ai-maxchars'),
+      maxTurns: $<HTMLInputElement>('ai-maxturns'),
+      maxOutputTokens: $<HTMLInputElement>('ai-maxout'),
+    };
+
+    /* — settings —
+
+       These live in the same `documents` row the server reads, and the server
+       clamps them again on the way back in. The form is therefore free to be
+       lenient: `number()` falls back rather than validating, because a blank
+       field meaning "the default" is friendlier than a red outline and the
+       ceiling is enforced somewhere it cannot be edited. */
+    const number = (input: HTMLInputElement, fallback: number) => {
+      const value = Number(input.value);
+      return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+    };
+
+    function readSettings(): AiSettings {
+      return {
+        enabled: settingsFields.enabled.checked,
+        persona: settingsFields.persona.value,
+        greeting: settingsFields.greeting.value || DEFAULTS.greeting,
+        suggestions: settingsFields.suggestions.value
+          .split('\n')
+          .map(line => line.trim())
+          .filter(Boolean)
+          .slice(0, 4),
+        perIpPerHour: number(settingsFields.perIpPerHour, DEFAULTS.perIpPerHour),
+        perDayTotal: number(settingsFields.perDayTotal, DEFAULTS.perDayTotal),
+        maxQuestionChars: number(settingsFields.maxQuestionChars, DEFAULTS.maxQuestionChars),
+        maxTurns: number(settingsFields.maxTurns, DEFAULTS.maxTurns),
+        maxOutputTokens: number(settingsFields.maxOutputTokens, DEFAULTS.maxOutputTokens),
+      };
+    }
+
+    function fillSettings(settings: AiSettings) {
+      settingsFields.enabled.checked = settings.enabled;
+      settingsFields.persona.value = settings.persona;
+      settingsFields.greeting.value = settings.greeting;
+      settingsFields.suggestions.value = settings.suggestions.join('\n');
+      settingsFields.perIpPerHour.value = String(settings.perIpPerHour);
+      settingsFields.perDayTotal.value = String(settings.perDayTotal);
+      settingsFields.maxQuestionChars.value = String(settings.maxQuestionChars);
+      settingsFields.maxTurns.value = String(settings.maxTurns);
+      settingsFields.maxOutputTokens.value = String(settings.maxOutputTokens);
+    }
+
+    /* — the provider rows —
+
+       Built with `createElement`, so none of these nodes carries this page's
+       `data-astro-cid` and none of the scoped rules below would reach them. The
+       styles live in `src/styles/admin.css`, which is global — the same door
+       the upload control and the media library go through. Nothing here goes
+       near an HTML parser either: a label and a base URL are author-supplied,
+       and the fingerprint is derived from a secret. */
+    function providerRow(provider: ProviderSummary): HTMLElement {
+      const row = document.createElement('div');
+      row.className = 'ai-provider';
+      row.dataset.slug = provider.slug;
+      if (provider.active) row.dataset.state = 'active';
+
+      const head = document.createElement('div');
+      head.className = 'ai-provider-head';
+
+      const name = document.createElement('p');
+      name.className = 'ai-provider-name';
+      name.textContent = provider.label;
+
+      const badge = document.createElement('span');
+      badge.className = 'ai-badge';
+      /* Three states, not two. "Active but keyless" is the one that would
+         otherwise look like it was working, and it is the single most likely
+         thing to be wrong on this screen. */
+      badge.dataset.tone = provider.active ? (provider.hasKey ? 'on' : 'warn') : 'off';
+      badge.textContent = provider.active
+        ? provider.hasKey
+          ? 'active'
+          : 'active · no key'
+        : 'off';
+
+      head.append(name, badge);
+
+      const meta = document.createElement('p');
+      meta.className = 'ai-provider-meta';
+      meta.textContent = [
+        provider.model,
+        provider.assistModel ? `writing: ${provider.assistModel}` : '',
+        provider.keyHint ? `key ${provider.keyHint}` : 'no key stored',
+        `priority ${provider.priority}`,
+      ]
+        .filter(Boolean)
+        .join(' · ');
+
+      const url = document.createElement('p');
+      url.className = 'ai-provider-url';
+      url.textContent = provider.baseUrl;
+
+      const result = document.createElement('p');
+      result.className = 'ai-provider-result';
+      result.hidden = true;
+
+      const actions = document.createElement('div');
+      actions.className = 'ai-provider-actions';
+
+      const button = (label: string, variant: string, onClick: (btn: HTMLButtonElement) => void) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = `btn ${variant} btn-sm`;
+        b.textContent = label;
+        b.addEventListener('click', () => onClick(b));
+        return b;
+      };
+
+      const toggle = button(
+        provider.active ? 'Deactivate' : 'Activate',
+        'btn-secondary',
+        async btn => {
+          setBusy(btn, true, '…');
+          try {
+            await setProviderActive(provider.slug, !provider.active);
+            toast(
+              `${provider.label} is ${provider.active ? 'no longer answering' : 'now answering'}.`,
+              { tone: 'success' },
+            );
+            await refresh();
+          } catch (error) {
+            fail(error, btn);
+          }
+        },
+      );
+
+      const test = button('Test', 'btn-secondary', async btn => {
+        setBusy(btn, true, 'Testing…');
+        result.hidden = false;
+        result.dataset.tone = 'pending';
+        result.textContent = 'Sending one short request…';
+        try {
+          const outcome = await testProvider(provider.slug);
+          result.dataset.tone = outcome.ok ? 'ok' : 'error';
+          result.textContent = outcome.message;
+          toast(outcome.ok ? `${provider.label} works.` : `${provider.label} refused.`, {
+            tone: outcome.ok ? 'success' : 'error',
+          });
+        } catch (error) {
+          result.dataset.tone = 'error';
+          result.textContent = error instanceof Error ? error.message : 'Test failed.';
+        } finally {
+          setBusy(btn, false);
+        }
+      });
+
+      const edit = button('Edit', 'btn-secondary', () => openDialog(provider));
+
+      /* Two-click confirm, the same shape the delete buttons elsewhere on this
+         surface use, and `setLabel` rather than `textContent` so an icon added
+         to this button later is not silently deleted by the arming step. */
+      let armed = false;
+      const remove = button('Delete', 'btn-ghost', async btn => {
+        if (!armed) {
+          armed = true;
+          setLabel(btn, 'Confirm delete');
+          setTimeout(() => {
+            armed = false;
+            setLabel(btn, null);
+          }, 4000);
+          return;
+        }
+        setBusy(btn, true, 'Deleting…');
+        try {
+          await removeProvider(provider.slug);
+          toast(`${provider.label} removed.`, { tone: 'success' });
+          await refresh();
+        } catch (error) {
+          fail(error, btn);
+        }
+      });
+
+      actions.append(toggle, test, edit);
+      if (provider.hasKey) {
+        actions.append(
+          button('Clear key', 'btn-ghost', async btn => {
+            setBusy(btn, true, '…');
+            try {
+              await clearKey(provider.slug);
+              toast(`${provider.label}'s key is gone. It will not answer until a new one is set.`, {
+                tone: 'info',
+              });
+              await refresh();
+            } catch (error) {
+              fail(error, btn);
+            }
+          }),
+        );
+      }
+      actions.append(remove);
+
+      row.append(head, meta, url, actions, result);
+      return row;
+    }
+
+    function fail(error: unknown, button?: HTMLButtonElement) {
+      const text = error instanceof Error ? error.message : 'That did not work.';
+      say(text, 'error');
+      toast(text, { tone: 'error' });
+      if (button) setBusy(button, false);
+    }
+
+    /* — the dialog —
+
+       One dialog for both create and edit; `editing` is which. The key field is
+       always empty on open, including when editing, because there is nothing to
+       put in it — the server never sends a key back. The placeholder carries
+       the fingerprint so the field is not mistaken for "no key stored". */
+    let editing: ProviderSummary | null = null;
+
+    const dialogFields = {
+      slug: $<HTMLInputElement>('ai-f-slug'),
+      label: $<HTMLInputElement>('ai-f-label'),
+      baseUrl: $<HTMLInputElement>('ai-f-baseurl'),
+      key: $<HTMLInputElement>('ai-f-key'),
+      model: $<HTMLInputElement>('ai-f-model'),
+      assist: $<HTMLInputElement>('ai-f-assist'),
+      priority: $<HTMLInputElement>('ai-f-priority'),
+      active: $<HTMLInputElement>('ai-f-active'),
+    };
+
+    function openDialog(provider: ProviderSummary | null) {
+      editing = provider;
+      $('ai-dialog-title').textContent = provider ? `Edit ${provider.label}` : 'Add a provider';
+
+      dialogFields.slug.value = provider?.slug ?? '';
+      dialogFields.slug.disabled = Boolean(provider);
+      dialogFields.label.value = provider?.label ?? '';
+      dialogFields.baseUrl.value = provider?.baseUrl ?? 'https://openrouter.ai/api/v1';
+      dialogFields.model.value = provider?.model ?? '';
+      dialogFields.assist.value = provider?.assistModel ?? '';
+      dialogFields.priority.value = String(provider?.priority ?? 10);
+      dialogFields.active.checked = provider?.active ?? false;
+
+      dialogFields.key.value = '';
+      dialogFields.key.placeholder = provider?.keyHint ?? 'sk-…';
+      $('ai-f-key-note').textContent = provider?.hasKey
+        ? `A key ending ${provider.keyHint} is stored. Leave this empty to keep it, or paste a new one to replace it.`
+        : 'Stored in the database and never sent back to this screen.';
+
+      dialog.showModal();
+    }
+
+    $<HTMLButtonElement>('ai-add').addEventListener('click', () => openDialog(null));
+    $<HTMLButtonElement>('ai-dialog-cancel').addEventListener('click', () => dialog.close());
+
+    /* Backdrop click, the one dismissal a `<dialog>` does not give for free. */
+    dialog.addEventListener('click', event => {
+      if (event.target === dialog) dialog.close();
+    });
+
+    $<HTMLButtonElement>('ai-dialog-save').addEventListener('click', async event => {
+      const button = event.currentTarget as HTMLButtonElement;
+      const slug = dialogFields.slug.value.trim();
+
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+        toast('The key must be lowercase words joined by hyphens.', { tone: 'error' });
+        dialogFields.slug.focus();
+        return;
+      }
+      if (!dialogFields.label.value.trim() || !dialogFields.baseUrl.value.trim() || !dialogFields.model.value.trim()) {
+        toast('Name, base URL and model are all required.', { tone: 'error' });
+        return;
+      }
+
+      const fields = {
+        label: dialogFields.label.value.trim(),
+        baseUrl: dialogFields.baseUrl.value.trim().replace(/\/+$/, ''),
+        model: dialogFields.model.value.trim(),
+        assistModel: dialogFields.assist.value.trim(),
+        active: dialogFields.active.checked,
+        priority: Number(dialogFields.priority.value) || 10,
+        apiKey: dialogFields.key.value,
+      };
+
+      setBusy(button, true, 'Saving…');
+      try {
+        if (editing) await saveProvider(editing.slug, fields);
+        else await createProvider(slug, fields);
+        dialog.close();
+        toast(`${fields.label} saved.`, { tone: 'success' });
+        await refresh();
+      } catch (error) {
+        fail(error, button);
+        return;
+      }
+      setBusy(button, false);
+    });
+
+    $<HTMLButtonElement>('ai-save-settings').addEventListener('click', async event => {
+      const button = event.currentTarget as HTMLButtonElement;
+      const settings = readSettings();
+      setBusy(button, true, 'Saving…');
+      try {
+        await saveAiSettings(settings);
+        say(
+          settings.enabled
+            ? 'Saved. The assistant is answering visitors now.'
+            : 'Saved. The public assistant is off; the journal assistant still works.',
+        );
+        toast('Settings saved.', { tone: 'success' });
+      } catch (error) {
+        fail(error, button);
+        return;
+      }
+      setBusy(button, false);
+    });
+
+    /* — loading —
+
+       Everything on this screen comes from one request, so there is one loader
+       and one failure path. The skeleton in the markup is what is showing until
+       this returns. */
+    /* The settings form is filled once, on the first load, and never again.
+       `refresh()` runs after *every* provider write — activating one, clearing a
+       key — and re-filling from the server each time would throw away whatever
+       the author had typed into the persona box or the limit fields but not yet
+       saved. The provider list is server state and is redrawn; the settings
+       form is the author's in-progress edit and is not. */
+    let settingsFilled = false;
+
+    function paint(data: AiOverview) {
+      if (!settingsFilled) {
+        fillSettings(data.settings);
+        settingsFilled = true;
+      }
+      list.replaceChildren();
+      if (!data.providers.length) {
+        const empty = document.createElement('p');
+        empty.className = 'admin-empty';
+        empty.textContent =
+          'No providers yet. Add one with its base URL, model and API key, then activate it.';
+        list.append(empty);
+      } else {
+        for (const provider of data.providers) list.append(providerRow(provider));
+      }
+
+      $('ai-corpus').textContent =
+        `About ${data.corpus.approxTokens.toLocaleString()} tokens (${Math.round(data.corpus.chars / 1024)} KB) ` +
+        'of published content goes into every question.';
+
+      $('ai-usage').textContent =
+        data.usage.answered === 0
+          ? 'No questions answered today.'
+          : `${data.usage.answered} answered today, across ${data.usage.activeCallers} visitor${data.usage.activeCallers === 1 ? '' : 's'} in the last hour.`;
+
+      const active = data.providers.filter(p => p.active && p.hasKey).length;
+      stamp.textContent = active
+        ? `${active} provider${active === 1 ? '' : 's'} ready.`
+        : 'No provider is ready — nothing will answer.';
+    }
+
+    async function refresh() {
+      try {
+        const data = await loadOverview();
+        paint(data);
+      } catch (error) {
+        list.replaceChildren();
+        const text = error instanceof Error ? error.message : 'Could not read the AI settings.';
+        stamp.textContent = text;
+        say(text, 'error');
+      }
+    }
+
+    if (!getToken()) {
+      say('Sign in with GitHub to configure the assistant.', 'error');
+      stamp.textContent = 'Signed out.';
+      list.replaceChildren();
+      for (const button of ['ai-add', 'ai-save-settings']) {
+        const el = $<HTMLButtonElement>(button);
+        el.disabled = true;
+        el.title = 'Sign in with GitHub to configure the assistant.';
+      }
+    } else {
+      void refresh();
+    }
+  });
+</script>
+
+<style>
+  .ai-message { min-height: 18px; font-size: 12px; margin: 0 0 var(--space-4); }
+  .ai-message[data-tone='error'] { color: var(--color-accent-700); }
+
+  .ai-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-4); align-items: start; }
+  .ai-col, .ai-side { display: flex; flex-direction: column; gap: var(--space-4); }
+  .ai-rule { margin: var(--space-3) 0; }
+
+  .ai-persona { min-height: 96px; }
+  .ai-suggestions { min-height: 72px; }
+
+  .ai-limits { display: flex; flex-direction: column; gap: var(--space-3); }
+  .ai-cap { font-size: 11px; }
+
+  .ai-switch-card { border-color: var(--color-accent-400); }
+
+  code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+
+  @media (max-width: 1000px) {
+    .ai-grid { grid-template-columns: 1fr; }
+  }
+</style>

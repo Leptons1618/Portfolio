@@ -10,6 +10,14 @@ paths:
   - "src/lib/authorize.ts"
   - "src/lib/media.ts"
   - "src/lib/image-upload.ts"
+  - "src/lib/ai.ts"
+  - "src/lib/ai-corpus.ts"
+  - "src/lib/ai-guard.ts"
+  - "src/lib/ai-store.ts"
+  - "src/lib/assist-tasks.ts"
+  - "src/lib/diagram.ts"
+  - "src/components/AskWidget.astro"
+  - "src/components/JournalEditor.astro"
   - "src/pages/api/**"
   - "src/lib/github.ts"
   - "workers/github-oauth/**"
@@ -65,6 +73,7 @@ localStorage key names live in `src/lib/admin.ts` (`ADMIN_KEYS`, `SIDEBAR_KEY`) 
 | `resume` | `resumeDraft` | export **and save** | the `resume` row in `documents` |
 | `projects` | — | **save** only | inserts a `projects` row; patches `hidden` |
 | `projects/[slug]` | — | **save** only | `projects` and `case_studies` rows |
+| `ai` | — | **save** only | `ai_providers` rows; the `ai-assistant` row in `documents` |
 | `settings` | `settings` | export only | `site-identity.json`, hand-applied to `src/lib/site.ts` |
 
 Exports are downloads, unchanged in spirit: a post as `.md`, the resume as `.json`, identity as `.json`. They are how content leaves this system, not how it is saved.
@@ -231,3 +240,39 @@ Focus mode toggles `.is-focus` on `#admin-shell`, which is **not** persisted, so
 Icons come from **`astro-icon` + `@iconify-json/lucide`**, inlined as SVG at build. Bare `icon()` in `astro.config.mjs` tree-shakes to the glyphs actually referenced — do not add an `include` map, which forces the whole set into the bundle. The collapse chevron flips with a CSS `rotate(180deg)` on `.is-collapsed`, because writing `textContent` on that button would delete the inlined SVG.
 
 The journal editor's markdown preview is a deliberately small hand-rolled subset, not a parser. It escapes `& < > "` and restricts link schemes (`safeHref`) — keep both if you touch `renderMarkdown`.
+
+## The AI assistant — two agents, one credential
+
+`/admin/ai` configures both. `src/lib/ai.ts` resolves a provider and calls it; `src/lib/ai-corpus.ts` decides what the public one may know; `src/lib/ai-guard.ts` decides what it may be asked. Decisions 22–25.
+
+**The API key is a D1 column, and it is write-only from this surface.** `GET /api/ai/providers` returns a fingerprint (`sk-o…cdef`) and never the key, and `summarise()` in `ai.ts` builds that payload **key by key, never by spreading a row** — the same rule, for the same reason, as the OAuth Worker not spreading GitHub's token response. `npm run check:ai` asserts it against the *serialised* payload, because that is what actually leaves. If you add a column to `ai_providers`, that test is what stops it riding along.
+
+**An untouched key field must not clear the stored key.** The field renders empty with the fingerprint as its placeholder, because there is nothing to render. So `saveProvider()` in `ai-store.ts` omits `apiKey` when it is blank, and a deliberate removal goes through `clearKey()` — a different button that says what it does. Sending `''` from the form would blank the credential on any edit, and the failure would appear later, to a visitor, as "the assistant is unavailable" with nothing on screen having gone wrong.
+
+**Providers are written through `POST /api/content`, not through a route of their own.** `ai_providers` is in the `TABLES` map in `content-schema.ts` with a column allowlist like every other table. There is one write endpoint on this site and it has one test; do not add a second for this. The *read* is separate only because it carries an invariant a generic endpoint cannot.
+
+**The admin AI screen fetches its rows rather than server-rendering them.** `/admin/*` is public HTML, and the surest way for a key never to be in that HTML is for the page never to have queried one. The shell is static; `GET /api/ai/providers` fills it in. Do not "simplify" this into frontmatter.
+
+**`/api/ai/chat` is the only unauthenticated endpoint on this site that spends money.** Its checks run cheapest-first — switch, then request shape, then budget, then provider, then the corpus and the model — so nothing expensive happens for a caller that could have been refused for free. Keep that order. The rate limiter charges *before* the call and does not refund on failure: the thing being defended against is a loop, and a loop that errors upstream is still a loop.
+
+**Unpublished content must never reach the corpus, and the defence is structural rather than prompted.** `buildCorpus()` re-filters hidden projects and non-`published` posts on what it was handed — it does not trust the route that fetched them. It is deliberately stricter than `getPosts()`, which shows drafts when `!import.meta.env.PROD`; that allowance is for the author reading their own work and must never extend to a machine answering strangers. Email, phone and address are not in the corpus either, and a test asserts it. **If you add a content table, it does not join the corpus by default — decide, and say why in `ai-corpus.ts`.**
+
+**The scope prompt is the weakest defence and the file says so.** Do not add a keyword denylist "to be safe": it is trivially bypassed and it false-positives on legitimate questions. The guarantees are the budget and the corpus.
+
+**`/api/ai/assist` takes a task name, never a prompt.** `ASSIST_TASKS` in `src/lib/assist-tasks.ts` is closed, and each task's `context` array is an **allowlist of editor fields**, not documentation — `tags` does not receive the selection, and no task receives anything not listed. An authenticated endpoint that forwarded an arbitrary prompt would be a general-purpose model on the owner's billing account, one stolen session away from being someone else's. Adding a capability means adding a task, not loosening the check.
+
+**The assistant never writes a row.** Everything lands in the editor's panel with an Insert button; `save()` is still the only thing that writes. The diagram task is the single exception and it uploads only on Insert — same rule as `image-upload.ts`: an unreferenced upload is harmless, a saved post pointing at bytes that were never written is not.
+
+**The public switch does not gate the writing assistant.** `settings.enabled` decides whether strangers may ask questions. Turning it off must not take the author's own tools away, so `/api/ai/assist` checks only that a provider exists.
+
+**Mermaid is dynamically imported and must stay that way.** It is ~600 KB. `renderMermaid()` in `src/lib/diagram.ts` is the only importer, so it is a chunk fetched on first use — not in the admin bundle, and never on a public page. `npm run build` is the check: a public page's only script should be the chat widget. `securityLevel: 'strict'` and `htmlLabels: false` are load-bearing, not defaults — the source being rendered was written by a model from a prompt containing the author's draft, and strict is also what makes the SVG standalone rather than a fragment full of `foreignObject`.
+
+**`diagram.ts` takes the token as a parameter rather than importing `github.ts`.** That module reads `import.meta.env` at load, which would make the whole file unloadable outside a bundler — and its pure half is what `check:ai` tests. Do not "tidy" it back to a `getToken()` call.
+
+**Settings are clamped on the server, every read.** `clampSettings()` caps every number in the row, so the form cannot lift its own ceiling however it is edited or however the JSON is hand-edited in `wrangler d1 execute`. `enabled` is checked with `=== true`, never for truthiness: `'false'` is truthy, and a switch that cannot be switched off is the worst possible bug on this screen. Ceilings live in `CEILINGS` in `ai.ts` and the screen prints them next to the fields.
+
+**The public widget renders hidden and unhides itself.** `AskWidget.astro` is in `BaseLayout`, so its markup is on every prerendered page at no cost — but whether the assistant is *on* is a row a prerendered page cannot read. It asks `/api/ai/status` **once per browser session**, cached in `sessionStorage`, because the alternative is one Worker invocation per page view on a site arranged so that a static page wakes nothing. Do not remove that cache.
+
+**Nothing from the model is inserted as HTML.** The widget's markdown pass builds *elements* with `createElement` and fills them with `textContent`; links are turned into anchors **only when the href is a site-relative path**, because a model talked into emitting an absolute URL would otherwise get a clickable off-site link rendered in this site's chrome. The one `innerHTML` in the whole feature is the Mermaid preview in `JournalEditor.astro`, and the comment beside it says why.
+
+The AI screen's provider rows and the assistant panel are built in script or live inside a shared `<dialog>`, so their styles are in `src/styles/admin.css` (`.ai-*`, `.as-*`) rather than in a page's scoped block — the same door the media library and the upload control go through.

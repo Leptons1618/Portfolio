@@ -7,9 +7,10 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "check": "node scripts/wrangler-config.mjs --self-test && node scripts/check-content.mjs && node scripts/test-content-schema.mjs && node workers/github-oauth/test.mjs && astro check",
+    "check": "node scripts/wrangler-config.mjs --self-test && node scripts/check-content.mjs && node scripts/test-content-schema.mjs && node scripts/test-ai.mjs && node workers/github-oauth/test.mjs && astro check",
     "check:content": "node scripts/check-content.mjs",
     "check:schema": "node scripts/test-content-schema.mjs",
+    "check:ai": "node scripts/test-ai.mjs",
     "check:worker": "node workers/github-oauth/test.mjs",
     "build": "astro build",
     "preview": "wrangler dev",
@@ -35,6 +36,7 @@
     "astro": "^5.0.0",
     "astro-icon": "^1.1.5",
     "autoprefixer": "^10.4.0",
+    "mermaid": "^11.16.1",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.4.0"
   },

@@ -86,12 +86,40 @@ const DOCUMENT_COLUMNS: ColumnMap = {
   json: ['json', 'text'],
 };
 
+/**
+ * AI providers — an endpoint, a model, and the one secret this site stores.
+ *
+ * It goes through this allowlist rather than an endpoint of its own for the
+ * reason the whole file exists: a table name and a column name cannot be bound
+ * parameters, so every identifier that reaches a statement should originate in
+ * one tested map. A second write path for one feature would be a second place
+ * to get that wrong.
+ *
+ * `apiKey` is writable here and is deliberately **not** readable anywhere:
+ * `GET /api/ai/providers` selects columns by name and returns a fingerprint.
+ * The asymmetry is the design — the admin can replace a key and can never
+ * retrieve one, which is also what makes a compromised admin session worth
+ * less than the credential behind it. An empty `apiKey` clears the column, so
+ * the form sends the field only when a new key has actually been typed;
+ * `src/lib/ai-store.ts` is where that rule lives.
+ */
+const AI_PROVIDER_COLUMNS: ColumnMap = {
+  label: ['label', 'text'],
+  baseUrl: ['base_url', 'text'],
+  apiKey: ['api_key', 'text'],
+  model: ['model', 'text'],
+  assistModel: ['assist_model', 'text'],
+  active: ['active', 'bool'],
+  priority: ['priority', 'number'],
+};
+
 /** `rendersBody` is what decides whether a `body` is accepted for this table. */
 export const TABLES = {
   projects: { columns: PROJECT_COLUMNS, rendersBody: false },
   case_studies: { columns: CASE_STUDY_COLUMNS, rendersBody: true },
   journal: { columns: JOURNAL_COLUMNS, rendersBody: true },
   documents: { columns: DOCUMENT_COLUMNS, rendersBody: false },
+  ai_providers: { columns: AI_PROVIDER_COLUMNS, rendersBody: false },
 } as const;
 
 export type TableName = keyof typeof TABLES;
