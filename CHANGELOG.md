@@ -12,6 +12,70 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Changed
+
+- **Content moved to Cloudflare D1, and publishing stopped waiting for a build.**
+  Saving a project, a post, a case study or the resume used to be a commit, a
+  GitHub Actions run and about two minutes before a reader saw it. It is now a
+  write to a database the pages read per request, so a change is live when the
+  request returns. The site still deploys as a build — but only when the *code*
+  changes, which is what a deploy was always supposed to be for.
+
+  The public pages are untouched. `src/lib/content.ts` was already the only
+  module that queried collections, so it is the only module whose implementation
+  changed; every ordering and filtering rule inside it is the code that was
+  there before, unedited. Hosting moves from GitHub Pages to Cloudflare Workers,
+  and `output` stays `'static'` — /about, the admin's static screens and the 404
+  are still files served without waking the Worker. See decision 18.
+
+- **The schema became the validation, and it now runs earlier.** The Zod schemas
+  and the relational half of `check-content.mjs` were build-time gates: a bad
+  `caseStudySlug` or a category outside the enum failed CI, minutes after the
+  mistake. They are CHECK constraints, NOT NULLs and a FOREIGN KEY in
+  `migrations/0001_init.sql`, so the database refuses the write when the author
+  presses save.
+
+- **The GitHub App is read-only.** Nothing writes to the repository any more, so
+  the App dropped from Contents:write to Contents:read (needed only by the
+  import screen) plus Metadata:read. Getting there meant moving the last three
+  writers: images now go to D1 as BLOBs served by `/media/[...path]`, the resume
+  is a row in `documents`, and settings was already export-only. No new
+  credential was introduced — `POST /api/content` presents the caller's existing
+  GitHub token to GitHub and admits only the owner. See decision 19.
+
+- **The admin says "live now" instead of "after the next build",** because that
+  is now true, and links the page rather than the commit.
+
+### Added
+
+- `src/pages/api/content.ts` and `src/pages/api/media.ts` — the write endpoints,
+  both gated by `src/lib/authorize.ts`.
+- `src/lib/content-schema.ts` — the column allowlist a write must pass through,
+  and `npm run check:schema` (17 assertions) proving it refuses what it should:
+  unknown fields, snake_case column names, inherited object properties, SQL
+  fragments as keys, and any upload path that tries to climb out of its
+  directory.
+- `src/pages/sitemap.xml.ts` — replaces `@astrojs/sitemap`, which enumerated
+  build-time routes and would have shipped a sitemap with every project, post
+  and case study missing.
+- `migrations/` and `npm run seed:d1`, `db:migrate`, `db:migrate:local`.
+
+### Removed
+
+- `@astrojs/sitemap`, and the commit path from `src/lib/github.ts` (`commitFile`,
+  `deleteFile`, `readFile`, `rawUrl`) — 142 lines that no longer had a caller.
+- `src/lib/frontmatter.ts` and its self-test: with no files to patch in place,
+  the in-place frontmatter patcher has nothing to do.
+
+### Fixed
+
+- The image upload size cap was `2 * 1024 * 1024` against D1's documented
+  2,000,000-byte BLOB limit, leaving a 97 KB window where the client check
+  passed and the database then refused the write with an opaque constraint
+  error. Caught by the new schema self-test before it shipped.
+
+### Previously unreleased
+
 ### Added
 
 - **Images upload from the admin, and the field shows what it points at.**

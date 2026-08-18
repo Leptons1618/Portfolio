@@ -4,9 +4,16 @@ import ProjectCard from '../components/ProjectCard.astro';
 import { categoryLabel, getCaseStudies, getFeaturedProjects, getProjects } from '../lib/content';
 import { site } from '../lib/site';
 
-const allProjects = await getProjects();
-const featured = await getFeaturedProjects(6);
-const caseStudies = await getCaseStudies();
+/* Reads content from D1 per request — see the note in `src/lib/content.ts`.
+   Prerendering this page would freeze the listing at deploy time, which is the
+   whole thing the database was introduced to stop. */
+export const prerender = false;
+
+const { DB } = Astro.locals.runtime.env;
+
+const allProjects = await getProjects(DB);
+const featured = await getFeaturedProjects(DB, 6);
+const caseStudies = await getCaseStudies(DB);
 
 /* Case studies carry neither category nor year — both come from the project
    that links to the study, the same way the case-study page's eyebrow does. */

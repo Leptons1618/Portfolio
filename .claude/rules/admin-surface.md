@@ -6,31 +6,46 @@ paths:
   - "src/components/Admin*.astro"
   - "src/lib/admin.ts"
   - "src/lib/content-store.ts"
+  - "src/lib/content-schema.ts"
+  - "src/lib/authorize.ts"
+  - "src/lib/media.ts"
+  - "src/lib/image-upload.ts"
+  - "src/pages/api/**"
   - "src/lib/github.ts"
   - "workers/github-oauth/**"
 ---
 
-# The `/admin` surface runs in the browser and commits through GitHub
+# The `/admin` surface runs in the browser and writes to D1
 
-`src/pages/admin/*` is an authoring surface, not a CMS with a backend. The site is static; the only server anywhere in the system is `workers/github-oauth/`, whose sole job is the OAuth code→token exchange. Each editor keeps a draft in `localStorage`, and can either export a file or **commit it straight to the repository** through the GitHub Contents API.
+`src/pages/admin/*` is an authoring surface. Content lives in Cloudflare D1 (decision 18); each editor keeps a draft in `localStorage`, and saves through this site's own `POST /api/content`, which is an on-demand route on the same Worker that serves the pages. A save is live immediately — there is no build in between, and no screen here may say otherwise.
+
+`workers/github-oauth/` is still a separate stateless Worker doing the OAuth code→token exchange and nothing else.
+
+**Nothing in the admin writes to the repository any more.** `commitFile`, `deleteFile`, `readFile` and `rawUrl` are gone from `github.ts`, and the GitHub App is read-only — decision 19. If you find yourself reaching for a commit, the answer is a column.
 
 ## Sign-in
 
-`src/lib/github.ts` owns the whole client half — the authorize redirect, the CSRF `state`, the token, the identity check and `commitFile`. Read its header comment before touching any of it; the security properties there are deliberate and each one is load-bearing:
+`src/lib/github.ts` owns the whole client half — the authorize redirect, the CSRF `state`, the token and the identity check. It no longer owns any write. Read its header comment before touching any of it; the security properties there are deliberate and each one is load-bearing:
 
 - Token in `sessionStorage`, **never** `localStorage`.
 - `state` is 256 random bits, single-use, compared without early exit.
 - The query string is stripped before the exchange, so the code cannot be replayed.
 - After the exchange, `login` must equal `site.githubUser` — anyone can complete an OAuth flow.
-- Sign-in is a **GitHub App**, not an OAuth App: there is no `scope` parameter, and what a session may touch comes from the App's permissions (Contents write, Metadata read) and the repositories it was installed on. Do not widen either.
+- Sign-in is a **GitHub App**, not an OAuth App: there is no `scope` parameter. Its permissions are **Metadata: read** and **Contents: read** — read-only, because nothing writes to the repository. Contents:read exists only so the import screen can list repositories. **Do not widen either**; if something seems to need write access to the repo, it is in the wrong place.
 - **The Worker drops the refresh token.** The exchange response is built key by key — `access_token`, `token_type`, `expires_in` — never spread. A six-month credential must not reach a browser tab, and `test.mjs` pins it.
 - Tokens expire after 8 hours. `getToken()` clears an expired session rather than returning it, and the pre-paint script treats expired as absent.
 
-**Holding a token is not the same as being able to commit**, and no screen may say otherwise — decision 16. `canWriteContent()` asks GitHub once per session and caches the answer; `signOut()` clears it. It is two calls because there are two ways to fail: `GET /repos/{content repo}` proves *reach* (a user-to-server token 403s on a repository the App was never installed on, public or not), and `GET /user/installations` proves *scope* through `permissions.contents === 'write'`. Do not swap the second for the `permissions` object on the repository payload — that one is the **user's**, so it reads `push: true` for the owner even when the App is installed read-only, which is precisely the case being checked. The projects manifest and a project's own page consume it; every other write path relies on `explainFailure()` after the fact.
+**Holding a token is not the same as being able to write**, and no screen may say otherwise — decision 16. `canWriteContent()` asks GitHub once per session and caches the answer; `signOut()` clears it.
 
-**Authorising the App and installing it are two different grants, and only the second one carries repository access** — decision 17. Signing in does the first. An account that has never done the second has an empty "Installed GitHub Apps" list, so GitHub shows it the "Authorized GitHub Apps" tab instead, which has a Revoke button and no repository picker on it at all. Never hard-code `https://github.com/settings/installations` again: **every** link about a permission goes through `grantAccessUrl()`, which returns the installation's own page when `canWriteContent()` has learned its id, `/apps/<slug>/installations/new` when `PUBLIC_GITHUB_APP_SLUG` is set (the only rung that works when the App is installed nowhere), and `/settings/apps` otherwise. The slug is optional and cannot be derived from the client ID — `GET /app` needs a JWT signed with the App's private key, which this system deliberately never holds.
+What it asks changed with decision 19. It used to prove *reach* and *scope* against the App's `contents` permission. The App is read-only now, so that check would answer "no" for the best possible reason and disable every switch on the projects screen. It asks `GET /user` and compares the login to `site.githubUser` — the same question `requireOwner()` asks server-side, which is the thing that actually decides a write. Any throw is a "no", including GitHub being unreachable, because the endpoint would refuse too.
 
-**`/admin/*` is prerendered public HTML.** The pre-paint redirect in `AdminLayout` hides the editors; it does not protect them. Never put anything in an admin page that would be a secret if read. What is protected is the repository, by GitHub, at write time.
+Do not reintroduce an installation-permission check here. `discoverInstallation()` exists separately and only affects where `grantAccessUrl()` points.
+
+**Authorising the App and installing it are two different grants, and only the second one carries repository access** — decision 17. Signing in does the first. An account that has never done the second has an empty "Installed GitHub Apps" list, so GitHub shows it the "Authorized GitHub Apps" tab instead, which has a Revoke button and no repository picker on it at all. Never hard-code `https://github.com/settings/installations` again: **every** link about a permission goes through `grantAccessUrl()`, which returns the installation's own page when the id has been learned (by `listRepositories()`, or `discoverInstallation()`), `/apps/<slug>/installations/new` when `PUBLIC_GITHUB_APP_SLUG` is set (the only rung that works when the App is installed nowhere), and `/settings/apps` otherwise. The slug is optional and cannot be derived from the client ID — `GET /app` needs a JWT signed with the App's private key, which this system deliberately never holds.
+
+**`/admin/*` is public HTML.** The pre-paint redirect in `AdminLayout` hides the editors; it does not protect them. Never put anything in an admin page that would be a secret if read.
+
+These screens are server-rendered now (they read D1 per request), and that changes nothing about the above — server-rendered is not gated, there is no session to gate on, and the HTML is served to anyone who asks. What is protected is **`POST /api/content`**, which asks GitHub who is calling before it touches a row. Treat the admin UI as convenience and `src/lib/authorize.ts` as the boundary.
 
 `AdminLayout` only gates when `isConfigured()` — an unconfigured build (fork, local checkout with no `.env`) keeps the screens reachable and export-only. Preserve that: it is what keeps the repo usable without secrets.
 
@@ -44,23 +59,25 @@ localStorage key names live in `src/lib/admin.ts` (`ADMIN_KEYS`, `SIDEBAR_KEY`) 
 
 | Screen | Key | Writes | Target |
 | --- | --- | --- | --- |
-| `journal` | — | **commit** only | status patch and delete on `src/content/journal/<slug>.md` |
-| `journal/new` | `journalDraft` | export **and commit** | creates `src/content/journal/<slug>.md` |
-| `journal/[slug]` | `journalDraft` | export **and commit** | updates `src/content/journal/<slug>.md` in place |
-| `resume` | `resumeDraft` | export **and commit** | `src/lib/resume.ts` |
-| `projects` | — | **commit** only | creates `src/content/projects/<slug>.md`; patches `hidden` |
-| `projects/[slug]` | — | **commit** only | `src/content/projects/<slug>.md` and `src/content/case-studies/<slug>.mdx` |
+| `journal` | — | **save** only | `journal` status patch and row delete |
+| `journal/new` | `journalDraft` | export **and save** | inserts a `journal` row |
+| `journal/[slug]` | `journalDraft` | export **and save** | patches that `journal` row |
+| `resume` | `resumeDraft` | export **and save** | the `resume` row in `documents` |
+| `projects` | — | **save** only | inserts a `projects` row; patches `hidden` |
+| `projects/[slug]` | — | **save** only | `projects` and `case_studies` rows |
 | `settings` | `settings` | export only | `site-identity.json`, hand-applied to `src/lib/site.ts` |
+
+Exports are downloads, unchanged in spirit: a post as `.md`, the resume as `.json`, identity as `.json`. They are how content leaves this system, not how it is saved.
 
 **Identity is a screen** — `src/pages/admin/settings.astro`, the fifth entry in the rail's nav. It was a dialog on the grounds that a destination should be something that writes; decision 14 reverses that, because a modal has no URL, does not survive a reload, and loses six fields of typing to a stray Escape. `AdminSettingsModal.astro` and `data-open-settings` are gone — do not reintroduce either.
 
-It is still **export only**, and that has not changed: Save writes `localStorage`, Export downloads `site-identity.json`, and neither commits, because the target is `src/lib/site.ts` — a TypeScript module `frontmatter.ts` cannot patch. Do not wire `commitFile` to it without first changing what it emits. The screen says so beside the fields; keep that copy honest if the behaviour ever moves.
+It is still **export only**, and that has not changed: Save writes `localStorage`, Export downloads `site-identity.json`, and neither persists, because the target is `src/lib/site.ts` — a TypeScript module, not a row. It is deliberately *not* in `documents`: `site.ts` is imported at build time by layouts and by `resume.ts`, and identity that changed under a running site would be identity in two places. Do not wire it to `/api/content` without first deciding what reads it. The screen says so beside the fields; keep that copy honest if the behaviour ever moves.
 
 **Two project screens, and the split is the point.** `/admin/projects` is a manifest — cards, a visibility switch each, and an import modal. `/admin/projects/[slug]` is one project in full, plus its case study. The modal on the list screen is **creation only**; editing an existing project is the detail page. Do not give the modal an edit mode back: it was doing both jobs and doing the second one badly.
 
 **Three journal screens, and the URL is the state.** `/admin/journal` is the manifest — every entry, search, filter, the status menu, delete. `/admin/journal/new` and `/admin/journal/[slug]` both render `src/components/JournalEditor.astro`; the only difference between them is the `slug` prop, `null` or the post's. That prop decides which path is written, whether the write is a create or a patch, and that **the filename does not follow the title** — Astro derives the slug from the filename, so renaming on a title edit would orphan a live URL. Do not reintroduce an `editing` variable: it was six pieces of UI kept in sync by hand, and decision 13 in `docs/DECISIONS.md` says why it is gone.
 
-The editor's frontmatter and body are prerendered from the last build, so opening a post is a local read and works signed out; only committing needs a token. `getPosts(true)` feeds `getStaticPaths` here, so an unpublished post keeps its *admin* page while losing its public one — withdrawing a post must not take away the screen that could bring it back.
+The editor's fields and body come from the same row the public page renders, so the editor opens on exactly what a reader would see, with no build in between for the two to drift across. Only saving needs a token. `getPost(db, slug, true)` is what keeps an unpublished post's *admin* page alive while its public one 404s — withdrawing a post must not take away the screen that could bring it back. **A plain `getPosts(db)` or `getProjects(db)` in an admin page is a bug**; the `true` is the whole point.
 
 There is still exactly one `journalDraft` key. The snapshot carries the slug it belongs to and a screen refuses a draft that is not its own, so a half-written new entry cannot be restored on top of a published post.
 
@@ -72,33 +89,34 @@ There is still exactly one `journalDraft` key. The snapshot carries the slug it 
 
 ## `src/lib/content-store.ts` is the write half
 
-`content.ts` reads the collections; `content-store.ts` is the only thing that writes them back. Every admin write goes through it — `createProject`, `patchProject`, `removeProject`, `createCaseStudy`, `patchCaseStudy`, `createPost`, `updatePost`, `removePost`, `setPostStatus` — so "what a valid content file looks like" is written down once. Its enum tables are `satisfies Record<…>` against the schema types, so adding a value in `src/content/config.ts` fails the typecheck here until it is listed.
+`content.ts` reads the tables; `content-store.ts` is the only thing that writes them. Every admin write goes through it — `createProject`, `patchProject`, `removeProject`, `createCaseStudy`, `patchCaseStudy`, `setCaseStudyBody`, `createPost`, `updatePost`, `removePost`, `setPostStatus`, `saveResume` — and each is a `POST /api/content` carrying the admin's GitHub token. Its enum tables are `satisfies Record<…>` against the types in `content.ts`, so widening a CHECK constraint in `migrations/` fails the typecheck here until the new value is listed.
 
-Two write strategies, and the split is deliberate: **create** builds a whole file from a generator (nothing to preserve, and it is the only way to guarantee every required field is present), **edit** patches fields in place (the admin does not render a project body and does not know every field a hand-authored file carries). Do not collapse them into one.
+Three operations, and the split is deliberate: **create** inserts a whole row (nothing to preserve; the NOT NULLs guarantee completeness), **patch** updates only the columns handed to it (so a column this screen has never heard of survives an edit by one that has), **delete** removes the row. Do not collapse create and patch — `INSERT OR REPLACE` would turn "import" into "silently overwrite the project you already wrote".
 
-`updatePost` follows the edit strategy even though the editor knows every field in the journal schema, and that is on purpose: the file on the branch may not be one the editor wrote. Fields are set one line at a time and the body is swapped whole with `setBody`, so a comment, a field ordering or a key added since all survive. `scripts/test-frontmatter.mjs` pins the round trip.
+A save returns a `WriteResult` whose `url` is the **live page**, not a commit. The screens link it as "view live ↗". Any copy still saying "committed", "after the next build" or "on the default branch" is stale and wrong — it was all rewritten in this migration, so treat a survivor as a bug.
 
-`patchCaseStudy` reaches the structured frontmatter only. The MDX body is still written in git — decision 6 — and nothing in the admin should start rendering or rewriting it.
+It imports `./content` **type-only**. A value import would drag server code into the client bundle.
 
-It imports `./content` **type-only**. A value import would drag `astro:content` into the client bundle.
+`projects` has **no** local key. The row is the only truth for `hidden`; signed out the switches are disabled rather than recording an intention in `localStorage` that nothing would ever apply. Do not reintroduce a browser-side visibility map.
 
-`setFrontmatterList()` keeps whichever list style the file already used — inline for `tags`/`stack`, an indented block for `highlights`. It is still not a YAML parser: a block scalar or a non-list value is refused, same as the scalar path.
+### The write endpoint's boundary is `src/lib/content-schema.ts`
 
-`settings` stays export-only on purpose: its JSON has to be merged into `src/lib/site.ts` by hand, so committing it verbatim would drop junk into the repo. Do not "finish the job" by wiring `commitFile` to it without changing what it emits.
+`POST /api/content` is a real, public HTTP endpoint on the live origin. Two rules, and neither is negotiable:
 
-`projects` has **no** local key. The file on the default branch is the only truth for `hidden`; signed out the switches are disabled rather than recording an intention in `localStorage` that nothing would ever apply. Do not reintroduce a browser-side visibility map — it was a second source of truth that had to be hand-merged, and it is gone deliberately.
+- **Identity is checked before the body is parsed.** `requireOwner()` runs first, always. It presents the caller's token to GitHub and admits only `site.githubUser`, and fails closed on anything else — including GitHub being unreachable.
+- **No caller-supplied string ever becomes a SQL identifier.** Table and column names cannot be bound parameters, so they all originate in `content-schema.ts` and are *looked up*, never derived. An unknown key is a 400, not a silent drop — a save that discards a field reports success and loses work. `npm run check:schema` pins this; add a column and add a case there in the same change.
 
-## Writing to a file that already exists
+`/api/media` follows the same shape: `requireOwner()` first, then `mediaPath()` validates the directory and name segment by segment against an allowlist. It stores BLOBs capped at **2,000,000 bytes** — D1's decimal limit, not 2 MiB; the 97 KB difference is a window where the check passes and the database then refuses.
 
-The journal and resume editors own everything they write, so they regenerate the whole file. `admin/projects` does not — it changes one frontmatter field of a hand-authored file whose body it never shows. That path has three parts and none of them is optional:
+## Deleting, and the two things that are no longer recoverable
 
-- **`src/lib/frontmatter.ts`** patches the single line. It is not a YAML parser and must not become one: multi-line values, block scalars and indented keys throw `FrontmatterError` rather than being rewritten. `scripts/test-frontmatter.mjs` (part of `npm run check`) pins that, plus body preservation, quoting and CRLF.
-- **`readFile()` → `commitFile({ sha })`.** Read-modify-write must send back the SHA it read, so GitHub rejects the commit if the file moved in between. Calling `commitFile` without a `sha` makes it look the SHA up itself, which races the edit — correct for a whole-file write, wrong here.
-- **`deleteFile()`** needs the same SHA and is guarded by a two-click confirm in the page. The file stays in git history, so this is recoverable; do not add a harder gate, and do not remove the confirm.
+`hidden = 1` on a project removes it from every listing *and* makes its detail page 404. `status: 'unpublished'` does the same for a post. Both are reversible from the admin, which is the point of having them.
 
-`hidden: true` on a project removes it from every listing *and* from `getStaticPaths`, so the detail page stops being built. Admin screens call `getProjects(true)` to see hidden entries — a plain `getProjects()` in an admin page is a bug. The same holds for the journal: `status: 'unpublished'` drops the post out of `getStaticPaths` so the URL 404s, and admin screens call `getPosts(true)`.
+**Delete is not.** A deleted row is gone — there is no git history holding a copy any more, which was true of every delete on this surface until decision 18. The two-click confirm on those buttons is therefore doing more work than it used to: keep it, and keep the copy saying the row does not come back.
 
-**The resume template must stay in sync with `src/lib/resume.ts`.** `buildModule()` in `src/pages/admin/resume.astro` regenerates the *whole* module — the `site` import, all three interfaces, and every export (`person`, `experience`, `skills`, `certifications`, `education`) — because `resume.astro`, `ResumeAside.astro` and the editor itself import from it, so a partial file breaks the build. The editor only edits summary, experience and skills; certifications and education ride through the seed untouched. Add an export to `resume.ts` and you must add it to `buildModule()` in the same change. Both the download and the commit call `buildModule()`, so there is one template, not two — keep it that way.
+`removeProject` is refused by the database while a case study still points at the project (`ON DELETE RESTRICT`). That surfaces as a 409 with the constraint message, which is the useful outcome — unlink first, then delete.
+
+**Every route that reads the database must declare `export const prerender = false`.** `output` is still `'static'`, so a page is prerendered unless it opts out, and prerendering happens with no D1 binding. Forgetting it is either a build crash or a page frozen at deploy time, and nothing else catches it — `npm run check:content` is the gate, and it fails the build.
 
 ## The import modal
 
