@@ -6,7 +6,7 @@ Short records of the choices that are not obvious from the code. Newest last.
 
 ## 1. The site is static; there is no backend, and there will not be one
 
-**Status:** accepted
+**Status:** reversed by decision 18. Kept because its "revisit if" is exactly the condition that fired.
 
 **Context.** This is a single-author personal portfolio. The author is also the repository owner and the person who deploys. Content changes arrive as commits.
 
@@ -20,7 +20,7 @@ Short records of the choices that are not obvious from the code. Newest last.
 
 ## 2. `/admin` is an authoring surface, not a CMS
 
-**Status:** superseded in part by decision 6 — the export path still exists, but the editors can also commit directly now.
+**Status:** superseded in part by decision 6, then by decision 18. The export paths still exist; the editors now save to D1 rather than committing.
 
 **Context.** The design called for a content-management UI. Decision 1 means nothing can be persisted server-side, and there is no session to authenticate.
 
@@ -76,7 +76,7 @@ Short records of the choices that are not obvious from the code. Newest last.
 
 ## 6. Admin signs in with GitHub OAuth and commits through the API
 
-**Status:** accepted; the app type was later changed by decision 9.
+**Status:** the sign-in half is accepted (app type changed by decision 9); the *commit* half is superseded by decision 18 — the admin signs in with GitHub and writes to D1.
 
 **Context.** Decision 2 rejected a serverless commit path because it meant holding a credential. The cost of that call was the export-and-commit-by-hand loop for every edit. The owner asked for real sign-in and real persistence, accepting the deployment cost.
 
@@ -335,3 +335,72 @@ The generic failure is worth naming: an error message that explains a problem co
 **Why not just tell people to install it properly.** The README now does (§1 has its own subsection). That is setup documentation, read once, months before the error. The link is read *at* the error.
 
 **Consequences.** `INSTALLATIONS_URL` is no longer exported — four hard-coded copies of it across `projects.astro` became calls to one function. The login screen gained a line saying repository access is a separate grant, because that is the screen a first run starts on. `PUBLIC_GITHUB_APP_SLUG` joins the two existing public build variables, mapped from `OAUTH_APP_SLUG` in `deploy.yml`.
+
+---
+
+## 18. Content lives in D1 and pages render on demand; the site stopped being prerendered
+
+**Status:** accepted — reverses decision 1, and supersedes the commit half of decisions 2 and 6.
+
+**Context.** Decision 1 said there would be no backend, and closed with the condition that would reverse it: *"revisit if content needs to change without a deploy."* That is what happened. Publishing a post meant a commit, a GitHub Actions run — `npm ci`, `npm run check`, `astro build`, upload, deploy — and roughly two minutes before a reader could see it. Every content change, down to fixing a typo in a summary, paid the same two minutes.
+
+Nothing cheaper actually removes that wait. It is not slow tooling — the Astro build is 13 seconds — it is the architecture: pages are HTML baked at deploy time, so the only way to change one is to bake it again. Moving content to a database changes nothing on its own while the pages are still prerendered.
+
+**Decision.** Content moved to Cloudflare D1, and the routes that read it opt out of prerendering. `output` stays `'static'`: /about, the admin's static screens and the 404 are still files Cloudflare serves without waking the Worker. Only the routes that read the database run code.
+
+**What the free tier actually is,** since "it must not cost anything" was the condition on doing this at all: D1 gives 5 GB per account, 500 MB per database, 5 million row reads and 100,000 row writes a day. Workers gives 100,000 requests a day. This site has 31 content rows. It does not register, and no payment method is on the account.
+
+**What this cost, honestly.**
+
+- **The build-time integrity gate.** `astro build` validated every file against a Zod schema, and `check-content.mjs` validated the relationships between them. There is no build between an edit and a reader any more, so those checks moved into `migrations/0001_init.sql` — the enums became CHECK constraints, `caseStudySlug` became a FOREIGN KEY, required fields became NOT NULL. This is *earlier* than before: a bad write is refused when the author presses save, rather than when CI next runs.
+- **`@astrojs/sitemap`.** It enumerates routes the build emitted, and the content routes are no longer among them; it would have shipped a sitemap listing /about and /resume and silently omitting every project, post and case study. `src/pages/sitemap.xml.ts` asks D1 the same question per request.
+- **A place to be wrong at runtime.** A prerendered site cannot 500. This one can. That is the real price, and it is why `src/pages/api/content.ts` returns a constraint failure as a 409 carrying its message rather than as a 500.
+- **GitHub Pages.** The site is served by a Worker, so `public/CNAME` no longer configures anything; it is kept as the one-line record of what the domain is, which is what decision 4's check compares against.
+
+**What it did not cost.** The public pages are unchanged — not one component was rewritten. `src/lib/content.ts` was already the only caller of `getCollection` (decision 5), so swapping its implementation for D1 queries was confined to that one file, and every ordering rule inside it is the code that was there before, unedited. Decision 5 was made to stop duplicated rules diverging; it turned out to be the thing that made this migration small.
+
+**Rejected alternatives.** *Speeding up the deploy* — the floor is around ninety seconds of Actions overhead, which is not "instant". *A hybrid where the static site fetches D1 from the browser* — content that is not in the HTML is content a crawler does not see, which gives up what decision 4 exists to protect. *Keeping the `.mdx` case studies as MDX* — they turned out to contain zero JSX and zero imports, so they are markdown, and markdown renders anywhere.
+
+**Revisit if** read volume ever makes per-request rendering the wrong shape. The answer then is caching at the edge, not going back to a build.
+
+---
+
+## 19. The GitHub App is read-only, because nothing writes to the repository any more
+
+**Status:** accepted — narrows decision 9.
+
+**Context.** The App held Contents:write because the admin committed content through it. Once the collections moved to D1, three things still wrote to the repository, and any one of them alone was enough to keep that permission open: uploaded images went to `public/`, the resume editor regenerated and committed `src/lib/resume.ts`, and the settings screen exported a file to be merged by hand.
+
+A permission kept alive by its last remaining caller is worth chasing to zero, because "write access to the repository that builds the site" is the most dangerous thing this system can hold, and it was being held open by an image upload.
+
+**Decision.** All three moved or stopped.
+
+- **Images** go to `POST /api/media` and are stored as BLOBs in D1, served by `/media/[...path]`. R2 would be the obvious home and is deliberately not used: enabling R2 requires a payment method on the account even though its free tier is genuinely free, and the condition on this work was that it cost nothing. D1 caps a BLOB at 2,000,000 bytes, two orders of magnitude above anything this site displays.
+- **The resume** became a row in `documents`. Decision 3 said the resume is a module rather than a collection because it is a singleton with a fixed, nested shape; that reasoning survives — it is stored as one JSON document, not four normalised tables — but the module no longer holds the data. `src/lib/resume.ts` is now the shape and the reader, and identity fields still come from `site.ts`, which is what stops the owner's contact details existing in two places.
+- **Settings** was already export-only and stays that way.
+
+The App therefore needs **Metadata: read** to function, and **Contents: read** only so the import screen can list repositories. It cannot write to the repository at all.
+
+**What replaced the permission as the authority.** `requireOwner()` in `src/lib/authorize.ts` presents the caller's token to GitHub, asks whose it is, and admits only `site.githubUser`. No new credential was invented, and that was the point: the admin already held a GitHub token, GitHub already knew whose it was, and revocation stays GitHub's — signing out, the 8-hour expiry, or removing the App all invalidate it at the source. A minted API key in a Worker secret would have been a second thing to store, rotate and leak, answering a question that was already answered.
+
+**What this does not cover.** It authenticates the writer, not the request. It is not a defence against the owner's own browser being compromised, and it is not a rate limiter — an authenticated caller can write as often as they like. Both were true of the commit path it replaces.
+
+**Consequence for decision 16.** `canWriteContent()` asked whether the installation granted `contents: write`. Left alone it would now answer "no" for the best possible reason, and disable every switch on the projects screen — the tightening would have broken the UI it was supposed to be invisible to. It asks `GET /user` instead. The property decision 16 is about is unchanged: no screen claims a capability it has not checked. Only the authority it checks against moved.
+
+---
+
+## 20. The Cloudflare runtime types are declared by hand, not generated
+
+**Status:** accepted
+
+**Context.** `wrangler types` generates `worker-configuration.d.ts`: the `Env` interface for the project's bindings, and about fifteen thousand lines of workerd runtime types alongside it. Generating it turned a green `astro check` into twenty-seven errors in files that have nothing to do with Cloudflare — `admin/resume.astro`, `admin/projects/[slug].astro` — almost all of the form *"Type 'HTMLSelectElement' does not satisfy the constraint 'HTMLElement'"*.
+
+The cause is interface merging. Those types declare a global `Element` — HTMLRewriter's, whose `remove()` returns `Element` — and TypeScript merges it with the DOM's `Element`, whose `remove()` returns `void`. The merge is illegal, so every DOM subtype in the project stops satisfying `HTMLElement`. This repository is half browser code, so that is most of it.
+
+There is no scoping flag for this. A `.d.ts` full of `declare global` is global wherever it is referenced from, and the usual advice — put `@cloudflare/workers-types` in `tsconfig`'s `types` — is the same collision with extra steps.
+
+**Decision.** `src/env.d.ts` declares the binding surface by hand: `D1Database`, `D1PreparedStatement`, `D1Result` and `Env` — five methods in total. `wrangler.jsonc` sets `dev.types.includeRuntime: false` so that a stray `wrangler types` cannot reintroduce the file.
+
+**Consequences.** Hand-written platform types can drift from the platform. The mitigations are that this is a deliberately tiny and stable slice of a public API, that the `ponytail:` note in `env.d.ts` names the upgrade path, and that `wrangler dev` exercises the real binding every time the site is checked locally.
+
+**Rejected alternative.** Two TypeScript projects, one for the Worker and one for the browser. That is the correct answer if the Worker side ever grows — but it is a build-configuration change to work around a five-method type, and Astro's single-project layout does not want to be split.

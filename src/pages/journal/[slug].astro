@@ -1,17 +1,19 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
-import { getPosts } from '../../lib/content';
+import { getPost } from '../../lib/content';
 import { formatTag, metaLine } from '../../lib/format';
 import { absoluteUrl, site } from '../../lib/site';
 
-export async function getStaticPaths() {
-  const posts = await getPosts();
-  return posts.map(post => ({ params: { slug: post.slug }, props: { post } }));
-}
+/* Read from D1 per request. A post moved to `unpublished` stops resolving
+   here the moment it is saved, so its URL 404s instead of lingering as an
+   orphan page for anyone still holding the link. */
+export const prerender = false;
 
-const { post } = Astro.props;
+const { DB } = Astro.locals.runtime.env;
+const post = Astro.params.slug ? await getPost(DB, Astro.params.slug) : undefined;
+if (!post) return new Response(null, { status: 404 });
+
 const { title, summary, tags, videoDuration, heroImage } = post.data;
-const { Content } = await post.render();
 
 const meta = metaLine(post.data);
 const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
@@ -38,7 +40,7 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
 
     <p class="post-summary">{summary}</p>
 
-    <div class="prose"><Content /></div>
+    <div class="prose"><Fragment set:html={post.html} /></div>
 
     <hr class="rule post-footer-rule" />
     <div class="post-footer">

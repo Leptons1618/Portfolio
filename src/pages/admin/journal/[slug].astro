@@ -2,35 +2,30 @@
 /**
  * One journal entry, open for editing.
  *
- * Prerendered per post, every status included — `getPosts(true)`, the same rule
- * the entries list and the dashboard follow, because managing the two states
- * the public site never renders is what this surface exists for.
+ * Read from D1 per request, every status included — `getPost(db, slug, true)`,
+ * the same rule the entries list and the dashboard follow, because managing the
+ * two states the public site never renders is what this surface exists for.
  *
- * Frontmatter *and* body come from the last build, so opening a post is a local
- * read rather than a round trip to GitHub: it works signed out, and the editor
- * is prefilled from exactly what the build saw. Only committing needs a token,
- * and that path reads the file again for its SHA.
+ * Frontmatter *and* body come from the same row the public page renders, so
+ * the editor opens on exactly what a reader would see and there is no build in
+ * between for the two to drift across.
  *
- * An unpublished post drops out of `getStaticPaths` on the *public* side, so
- * `/journal/<slug>` 404s — but its page here still exists, which is the point:
- * withdrawing a post must not also take away the screen that could bring it
- * back.
+ * An unpublished post stops resolving on the *public* side, so `/journal/<slug>`
+ * 404s — but this page still finds it, which is the point: withdrawing a post
+ * must not also take away the screen that could bring it back. That is what the
+ * `true` argument buys.
  */
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import JournalEditor from '../../../components/JournalEditor.astro';
-import { getPosts } from '../../../lib/content';
+import { getPost } from '../../../lib/content';
 import type { PostFields } from '../../../lib/content-store';
 
-export async function getStaticPaths() {
-  const posts = await getPosts(true);
-  return posts.map(post => ({
-    params: { slug: post.slug },
-    props: { post },
-  }));
-}
+export const prerender = false;
 
-const { post } = Astro.props;
+const { DB } = Astro.locals.runtime.env;
 const { slug } = Astro.params;
+const post = slug ? await getPost(DB, slug, true) : undefined;
+if (!post) return new Response(null, { status: 404 });
 
 const fields: PostFields = {
   title: post.data.title,

@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "portfolio",
+
+  // Astro's Cloudflare adapter emits the server entry here and leaves every
+  // prerendered page beside it in `dist/`, which is why `assets.directory` and
+  // `main` point into the same folder. The adapter also writes a
+  // `.assetsignore` so the server bundle is not served as a static file.
+  "main": "./dist/_worker.js/index.js",
+  "compatibility_date": "2026-08-18",
+  // The Astro server bundle reaches for Node built-ins.
+  "compatibility_flags": ["nodejs_compat"],
+
+  "assets": {
+    "directory": "./dist",
+    // Static assets are checked first and served without invoking the Worker,
+    // so the prerendered pages — /about, /resume, the whole admin surface —
+    // cost nothing at runtime. Only the D1-backed routes run code.
+    "binding": "ASSETS"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "portfolio-content",
+      "database_id": "285491b7-631b-437b-8d85-b8794b26198c",
+      "migrations_dir": "./migrations"
+    }
+  ],
+
+  "observability": { "enabled": true },
+
+  // `wrangler types` would regenerate `worker-configuration.d.ts`, whose global
+  // workerd types break every DOM type in the admin's client scripts. The
+  // bindings are typed by hand in `src/env.d.ts` instead, and that file explains
+  // why. Leaving this off keeps a stray `wrangler types` from reintroducing it.
+  "dev": { "types": { "includeRuntime": false } }
+}

@@ -7,15 +7,21 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "check": "node scripts/check-content.mjs && node scripts/test-frontmatter.mjs && node workers/github-oauth/test.mjs && astro check",
+    "check": "node scripts/check-content.mjs && node scripts/test-content-schema.mjs && node workers/github-oauth/test.mjs && astro check",
     "check:content": "node scripts/check-content.mjs",
-    "check:frontmatter": "node scripts/test-frontmatter.mjs",
+    "check:schema": "node scripts/test-content-schema.mjs",
     "check:worker": "node workers/github-oauth/test.mjs",
     "build": "astro build",
-    "preview": "astro preview",
+    "preview": "wrangler dev",
+    "deploy": "astro build && wrangler deploy",
+    "db:migrate": "wrangler d1 migrations apply portfolio-content --remote",
+    "db:migrate:local": "wrangler d1 migrations apply portfolio-content --local",
+    "db:console": "wrangler d1 execute portfolio-content --remote --command",
+    "seed:d1": "node scripts/seed-d1.mjs",
     "astro": "astro"
   },
   "dependencies": {
+    "@astrojs/cloudflare": "12.6.13",
     "@astrojs/mdx": "^4.0.0",
     "@astrojs/sitemap": "^3.0.0",
     "@astrojs/tailwind": "^6.0.0",
@@ -32,6 +38,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "wrangler": "^4.123.0"
   }
 }

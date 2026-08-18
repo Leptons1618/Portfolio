@@ -1,46 +1,46 @@
 /**
- * The write half of the content collections.
+ * The write half of the content tables.
  *
- * `content.ts` reads them at build time; this is what the admin screens commit
- * back. It exists so that "what a valid project file looks like" is written
- * down exactly once — the import form, the edit form and the case-study
- * scaffold all go through the same field list and the same serialiser. A new
- * value in the schema's enums fails the typecheck here rather than at build
- * time, in a file that has already been pushed.
+ * `content.ts` reads them; this is what the admin screens save through. It
+ * exists so that "what a valid project looks like" is written down exactly
+ * once — the import form, the edit form and the case-study scaffold all go
+ * through the same field list.
  *
- * Two write strategies, deliberately not one:
+ * ## What changed when the content moved to D1
  *
- *   - **Create** builds a whole file. There is nothing to preserve yet, and a
- *     generator is the only way to guarantee every required field is present.
- *   - **Edit** patches fields in place through `frontmatter.ts`. The admin does
- *     not render a project's body and does not know every field a hand-authored
- *     file might carry, so regenerating one would quietly drop whatever this
- *     screen has never heard of.
+ * Every function here used to end in a GitHub commit, and the author's change
+ * appeared on the site one deploy later. They now end in a `POST /api/content`,
+ * and the change is on the site when the request returns. Three things fell
+ * out of that, and they are the reason this file is shorter than it was:
  *
- * Browser-only: every exported function here ends in a GitHub commit. The type
- * import from `./content` is erased at compile time, so nothing drags
- * `astro:content` into the client bundle.
+ *   - **No serialiser.** A row is columns, so `buildProjectMarkdown` no longer
+ *     has to produce a file that is byte-indistinguishable from a hand-written
+ *     one. `buildPostMarkdown` survives, because exporting a post as markdown
+ *     is still a thing the editor offers.
+ *   - **No read-modify-write.** `patchProject` was one read, patches applied in
+ *     memory, and one commit under the SHA it read, all so a concurrent edit
+ *     would be rejected rather than lost. `UPDATE ... SET` on the columns that
+ *     changed is that same guarantee, minus the ceremony.
+ *   - **No overwrite check.** `createProject` had to ask whether the file
+ *     existed, because the Contents API turns a create into an update given
+ *     half a chance. `slug` is a PRIMARY KEY, so the database refuses instead.
+ *
+ * Browser-only: every exported write here ends in a fetch carrying the admin's
+ * GitHub token. The type import from `./content` is erased at compile time.
  */
 
-import type { CaseStudy, Post, Project } from './content';
-import {
-  removeFrontmatterField,
-  setBody,
-  setFrontmatterField,
-  setFrontmatterList,
-  type Scalar,
-} from './frontmatter';
-import { GitHubError, commitFile, deleteFile, readFile, type CommitResult } from './github';
+import type { CaseStudyData, Category, PostStatus, ProjectStatus } from './content';
+import { getToken } from './github';
+import { RESUME_KEY, type ResumeDocument } from './resume';
 
-type Category = Project['data']['category'];
-type Status = Project['data']['status'];
+export type { PostStatus };
 
 /**
- * Every value the schema's enums allow, in the order the forms offer them.
+ * Every value the CHECK constraints allow, in the order the forms offer them.
  *
- * Declared as full `Record`s so that adding a value in `src/content/config.ts`
- * fails the typecheck here until it is listed — the same trick that keeps
- * `CATEGORY_LABELS` honest in `content.ts`.
+ * Declared as full `Record`s so that widening a constraint in `migrations/`
+ * fails the typecheck here until the new value is listed — the same trick that
+ * keeps `CATEGORY_LABELS` honest in `content.ts`.
  */
 const CATEGORY_SET = {
   'ml-cv': 'Computer Vision',
@@ -57,12 +57,19 @@ const STATUS_SET = {
   stable: 'Stable',
   wip: 'Work in progress',
   archived: 'Archived',
-} satisfies Record<Status, string>;
+} satisfies Record<ProjectStatus, string>;
+
+const POST_STATUS_SET = {
+  draft: 'Draft',
+  published: 'Published',
+  unpublished: 'Unpublished',
+} satisfies Record<PostStatus, string>;
 
 export const PROJECT_CATEGORIES = Object.entries(CATEGORY_SET) as [Category, string][];
-export const PROJECT_STATUSES = Object.entries(STATUS_SET) as [Status, string][];
+export const PROJECT_STATUSES = Object.entries(STATUS_SET) as [ProjectStatus, string][];
+export const POST_STATUSES = Object.entries(POST_STATUS_SET) as [PostStatus, string][];
 
-/** One project file's frontmatter — the schema, as the admin writes it. */
+/** One project row, as the admin writes it. */
 export interface ProjectFields {
   title: string;
   summary: string;
@@ -73,49 +80,14 @@ export interface ProjectFields {
   demoUrl?: string;
   caseStudySlug?: string;
   featuredRank?: number;
-  status: Status;
+  status: ProjectStatus;
   year: number;
   heroImage?: string;
   highlights: string[];
   hidden?: boolean;
 }
 
-/** Filename → slug, so this has to agree with what Astro derives from it. */
-export function slugify(value: string): string {
-  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-}
-
-export const projectPath = (slug: string) => `src/content/projects/${slug}.md`;
-export const caseStudyPath = (slug: string) => `src/content/case-studies/${slug}.mdx`;
-export const postPath = (slug: string) => `src/content/journal/${slug}.md`;
-
-export type PostStatus = Post['data']['status'];
-
-const POST_STATUS_SET = {
-  draft: 'Draft',
-  published: 'Published',
-  unpublished: 'Unpublished',
-} satisfies Record<PostStatus, string>;
-
-export const POST_STATUSES = Object.entries(POST_STATUS_SET) as [PostStatus, string][];
-
-/**
- * Move one journal post between draft, published and unpublished.
- *
- * A patch rather than a rewrite, because this is the one journal action the
- * editor performs on a file it did not just author: the body, and any field
- * the editor has never heard of, have to survive. `null` when the file already
- * said this.
- */
-export async function setPostStatus(slug: string, status: PostStatus): Promise<CommitResult | null> {
-  const path = postPath(slug);
-  const file = await readFile(path);
-  const next = setFrontmatterField(file.text, 'status', status);
-  if (next === file.text) return null;
-  return commitFile({ path, content: next, message: `content(journal): ${status} ${slug}`, sha: file.sha });
-}
-
-/** One journal file's frontmatter — the schema, as the editor writes it. */
+/** One journal row, as the editor writes it. */
 export interface PostFields {
   title: string;
   summary: string;
@@ -127,13 +99,114 @@ export interface PostFields {
   status: PostStatus;
 }
 
-const quote = (value: string) => JSON.stringify(value);
+/** A case study's structured fields. */
+export type CaseStudyFields = CaseStudyData;
+
+/** Title → slug. The primary key, and the last segment of the public URL. */
+export function slugify(value: string): string {
+  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
 
 /**
- * A complete journal file. Optional fields are omitted rather than written
- * empty, which is what the hand-authored posts do.
+ * Where a row lives, for the admin to display.
+ *
+ * These used to be repository paths — `src/content/projects/thing.md` — and the
+ * screens print them so the author knows what a save is about to touch. The
+ * answer is now a table and a key, so that is what they return. Keeping the
+ * function rather than inlining the string means the admin has one place to
+ * learn from if content ever moves again.
+ */
+export const projectPath = (slug: string) => `projects/${slug}`;
+export const caseStudyPath = (slug: string) => `case_studies/${slug}`;
+export const postPath = (slug: string) => `journal/${slug}`;
+
+/** Raised for anything the write endpoint refused. Carries its message verbatim. */
+export class ContentError extends Error {
+  readonly status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ContentError';
+    this.status = status;
+  }
+}
+
+/**
+ * What a save reports back.
+ *
+ * `url` is the page the change is visible on — which is the whole difference
+ * this migration made, and is why it replaced the commit URL the screens used
+ * to link to. There is no commit to view, and there is no build to wait for.
+ */
+export interface WriteResult {
+  slug: string;
+  /** The live page, ready to open. */
+  url: string;
+}
+
+type Table = 'projects' | 'case_studies' | 'journal' | 'documents';
+
+/** Where a row is readable once written. */
+const LIVE_PATH: Record<Table, (slug: string) => string> = {
+  journal: slug => `/journal/${encodeURIComponent(slug)}`,
+  case_studies: slug => `/case-studies/${encodeURIComponent(slug)}`,
+  projects: slug => `/projects/${encodeURIComponent(slug)}`,
+  // The resume is a singleton; its key is not part of its URL.
+  documents: () => '/resume',
+};
+
+const liveUrl = (table: Table, slug: string): string => LIVE_PATH[table](slug);
+
+/**
+ * The one call every write goes through.
+ *
+ * The token is the admin's GitHub token, and the endpoint asks GitHub whose it
+ * is — there is no second credential anywhere in this system. See
+ * `src/lib/authorize.ts`.
+ */
+async function write(
+  table: Table,
+  slug: string,
+  op: 'create' | 'patch' | 'delete',
+  payload: { fields?: Record<string, unknown>; body?: string } = {},
+): Promise<WriteResult> {
+  const token = getToken();
+  if (!token) throw new ContentError('Sign in with GitHub to save changes.', 401);
+
+  const response = await fetch('/api/content', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ table, slug, op, ...payload }),
+  });
+
+  const data = (await response.json().catch(() => ({}))) as { error?: string };
+  if (!response.ok) {
+    throw new ContentError(data.error ?? `Save failed (${response.status}).`, response.status);
+  }
+  return { slug, url: liveUrl(table, slug) };
+}
+
+/* ---------- journal ---------- */
+
+/**
+ * Move one journal post between draft, published and unpublished.
+ *
+ * Unpublishing takes the page away rather than leaving an orphan URL: the
+ * public lookup filters on status, so `/journal/<slug>` starts returning 404
+ * the moment this returns.
+ */
+export function setPostStatus(slug: string, status: PostStatus): Promise<WriteResult> {
+  return write('journal', slug, 'patch', { fields: { status } });
+}
+
+/**
+ * A complete journal file, for the editor's export button.
+ *
+ * The site no longer reads markdown files, but "give me this post as a `.md`"
+ * is still worth having — it is how a post leaves this system. Optional fields
+ * are omitted rather than written empty, the way the hand-authored posts did.
  */
 export function buildPostMarkdown(fields: PostFields, body: string): string {
+  const quote = (value: string) => JSON.stringify(value);
   const lines = [
     '---',
     `title: ${quote(fields.title || 'Untitled')}`,
@@ -151,168 +224,60 @@ export function buildPostMarkdown(fields: PostFields, body: string): string {
 /**
  * Write a journal post that does not exist yet.
  *
- * Refuses to overwrite for the same reason `createProject` does: the Contents
- * API turns a create into an update given half a chance, and "new post" landing
- * on an existing slug would replace a published file with an empty draft.
+ * `slug` is the primary key, so landing on an existing one is refused by the
+ * database rather than silently replacing a published post with an empty draft.
  */
-export async function createPost(
-  slug: string,
-  fields: PostFields,
-  body: string
-): Promise<CommitResult> {
-  const path = postPath(slug);
-  if (await exists(path)) {
-    throw new GitHubError(`${path} already exists. Open it from the entries list to edit it.`);
-  }
-  return commitFile({
-    path,
-    content: buildPostMarkdown(fields, body),
-    message: `content(journal): add ${slug}`,
-  });
+export function createPost(slug: string, fields: PostFields, body: string): Promise<WriteResult> {
+  return write('journal', slug, 'create', { fields: { ...fields }, body });
 }
 
 /**
- * Rewrite a journal post that already exists.
+ * Save an open journal post.
  *
- * A patch, not a regeneration, even though the editor knows every field in the
- * schema — because the file on the branch may not be one the editor wrote. A
- * hand-authored post can carry a comment, a field ordering, or a key added
- * since, and regenerating would quietly drop all three. The fields are set one
- * line at a time and the body is swapped whole, so what changes is what the
- * author changed.
- *
- * Returns `null` when the file already said exactly this.
+ * Which post is open is the route, not a variable, and the slug never follows
+ * the title: renaming would orphan a live URL. Only the columns the editor
+ * knows about are written, so anything added to the table since survives.
  */
-export async function updatePost(
-  slug: string,
-  fields: PostFields,
-  body: string
-): Promise<CommitResult | null> {
-  const path = postPath(slug);
-  const file = await readFile(path);
-
-  let next = file.text;
-  next = setFrontmatterField(next, 'title', fields.title);
-  next = setFrontmatterField(next, 'summary', fields.summary);
-  next = setFrontmatterField(next, 'date', fields.date);
-  next = setFrontmatterList(next, 'tags', fields.tags);
-  next = setFrontmatterField(next, 'status', fields.status);
-
-  /* Cleared optional fields are removed rather than written empty — an empty
-     `readTime: ""` would render as a blank meta line on the post. */
-  for (const key of ['readTime', 'videoDuration', 'heroImage'] as const) {
-    const value = fields[key];
-    next = value ? setFrontmatterField(next, key, value) : removeFrontmatterField(next, key);
-  }
-
-  next = setBody(next, body);
-
-  if (next === file.text) return null;
-  return commitFile({ path, content: next, message: `content(journal): update ${slug}`, sha: file.sha });
-}
-
-/** Delete a journal file. Recoverable — it stays in the history. */
-export function removePost(slug: string): Promise<CommitResult> {
-  return deleteFile({ path: postPath(slug), message: `content(journal): remove ${slug}` });
+export function updatePost(slug: string, fields: PostFields, body: string): Promise<WriteResult> {
+  return write('journal', slug, 'patch', { fields: { ...fields }, body });
 }
 
 /**
- * A complete project file.
+ * Delete a journal post.
  *
- * Field order and list style match the hand-authored files: short lists inline,
- * `highlights` as an indented block. An imported project should be
- * indistinguishable from one written by hand, or the next `git diff` is noise.
+ * Unlike the file this replaced, a deleted row is *gone* — there is no commit
+ * history holding a copy. The screens that call this say so.
  */
-export function buildProjectMarkdown(fields: ProjectFields): string {
-  const lines = [
-    '---',
-    `title: ${quote(fields.title)}`,
-    `summary: ${quote(fields.summary)}`,
-    `category: ${quote(fields.category)}`,
-    `tags: [${fields.tags.map(quote).join(', ')}]`,
-    `stack: [${fields.stack.map(quote).join(', ')}]`,
-    `repoUrl: ${quote(fields.repoUrl)}`,
-  ];
-  if (fields.demoUrl) lines.push(`demoUrl: ${quote(fields.demoUrl)}`);
-  if (fields.caseStudySlug) lines.push(`caseStudySlug: ${quote(fields.caseStudySlug)}`);
-  if (fields.featuredRank !== undefined) lines.push(`featuredRank: ${fields.featuredRank}`);
-  lines.push(`status: ${quote(fields.status)}`, `year: ${fields.year}`);
-  if (fields.heroImage) lines.push(`heroImage: ${quote(fields.heroImage)}`);
-  lines.push('highlights:');
-  for (const highlight of fields.highlights) lines.push(`  - ${quote(highlight)}`);
-  if (fields.hidden) lines.push('hidden: true');
-  lines.push('---', '');
-  return lines.join('\n');
+export function removePost(slug: string): Promise<WriteResult> {
+  return write('journal', slug, 'delete');
 }
 
-/** True when the path is already on the default branch. */
-async function exists(path: string): Promise<boolean> {
-  try {
-    await readFile(path);
-    return true;
-  } catch (error) {
-    if (error instanceof GitHubError && error.status === 404) return false;
-    throw error;
-  }
-}
+/* ---------- projects ---------- */
 
-/**
- * Write a new project file.
- *
- * Refuses to overwrite: the Contents API happily turns a create into an update,
- * and "import" landing on top of an existing project would replace a file the
- * author wrote with one assembled from repository metadata.
- */
-export async function createProject(slug: string, fields: ProjectFields): Promise<CommitResult> {
-  const path = projectPath(slug);
-  if (await exists(path)) {
-    throw new GitHubError(`${path} already exists. Edit that project instead.`);
-  }
-  return commitFile({
-    path,
-    content: buildProjectMarkdown(fields),
-    message: `content(projects): add ${slug}`,
-  });
+/** Write a project that does not exist yet. A duplicate slug is refused. */
+export function createProject(slug: string, fields: ProjectFields): Promise<WriteResult> {
+  return write('projects', slug, 'create', { fields: { ...fields } });
 }
 
 /**
  * Change some fields of an existing project.
  *
- * One read, every patch applied in memory, one commit under the SHA that was
- * read — so a concurrent edit makes GitHub reject the write instead of losing
- * it, and a five-field edit is one commit rather than five.
- *
- * A key set to `undefined` or `''` is removed, which is how an optional field
- * gets cleared. Required fields are the caller's problem: this does not know
- * which is which, and an empty `title` would be caught by the build.
- *
- * Returns `null` when the file already said exactly this.
+ * A key set to `undefined` or `''` clears the column, which is how an optional
+ * field is emptied. Required fields are the database's problem: NOT NULL and
+ * the CHECK constraints refuse a write that would leave a row unrenderable.
  */
-export async function patchProject(
-  slug: string,
-  changes: Partial<ProjectFields>,
-  message: string
-): Promise<CommitResult | null> {
-  const path = projectPath(slug);
-  const file = await readFile(path);
-
-  let next = file.text;
-  for (const [key, value] of Object.entries(changes)) {
-    if (value === undefined || value === '') next = removeFrontmatterField(next, key);
-    else if (Array.isArray(value)) next = setFrontmatterList(next, key, value);
-    else next = setFrontmatterField(next, key, value as Scalar);
-  }
-
-  if (next === file.text) return null;
-  return commitFile({ path, content: next, message, sha: file.sha });
+export function patchProject(slug: string, changes: Partial<ProjectFields>): Promise<WriteResult> {
+  return write('projects', slug, 'patch', { fields: { ...changes } });
 }
 
-/** Delete a project file. Recoverable — it stays in the history. */
-export function removeProject(slug: string): Promise<CommitResult> {
-  return deleteFile({ path: projectPath(slug), message: `content(projects): remove ${slug}` });
+/** Delete a project. Refused while a case study still points at it. */
+export function removeProject(slug: string): Promise<WriteResult> {
+  return write('projects', slug, 'delete');
 }
 
-/** The case-study frontmatter this scaffold fills in. */
+/* ---------- case studies ---------- */
+
+/** The case-study fields this scaffold fills in. */
 export interface CaseStudySeed {
   title: string;
   subtitle: string;
@@ -326,89 +291,61 @@ export interface CaseStudySeed {
 }
 
 /**
- * Scaffold a case study with an empty body and link-ready frontmatter.
+ * Scaffold a case study with a placeholder body and link-ready fields.
  *
- * Bodies are written in git, not here. An MDX editor in the browser means a
- * second editor as capable as the journal one, a preview that cannot be a
- * 40-line subset, and a real chance of committing MDX that fails the build —
- * see `docs/ADMIN-REARCHITECTURE.md`. What the admin can usefully do is create
- * the file, fill in the structured half from the project it belongs to, and
- * link it.
+ * The body is markdown now rather than MDX, and the endpoint renders it on the
+ * way in — so unlike the file version, this one is immediately readable rather
+ * than a stub waiting for someone to open an editor in git.
  */
-export async function createCaseStudy(slug: string, seed: CaseStudySeed): Promise<CommitResult> {
-  const path = caseStudyPath(slug);
-  if (await exists(path)) {
-    throw new GitHubError(`${path} already exists. Link to it instead of creating it.`);
-  }
-
-  const lines = [
-    '---',
-    `title: ${quote(seed.title)}`,
-    `subtitle: ${quote(seed.subtitle)}`,
-    `problem: ${quote(seed.problem)}`,
-    `solution: ${quote(seed.solution)}`,
-    'achievements:',
-    ...seed.achievements.map(item => `  - ${quote(item)}`),
-    `stack: [${seed.stack.map(quote).join(', ')}]`,
-  ];
-  if (seed.repoUrl) lines.push(`repoUrl: ${quote(seed.repoUrl)}`);
-  if (seed.demoUrl) lines.push(`demoUrl: ${quote(seed.demoUrl)}`);
-  lines.push(
-    `date: ${quote(seed.date)}`,
-    '---',
-    '',
+export function createCaseStudy(slug: string, seed: CaseStudySeed): Promise<WriteResult> {
+  const body = [
     '## Background',
     '',
-    'Written in the repository — this file was scaffolded from the admin so the',
-    'project could link to it. Replace this section.',
-    ''
-  );
-
-  return commitFile({
-    path,
-    content: lines.join('\n'),
-    message: `content(case-studies): scaffold ${slug}`,
-  });
+    'Scaffolded from the admin so the project could link to it. Replace this',
+    'section.',
+    '',
+  ].join('\n');
+  return write('case_studies', slug, 'create', { fields: { ...seed }, body });
 }
 
-/** A case study's frontmatter, as the schema defines it. */
-export type CaseStudyFields = CaseStudy['data'];
-
-/**
- * Change some of a case study's structured fields.
- *
- * `patchProject`'s twin, and a patch for a stronger reason: a case study is
- * MDX, its body is the whole point, and the admin never renders it. Only the
- * frontmatter above the body is reachable from here — the prose stays a thing
- * you write in git, which is decision 6 in `docs/DECISIONS.md`.
- *
- * Returns `null` when the file already said exactly this.
- */
-export async function patchCaseStudy(
+/** Change some of a case study's structured fields. */
+export function patchCaseStudy(
   slug: string,
   changes: Partial<CaseStudyFields>,
-  message: string
-): Promise<CommitResult | null> {
-  const path = caseStudyPath(slug);
-  const file = await readFile(path);
-
-  let next = file.text;
-  for (const [key, value] of Object.entries(changes)) {
-    if (value === undefined || value === '') next = removeFrontmatterField(next, key);
-    else if (Array.isArray(value)) next = setFrontmatterList(next, key, value);
-    else next = setFrontmatterField(next, key, value as Scalar);
-  }
-
-  if (next === file.text) return null;
-  return commitFile({ path, content: next, message, sha: file.sha });
+): Promise<WriteResult> {
+  return write('case_studies', slug, 'patch', { fields: { ...changes } });
 }
+
+/** Replace a case study's prose. */
+export function setCaseStudyBody(slug: string, body: string): Promise<WriteResult> {
+  return write('case_studies', slug, 'patch', { body });
+}
+
+/* ---------- singleton documents ---------- */
+
+/**
+ * Save the resume body.
+ *
+ * A patch on one row of `documents`, holding the whole document as JSON. The
+ * editor has always written the resume whole — it used to regenerate all of
+ * `src/lib/resume.ts` and commit that — so a partial update was never a thing
+ * this needed to express.
+ *
+ * Identity fields are not sent and must not be: name, email, phone and address
+ * come from `src/lib/site.ts` and are composed back on read.
+ */
+export function saveResume(document: ResumeDocument): Promise<WriteResult> {
+  return write('documents', RESUME_KEY, 'patch', { fields: { json: JSON.stringify(document) } });
+}
+
+/* ---------- import ---------- */
 
 /**
  * Repository metadata as project fields, as far as it goes.
  *
  * Seven of the nine required fields have an honest answer on GitHub. The two
  * that do not — `category`, a seven-value enum, and `highlights`, prose — are
- * why importing opens a form instead of committing straight away.
+ * why importing opens a form instead of saving straight away.
  */
 export function fieldsFromRepo(
   repo: {
@@ -421,7 +358,7 @@ export function fieldsFromRepo(
     pushedAt: string;
     archived: boolean;
   },
-  languages: string[]
+  languages: string[],
 ): ProjectFields {
   return {
     title: repo.name,

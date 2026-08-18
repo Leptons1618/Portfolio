@@ -11,14 +11,14 @@
  * beside them, and the case study in the same place rather than behind a
  * select that only ever said "linked".
  *
- * Prerendered per project, hidden ones included — `getProjects(true)`, the
- * same rule the list screen follows. Everything it commits goes through
+ * Read from D1 per request, hidden ones included — `getProjects(db, true)`,
+ * the same rule the list screen follows. Everything it commits goes through
  * `content-store.ts`.
  */
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import Illustration from '../../../components/Illustration.astro';
 import { Icon } from 'astro-icon/components';
-import { getCaseStudies, getProjects } from '../../../lib/content';
+import { getCaseStudies, getProject } from '../../../lib/content';
 import {
   PROJECT_CATEGORIES,
   PROJECT_STATUSES,
@@ -29,23 +29,16 @@ import {
 } from '../../../lib/content-store';
 import { parseRepoUrl } from '../../../lib/github';
 
-export async function getStaticPaths() {
-  const projects = await getProjects(true);
-  const caseStudies = await getCaseStudies();
+export const prerender = false;
 
-  return projects.map(project => ({
-    params: { slug: project.slug },
-    props: {
-      project,
-      /* The whole list, not just the linked one: the select below offers every
-         case study, and a page that only knew its own could not re-point. */
-      caseStudies,
-    },
-  }));
-}
+const { DB } = Astro.locals.runtime.env;
+const slug = Astro.params.slug ?? '';
+const project = slug ? await getProject(DB, slug, true) : undefined;
+if (!project) return new Response(null, { status: 404 });
 
-const { project, caseStudies } = Astro.props;
-const { slug } = Astro.params;
+/* The whole list, not just the linked one: the select below offers every case
+   study, and a page that only knew its own could not re-point. */
+const caseStudies = await getCaseStudies(DB);
 const fields = project.data;
 
 const { owner, name: repoName } = parseRepoUrl(fields.repoUrl);
@@ -250,7 +243,7 @@ const STATUS_VARIANT: Record<string, string> = {
         <section class="card elev-sm">
           <h6 class="admin-eyebrow">Danger Zone</h6>
           <p class="text-muted admin-note">
-            Deleting commits a removal of <code>{projectPath(slug)}</code>. The file stays
+            Deleting removes the row <code>{projectPath(slug)}</code>. Nothing stays
             in the history, so a revert brings it back. A linked case study is left alone.
           </p>
           <button type="button" class="btn btn-secondary btn-block pm-danger" id="pd-delete">
@@ -522,7 +515,7 @@ const STATUS_VARIANT: Record<string, string> = {
     fillProject(seed.project);
     $<HTMLButtonElement>('pf-reset').addEventListener('click', () => {
       fillProject(seed.project);
-      say(pageMessage, 'Reverted to what is on the default branch.');
+      say(pageMessage, 'Reverted to what is saved.');
     });
 
     const saveProject = $<HTMLButtonElement>('pf-save');
@@ -533,19 +526,15 @@ const STATUS_VARIANT: Record<string, string> = {
       if (typeof fields === 'string') return say(pageMessage, fields, 'error');
 
       saveProject.disabled = true;
-      say(pageMessage, 'Committing…');
+      say(pageMessage, 'Saving…');
       try {
         /* `hidden` and `caseStudySlug` are deliberately not in this patch: the
            first belongs to the switch above, the second to the section below.
            Writing either here would add a line to a hand-authored file the
            first time anyone edited a summary. */
-        const result = await patchProject(seed.slug, fields, `content(projects): update ${seed.slug}`);
-        if (result) {
-          sayLink(pageMessage, 'Committed. Live after the next build', result.url);
-          seed.project = { ...fields, hidden: seed.project.hidden, caseStudySlug: seed.project.caseStudySlug };
-        } else {
-          say(pageMessage, 'Nothing changed — the file already says exactly this.');
-        }
+        const result = await patchProject(seed.slug, fields);
+        sayLink(pageMessage, 'Saved. Live now', result.url);
+        seed.project = { ...fields, hidden: seed.project.hidden, caseStudySlug: seed.project.caseStudySlug };
       } catch (error) {
         say(pageMessage, message(error), 'error');
       } finally {
@@ -568,15 +557,11 @@ const STATUS_VARIANT: Record<string, string> = {
         toggle.disabled = true;
         say(pageMessage, visible ? 'Publishing…' : 'Hiding…');
         try {
-          const result = await patchProject(
-            seed.slug,
-            { hidden: !visible },
-            `content(projects): ${visible ? 'show' : 'hide'} ${seed.slug}`
-          );
+          const result = await patchProject(seed.slug, { hidden: !visible });
           seed.project.hidden = !visible;
           visibilityFlag.textContent = visible ? 'visible' : 'hidden';
-          if (result) sayLink(pageMessage, visible ? 'Visible after the next build' : 'Hidden after the next build', result.url);
-          else say(pageMessage, 'Already in that state on the default branch.');
+          if (visible) sayLink(pageMessage, 'Visible now', result.url);
+          else say(pageMessage, 'Hidden — its page now 404s.');
         } catch (error) {
           toggle.setAttribute('aria-checked', String(!visible));
           say(pageMessage, message(error), 'error');
@@ -649,18 +634,12 @@ const STATUS_VARIANT: Record<string, string> = {
     const csMessage = $('cs-message');
     const linkedSlug = document.getElementById('pd-case-study')!.dataset.slug;
 
-    /* Both halves of this section commit `caseStudySlug` on the *project*, and
-       neither can show its result without a rebuild — the page below is
-       prerendered from a file that has only just changed. Reloading is the
-       honest end of both. */
+    /* Both halves of this section write `caseStudySlug` on the *project*, and
+       this page renders from that row — so reloading is what shows the result.
+       It is a reload rather than a rebuild now, which is the whole point. */
     async function relink(next: string | undefined, verb: string) {
-      const result = await patchProject(
-        seed.slug,
-        { caseStudySlug: next },
-        `content(projects): ${verb} ${seed.slug}`
-      );
-      if (result) sayLink(csMessage, 'Committed. This page catches up after the next build', result.url);
-      else say(csMessage, 'The project already pointed there.');
+      const result = await patchProject(seed.slug, { caseStudySlug: next });
+      sayLink(csMessage, `Saved (${verb}). Reload to see this page catch up`, result.url);
     }
 
     if (linkedSlug) {
@@ -706,7 +685,7 @@ const STATUS_VARIANT: Record<string, string> = {
       fillCaseStudy(seed.caseStudy!.data);
       $<HTMLButtonElement>('cs-reset').addEventListener('click', () => {
         fillCaseStudy(seed.caseStudy!.data);
-        say(csMessage, 'Reverted to what is on the default branch.');
+        say(csMessage, 'Reverted to what is saved.');
       });
 
       const saveStudy = $<HTMLButtonElement>('cs-save');
@@ -719,7 +698,7 @@ const STATUS_VARIANT: Record<string, string> = {
         if (!study.date.value) return say(csMessage, 'A date is required — it is what orders the listing.', 'error');
 
         saveStudy.disabled = true;
-        say(csMessage, 'Committing…');
+        say(csMessage, 'Saving…');
         try {
           const changes: Partial<CaseStudyFields> = {
             title,
@@ -736,17 +715,9 @@ const STATUS_VARIANT: Record<string, string> = {
             architectureImage: study.architecture.value.trim() || undefined,
           };
 
-          const result = await patchCaseStudy(
-            linkedSlug,
-            changes,
-            `content(case-studies): update ${linkedSlug}`
-          );
-          if (result) {
-            sayLink(csMessage, 'Committed. Live after the next build', result.url);
-            seed.caseStudy = { slug: linkedSlug, data: { ...seed.caseStudy!.data, ...changes } };
-          } else {
-            say(csMessage, 'Nothing changed — the file already says exactly this.');
-          }
+          const result = await patchCaseStudy(linkedSlug, changes);
+          sayLink(csMessage, 'Saved. Live now', result.url);
+          seed.caseStudy = { slug: linkedSlug, data: { ...seed.caseStudy!.data, ...changes } };
         } catch (error) {
           say(csMessage, message(error), 'error');
         } finally {
