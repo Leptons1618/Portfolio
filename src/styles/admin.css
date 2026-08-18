@@ -1455,3 +1455,171 @@
    the native element, which is hidden by the time it would have applied. */
 .select-auto { width: auto; }
 .select-auto .select-button { width: auto; }
+
+/* — the AI screen's provider rows —
+
+   Built with `createElement` in `src/pages/admin/ai.astro`, so these nodes
+   never carry the page's `data-astro-cid` and a scoped rule there would match
+   none of them. Same door the media library and the upload control go through:
+   markup a module owns is styled here, in the global sheet. */
+.ai-list { display: flex; flex-direction: column; gap: var(--space-3); }
+
+.ai-provider {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-3);
+  border: 1px solid var(--color-divider);
+}
+
+/* The active provider is the one that answers. Marking it on the left edge
+   rather than with a background keeps the row readable under both themes. */
+.ai-provider[data-state='active'] { border-left: 3px solid var(--color-accent); }
+
+.ai-provider-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.ai-provider-name { margin: 0; font-weight: 700; font-size: 14px; }
+
+.ai-provider-meta,
+.ai-provider-url {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.ai-provider-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.ai-provider-result {
+  margin: 0;
+  font-size: 12px;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  overflow-wrap: anywhere;
+}
+.ai-provider-result[hidden] { display: none; }
+.ai-provider-result[data-tone='error'] { color: var(--color-accent-700); }
+.ai-provider-result[data-tone='pending'] { color: var(--color-text-muted); }
+
+/* Three states, not two: "active but no key" is the one that would otherwise
+   look like it was working. */
+.ai-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 1px solid currentcolor;
+  white-space: nowrap;
+}
+.ai-badge[data-tone='on'] { color: var(--color-accent); }
+.ai-badge[data-tone='warn'] { color: var(--color-accent-700); }
+.ai-badge[data-tone='off'] { color: var(--color-text-faint); }
+
+.ai-skeleton {
+  height: 84px;
+  background: linear-gradient(
+    90deg,
+    var(--color-neutral-200) 0%,
+    var(--color-neutral-100) 50%,
+    var(--color-neutral-200) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-skeleton { animation: none; background: var(--color-neutral-200); }
+}
+
+/* A labelled checkbox, used for the public switch and for a provider's Active
+   flag. Not a `.seg`: a segmented control implies a choice between values, and
+   both of these are one thing being on or off. */
+.ai-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: var(--space-2);
+}
+.ai-switch input { width: 16px; height: 16px; accent-color: var(--color-accent); }
+.ai-switch-inline { margin-top: 26px; margin-bottom: 0; font-weight: 400; }
+
+/* — the journal writing assistant —
+
+   Rendered by `JournalEditor.astro`, but inside a `<dialog>` that shares the
+   `.modal*` band layout with every other one on this surface, so its rules live
+   beside them rather than in the component. */
+.as-tasks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.as-task {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-divider);
+  background: none;
+  color: var(--color-text);
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+.as-task:hover:not(:disabled) { border-color: var(--color-accent); }
+.as-task:disabled { opacity: 0.45; cursor: default; }
+
+.as-task-label { font-size: 13px; font-weight: 600; }
+.as-task-hint { font-size: 11px; color: var(--color-text-muted); line-height: 1.35; }
+
+.as-status { margin: 0 0 var(--space-3); font-size: 12px; }
+.as-status[data-tone='error'] { color: var(--color-accent-700); }
+
+.as-output { display: flex; flex-direction: column; gap: var(--space-3); }
+.as-output[hidden] { display: none; }
+
+/* `pre`, because the output is markdown and a diagram's source is whitespace
+   significant. It scrolls in its own box so a long draft does not push the
+   foot's buttons out of the dialog. */
+.as-text {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: var(--space-3);
+  background: var(--color-surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The rendered diagram, exactly as the uploaded file will look. */
+.as-preview {
+  padding: var(--space-3);
+  border: 1px solid var(--color-divider);
+  overflow-x: auto;
+}
+.as-preview[hidden] { display: none; }
+.as-preview svg { max-width: 100%; height: auto; display: block; margin-inline: auto; }
+
+.as-foot { flex-wrap: wrap; }
+.as-note { font-size: 11px; margin-right: auto; }
+.as-foot-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }

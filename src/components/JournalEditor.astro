@@ -21,6 +21,7 @@
  */
 import { Icon } from 'astro-icon/components';
 import { POST_STATUSES, postPath, type PostFields } from '../lib/content-store';
+import { ASSIST_MENU } from '../lib/assist-tasks';
 
 interface Props {
   /** The post being edited, or `null` for a new one. Also the row's key. */
@@ -70,6 +71,12 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
   <div class="admin-actions">
     <button type="button" class="btn btn-secondary" id="focus-toggle">Focus</button>
+    {/* The assistant drafts; it never saves. Everything it produces lands in a
+        panel with an Insert button, and the post is written by the same Save
+        this screen has always had. */}
+    <button type="button" class="btn btn-secondary" id="assist-open">
+      <Icon name="lucide:sparkles" class="admin-nav-icon" />Assist
+    </button>
     {/* This used to write `localStorage` and nothing else, which made it the
         one button on the surface whose label was a lie: the schema has a
         `draft` status, the entries list has a Draft filter, and pressing "Save
@@ -206,6 +213,72 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
   </aside>
 </div>
 
+{/* — the writing assistant —
+
+    A `<dialog>` rather than a third column, for the reason decision 12 gives
+    about screens: this is not a place you *are*, it is something you ask for
+    and then apply. `.modal-fixed` because its content arrives over the network
+    — without a held height the box would grow line by line as the model
+    streams, moving every control in the foot while the author is reading.
+
+    Everything it produces lands in the output panel and goes nowhere else. The
+    Insert button is what puts text in the post, and Save is still the only
+    thing that writes a row. */}
+<dialog class="modal modal-fixed" id="assist-dialog">
+  <form method="dialog" class="modal-head">
+    <h3 class="modal-title">Writing assistant</h3>
+    <button class="btn btn-icon" value="cancel" aria-label="Close">
+      <Icon name="lucide:x" class="admin-nav-icon" />
+    </button>
+  </form>
+
+  <div class="modal-body">
+    <div class="as-tasks" id="assist-tasks">
+      {ASSIST_MENU.map(task => (
+        <button
+          type="button"
+          class="as-task"
+          data-task={task.name}
+          data-needs-selection={task.needsSelection ? '1' : undefined}
+        >
+          <span class="as-task-label">{task.label}</span>
+          <span class="as-task-hint">{task.hint}</span>
+        </button>
+      ))}
+    </div>
+
+    <div class="field">
+      <label for="assist-instruction">Anything specific? (optional)</label>
+      <input
+        class="input"
+        id="assist-instruction"
+        placeholder="e.g. keep it under 400 words, focus on the caching part"
+      />
+    </div>
+
+    <p class="admin-note as-status" id="assist-status">
+      Pick a task. Nothing is sent until you do, and nothing is saved until you press Insert.
+    </p>
+
+    <div class="as-output" id="assist-output" hidden>
+      <pre class="as-text" id="assist-text"></pre>
+      {/* Only the diagram task fills this. The SVG is rendered in the browser
+          from the Mermaid the model returned, so what is previewed here is
+          exactly the file that would be uploaded. */}
+      <div class="as-preview" id="assist-preview" hidden></div>
+    </div>
+  </div>
+
+  <div class="modal-foot as-foot">
+    <span class="text-muted as-note" id="assist-note"></span>
+    <div class="as-foot-actions">
+      <button type="button" class="btn btn-secondary" id="assist-copy" disabled>Copy</button>
+      <button type="button" class="btn btn-secondary" id="assist-retry" disabled>Try again</button>
+      <button type="button" class="btn btn-primary" id="assist-insert" disabled>Insert</button>
+    </div>
+  </div>
+</dialog>
+
 <script is:inline type="application/json" id="journal-editor-seed" set:html={seedJson}></script>
 
 <script>
@@ -221,6 +294,18 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
   } from '../lib/content-store';
   import { getToken } from '../lib/github';
   import { attachImageUpload } from '../lib/image-upload';
+  import { copyText } from '../lib/clipboard';
+  import { runAssist } from '../lib/ai-store';
+  import { ASSIST_TASKS, isAssistTask } from '../lib/assist-tasks';
+  import {
+    DiagramError,
+    diagramMarkdown,
+    diagramName,
+    extractMermaid,
+    renderMermaid,
+    standalone,
+    uploadDiagram,
+  } from '../lib/diagram';
 
   /* One module for both screens — `/admin/journal/new` and
      `/admin/journal/<slug>` render the same component, so the difference
@@ -664,7 +749,369 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
     commitBtn.addEventListener('click', () => void save(commitBtn));
 
+    /* — the writing assistant —
+
+       Drafts, never saves. Everything below ends in text sitting in a panel
+       with an Insert button beside it; the row is still written by `save()`
+       above and by nothing else.
+
+       The one exception is the diagram task, which *does* write — an SVG into
+       the media table, through the same `/api/media` the upload control uses.
+       That asymmetry is deliberate and it matches the rule already in
+       `image-upload.ts`: an unreferenced upload is harmless, and a saved post
+       pointing at bytes that were never written is not. */
+    const assistDialog = $<HTMLDialogElement>('assist-dialog');
+    const assistOutput = $('assist-output');
+    const assistText = $('assist-text');
+    const assistPreview = $('assist-preview');
+    const assistStatus = $('assist-status');
+    const assistNote = $('assist-note');
+    const assistInstruction = $<HTMLInputElement>('assist-instruction');
+    const insertBtn = $<HTMLButtonElement>('assist-insert');
+    const copyBtn = $<HTMLButtonElement>('assist-copy');
+    const retryBtn = $<HTMLButtonElement>('assist-retry');
+    const assistOpen = $<HTMLButtonElement>('assist-open');
+
+    /* What the last run produced, and how to apply it. `apply` is set per task
+       because "insert" means four different things — replace the selection,
+       append to the body, fill a field, merge tags — and branching on the task
+       name at click time would put that knowledge in two places. */
+    let result: { text: string; apply: () => void } | null = null;
+    let lastTask: string | null = null;
+
+    /* The selection is captured when the dialog *opens*, not when Insert is
+       pressed. Opening a dialog moves focus, and a textarea that has lost focus
+       still reports its range — but the author is about to click buttons inside
+       the panel, and by the time the model has answered there is nothing left
+       to replace. Capturing once, up front, is what makes "replace the
+       selection" mean the selection they were looking at. */
+    let captured = { start: 0, end: 0, text: '' };
+
+    const setAssistStatus = (text: string, tone: 'info' | 'error' = 'info') => {
+      assistStatus.dataset.tone = tone;
+      assistStatus.textContent = text;
+    };
+
+    function captureSelection() {
+      const body = fields.body;
+      captured = {
+        start: body.selectionStart,
+        end: body.selectionEnd,
+        text: body.value.slice(body.selectionStart, body.selectionEnd),
+      };
+    }
+
+    /** Put text where the selection was. `setRangeText` keeps the undo stack. */
+    function replaceSelection(text: string) {
+      const body = fields.body;
+      body.focus();
+      body.setRangeText(text, captured.start, captured.end, 'end');
+      render();
+      holdLocally();
+    }
+
+    /** Append to the end of the body, with a blank line before it. */
+    function appendToBody(text: string) {
+      const body = fields.body;
+      const existing = body.value.replace(/\s+$/, '');
+      body.value = existing ? `${existing}\n\n${text.trim()}\n` : `${text.trim()}\n`;
+      /* Assigning `.value` fires no event, so the two things an `input`
+         listener would have done are done by hand — the same reason
+         `image-upload.ts` overrides the value setter on the field it is given. */
+      render();
+      holdLocally();
+    }
+
+    /** One item per line, with any bullet or numbering the model added stripped. */
+    const asLines = (text: string) =>
+      text
+        .split('\n')
+        .map(line => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim())
+        .filter(Boolean);
+
+    /**
+     * Turn the model's output into something applicable.
+     *
+     * Every branch returns an `apply` that touches exactly one thing, so the
+     * Insert button is never ambiguous about what it is about to change.
+     */
+    function prepare(task: string, output: string): { text: string; apply: () => void } {
+      switch (task) {
+        case 'summary':
+          return {
+            text: output.trim(),
+            apply: () => {
+              fields.summary.value = output.trim().replace(/^["']|["']$/g, '');
+              render();
+              holdLocally();
+              toast('Summary filled in.', { tone: 'success' });
+            },
+          };
+
+        case 'titles': {
+          const options = asLines(output);
+          return {
+            text: options.join('\n'),
+            apply: () => {
+              /* The first suggestion, because Insert has to do one thing. The
+                 rest stay in the panel to be copied — a picker here would be a
+                 second selection UI for a list already on screen. */
+              fields.title.value = options[0] ?? fields.title.value;
+              render();
+              holdLocally();
+              toast('Title set to the first suggestion.', { tone: 'success' });
+            },
+          };
+        }
+
+        case 'tags': {
+          const suggested = asLines(output);
+          return {
+            text: suggested.join('\n'),
+            apply: () => {
+              /* Merged with what is already there, case-insensitively, rather
+                 than replacing: the author's own tags are a deliberate choice
+                 and a suggestion is not grounds to drop them. */
+              const existing = fields.tags.value.split(',').map(t => t.trim()).filter(Boolean);
+              const seen = new Set(existing.map(t => t.toLowerCase()));
+              for (const tag of suggested) {
+                if (!seen.has(tag.toLowerCase())) {
+                  existing.push(tag);
+                  seen.add(tag.toLowerCase());
+                }
+              }
+              fields.tags.value = existing.join(', ');
+              render();
+              holdLocally();
+              toast('Tags merged in.', { tone: 'success' });
+            },
+          };
+        }
+
+        case 'alt': {
+          const [alt = '', caption = ''] = asLines(output);
+          return {
+            text: output.trim(),
+            apply: () => {
+              const url = fields.hero.value.trim();
+              appendToBody(
+                url
+                  ? `![${alt}](${url})\n*${caption}*`
+                  : `> Hero image: ${alt}\n> Caption: ${caption}`,
+              );
+              toast(
+                url ? 'Image line added to the post.' : 'Added as a note — no hero image set yet.',
+                { tone: 'info' },
+              );
+            },
+          };
+        }
+
+        case 'expand':
+        case 'tighten':
+          return {
+            text: output.trim(),
+            apply: () => {
+              replaceSelection(output.trim());
+              toast('Selection replaced.', { tone: 'success' });
+            },
+          };
+
+        default:
+          /* `outline`, and anything added to the table later. Appending is the
+             safe default: it cannot destroy what is already written. */
+          return {
+            text: output.trim(),
+            apply: () => {
+              appendToBody(output.trim());
+              toast('Added to the end of the post.', { tone: 'success' });
+            },
+          };
+      }
+    }
+
+    /**
+     * The diagram path, which is three steps rather than one.
+     *
+     * The model returns Mermaid, it is rendered here so the author sees the
+     * actual picture before committing to it, and only Insert uploads. Nothing
+     * reaches the media table until then — an unreferenced upload is harmless,
+     * but a library full of rejected drafts is still clutter.
+     */
+    async function prepareDiagram(output: string): Promise<{ text: string; apply: () => void }> {
+      const source = extractMermaid(output);
+      const svg = standalone(await renderMermaid(source));
+
+      assistPreview.hidden = false;
+      /* The one `innerHTML` in this component, and it is deliberate: the string
+         is Mermaid's own render output, produced under `securityLevel: 'strict'`
+         with `htmlLabels: false` — which is what makes every label a text node
+         rather than markup. See `src/lib/diagram.ts`. There is no other way to
+         display an SVG that was generated rather than fetched. */
+      assistPreview.innerHTML = svg;
+
+      return {
+        text: source,
+        apply: () => {
+          const name = diagramName(editing ?? slugify(fields.title.value));
+          const pending = toast('Saving the diagram…', { tone: 'pending' });
+          void uploadDiagram(svg, name, getToken() ?? '')
+            .then(url => {
+              appendToBody(
+                diagramMarkdown(url, `Diagram: ${fields.title.value || 'the system described above'}`),
+              );
+              pending.update('Diagram saved and added to the post.', {
+                tone: 'success',
+                action: { label: 'view ↗', href: url },
+              });
+            })
+            .catch(error => {
+              pending.update(
+                error instanceof Error ? error.message : 'The diagram could not be saved.',
+                { tone: 'error' },
+              );
+            });
+        },
+      };
+    }
+
+    let assisting: AbortController | null = null;
+
+    async function runTask(name: string) {
+      if (!isAssistTask(name)) return;
+      const task = ASSIST_TASKS[name];
+      lastTask = name;
+
+      /* `ASSIST_TASKS` is `as const`, so each task's `context` is a readonly
+         tuple of its own literals and the union across tasks narrows `includes`
+         to `never`. Widening here asks the question that is actually being
+         asked: does this task want a selection. */
+      const wants = task.context as readonly string[];
+      if (wants.includes('selection') && !captured.text.trim()) {
+        setAssistStatus('Select the part of the draft to work on first, then reopen this panel.', 'error');
+        return;
+      }
+
+      result = null;
+      insertBtn.disabled = true;
+      copyBtn.disabled = true;
+      retryBtn.disabled = true;
+      assistOutput.hidden = false;
+      assistPreview.hidden = true;
+      assistPreview.replaceChildren();
+      assistText.textContent = '';
+      assistNote.textContent = task.hint;
+      setAssistStatus(`${task.label}…`);
+
+      /* Only the fields this task declares. The allowlist on the task is what
+         keeps "suggest tags" from paying for the whole post body twice over. */
+      const source: Record<string, string> = {
+        title: fields.title.value,
+        summary: fields.summary.value,
+        tags: fields.tags.value,
+        body: fields.body.value,
+        selection: captured.text,
+      };
+      const context: Record<string, string> = {};
+      for (const key of task.context) context[key] = source[key] ?? '';
+
+      assisting?.abort();
+      assisting = new AbortController();
+
+      try {
+        const output = await runAssist(
+          name,
+          context,
+          assistInstruction.value,
+          {
+            onDelta: chunk => {
+              assistText.textContent += chunk;
+              assistText.scrollTop = assistText.scrollHeight;
+            },
+          },
+          assisting.signal,
+        );
+
+        if (!output.trim()) throw new Error('The model returned nothing.');
+
+        setAssistStatus('Reading it back…');
+        result = name === 'diagram' ? await prepareDiagram(output) : prepare(name, output);
+
+        /* The parsed form, which for a diagram is the Mermaid source rather
+           than the fenced block it arrived wrapped in. Showing what will
+           actually be used beats showing what arrived. */
+        assistText.textContent = result.text;
+        insertBtn.disabled = false;
+        copyBtn.disabled = false;
+        retryBtn.disabled = false;
+        setAssistStatus('Ready. Insert puts it in the post; nothing is saved until you press Save.');
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
+        const text =
+          error instanceof DiagramError || error instanceof Error
+            ? error.message
+            : 'The assistant failed.';
+        setAssistStatus(text, 'error');
+        retryBtn.disabled = false;
+        toast(text, { tone: 'error' });
+      }
+    }
+
+    const taskButtons = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('#assist-tasks .as-task'),
+    );
+
+    taskButtons.forEach(button => {
+      button.addEventListener('click', () => void runTask(button.dataset.task ?? ''));
+    });
+
+    retryBtn.addEventListener('click', () => {
+      if (lastTask) void runTask(lastTask);
+    });
+
+    insertBtn.addEventListener('click', () => {
+      result?.apply();
+      assistDialog.close();
+    });
+
+    copyBtn.addEventListener('click', () => {
+      if (result) void copyText(result.text).then(() => toast('Copied.', { tone: 'success' }));
+    });
+
+    assistOpen.addEventListener('click', () => {
+      captureSelection();
+      /* Tasks needing a selection are disabled rather than hidden, so the panel
+         does not change shape depending on where the caret happened to be. */
+      taskButtons.forEach(button => {
+        const needs = button.dataset.needsSelection === '1';
+        button.disabled = needs && !captured.text.trim();
+        button.title = button.disabled ? 'Select some text in the draft first.' : '';
+      });
+      setAssistStatus(
+        captured.text.trim()
+          ? `Working from ${captured.text.trim().length} selected characters.`
+          : 'Pick a task. Nothing is sent until you do, and nothing is saved until you press Insert.',
+      );
+      assistDialog.showModal();
+    });
+
+    /* Backdrop click — the one dismissal a `<dialog>` does not give for free.
+       A run still in flight is abandoned rather than left billing in the
+       background with nobody watching. */
+    assistDialog.addEventListener('click', event => {
+      if (event.target === assistDialog) assistDialog.close();
+    });
+    assistDialog.addEventListener('close', () => assisting?.abort());
+
+    /* Same rule as the save buttons: the endpoint asks GitHub who is calling,
+       so a signed-out screen says so rather than offering a button that 401s. */
+    if (!getToken()) {
+      assistOpen.disabled = true;
+      assistOpen.title = 'Sign in with GitHub to use the assistant.';
+    }
+
     const shell = document.getElementById('admin-shell')!;
+
     const focusBtn = $<HTMLButtonElement>('focus-toggle');
     focusBtn.addEventListener('click', () => {
       const on = shell.classList.toggle('is-focus');

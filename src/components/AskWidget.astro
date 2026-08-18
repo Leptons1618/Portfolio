@@ -1,0 +1,662 @@
+---
+/**
+ * The public assistant, as a launcher and a panel.
+ *
+ * Mounted by `BaseLayout` on every public page, and it is the only piece of
+ * JavaScript on this site that talks to a server. Three things shape how it is
+ * built, all of them consequences of the architecture rather than preferences:
+ *
+ *   - **The markup is server-rendered and starts hidden.** Public pages are
+ *     prerendered static assets, so this HTML costs nothing and is already
+ *     there. Whether the assistant is *switched on* is a row, which a
+ *     prerendered page cannot read — so the launcher unhides itself after
+ *     `/api/ai/status` says it should, once per session. `src/pages/api/ai/
+ *     status.ts` has the reasoning about that request's cost.
+ *   - **Nothing is inserted as HTML.** Answers come from a language model and
+ *     transcripts are echoed back into the page; every one of them is written
+ *     as a text node. The tiny markdown pass below produces *elements*, built
+ *     with `createElement`, never a string handed to `innerHTML`.
+ *   - **It degrades to nothing.** No JavaScript, no launcher — and the site is
+ *     unchanged, because nothing else on the page depends on it.
+ *
+ * The panel is a `<dialog>` on small screens' terms and a docked card on large
+ * ones, which is one element and one media query rather than two components.
+ */
+import { Icon } from 'astro-icon/components';
+import { site } from '../lib/site';
+
+const firstName = site.name.split(' ')[0];
+---
+<div class="ask" id="ask-root" hidden>
+  <button
+    type="button"
+    class="ask-launcher"
+    id="ask-launcher"
+    aria-expanded="false"
+    aria-controls="ask-panel"
+  >
+    <Icon name="lucide:message-circle" class="ask-launcher-icon" />
+    <span class="ask-launcher-label">Ask about {firstName}</span>
+  </button>
+
+  <section
+    class="ask-panel"
+    id="ask-panel"
+    role="dialog"
+    aria-label={`Ask about ${site.name}`}
+    aria-modal="false"
+    hidden
+  >
+    <header class="ask-head">
+      <div>
+        <p class="ask-title">Ask about {firstName}</p>
+        <p class="ask-sub">Answers come from this site's own pages.</p>
+      </div>
+      <button type="button" class="ask-close" id="ask-close" aria-label="Close">
+        <Icon name="lucide:x" class="ask-close-icon" />
+      </button>
+    </header>
+
+    {/* `aria-live="polite"` rather than `assertive`: an answer arriving is
+        worth announcing, and interrupting whatever a screen reader is in the
+        middle of to do it is not. */}
+    <div class="ask-log" id="ask-log" role="log" aria-live="polite" aria-relevant="additions"></div>
+
+    <div class="ask-suggestions" id="ask-suggestions" hidden></div>
+
+    <form class="ask-form" id="ask-form">
+      <label class="ask-visually-hidden" for="ask-input">Your question</label>
+      <textarea
+        class="ask-input"
+        id="ask-input"
+        rows="1"
+        placeholder="Ask a question…"
+        autocomplete="off"
+      ></textarea>
+      <button type="submit" class="ask-send" id="ask-send" aria-label="Send">
+        <Icon name="lucide:arrow-up" class="ask-send-icon" />
+      </button>
+    </form>
+
+    <p class="ask-foot">
+      This is a language model reading published pages. It can be wrong — the
+      pages themselves are the record.
+    </p>
+  </section>
+</div>
+
+<script>
+  /* No `onAdminPage` here: public pages are plain MPA, so this module is
+     evaluated once per document load and there is no persisted DOM to guard
+     against. */
+  const mounted = document.getElementById('ask-root');
+  if (mounted) {
+    /* Aliased to a definitely-non-null const: the hoisted function declarations
+       below close over it, and TypeScript will not carry a narrowing into a
+       hoisted declaration — it has to assume the function could be called
+       before the check ran. */
+    const root: HTMLElement = mounted;
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+    const launcher = $<HTMLButtonElement>('ask-launcher');
+    const panel = $('ask-panel');
+    const log = $('ask-log');
+    const form = $<HTMLFormElement>('ask-form');
+    const input = $<HTMLTextAreaElement>('ask-input');
+    const send = $<HTMLButtonElement>('ask-send');
+    const suggestions = $('ask-suggestions');
+
+    const STATUS_KEY = 'om-ask-status';
+
+    interface Status {
+      enabled: boolean;
+      greeting: string;
+      suggestions: string[];
+      maxQuestionChars: number;
+    }
+
+    /**
+     * Ask the server once per browser session whether to appear at all.
+     *
+     * Cached in `sessionStorage` because the alternative is one Worker
+     * invocation per page view on a site whose pages are otherwise served as
+     * static assets without waking the Worker at all. A visitor reading eight
+     * pages costs one request instead of eight, and the staleness window is a
+     * single tab's lifetime — during which the only thing that could have
+     * changed is the owner toggling their own switch.
+     */
+    async function readStatus(): Promise<Status | null> {
+      try {
+        const cached = sessionStorage.getItem(STATUS_KEY);
+        if (cached) return JSON.parse(cached) as Status;
+      } catch {
+        /* Private browsing, or a corrupt entry. Falling through to the network
+           is correct in both cases. */
+      }
+
+      try {
+        const response = await fetch('/api/ai/status');
+        if (!response.ok) return null;
+        const status = (await response.json()) as Status;
+        try {
+          sessionStorage.setItem(STATUS_KEY, JSON.stringify(status));
+        } catch {
+          /* Storage refused. The feature still works, it just asks again. */
+        }
+        return status;
+      } catch {
+        return null;
+      }
+    }
+
+    /* — rendering —
+
+       Every node here is created and filled with `textContent`. The one place
+       that would be tempting to shortcut is the answer, which arrives as
+       markdown-ish prose from a model — and that is precisely the string that
+       must never reach a parser. */
+
+    type Role = 'user' | 'assistant';
+
+    function bubble(role: Role): HTMLElement {
+      const wrap = document.createElement('div');
+      wrap.className = 'ask-turn';
+      wrap.dataset.role = role;
+      const body = document.createElement('div');
+      body.className = 'ask-bubble';
+      wrap.append(body);
+      log.append(wrap);
+      log.scrollTop = log.scrollHeight;
+      return body;
+    }
+
+    /**
+     * A deliberately small markdown pass: paragraphs, bullets, bold, code, and
+     * links **only to this site**.
+     *
+     * The link restriction is the interesting rule. The model is instructed to
+     * cite pages by path, and a path is safe to turn into an anchor. An
+     * absolute URL is not — a model that has been talked into emitting one
+     * would otherwise get a clickable link out of this site, rendered in the
+     * site's own chrome, which is a phishing primitive rather than a feature.
+     * So anything that is not a same-origin path stays as text.
+     */
+    function renderAnswer(target: HTMLElement, text: string) {
+      target.replaceChildren();
+
+      for (const block of text.split(/\n{2,}/)) {
+        const trimmed = block.trim();
+        if (!trimmed) continue;
+
+        if (/^[-*]\s/m.test(trimmed)) {
+          const ul = document.createElement('ul');
+          for (const line of trimmed.split('\n')) {
+            const item = line.replace(/^\s*[-*]\s+/, '').trim();
+            if (!item) continue;
+            const li = document.createElement('li');
+            inline(li, item);
+            ul.append(li);
+          }
+          target.append(ul);
+          continue;
+        }
+
+        const p = document.createElement('p');
+        inline(p, trimmed.replace(/\n/g, ' '));
+        target.append(p);
+      }
+    }
+
+    /** Bold, inline code, and site-relative links — as elements, never markup. */
+    function inline(parent: HTMLElement, text: string) {
+      const pattern = /\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]]+)\]\((\/[^)\s]*)\)|(\/(?:projects|case-studies|journal|about|resume)\/?[a-z0-9-]*)/g;
+      let last = 0;
+      let match: RegExpExecArray | null;
+
+      while ((match = pattern.exec(text)) !== null) {
+        if (match.index > last) {
+          parent.append(document.createTextNode(text.slice(last, match.index)));
+        }
+        if (match[1] !== undefined) {
+          const strong = document.createElement('strong');
+          strong.textContent = match[1];
+          parent.append(strong);
+        } else if (match[2] !== undefined) {
+          const code = document.createElement('code');
+          code.textContent = match[2];
+          parent.append(code);
+        } else if (match[3] !== undefined && match[4] !== undefined) {
+          const a = document.createElement('a');
+          /* Assigning `href` with a value that begins `/` cannot become another
+             scheme; the regex above is what guarantees it begins `/`. */
+          a.href = match[4];
+          a.textContent = match[3];
+          parent.append(a);
+        } else if (match[5] !== undefined) {
+          const a = document.createElement('a');
+          a.href = match[5];
+          a.textContent = match[5];
+          parent.append(a);
+        }
+        last = pattern.lastIndex;
+      }
+
+      if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+    }
+
+    function note(text: string, tone: 'info' | 'error' = 'info') {
+      const p = document.createElement('p');
+      p.className = 'ask-note';
+      p.dataset.tone = tone;
+      p.textContent = text;
+      log.append(p);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    /* — conversation —
+
+       Held in memory only. Nothing about a visitor's questions is stored, here
+       or on the server; the rate-limit table counts requests against a salted
+       hash and holds no text at all. Closing the tab is the end of it. */
+    const history: { role: Role; content: string }[] = [];
+    let busy = false;
+    let inFlight: AbortController | null = null;
+
+    async function ask(question: string) {
+      if (busy || !question.trim()) return;
+      busy = true;
+      send.disabled = true;
+
+      history.push({ role: 'user', content: question });
+      bubble('user').textContent = question;
+      suggestions.hidden = true;
+
+      const target = bubble('assistant');
+      target.dataset.state = 'thinking';
+      target.textContent = '…';
+
+      inFlight = new AbortController();
+      let answer = '';
+
+      try {
+        const response = await fetch('/api/ai/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: history }),
+          signal: inFlight.signal,
+        });
+
+        if (!response.ok) {
+          const data = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(data.error ?? 'The assistant could not answer.');
+        }
+        if (!response.body) throw new Error('The assistant returned nothing.');
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          /* The tail is almost always a half-received JSON object; keeping it
+             for the next chunk is the difference between smooth text and a
+             model that appears to stutter. */
+          buffer = lines.pop() ?? '';
+
+          for (const raw of lines) {
+            if (!raw.trim()) continue;
+            let frame: { delta?: string; error?: string };
+            try {
+              frame = JSON.parse(raw);
+            } catch {
+              continue;
+            }
+            if (frame.error) throw new Error(frame.error);
+            if (frame.delta) {
+              answer += frame.delta;
+              target.dataset.state = 'streaming';
+              renderAnswer(target, answer);
+              log.scrollTop = log.scrollHeight;
+            }
+          }
+        }
+
+        if (!answer.trim()) throw new Error('The assistant had nothing to say.');
+        target.dataset.state = 'done';
+        history.push({ role: 'assistant', content: answer });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          /* The visitor closed the panel mid-answer. Not a failure, and the
+             half-written bubble goes with it. */
+          target.closest('.ask-turn')?.remove();
+        } else {
+          target.closest('.ask-turn')?.remove();
+          note(error instanceof Error ? error.message : 'Something went wrong.', 'error');
+          /* Drop the question too, so a retry is not counted as a follow-up to
+             a turn that never got an answer. */
+          history.pop();
+        }
+      } finally {
+        busy = false;
+        send.disabled = false;
+        inFlight = null;
+        input.focus();
+      }
+    }
+
+    /* — panel — */
+
+    let opened = false;
+
+    function openPanel(status: Status) {
+      panel.hidden = false;
+      launcher.setAttribute('aria-expanded', 'true');
+      root.dataset.open = '1';
+
+      if (!opened) {
+        opened = true;
+        note(status.greeting);
+        if (status.suggestions.length) {
+          suggestions.hidden = false;
+          for (const text of status.suggestions) {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'ask-chip';
+            chip.textContent = text;
+            chip.addEventListener('click', () => {
+              input.value = '';
+              void ask(text);
+            });
+            suggestions.append(chip);
+          }
+        }
+      }
+      input.focus();
+    }
+
+    function closePanel() {
+      panel.hidden = true;
+      launcher.setAttribute('aria-expanded', 'false');
+      delete root.dataset.open;
+      /* An answer nobody will read is an answer nobody should pay for — the
+         server's stream `cancel()` releases the upstream reader, which is what
+         actually stops the tokens. */
+      inFlight?.abort();
+      launcher.focus();
+    }
+
+    void (async () => {
+      const status = await readStatus();
+      if (!status?.enabled) return;
+
+      root.hidden = false;
+      input.maxLength = status.maxQuestionChars;
+
+      launcher.addEventListener('click', () => {
+        if (panel.hidden) openPanel(status);
+        else closePanel();
+      });
+      $<HTMLButtonElement>('ask-close').addEventListener('click', closePanel);
+
+      document.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !panel.hidden) closePanel();
+      });
+
+      form.addEventListener('submit', event => {
+        event.preventDefault();
+        const question = input.value.trim();
+        input.value = '';
+        input.style.height = '';
+        void ask(question);
+      });
+
+      /* Enter sends, Shift+Enter is a newline — the convention every chat box
+         follows, and the reason the field is a textarea rather than an input. */
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          form.requestSubmit();
+        }
+      });
+
+      /* Grow with the question, up to a point. Reset first: without it the
+         field can only ever get taller. */
+      input.addEventListener('input', () => {
+        input.style.height = 'auto';
+        input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+      });
+    })();
+  }
+</script>
+
+<style>
+  /* Everything here is tokens. A hard-coded colour in this component would be a
+     panel that stays Modernist-coloured under Blueprint — the launcher floats
+     over every page on the site, so it would be the most visible place on it
+     for that to go wrong. */
+  .ask {
+    position: fixed;
+    right: var(--space-4);
+    bottom: var(--space-4);
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--space-2);
+  }
+
+  .ask-launcher {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-divider);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 12px rgb(0 0 0 / 12%);
+  }
+
+  .ask-launcher:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  .ask-launcher-icon { width: 16px; height: 16px; }
+
+  /* The launcher is redundant while the panel is open, and on a phone it sits
+     on top of it. */
+  .ask[data-open] .ask-launcher { display: none; }
+
+  .ask-panel {
+    display: flex;
+    flex-direction: column;
+    width: min(380px, calc(100vw - var(--space-4) * 2));
+    height: min(560px, calc(100dvh - var(--space-8)));
+    background: var(--color-bg);
+    border: 1px solid var(--color-divider);
+    box-shadow: 0 8px 40px rgb(0 0 0 / 18%);
+  }
+
+  .ask-panel[hidden] { display: none; }
+
+  .ask-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--color-divider);
+  }
+
+  .ask-title { margin: 0; font-size: 14px; font-weight: 700; }
+  .ask-sub { margin: 2px 0 0; font-size: 11px; color: var(--color-text-muted); }
+
+  .ask-close {
+    border: 0;
+    background: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    padding: 2px;
+  }
+  .ask-close:hover { color: var(--color-accent); }
+  .ask-close-icon { width: 16px; height: 16px; }
+
+  .ask-log {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .ask-turn { display: flex; }
+  .ask-turn[data-role='user'] { justify-content: flex-end; }
+
+  .ask-bubble {
+    max-width: 85%;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-divider);
+  }
+
+  .ask-turn[data-role='user'] .ask-bubble {
+    background: var(--color-surface);
+    border-color: var(--color-surface);
+  }
+
+  .ask-bubble :global(p) { margin: 0 0 var(--space-2); }
+  .ask-bubble :global(p:last-child) { margin-bottom: 0; }
+  .ask-bubble :global(ul) { margin: 0 0 var(--space-2); padding-left: 18px; }
+  .ask-bubble :global(li) { list-style: disc; }
+  .ask-bubble :global(a) { color: var(--color-accent); text-underline-offset: 2px; }
+  .ask-bubble :global(code) {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--color-surface);
+    padding: 1px 4px;
+  }
+
+  /* The three dots while the first token is still in the post. Opacity rather
+     than a spinner: it is one character wide and belongs in the text flow. */
+  .ask-bubble[data-state='thinking'] {
+    color: var(--color-text-muted);
+    animation: ask-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes ask-pulse {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ask-bubble[data-state='thinking'] { animation: none; opacity: 0.6; }
+  }
+
+  .ask-note {
+    margin: 0;
+    font-size: 12px;
+    color: var(--color-text-muted);
+  }
+  .ask-note[data-tone='error'] { color: var(--color-accent-700); }
+
+  .ask-suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    padding: 0 var(--space-3) var(--space-2);
+  }
+
+  .ask-chip {
+    border: 1px solid var(--color-divider);
+    background: none;
+    color: var(--color-text-muted);
+    font-family: var(--font-body);
+    font-size: 11px;
+    padding: 4px 8px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .ask-chip:hover { border-color: var(--color-accent); color: var(--color-accent); }
+
+  .ask-form {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border-top: 1px solid var(--color-divider);
+  }
+
+  .ask-input {
+    flex: 1;
+    resize: none;
+    border: 1px solid var(--color-divider);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 13px;
+    line-height: 1.5;
+    padding: var(--space-2);
+    max-height: 140px;
+  }
+  .ask-input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -1px; }
+
+  .ask-send {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    flex: none;
+    border: 1px solid var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-bg);
+    cursor: pointer;
+  }
+  .ask-send:disabled { opacity: 0.5; cursor: default; }
+  .ask-send-icon { width: 16px; height: 16px; }
+
+  .ask-foot {
+    margin: 0;
+    padding: 0 var(--space-3) var(--space-3);
+    font-size: 10px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+  }
+
+  .ask-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* On a phone the panel is the screen. Anchoring it to all four insets rather
+     than sizing it means it cannot be pushed off by the address bar. */
+  @media (max-width: 520px) {
+    .ask[data-open] {
+      inset: 0;
+      right: 0;
+      bottom: 0;
+    }
+    .ask[data-open] .ask-panel {
+      width: 100%;
+      height: 100%;
+    }
+  }
+
+  @media print {
+    .ask { display: none; }
+  }
+</style>

@@ -12,6 +12,129 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+
+- **An AI assistant, in two halves that share one credential and nothing else.**
+
+  **On the public site**, a launcher in the corner of every page opens a panel
+  that answers questions about the owner — projects, writing, background. It
+  answers *only* from what the site has published: `buildCorpus()` builds its
+  reference from visible projects, case studies, published posts and the
+  resume, and re-applies those visibility filters on what it is handed rather
+  than trusting the route that fetched them. A hidden project or a draft post
+  cannot be extracted by any prompt, because it is never in the context. Email,
+  phone and address are not in there either.
+
+  **In the journal editor**, an Assist panel with eight tasks: draft an outline,
+  expand or tighten the selection, write the summary, suggest titles, suggest
+  tags, draw a diagram, describe the hero image. Everything it produces lands
+  beside an Insert button — it never writes a row, and Save is still the only
+  thing that does.
+
+  **Ships off.** `migrations/0004_ai.sql` seeds `enabled: false` and no key, so
+  a fresh database has an assistant that is configured, documented, and not
+  answering anyone.
+
+- **`/admin/ai` — providers, keys, limits and the public switch.** Any endpoint
+  speaking the OpenAI chat-completions shape: OpenRouter, OpenAI, Groq,
+  Together, DeepSeek, a local server. Each row is a base URL, a model, an
+  optional separate model for the writing assistant, a key, an `active` flag and
+  a priority — and more than one active row is a *fallback*, walked when the
+  first refuses or times out, so a vendor having an afternoon is not a visitor
+  seeing an error.
+
+  **The key is write-only from that screen.** It is stored in `ai_providers` so
+  that adding a provider needs no deploy, and the listing returns a fingerprint
+  (`sk-o…cdef`) and never the key itself. The field renders empty with that
+  fingerprint as its placeholder, and a blank field is *omitted* from the save
+  rather than written — otherwise editing a provider's model would silently
+  delete its credential and the failure would surface later, to a visitor.
+  Removing a key is a separate button. Decision 22 argues the trade against a
+  Worker secret rather than assuming it.
+
+  A **Test** button sends one eight-token completion, deliberately a real
+  inference call rather than `GET /models` — that succeeds on several providers
+  with a key that is not entitled to infer, which is a green tick in front of a
+  broken assistant.
+
+- **A budget, not a prompt, is what guards the public endpoint.**
+  `POST /api/ai/chat` is the first route on this site that is unauthenticated
+  *and* spends money, and decision 23 is explicit about which of its three
+  defences actually hold. Per-visitor hourly and site-wide daily counters in a
+  new `ai_rate` table, charged before the model is called and not refunded on
+  failure — the failure being defended against is a loop, and a loop that errors
+  upstream is still a loop. The increment is a single
+  `INSERT … ON CONFLICT DO UPDATE … RETURNING`, so two simultaneous requests
+  cannot both read 14 and both write 15. IPs are hashed with a daily salt, so
+  the table is a counter and never a log. Question length, conversation depth
+  and answer length are all capped, and `clampSettings()` re-caps every number
+  on read so the settings form cannot lift its own ceiling.
+
+- **Diagrams as SVG files, not a parser on every page.** The assistant writes
+  Mermaid, the admin renders it in the browser, and the SVG goes into the
+  existing `media` table — `image/svg+xml` was already an accepted upload type,
+  so this needed no new route, no new validator and no new limit. The post then
+  references a normal image at a `/media/…` path. Mermaid is dynamically
+  imported and admin-only: `npm run build` confirms a public page's only script
+  is the 4 KB chat widget. Decision 25 has the two rejected alternatives and why
+  `securityLevel: 'strict'` is load-bearing rather than a default.
+
+- **`npm run check:ai`** — 35 assertions on the parts of this that would fail
+  silently: that an API key cannot reach the admin listing (checked against the
+  *serialised* payload, because that is what leaves the Worker), that a hidden
+  project and a draft post are dropped from the corpus whatever the caller
+  passes in, that contact details are not in it, that the settings form cannot
+  raise its own limits, that `enabled` is `=== true` and never merely truthy,
+  that a `system` role cannot be smuggled in through the history, and that the
+  assist task list is closed. It deliberately does *not* assert that the scope
+  prompt makes a model refuse an off-topic question — that is a property of a
+  third party's weights, not of this code.
+
+  It needs `scripts/ts-resolve.mjs`, a small resolve hook that lets plain Node
+  follow this repo's extensionless imports. The alternatives were changing a
+  compiler setting to suit a test, or giving the tests their own copies of the
+  modules.
+
+### Changed
+
+- **`ai_providers` writes go through `POST /api/content`**, against the same
+  tested column allowlist in `content-schema.ts` as every other table. There is
+  one write endpoint on this site and it has one test; this feature did not add
+  a second. `GET /api/ai/providers` exists only because the *read* carries an
+  invariant a generic endpoint cannot — the key must never be on the wire.
+
+- **The assistant's settings are a second `documents` singleton**
+  (`ai-assistant`), not a table. One JSON row read by two endpoints and written
+  whole by one screen — the same shape, and the same reasoning, as the resume.
+
+- **`src/lib/diagram.ts` takes the GitHub token as a parameter** rather than
+  importing `github.ts`, which reads `import.meta.env` at module scope and would
+  make the file unloadable outside a bundler. Its pure half is what `check:ai`
+  tests.
+
+- **`docs/FEATURES.md`'s checks table was stale** from the D1 migration — it
+  described `npm run build` as running Zod validation and listed a
+  `check:frontmatter` command that no longer exists. Corrected while adding the
+  `check:ai` row.
+
+### Fixed
+
+- **A theme token cannot be read back as a colour, and the diagram exporter was
+  about to prove it.** `getComputedStyle(root).getPropertyValue('--color-divider')`
+  returns the literal string `color-mix(in srgb, #201e1d 40%, transparent)` — an
+  unregistered custom property computes to its token sequence with `var()`
+  substituted and nothing else evaluated, and half this site's tokens are
+  `color-mix()`. Baked into a `fill` on a file served as `image/svg+xml`, that
+  renders as black or as nothing. `standalone()` now assigns the token to
+  `color` on a throwaway element and reads `color` back, which forces the
+  resolution to a real `rgb(…)`.
+
+- **`--color-border` does not exist in this design system.** The chat widget was
+  written against it, which would have silently discarded every `border`
+  declaration in the panel — a bare `var()` on an undefined token is invalid at
+  computed-value time and throws away the whole declaration. It is
+  `--color-divider`, the same trap `--space-5` set in the admin sheet.
+
 ### Changed
 
 - **"Save Draft" saves a draft.** It wrote `localStorage` and nothing else,
