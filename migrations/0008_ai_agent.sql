@@ -1,0 +1,45 @@
+-- ---------------------------------------------------------------------------
+-- What a model may spend, how it may think, and what it may look up
+-- ---------------------------------------------------------------------------
+--
+-- Four columns, all on `ai_providers`, and all four exist because of the same
+-- reported failure: a reasoning model was asked to write a whole post, spent
+-- the task's entire 2,000-token ceiling narrating its plan, and stopped before
+-- it wrote a word. The editor showed fifteen thousand characters of
+-- deliberation and an empty post.
+--
+-- `max_output_tokens` is the direct fix. Every task in `assist-tasks.ts`
+-- carries its own ceiling sized to the *answer*, which was right when the
+-- ceiling only had to cover the answer and is wrong now that thinking is billed
+-- against the same number. This column is what a model can actually be asked
+-- for — filled in from the vendor's own listing when a model is picked on the
+-- AI screen — and it *raises* every task ceiling to it. NULL means "use the
+-- task's own number", which is what an unconfigured row does today.
+--
+-- A ceiling is not a budget: nothing is billed for tokens that are allowed and
+-- not generated. The cost of headroom is zero and the cost of its absence is a
+-- dead button, which is decision 29's argument applied one level up.
+-- `MAX_OUTPUT_CEILING` in `src/lib/ai-catalog.ts` is the hard cap this is
+-- clamped to on read, so a listing claiming a preposterous number cannot become
+-- a request body field a vendor refuses.
+--
+-- `reasoning_effort` is the other half. Where a vendor implements it, it is the
+-- difference between a model that deliberates for a page and one that answers;
+-- NULL sends nothing at all, which is the default and is not the same as
+-- sending a vendor's own default.
+--
+-- `prompt_cache` marks a provider whose API honours explicit cache breakpoints
+-- (`cache_control`, which OpenRouter and Anthropic accept and nobody else
+-- parses). It is only ever *consulted* alongside the base URL — see
+-- `supportsCacheControl()` — so turning it on for a provider that would choke
+-- on the field cannot produce a 400.
+--
+-- `tools_enabled` is the switch for the retrieval tools. On by default, because
+-- the alternative to a model looking content up is the whole corpus in every
+-- request; off for a model that has no tool support and answers 400 rather than
+-- ignoring the field. `callChat` also retries a refused tool call once without
+-- tools, so this is a preference rather than a correctness requirement.
+ALTER TABLE ai_providers ADD COLUMN max_output_tokens INTEGER;
+ALTER TABLE ai_providers ADD COLUMN reasoning_effort TEXT;
+ALTER TABLE ai_providers ADD COLUMN prompt_cache INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE ai_providers ADD COLUMN tools_enabled INTEGER NOT NULL DEFAULT 1;

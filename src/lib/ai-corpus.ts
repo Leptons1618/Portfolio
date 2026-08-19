@@ -21,15 +21,26 @@
  * second is a function with a test. `scripts/test-ai.mjs` hands this a hidden
  * project and a draft post and asserts neither survives.
  *
+ * ## Two shapes, and the second one is what a request carries now
+ *
+ * `buildCorpus()` is the whole site as one block of markdown. `buildIndex()` is
+ * a line per thing, with the slug a tool takes, and it is what goes into a
+ * prompt today — the bodies arrive through `ai-tools.ts` when a model asks for
+ * one. Both apply the same filters, and the second is the reason the first is
+ * still here: the admin screen reports both sizes, and the difference between
+ * them is the saving.
+ *
  * ## Why there is no vector store
  *
  * The entire corpus is a few dozen kilobytes — a personal portfolio, not a
  * documentation site. Embedding it, storing the vectors, and retrieving the top
  * `k` would add a binding, a build step and an index to keep in sync with
  * writes, in order to select from a body of text that fits in a single prompt
- * with room to spare. `corpusSize()` exists so that stops being an assumption:
- * when it starts reporting numbers that do not fit, this comment is wrong and
- * the answer is Vectorize.
+ * with room to spare. Retrieval by *slug*, out of an index the model was handed,
+ * needs none of that: the corpus is small enough that a table of contents is a
+ * complete one. `corpusSize()` exists so that stops being an assumption: when it
+ * starts reporting numbers that do not fit, this comment is wrong and the answer
+ * is Vectorize.
  */
 
 import type { CaseStudy, Post, Project } from './content';
@@ -230,6 +241,83 @@ export function buildCorpus(input: CorpusInput): string {
     .filter(Boolean)
     .join('\n')
     .trim();
+}
+
+/**
+ * The same content, as a table of contents rather than as the content.
+ *
+ * This is what a request carries now: one line per thing that exists, with the
+ * slug a tool takes and enough of a summary to decide whether to fetch it. The
+ * bodies arrive through `ai-tools.ts` when a model asks for them.
+ *
+ * Two properties make it worth having, and both are about cost:
+ *
+ *   - **It is small.** A few hundred tokens against the corpus's several
+ *     thousand, on every message of every conversation. The corpus was
+ *     affordable once and absurd ten turns in.
+ *   - **It is stable.** Byte-identical between one request and the next until
+ *     the author publishes something, which is what makes a provider's prefix
+ *     cache — implicit at OpenAI and DeepSeek, explicit at Anthropic — actually
+ *     hit. A block that varies per question caches nothing, and the corpus
+ *     varied because it was interleaved with the question's own preamble.
+ *
+ * It applies the same two filters `buildCorpus()` does, on the same argument:
+ * the caller having filtered is a convention, this filtering is a function with
+ * a test. Contact details are absent here for the same reason too.
+ */
+export function buildIndex(input: CorpusInput): string {
+  const projects = publicProjects(input.projects);
+  const posts = publicPosts(input.posts);
+
+  let out = identitySection();
+
+  if (input.resume) {
+    out += heading('Background');
+    out += `${excerpt(input.resume.summary, 600)}\n`;
+    /* Titles and dates only. "Which roles has he held" is answerable from this
+       line; anything more specific is a `read_resume` call away. */
+    if (input.resume.experience.length) {
+      out += '\nRoles: ';
+      out += input.resume.experience
+        .map(role => `${role.title} at ${role.company} (${role.dates})`)
+        .join('; ');
+      out += '\n';
+    }
+    if (input.resume.skills.length) {
+      out += `Skill areas: ${input.resume.skills.map(group => group.category).join(', ')}\n`;
+    }
+    out += 'Use read_resume for the detail of any of these.\n';
+  }
+
+  if (projects.length) {
+    out += heading('Projects');
+    out += 'slug — title · category · year · stack. Use read_project for the full record.\n\n';
+    for (const { slug, data } of projects) {
+      out += `- ${slug} — ${data.title} · ${CATEGORY_LABELS[data.category] ?? data.category} · ${data.year}`;
+      if (data.stack.length) out += ` · ${data.stack.slice(0, 6).join(', ')}`;
+      out += `\n  ${data.summary}\n`;
+    }
+  }
+
+  if (input.caseStudies.length) {
+    out += heading('Case studies');
+    out += 'slug — title. Use read_case_study for the write-up.\n\n';
+    for (const { slug, data } of input.caseStudies) {
+      out += `- ${slug} — ${data.title}: ${data.subtitle}\n`;
+    }
+  }
+
+  if (posts.length) {
+    out += heading('Journal posts');
+    out += 'slug — date — title. Use read_post for the body.\n\n';
+    for (const { slug, data } of posts) {
+      out += `- ${slug} — ${data.date} — ${data.title}`;
+      if (data.tags.length) out += ` [${data.tags.join(', ')}]`;
+      out += `\n  ${data.summary}\n`;
+    }
+  }
+
+  return out.trim();
 }
 
 /**

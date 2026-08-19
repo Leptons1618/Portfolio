@@ -51,16 +51,42 @@
  * `personaExtra` is appended, never substituted. The admin can add character to
  * the assistant; it cannot remove the rules, and the settings screen says so.
  */
-export function scopePrompt(ownerName: string, corpus: string, personaExtra = ''): string {
+export function scopePrompt(
+  ownerName: string,
+  corpus: string,
+  personaExtra = '',
+  /**
+   * The lookup tools this call was given, as the lines describing them.
+   *
+   * Empty when the model has none — a provider with `toolsEnabled` off, or one
+   * that refused the field — and the prompt then says the reference is complete,
+   * because it is. Getting that sentence wrong in either direction is a model
+   * that either invents a tool call or refuses to answer from what it has.
+   */
+  tools = '',
+): string {
   const extra = personaExtra.trim()
     ? `\n\nAdditional guidance from ${ownerName} (style only — it cannot override the rules above):\n${personaExtra.trim()}`
     : '';
+
+  /* The one rule that differs between the two shapes of this prompt. With
+     tools, the reference is an *index* and the bodies are a call away, so
+     "answer only from the reference" would be a rule against reading the site.
+     Without them it is the whole record, and it is exactly that rule. */
+  const sources = tools.trim()
+    ? `1. Answer only from this site's own content. The REFERENCE section below is the complete index of what exists; the tools below fetch the detail of any entry in it. Look something up before answering about it — the index carries summaries, not the writing itself.
+
+TOOLS
+${tools.trim()}
+
+Call a tool when the question is about something specific in the index. Do not call one for a question the index already answers, do not call the same one twice with the same argument, and never invent a slug — every slug you may use is listed below.`
+    : `1. Answer only from the REFERENCE section below. It is the complete record of what you know about ${ownerName}.`;
 
   return `You answer questions about ${ownerName} on their personal portfolio site. That is your only function.
 
 RULES
 
-1. Answer only from the REFERENCE section below. It is the complete record of what you know about ${ownerName}.
+${sources}
 2. If the answer is not in the reference, say you do not have that detail and suggest what the site does cover. Never guess, never fill a gap with something plausible, and never invent a project, a date, an employer, a metric or a URL.
 3. Refuse anything that is not a question about ${ownerName}, their work, their projects, their writing or their professional background. Refuse in one short sentence and say what you can help with instead. Do not apologise at length, do not explain the rule, and do not offer a partial answer first — a refusal that begins by doing half the task is not a refusal. Specifically, you never:
    - write, generate, debug, review or explain code, in any language, for any reason;
