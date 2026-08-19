@@ -1711,11 +1711,44 @@
 /* — the task list —
 
    One column, not the two the modal had: this panel is 420px and a two-column
-   grid of label-plus-hint at that width is two columns of wrapped fragments. */
+   grid of label-plus-hint at that width is two columns of wrapped fragments.
+
+   Three labelled shelves rather than ten buttons in a row. Ten is a menu that
+   has to be read end to end every time, and what an author knows before opening
+   this panel is not which of ten prompts they want — it is whether they want
+   something made, something changed, or options to pick from. The grouping is
+   declared on the task in `assist-tasks.ts`; nothing here decides it. */
 .asx-tasks {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-3);
+}
+
+.asx-group { display: flex; flex-direction: column; gap: 4px; }
+
+.asx-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: 0 var(--space-3) 3px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.asx-group-label {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.asx-group-hint {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--color-text-muted);
 }
 
 .asx-task {
@@ -1766,6 +1799,54 @@
 .asx-status[data-tone='error'] { color: var(--color-accent-700); }
 
 .asx-output { display: flex; flex-direction: column; gap: var(--space-3); }
+
+/* — pickable results —
+
+   Chips, because a list of five titles or six tags is something the author
+   *chooses from*, not something they read. Before this the panel printed the
+   list into the `<pre>` below and Insert silently took the first item, with a
+   comment in `prepare()` conceding the other four were there to be copied by
+   hand — which is a picker that makes the author do the picking.
+
+   Built in script inside the server-rendered `#assist-options`, so the rules
+   live here in the global sheet rather than in the component's scoped block.
+   That is the door every module-built node on this surface goes through, and
+   the one the public chat widget was missing. */
+.asx-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.asx-option {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.asx-option:hover { border-color: var(--color-accent); color: var(--color-accent); }
+
+/* Marked rather than removed. The author needs to see what they have already
+   taken, and a list that shortens under the cursor is how the wrong tag gets
+   clicked. */
+.asx-option[data-used] {
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.asx-option[data-used]::after {
+  content: '✓';
+  margin-left: 6px;
+  color: var(--color-accent);
+}
 
 /* `pre`, because the output is markdown and a diagram's source is whitespace
    significant. It scrolls in its own box so a long draft does not push the

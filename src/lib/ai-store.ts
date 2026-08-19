@@ -164,7 +164,16 @@ export async function saveAiSettings(settings: AiSettings): Promise<WriteResult>
 
 export interface StreamHandlers {
   onDelta: (text: string) => void;
-  onDone?: () => void;
+  /**
+   * The model started deliberating.
+   *
+   * Carries no text and never will — the server sends a bare
+   * `{"status":"thinking"}` and nothing else, so there is nothing here to
+   * accidentally render into a post. See the header of `src/lib/ai.ts`.
+   */
+  onThinking?: () => void;
+  /** Why the generation ended, when upstream said. `length` means truncated. */
+  onDone?: (stopReason?: string) => void;
 }
 
 /**
@@ -205,18 +214,25 @@ export async function readStream(response: Response, handlers: StreamHandlers): 
 
     for (const raw of lines) {
       if (!raw.trim()) continue;
-      let frame: { delta?: string; error?: string; done?: boolean };
+      let frame: {
+        delta?: string;
+        error?: string;
+        done?: boolean;
+        status?: string;
+        stopReason?: string;
+      };
       try {
         frame = JSON.parse(raw);
       } catch {
         continue;
       }
       if (frame.error) throw new ContentError(frame.error, 502);
+      if (frame.status === 'thinking') handlers.onThinking?.();
       if (frame.delta) {
         text += frame.delta;
         handlers.onDelta(frame.delta);
       }
-      if (frame.done) handlers.onDone?.();
+      if (frame.done) handlers.onDone?.(frame.stopReason);
     }
   }
 

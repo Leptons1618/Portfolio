@@ -23,6 +23,17 @@
  * outbound request. Nothing here returns it, and `maskKey()` exists so the
  * admin screen has something honest to show instead. `scripts/test-ai.mjs`
  * asserts that the shape the listing endpoint builds cannot carry it.
+ *
+ * ## Reasoning is not an answer, and never reaches a browser
+ *
+ * A reasoning model's chain-of-thought is not output — it is the model talking
+ * to itself, and it arrived on this site's public chat as "Here's a thinking
+ * process:" followed by a numbered analysis of the visitor's own question, and
+ * in the journal editor as eight hundred words of deliberation written straight
+ * into the post body. Three mechanisms stop it, described in full at
+ * `thinkStripper` below, and the frame protocol carries **no reasoning text at
+ * all**: the most a client learns is `{"status":"thinking"}`, which is enough
+ * to say so on screen and carries nothing to accidentally render.
  */
 
 import { site } from './site';
@@ -337,6 +348,20 @@ async function callProvider(provider: Provider, options: CallOptions): Promise<R
         max_tokens: options.maxTokens,
         temperature: options.temperature ?? 0.3,
         stream: options.stream ?? false,
+        /* Ask the router not to generate chain-of-thought at all.
+
+           This is the cheapest of the three defences against reasoning reaching
+           a reader — tokens that are never generated cost nothing and cannot
+           leak — and `ndjsonFromSSE` strips inline `<think>` blocks as the
+           backstop for the providers that have no such switch.
+
+           Gated on the host rather than sent to everyone, because an unknown
+           top-level field is *ignored* by most OpenAI-compatible providers and
+           rejected with a 400 by the strict ones — and a 400 here is
+           indistinguishable from a bad key. Same class of failure as the em
+           dash in `X-Title` above: a body the vendor refuses takes the whole
+           feature down for a reason nothing on screen can name. */
+        ...(provider.baseUrl.includes('openrouter.ai') ? { reasoning: { exclude: true } } : {}),
       }),
       signal: controller.signal,
     });
@@ -420,6 +445,109 @@ export function completionText(payload: unknown): string {
   return '';
 }
 
+/* ---------- reasoning ---------- */
+
+/**
+ * The tags a model wraps inline chain-of-thought in.
+ *
+ * Providers that *separate* reasoning put it in `delta.reasoning` (OpenRouter)
+ * or `delta.reasoning_content` (DeepSeek's own API), and dropping those is one
+ * line. The models that hurt are the ones that emit thinking as **content** —
+ * either fenced in one of these tags, or as bare prose ("Here's a thinking
+ * process:") with nothing at all marking it.
+ *
+ * Three defences, and none of them is sufficient alone:
+ *
+ *   1. `reasoning: { exclude: true }` on the request, where the router takes
+ *      it. Nothing generated, nothing to leak, nothing billed.
+ *   2. These tags, stripped here. Catches every model that marks its thinking.
+ *   3. A prompt rule, in `ai-guard.ts` for the public chat and in
+ *      `assist-tasks.ts` for the editor. The only thing that touches unmarked
+ *      prose, and the weakest of the three — same honesty as the scope prompt.
+ *
+ * **Known gap:** a model whose opener is a prefill emits only `</think>`, with
+ * the thinking ahead of it and nothing marking where it began. Catching that
+ * needs the whole response buffered before a single character is forwarded,
+ * which is the streaming this file exists to do. It is deliberately not handled
+ * — defence 1 covers the router it actually happens on, and defence 3 is the
+ * rest. If it shows up, the answer is a different model, not a buffer here.
+ */
+const THINK_OPEN = /<(?:think|thinking|reasoning|reflection|scratchpad)>/i;
+const THINK_CLOSE = /<\/(?:think|thinking|reasoning|reflection|scratchpad)>/i;
+
+/** `</scratchpad>` is the longest of them, at 13. Nothing longer can be partial. */
+const TAG_MAX = 14;
+
+/** A candidate tag start: `<`, an optional slash, then letters and nothing else. */
+const PARTIAL_TAG = /^<\/?[a-zA-Z]*$/;
+
+export interface ThoughtSplit {
+  /** What belongs in the answer. */
+  text: string;
+  /** What the model was thinking. Counted, never forwarded to a browser. */
+  reasoning: string;
+}
+
+/**
+ * Split streamed content into prose and inline chain-of-thought.
+ *
+ * Stateful across chunks, because it has to be: `<think>` is seven characters
+ * and a TCP read can end after two of them. The carry buffer holds back any
+ * trailing run that could still become a tag — which is why `split()` sometimes
+ * returns less text than it was handed, and why `flush()` has to be called when
+ * upstream ends or the last few characters of an answer go missing.
+ *
+ * The carry is restricted to a run of letters after the `<`, so a post
+ * containing `a < b` is not held hostage waiting for a tag that never arrives.
+ *
+ * An opening tag with no closer swallows the remainder, which is correct: a
+ * model that opened one and then ran out of tokens produced no answer, and the
+ * caller's "it wrote nothing" message is the honest report of that. A closing
+ * tag with no opener passes through as ordinary text — see the known gap above.
+ *
+ * Exported so `scripts/test-ai.mjs` can feed it a tag one character at a time,
+ * which is the case that matters and the one no manual test will produce.
+ */
+export function thinkStripper() {
+  let carry = '';
+  let inThink = false;
+
+  return {
+    split(chunk: string): ThoughtSplit {
+      let buffer = carry + chunk;
+      carry = '';
+      let text = '';
+      let reasoning = '';
+
+      for (;;) {
+        const match = (inThink ? THINK_CLOSE : THINK_OPEN).exec(buffer);
+        if (!match) break;
+        if (inThink) reasoning += buffer.slice(0, match.index);
+        else text += buffer.slice(0, match.index);
+        buffer = buffer.slice(match.index + match[0].length);
+        inThink = !inThink;
+      }
+
+      const open = buffer.lastIndexOf('<');
+      if (open !== -1 && buffer.length - open < TAG_MAX && PARTIAL_TAG.test(buffer.slice(open))) {
+        carry = buffer.slice(open);
+        buffer = buffer.slice(0, open);
+      }
+
+      if (inThink) reasoning += buffer;
+      else text += buffer;
+      return { text, reasoning };
+    },
+
+    /** Whatever is still held back when upstream ends. */
+    flush(): ThoughtSplit {
+      const rest = carry;
+      carry = '';
+      return inThink ? { text: '', reasoning: rest } : { text: rest, reasoning: '' };
+    },
+  };
+}
+
 /**
  * Turn an upstream SSE stream into newline-delimited JSON.
  *
@@ -454,7 +582,16 @@ export function ndjsonFromSSE(upstream: ReadableStream<Uint8Array>): ReadableStr
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   const reader = upstream.getReader();
+  const thoughts = thinkStripper();
   let buffer = '';
+  /* Emitted once, the first time thinking is seen, so a UI can say so rather
+     than showing an idle spinner. The thought text never goes with it. */
+  let announced = false;
+  /* The last non-empty `finish_reason` upstream sent. `length` is the one worth
+     carrying: it is the difference between "the model had nothing more to add"
+     and "the ceiling cut it off mid-sentence", and nothing else on either
+     surface can tell those apart. */
+  let stopReason = '';
 
   const line = (object: unknown) => encoder.encode(`${JSON.stringify(object)}\n`);
 
@@ -466,7 +603,11 @@ export function ndjsonFromSSE(upstream: ReadableStream<Uint8Array>): ReadableStr
         for (;;) {
           const { done, value } = await reader.read();
           if (done) {
-            controller.enqueue(line({ done: true }));
+            /* Whatever the tag guard was still holding back. A response that
+               ends mid-`<thi` is not a tag, it is those four characters. */
+            const tail = thoughts.flush();
+            if (tail.text) controller.enqueue(line({ delta: tail.text }));
+            controller.enqueue(line(stopReason ? { done: true, stopReason } : { done: true }));
             controller.close();
             return;
           }
@@ -491,7 +632,10 @@ export function ndjsonFromSSE(upstream: ReadableStream<Uint8Array>): ReadableStr
 
             try {
               const parsed = JSON.parse(data) as {
-                choices?: { delta?: { content?: string } }[];
+                choices?: {
+                  delta?: { content?: string; reasoning?: string; reasoning_content?: string };
+                  finish_reason?: string | null;
+                }[];
                 error?: { message?: string };
               };
               if (parsed.error) {
@@ -499,9 +643,25 @@ export function ndjsonFromSSE(upstream: ReadableStream<Uint8Array>): ReadableStr
                 emitted = true;
                 continue;
               }
-              const delta = parsed.choices?.[0]?.delta?.content;
-              if (delta) {
-                controller.enqueue(line({ delta }));
+
+              const choice = parsed.choices?.[0];
+              if (choice?.finish_reason) stopReason = choice.finish_reason;
+
+              /* Reasoning arrives two ways and neither is forwarded. These are
+                 the providers that separate it; the stripper below catches the
+                 ones that put it in `content` behind a tag. */
+              const separated = choice?.delta?.reasoning || choice?.delta?.reasoning_content || '';
+              const content = choice?.delta?.content;
+              const split = thoughts.split(typeof content === 'string' ? content : '');
+
+              if (!announced && (separated || split.reasoning)) {
+                controller.enqueue(line({ status: 'thinking' }));
+                announced = true;
+                emitted = true;
+              }
+
+              if (split.text) {
+                controller.enqueue(line({ delta: split.text }));
                 emitted = true;
               }
             } catch {
