@@ -1607,8 +1607,8 @@
      exactly the same reason. */
   inset: auto var(--space-4) var(--space-4) auto;
   z-index: 70;
-  width: min(420px, calc(100vw - var(--space-8)));
-  max-height: min(76dvh, 680px);
+  width: min(500px, calc(100vw - var(--space-8)));
+  max-height: min(84dvh, 760px);
   padding: 0;
   margin: 0;
   overflow: hidden;
@@ -1642,6 +1642,7 @@
 }
 
 .asx-head-copy { min-width: 0; }
+.asx-head-actions { display: flex; gap: 2px; flex: none; }
 
 .asx-title {
   display: flex;
@@ -1654,7 +1655,30 @@
 
 .asx-sub { margin: 2px 0 0; font-size: 11px; color: var(--color-text-muted); line-height: 1.4; }
 
+/* — the conversation —
+
+   The panel is a chat now, so the body is a *frame* rather than a scroller: the
+   log scrolls, the composer does not, and the history drawer covers both. The
+   old body scrolled as one column, which put the topic box out of reach the
+   moment a run produced more than a screenful.
+
+   `position: relative` is what the drawer is absolute against. */
 .asx-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+
+.asx-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.asx-log {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -1664,78 +1688,93 @@
   padding: var(--space-4);
 }
 
-/* — the topic box —
+/* — one message —
 
-   First and always visible. "Write a post about X" is what this panel is for,
-   and a headline feature reached by scrolling past ten task buttons is not a
-   headline feature. */
-.asx-ask {
+   Two roles that look different and one that looks like neither. The author's
+   own line is boxed and right-shifted; the assistant's is plain text on the
+   ground, because it is the thing being read and a box around it is furniture.
+   A `note` is the panel's own voice — mono, muted, centred — so "stopped
+   before anything was written" is never mistaken for something a model said. */
+.asx-msg {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: var(--space-3);
+  min-width: 0;
+}
+
+.asx-msg[data-role='user'] {
+  align-self: flex-end;
+  max-width: 88%;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-divider);
   background: var(--color-surface);
 }
 
-.asx-ask-label { font-size: 12px; font-weight: 600; }
-
-.asx-ask-input {
-  resize: vertical;
-  min-height: 56px;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-/* The hint takes its own line and the button sits under it, right-aligned.
-   Side by side they fought: the selected task's hint is a full sentence, and
-   sharing a 388px row with it wrapped "Write the whole post" onto two lines and
-   still left the sentence clipped. */
-.asx-ask-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-}
-
-.asx-ask-hint {
-  flex: 1 1 100%;
+.asx-msg[data-role='note'] {
+  align-self: center;
+  max-width: 100%;
+  font-family: var(--font-mono);
   font-size: 11px;
-  line-height: 1.35;
-  min-width: 0;
+  line-height: 1.5;
+  text-align: center;
+  color: var(--color-text-muted);
 }
 
-.asx-ask-row .btn { flex: none; }
+.asx-msg[data-role='note'][data-tone='error'] { color: var(--color-accent-700); }
 
-/* — the task list —
+.asx-msg-head {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
 
-   One column, not the two the modal had: this panel is 420px and a two-column
-   grid of label-plus-hint at that width is two columns of wrapped fragments.
+.asx-msg-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 
-   Three labelled shelves rather than ten buttons in a row. Ten is a menu that
-   has to be read end to end every time, and what an author knows before opening
-   this panel is not which of ten prompts they want — it is whether they want
-   something made, something changed, or options to pick from. The grouping is
-   declared on the task in `assist-tasks.ts`; nothing here decides it. */
-.asx-tasks {
+/* A live task's progress line, which is not prose and should not read as it. */
+.asx-msg-body[data-kind='status'] {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.asx-msg-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+.asx-msg-note { margin: 0; font-size: 11px; line-height: 1.4; color: var(--color-text-muted); }
+.asx-msg-note[data-tone='error'] { color: var(--color-accent-700); }
+
+/* — the history drawer —
+
+   Over the log rather than beside it. The panel is 500px, and a 200px column of
+   conversation titles taken out of that leaves a chat window too narrow to read
+   a paragraph in. */
+.asx-sessions {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  background: var(--color-bg);
 }
 
-.asx-group { display: flex; flex-direction: column; gap: 4px; }
-
-.asx-group-head {
+.asx-sessions-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
-  flex-wrap: wrap;
-  padding: 0 var(--space-3) 3px;
+  flex: none;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--color-divider);
 }
 
-.asx-group-label {
+.asx-sessions-title {
   margin: 0;
   font-family: var(--font-mono);
   font-size: 10px;
@@ -1744,61 +1783,165 @@
   text-transform: uppercase;
 }
 
-.asx-group-hint {
-  margin: 0;
-  font-size: 10px;
-  line-height: 1.35;
-  color: var(--color-text-muted);
+.asx-session-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
 }
 
-.asx-task {
+.asx-session {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.asx-session[data-current] { box-shadow: inset 3px 0 0 var(--color-accent-500); padding-left: var(--space-2); }
+
+.asx-session-open {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  align-items: flex-start;
   text-align: left;
-  padding: 6px var(--space-3);
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
+  border: 0;
   background: none;
-  color: var(--color-text);
-  font-family: var(--font-body);
+  color: inherit;
   cursor: pointer;
+  padding: 0;
 }
 
-.asx-task:hover:not(:disabled) { border-color: var(--color-divider); background: var(--color-surface); }
-.asx-task:disabled { opacity: 0.45; cursor: default; }
+.asx-session-title {
+  font-size: 13px;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-/* The selected task, so "what will Write do" is answerable by looking. */
-.asx-task[aria-pressed='true'] {
-  border-color: var(--color-accent);
+.asx-session-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.asx-session-delete { flex: none; }
+
+/* — the composer —
+
+   `position: relative` for the command list, which sits directly over the
+   input rather than in a popover: it has nothing to escape, because it is
+   already inside the panel's own column. */
+.asx-composer {
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-divider);
   background: var(--color-surface);
 }
 
-.asx-task-label { font-size: 13px; font-weight: 600; }
-.asx-task-hint { font-size: 11px; color: var(--color-text-muted); line-height: 1.35; }
-
-/* A task that writes straight into the editor is marked, because "this one
-   changes my post without asking" is worth knowing before pressing it. */
-.asx-task[data-live] .asx-task-label::after {
-  content: 'live';
-  margin-left: 6px;
-  padding: 0 4px;
-  border: 1px solid var(--color-accent-400);
-  border-radius: var(--radius-md);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-accent);
-  vertical-align: 1px;
+.asx-input {
+  min-height: 54px;
+  max-height: 160px;
+  resize: vertical;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-.asx-status { margin: 0; font-size: 12px; }
-.asx-status[data-tone='error'] { color: var(--color-accent-700); }
+.asx-composer-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
 
-.asx-output { display: flex; flex-direction: column; gap: var(--space-3); }
+.asx-hint { font-size: 10px; line-height: 1.4; margin-right: auto; min-width: 0; flex: 1 1 140px; }
+.asx-hint kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  border: 1px solid var(--color-divider);
+  padding: 0 3px;
+}
+
+.asx-menu {
+  position: absolute;
+  left: var(--space-4);
+  right: var(--space-4);
+  bottom: calc(100% - var(--space-3));
+  z-index: 2;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--color-text);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-lg);
+}
+
+.asx-menu-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  padding: 6px var(--space-3);
+  border: 0;
+  border-bottom: 1px solid var(--color-divider);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.asx-menu-row[data-active], .asx-menu-row:hover { background: var(--color-surface); }
+
+.asx-menu-command { font-family: var(--font-mono); font-size: 12px; }
+.asx-menu-hint { font-size: 11px; line-height: 1.35; color: var(--color-text-muted); }
+
+
+/* — the model's deliberation —
+
+   A closed `<details>` between the status line and the output, and the only
+   place a word of chain-of-thought may appear on this surface. Reasoning is its
+   own frame from the Worker now (`{"thinking":…}`) rather than something
+   stripped and counted, so a run that narrated its way through the whole token
+   budget can be read back instead of being reported as "the model wrote
+   nothing" with no way to see what it did instead.
+
+   Muted and mono, deliberately unlike the output box: this is working, not a
+   result, and nothing here is insertable. */
+.asx-think {
+  border-left: 2px solid var(--color-divider);
+  padding-left: var(--space-2);
+}
+
+.asx-think-summary {
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.asx-think-summary::-webkit-details-marker { display: none; }
+.asx-think-summary::before { content: '+ '; font-weight: 600; }
+.asx-think[open] .asx-think-summary::before { content: '− '; }
+
+.asx-think-body {
+  margin: var(--space-1) 0 0;
+  max-height: 30vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
 
 /* — pickable results —
 
@@ -1848,21 +1991,6 @@
   color: var(--color-accent);
 }
 
-/* `pre`, because the output is markdown and a diagram's source is whitespace
-   significant. It scrolls in its own box so a long draft does not push the
-   foot's buttons out of the panel. */
-.asx-text {
-  margin: 0;
-  max-height: 220px;
-  overflow: auto;
-  padding: var(--space-3);
-  background: var(--color-surface);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 
 /* The rendered diagram, exactly as the uploaded file will look. */
 .asx-preview {
@@ -1872,19 +2000,86 @@
 }
 .asx-preview svg { max-width: 100%; height: auto; display: block; margin-inline: auto; }
 
-.asx-foot {
+
+/* — the assistant over a selection —
+
+   The panel's small sibling: one instruction, one streamed replacement, one
+   decision. Both pieces are `position: fixed` and placed from the pointer,
+   because a `<textarea>` exposes no geometry for a run of characters inside it
+   — see `place()` in `JournalEditor.astro` for why the alternative is eighty
+   lines of mirrored text metrics.
+
+   `z-index` sits just under the panel (70): the two are never both placed over
+   the same pixels on purpose, and if they are, the conversation is the thing
+   the author opened deliberately. */
+.jsel-flag {
+  position: fixed;
+  z-index: 68;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--color-text);
+  background: var(--color-bg);
+  color: var(--color-accent);
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+}
+
+.jsel-flag:hover { background: var(--color-surface); }
+
+.jsel {
+  position: fixed;
+  z-index: 69;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(420px, calc(100vw - var(--space-4)));
+  max-height: min(70dvh, 560px);
+  overflow-y: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--color-text);
+  border-radius: var(--radius-md);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-lg);
+}
+
+/* What is about to be replaced, as a reminder rather than a second copy of the
+   draft — the script trims it to 160 characters before it ever gets here. */
+.jsel-quote {
+  margin: 0;
+  padding-left: var(--space-2);
+  border-left: 2px solid var(--color-accent-400);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.jsel-input { font-size: 13px; }
+
+.jsel-out {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.jsel-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  flex: none;
   flex-wrap: wrap;
-  padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--color-divider);
-  background: var(--color-surface);
 }
 
-.asx-note { font-size: 11px; line-height: 1.35; margin-right: auto; min-width: 0; flex: 1 1 120px; }
-.asx-foot-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+.jsel-status { font-size: 11px; line-height: 1.35; margin-right: auto; min-width: 0; flex: 1 1 120px; }
 
 /* On a phone the panel is the screen — the editor behind it is unusable at that
    width anyway, so there is nothing to keep in view. */

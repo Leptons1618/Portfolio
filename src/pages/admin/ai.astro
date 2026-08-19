@@ -25,6 +25,7 @@
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { Icon } from 'astro-icon/components';
 import { SETTINGS_CEILINGS } from '../../lib/ai';
+import { PARAM_SPECS, PROVIDER_PRESETS } from '../../lib/ai-catalog';
 ---
 <AdminLayout title="AI Assistant">
   <div class="admin-main-wide" id="admin-ai">
@@ -160,10 +161,16 @@ import { SETTINGS_CEILINGS } from '../../lib/ai';
     </div>
   </div>
 
-  {/* Creation and editing share one dialog: a provider is six fields either
-      way, and the only difference is whether the slug is editable. Native
-      `<dialog>`, styled by `.modal*` in admin.css like every other one here. */}
-  <dialog class="modal" id="ai-dialog">
+  {/* Creation and editing share one dialog, and the only difference is whether
+      the slug is editable. Native `<dialog>`, styled by `.modal*` in admin.css
+      like every other one here.
+
+      Three of these fields used to be free text holding a model id, which made
+      each of them a spelling test whose only feedback was a 404 in front of a
+      visitor. They are still free text — a model that exists is not always a
+      model the vendor lists — but Browse asks the provider what it serves and
+      fills them in. */}
+  <dialog class="modal ai-modal" id="ai-dialog">
     <form method="dialog" class="modal-head">
       <h3 class="modal-title" id="ai-dialog-title">Add a provider</h3>
       <button class="btn btn-icon" value="cancel" aria-label="Close">
@@ -172,6 +179,17 @@ import { SETTINGS_CEILINGS } from '../../lib/ai';
     </form>
 
     <div class="modal-body">
+      {/* The preset fills the three fields under it and is not itself stored:
+          the row holds a URL, so a vendor nobody has heard of is one paste into
+          "Something else" away and does not need a release. */}
+      <div class="field">
+        <label for="ai-f-preset">Provider</label>
+        <select class="input" id="ai-f-preset">
+          {PROVIDER_PRESETS.map(preset => <option value={preset.id}>{preset.label}</option>)}
+        </select>
+        <p class="text-muted admin-note" id="ai-f-preset-note"></p>
+      </div>
+
       <div class="field">
         <label for="ai-f-slug">Key</label>
         <input class="input" id="ai-f-slug" placeholder="openrouter" />
@@ -199,19 +217,69 @@ import { SETTINGS_CEILINGS } from '../../lib/ai';
           to keep the key already stored.
         </p>
       </div>
+
       <div class="field">
         <label for="ai-f-model">Model</label>
-        <input class="input" id="ai-f-model" placeholder="anthropic/claude-3.5-haiku" />
+        <div class="ai-pick">
+          <input class="input" id="ai-f-model" placeholder="anthropic/claude-3.5-haiku" />
+          <button type="button" class="btn btn-secondary btn-sm" data-pick="model">Browse</button>
+        </div>
         <p class="text-muted admin-note">Answers visitors' questions.</p>
       </div>
       <div class="field">
         <label for="ai-f-assist">Writing model (optional)</label>
-        <input class="input" id="ai-f-assist" placeholder="leave empty to use the same one" />
+        <div class="ai-pick">
+          <input class="input" id="ai-f-assist" placeholder="leave empty to use the same one" />
+          <button type="button" class="btn btn-secondary btn-sm" data-pick="assist">Browse</button>
+        </div>
         <p class="text-muted admin-note">
-          Used by the journal assistant. Drafting a post and answering a question
+          Used by the writing assistant. Drafting a post and answering a question
           rarely want the same price.
         </p>
       </div>
+      <div class="field">
+        <label for="ai-f-fallbacks">Fallback models (optional)</label>
+        <div class="ai-pick">
+          <input class="input" id="ai-f-fallbacks" placeholder="one per line, or comma separated" />
+          <button type="button" class="btn btn-secondary btn-sm" data-pick="fallbacks">Browse</button>
+        </div>
+        <p class="text-muted admin-note">
+          Tried in order when the model above will not answer — a 429, a 5xx, a
+          timeout, or a model that was retired overnight. Same key, same base URL.
+        </p>
+      </div>
+
+      {/* Closed by default. These are the fields nobody needs on the day they
+          add a provider and somebody needs on the day a model will not behave. */}
+      <details class="ai-params">
+        <summary class="ai-params-summary">Sampling parameters</summary>
+        <p class="text-muted admin-note">
+          Left empty, the field is <strong>not sent at all</strong> and the
+          provider's own default applies — which is not the same as sending that
+          default, because several providers refuse parameters they do not
+          implement. Anything set here applies to every request to this provider,
+          including the temperature each writing task asks for.
+        </p>
+        <p class="text-muted admin-note ai-param-support" id="ai-param-support"></p>
+        <div class="ai-params-grid">
+          {PARAM_SPECS.map(spec => (
+            <div class="field ai-param" data-param={spec.key}>
+              <label for={`ai-p-${spec.key}`}>{spec.label}</label>
+              <input
+                class="input"
+                type="number"
+                id={`ai-p-${spec.key}`}
+                min={spec.min}
+                max={spec.max}
+                step={spec.step}
+                placeholder={spec.fallback}
+              />
+              <span class="text-muted ai-cap">{spec.hint}</span>
+            </div>
+          ))}
+        </div>
+      </details>
+
       <div class="field field-row">
         <div>
           <label for="ai-f-priority">Priority</label>
@@ -232,6 +300,48 @@ import { SETTINGS_CEILINGS } from '../../lib/ai';
       <button type="button" class="btn btn-primary" id="ai-dialog-save">Save provider</button>
     </div>
   </dialog>
+
+  {/* The model browser.
+
+      One dialog for all three fields, in two modes: the fallback list picks
+      several and the other two pick one. The rows are built in script, so their
+      rules hang off `#ai-model-list` with `:global()` — a scoped selector never
+      reaches DOM that did not come from this template. */}
+  <dialog class="modal ai-modal" id="ai-models">
+    <form method="dialog" class="modal-head">
+      <h3 class="modal-title" id="ai-models-title">Choose a model</h3>
+      <button class="btn btn-icon" value="cancel" aria-label="Close">
+        <Icon name="lucide:x" class="admin-nav-icon" />
+      </button>
+    </form>
+
+    <div class="modal-body">
+      <div class="ai-model-tools">
+        <input
+          class="input"
+          id="ai-model-search"
+          type="search"
+          placeholder="Filter by id, name or description"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <div class="ai-model-filters" id="ai-model-filters">
+          <button type="button" class="ai-chip" data-filter="all" aria-pressed="true">All</button>
+          <button type="button" class="ai-chip" data-filter="free" aria-pressed="false">Free</button>
+          <button type="button" class="ai-chip" data-filter="long" aria-pressed="false">128k+ context</button>
+        </div>
+      </div>
+      <p class="text-muted admin-note" id="ai-model-status">Asking the provider…</p>
+      <div class="ai-model-list" id="ai-model-list"></div>
+    </div>
+
+    <div class="modal-foot">
+      <span class="text-muted ai-model-count" id="ai-model-count"></span>
+      <button type="button" class="btn btn-secondary" id="ai-models-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="ai-models-use">Use selected</button>
+    </div>
+  </dialog>
+
 </AdminLayout>
 
 <script>
@@ -240,6 +350,7 @@ import { SETTINGS_CEILINGS } from '../../lib/ai';
     clearKey,
     createProvider,
     loadOverview,
+    listModels,
     removeProvider,
     saveAiSettings,
     saveProvider,
@@ -249,6 +360,14 @@ import { SETTINGS_CEILINGS } from '../../lib/ai';
     type ProviderSummary,
   } from '../../lib/ai-store';
   import { DEFAULTS, type AiSettings } from '../../lib/ai';
+  import {
+    PARAM_SPECS,
+    PROVIDER_PRESETS,
+    clampParams,
+    presetFor,
+    presetForUrl,
+    type ModelInfo,
+  } from '../../lib/ai-catalog';
   import { getToken } from '../../lib/github';
 
   onAdminPage('#admin-ai', () => {
@@ -358,9 +477,14 @@ import { SETTINGS_CEILINGS } from '../../lib/ai';
 
       const meta = document.createElement('p');
       meta.className = 'ai-provider-meta';
+      const tuned = Object.entries(provider.params ?? {});
       meta.textContent = [
         provider.model,
+        provider.fallbackModels.length ? `then ${provider.fallbackModels.join(', ')}` : '',
         provider.assistModel ? `writing: ${provider.assistModel}` : '',
+        /* Only when something is set. A row listing nine defaults is nine
+           things to read that say nothing happened. */
+        tuned.length ? tuned.map(([key, value]) => `${key} ${value}`).join(', ') : '',
         provider.keyHint ? `key ${provider.keyHint}` : 'no key stored',
         `priority ${provider.priority}`,
       ]
@@ -490,15 +614,79 @@ import { SETTINGS_CEILINGS } from '../../lib/ai';
     let editing: ProviderSummary | null = null;
 
     const dialogFields = {
+      preset: $<HTMLSelectElement>('ai-f-preset'),
       slug: $<HTMLInputElement>('ai-f-slug'),
       label: $<HTMLInputElement>('ai-f-label'),
       baseUrl: $<HTMLInputElement>('ai-f-baseurl'),
       key: $<HTMLInputElement>('ai-f-key'),
       model: $<HTMLInputElement>('ai-f-model'),
       assist: $<HTMLInputElement>('ai-f-assist'),
+      fallbacks: $<HTMLInputElement>('ai-f-fallbacks'),
       priority: $<HTMLInputElement>('ai-f-priority'),
       active: $<HTMLInputElement>('ai-f-active'),
     };
+
+    /* One input per spec, looked up by key rather than named nine times. A knob
+       added to `PARAM_SPECS` gets a field in the markup and a line here for
+       free; naming them individually is how one ends up saved but not
+       restored, which is the same reason `settingsFields` above is a map. */
+    const paramFields = new Map<string, HTMLInputElement>(
+      PARAM_SPECS.map(spec => [spec.key, $<HTMLInputElement>(`ai-p-${spec.key}`)]),
+    );
+
+    /** Only the knobs that were actually set. Blank means "send nothing". */
+    function readParams(): Record<string, number> {
+      const raw: Record<string, unknown> = {};
+      for (const [key, input] of paramFields) {
+        if (input.value.trim()) raw[key] = Number(input.value);
+      }
+      /* Clamped here as well as on the server. The ranges are the same table
+         either side, and a form that sends a value it knows is out of range
+         only to have it silently corrected is a form that lies about what it
+         saved. */
+      return clampParams(raw);
+    }
+
+    function fillParams(params: Record<string, number> | undefined) {
+      for (const [key, input] of paramFields) {
+        const value = params?.[key];
+        input.value = value === undefined ? '' : String(value);
+      }
+    }
+
+    /* — presets —
+
+       The dropdown is not stored. It fills three fields and then has no further
+       say: the row holds a base URL, so the vendor list is a convenience rather
+       than a gate, and "Something else" is what keeps it that way. */
+    function applyPreset(id: string, { force }: { force: boolean }) {
+      const preset = presetFor(id);
+      $('ai-f-preset-note').textContent = preset?.note ?? '';
+
+      const keyNote = $('ai-f-key-note');
+      keyNote.dataset.preset = preset?.keyUrl ? 'linked' : '';
+
+      if (!preset || preset.id === 'custom') return;
+      /* `force` is a deliberate change of the dropdown. Opening the dialog on
+         an existing row is not, and must not overwrite what is stored — the
+         preset is *derived* from the URL there, and writing it back would be
+         the screen editing a row nobody asked it to edit. */
+      if (!force) return;
+
+      dialogFields.baseUrl.value = preset.baseUrl;
+      if (!dialogFields.label.value.trim()) dialogFields.label.value = preset.label;
+      if (!dialogFields.slug.disabled && !dialogFields.slug.value.trim()) {
+        dialogFields.slug.value = preset.id;
+      }
+      dialogFields.model.placeholder = preset.sample || 'model id';
+      /* A different vendor serves a different catalogue, so anything cached
+         from the last one is not an answer to this one. */
+      catalogue = null;
+    }
+
+    dialogFields.preset.addEventListener('change', () => {
+      applyPreset(dialogFields.preset.value, { force: true });
+    });
 
     function openDialog(provider: ProviderSummary | null) {
       editing = provider;
@@ -510,8 +698,18 @@ import { SETTINGS_CEILINGS } from '../../lib/ai';
       dialogFields.baseUrl.value = provider?.baseUrl ?? 'https://openrouter.ai/api/v1';
       dialogFields.model.value = provider?.model ?? '';
       dialogFields.assist.value = provider?.assistModel ?? '';
+      dialogFields.fallbacks.value = (provider?.fallbackModels ?? []).join(', ');
       dialogFields.priority.value = String(provider?.priority ?? 10);
       dialogFields.active.checked = provider?.active ?? false;
+      fillParams(provider?.params);
+
+      /* Derived from the stored URL when editing, so Edit opens on the vendor
+         the row actually points at rather than on whatever was picked last. */
+      const preset = provider ? presetForUrl(provider.baseUrl) : PROVIDER_PRESETS[0];
+      dialogFields.preset.value = preset.id;
+      applyPreset(preset.id, { force: !provider });
+      catalogue = null;
+      $('ai-param-support').textContent = '';
 
       dialogFields.key.value = '';
       dialogFields.key.placeholder = provider?.keyHint ?? 'sk-…';
@@ -549,6 +747,11 @@ import { SETTINGS_CEILINGS } from '../../lib/ai';
         baseUrl: dialogFields.baseUrl.value.trim().replace(/\/+$/, ''),
         model: dialogFields.model.value.trim(),
         assistModel: dialogFields.assist.value.trim(),
+        fallbackModels: dialogFields.fallbacks.value
+          .split(/[,\n]/)
+          .map(m => m.trim())
+          .filter(Boolean),
+        params: readParams(),
         active: dialogFields.active.checked,
         priority: Number(dialogFields.priority.value) || 10,
         apiKey: dialogFields.key.value,
@@ -566,6 +769,233 @@ import { SETTINGS_CEILINGS } from '../../lib/ai';
         return;
       }
       setBusy(button, false);
+    });
+
+    /* — the model browser —
+
+       Three fields on the dialog hold a model id and all three used to be
+       spelling tests: the only feedback for a typo was a 404 in front of a
+       visitor, and the only way to know what a vendor served was the vendor's
+       own website. This asks the provider.
+
+       One dialog in two modes. `fallbacks` picks several; the other two pick
+       one. The mode is the target field rather than a flag, because the three
+       differ in more than arity — what "Use selected" writes, and whether an
+       empty selection is meaningful, are both per field.
+
+       The listing is cached per base URL for as long as the dialog is open.
+       OpenRouter's is several hundred rows and roughly a megabyte before this
+       endpoint trims it, and re-fetching it to reopen the same list twice is
+       the kind of thing that makes a screen feel slow for no reason. It is
+       dropped whenever the base URL changes, which is the only thing that can
+       make it wrong. */
+    type PickTarget = 'model' | 'assist' | 'fallbacks';
+
+    const modelsDialog = $<HTMLDialogElement>('ai-models');
+    const modelList = $('ai-model-list');
+    const modelSearch = $<HTMLInputElement>('ai-model-search');
+    const modelStatus = $('ai-model-status');
+    const modelCount = $('ai-model-count');
+
+    let catalogue: ModelInfo[] | null = null;
+    let picking: PickTarget = 'model';
+    let filter: 'all' | 'free' | 'long' = 'all';
+    const chosen = new Set<string>();
+
+    /** Rendered rows, capped. Six hundred `<div>`s is a scrollbar, not a list. */
+    const RENDER_CAP = 250;
+    const LONG_CONTEXT = 128_000;
+
+    const price = (value: number | null) =>
+      value === null ? '' : value === 0 ? 'free' : `$${value < 1 ? value.toFixed(3) : value.toFixed(2)}/M`;
+
+    function matches(model: ModelInfo, needle: string): boolean {
+      if (filter === 'free' && !model.free) return false;
+      if (filter === 'long' && (model.contextLength ?? 0) < LONG_CONTEXT) return false;
+      if (!needle) return true;
+      /* Every term has to appear somewhere, in any order — "claude haiku"
+         should find `anthropic/claude-3.5-haiku` and typing the vendor first is
+         the natural way to narrow a list of three hundred. */
+      const haystack = `${model.id} ${model.name} ${model.description}`.toLowerCase();
+      return needle.split(/\s+/).filter(Boolean).every(term => haystack.includes(term));
+    }
+
+    function modelRow(model: ModelInfo): HTMLElement {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'ai-model-row';
+      row.dataset.id = model.id;
+      if (chosen.has(model.id)) row.dataset.chosen = '';
+      row.setAttribute('aria-pressed', String(chosen.has(model.id)));
+
+      const name = document.createElement('span');
+      name.className = 'ai-model-id';
+      name.textContent = model.id;
+
+      const badges = document.createElement('span');
+      badges.className = 'ai-model-badges';
+      const badge = (text: string, tone?: string) => {
+        if (!text) return;
+        const b = document.createElement('span');
+        b.className = 'ai-model-badge';
+        if (tone) b.dataset.tone = tone;
+        b.textContent = text;
+        badges.append(b);
+      };
+      if (model.free) badge('free', 'on');
+      if (model.contextLength) badge(`${Math.round(model.contextLength / 1000)}k ctx`);
+      if (!model.free) {
+        const p = price(model.promptPrice);
+        const c = price(model.completionPrice);
+        if (p || c) badge([p, c].filter(Boolean).join(' → '));
+      }
+      if (model.modality && model.modality !== 'text->text') badge(model.modality);
+
+      const note = document.createElement('span');
+      note.className = 'ai-model-note';
+      note.textContent = model.description || model.name;
+
+      row.append(name, badges, note);
+
+      row.addEventListener('click', () => {
+        if (picking === 'fallbacks') {
+          if (chosen.has(model.id)) chosen.delete(model.id);
+          else chosen.add(model.id);
+        } else {
+          chosen.clear();
+          chosen.add(model.id);
+        }
+        paintModels();
+      });
+
+      return row;
+    }
+
+    function paintModels() {
+      const needle = modelSearch.value.trim().toLowerCase();
+      const all = catalogue ?? [];
+      const hits = all.filter(model => matches(model, needle));
+
+      modelList.replaceChildren();
+      for (const model of hits.slice(0, RENDER_CAP)) modelList.append(modelRow(model));
+
+      if (all.length && !hits.length) {
+        const empty = document.createElement('p');
+        empty.className = 'admin-empty';
+        empty.textContent = 'Nothing matches that. Clear the filter, or type the id in by hand.';
+        modelList.append(empty);
+      }
+
+      const capped = hits.length > RENDER_CAP ? ` · showing the first ${RENDER_CAP}` : '';
+      modelCount.textContent = all.length
+        ? `${hits.length} of ${all.length}${capped}${chosen.size ? ` · ${chosen.size} chosen` : ''}`
+        : '';
+    }
+
+    async function openPicker(target: PickTarget) {
+      picking = target;
+      chosen.clear();
+      modelSearch.value = '';
+
+      const field =
+        target === 'model'
+          ? dialogFields.model
+          : target === 'assist'
+            ? dialogFields.assist
+            : dialogFields.fallbacks;
+
+      /* Pre-select what is already in the field, so reopening the browser on a
+         configured provider shows what it is configured with rather than a
+         blank list — and so adding a fourth fallback is one click. */
+      for (const id of field.value.split(/[,\n]/).map(m => m.trim()).filter(Boolean)) {
+        chosen.add(id);
+      }
+
+      $('ai-models-title').textContent =
+        target === 'fallbacks' ? 'Choose fallback models' : 'Choose a model';
+
+      modelsDialog.showModal();
+      modelStatus.hidden = false;
+      modelStatus.dataset.tone = 'pending';
+      modelStatus.textContent = 'Asking the provider what it serves…';
+      modelList.replaceChildren();
+      modelCount.textContent = '';
+
+      if (!catalogue) {
+        try {
+          const result = await listModels({
+            /* The saved row where there is one — it has the key, and several
+               vendors list more to an authenticated caller. Otherwise the URL
+               as typed, because picking a model is something the owner wants to
+               do before pressing Save. */
+            slug: editing?.slug,
+            baseUrl: dialogFields.baseUrl.value.trim(),
+          });
+          catalogue = result.models;
+          modelStatus.dataset.tone = result.error ? 'error' : 'ok';
+          modelStatus.textContent =
+            result.error ??
+            `${result.models.length} model${result.models.length === 1 ? '' : 's'} available.`;
+          modelStatus.hidden = !result.error && result.models.length > 0;
+        } catch (error) {
+          catalogue = [];
+          modelStatus.dataset.tone = 'error';
+          modelStatus.textContent =
+            error instanceof Error ? error.message : 'Could not read the model list.';
+        }
+      } else {
+        modelStatus.hidden = true;
+      }
+
+      paintModels();
+      modelSearch.focus();
+    }
+
+    document.querySelectorAll<HTMLButtonElement>('[data-pick]').forEach(button => {
+      button.addEventListener('click', () => {
+        void openPicker((button.dataset.pick ?? 'model') as PickTarget);
+      });
+    });
+
+    modelSearch.addEventListener('input', paintModels);
+
+    $('ai-model-filters').addEventListener('click', event => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-filter]');
+      if (!button) return;
+      filter = (button.dataset.filter ?? 'all') as typeof filter;
+      $('ai-model-filters')
+        .querySelectorAll<HTMLButtonElement>('[data-filter]')
+        .forEach(chip => chip.setAttribute('aria-pressed', String(chip === button)));
+      paintModels();
+    });
+
+    modelsDialog.addEventListener('click', event => {
+      if (event.target === modelsDialog) modelsDialog.close();
+    });
+    $<HTMLButtonElement>('ai-models-cancel').addEventListener('click', () => modelsDialog.close());
+
+    $<HTMLButtonElement>('ai-models-use').addEventListener('click', () => {
+      const picked = [...chosen];
+      if (picking === 'fallbacks') {
+        dialogFields.fallbacks.value = picked.join(', ');
+      } else if (picked.length) {
+        const field = picking === 'model' ? dialogFields.model : dialogFields.assist;
+        field.value = picked[0];
+        /* Which knobs this model actually accepts, where the vendor said. It is
+           a note rather than a set of disabled fields: `supported_parameters`
+           is OpenRouter's, most listings do not carry it, and greying out a
+           field because a vendor was quiet would be worse than saying nothing. */
+        const info = (catalogue ?? []).find(model => model.id === picked[0]);
+        $('ai-param-support').textContent = info?.supported.length
+          ? `${info.id} accepts: ${info.supported.join(', ')}.`
+          : '';
+      }
+      modelsDialog.close();
+    });
+
+    /* A different endpoint serves a different catalogue. */
+    dialogFields.baseUrl.addEventListener('input', () => {
+      catalogue = null;
     });
 
     $<HTMLButtonElement>('ai-save-settings').addEventListener('click', async event => {
@@ -675,6 +1105,128 @@ import { SETTINGS_CEILINGS } from '../../lib/ai';
   .ai-switch-card { border-color: var(--color-accent-400); }
 
   code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+
+  /* — the dialogs —
+
+     `.modal` is 760px, which is right for six fields and cramped for a list of
+     three hundred models beside their prices. */
+  .ai-modal { width: min(860px, 94vw); }
+
+  .ai-pick { display: flex; gap: var(--space-2); align-items: stretch; }
+  .ai-pick .input { flex: 1; min-width: 0; }
+  .ai-pick .btn { flex: none; white-space: nowrap; }
+
+  .ai-params { border-top: 1px solid var(--color-divider); padding-top: var(--space-3); }
+  .ai-params-summary {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    color: var(--color-text-muted);
+  }
+  .ai-params-summary::-webkit-details-marker { display: none; }
+  .ai-params-summary::before { content: '+ '; }
+  .ai-params[open] .ai-params-summary::before { content: '\2212 '; }
+  .ai-params-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: var(--space-3);
+    margin-top: var(--space-3);
+  }
+  .ai-param-support { font-family: var(--font-mono); font-size: 11px; }
+
+  .ai-model-tools {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    flex-wrap: wrap;
+    margin-bottom: var(--space-3);
+  }
+  .ai-model-tools .input { flex: 1; min-width: 200px; }
+  .ai-model-filters { display: flex; gap: var(--space-1); }
+
+  .ai-chip {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 6px 10px;
+    border: 1px solid var(--color-divider);
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+  .ai-chip[aria-pressed='true'] {
+    border-color: var(--color-accent-500);
+    color: var(--color-accent-700);
+  }
+
+  /* Every row below is built by the script, so it carries no `data-astro-cid`
+     and a plain scoped selector would never reach it. Hung off the
+     server-rendered list instead, the way `#import-list` is. */
+  .ai-model-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 46vh;
+    overflow-y: auto;
+    border: 1px solid var(--color-divider);
+  }
+  .ai-model-list :global(.ai-model-row) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'id badges' 'note note';
+    gap: 2px var(--space-2);
+    text-align: left;
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border: 0;
+    border-bottom: 1px solid var(--color-divider);
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+  }
+  .ai-model-list :global(.ai-model-row:hover) { background: var(--color-surface); }
+  .ai-model-list :global(.ai-model-row[data-chosen]) {
+    background: color-mix(in srgb, var(--color-accent-500) 10%, transparent);
+    box-shadow: inset 3px 0 0 var(--color-accent-500);
+  }
+  .ai-model-list :global(.ai-model-id) {
+    grid-area: id;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    word-break: break-all;
+  }
+  .ai-model-list :global(.ai-model-badges) {
+    grid-area: badges;
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .ai-model-list :global(.ai-model-badge) {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    padding: 1px 5px;
+    border: 1px solid var(--color-divider);
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+  .ai-model-list :global(.ai-model-badge[data-tone='on']) {
+    border-color: var(--color-accent-500);
+    color: var(--color-accent-700);
+  }
+  .ai-model-list :global(.ai-model-note) {
+    grid-area: note;
+    font-size: 11px;
+    color: var(--color-text-muted);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .ai-model-count { font-size: 11px; margin-right: auto; }
 
   @media (max-width: 1000px) {
     .ai-grid { grid-template-columns: 1fr; }

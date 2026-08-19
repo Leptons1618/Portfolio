@@ -24,18 +24,25 @@
  * admin screen has something honest to show instead. `scripts/test-ai.mjs`
  * asserts that the shape the listing endpoint builds cannot carry it.
  *
- * ## Reasoning is not an answer, and never reaches a browser
+ * ## Reasoning is not an answer, and it travels in its own channel
  *
  * A reasoning model's chain-of-thought is not output — it is the model talking
  * to itself, and it arrived on this site's public chat as "Here's a thinking
  * process:" followed by a numbered analysis of the visitor's own question, and
  * in the journal editor as eight hundred words of deliberation written straight
- * into the post body. Three mechanisms stop it, described in full at
- * `thinkStripper` below, and the frame protocol carries **no reasoning text at
- * all**: the most a client learns is `{"status":"thinking"}`, which is enough
- * to say so on screen and carries nothing to accidentally render.
+ * into the post body. `thinkStripper` below separates it — from `<think>`-family
+ * tags, from `delta.reasoning`, and from bare narrated prose that marks itself
+ * with nothing at all — and it leaves here as `{"thinking":…}` frames, never as
+ * `{"delta":…}`.
+ *
+ * The separation is the guarantee, not the discarding. A UI shows thinking
+ * behind a disclosure and the answer in the body; the authoring assistant
+ * writes `delta` into the post and `thinking` into the panel. Nothing has to
+ * decide which half it is looking at, which is what the old arrangement — one
+ * `content` field carrying both — asked every reader to do. Decision 29.
  */
 
+import { clampParams } from './ai-catalog';
 import { site } from './site';
 
 /* ---------- settings ---------- */
@@ -82,7 +89,13 @@ export interface AiSettings {
 const CEILINGS = {
   maxQuestionChars: 2000,
   maxTurns: 20,
-  maxOutputTokens: 1500,
+  /* High enough to be raisable past a reasoning model's own appetite. A model
+     that deliberates spends this budget *before* it writes anything — at 1500
+     the whole ceiling went on thinking and the visitor got a truncated
+     analysis of their own question. The owner pays per token used, not per
+     token allowed, so headroom here costs nothing and its absence is a dead
+     answer. Decision 29. */
+  maxOutputTokens: 4000,
   perIpPerHour: 60,
   perDayTotal: 2000,
 } as const;
@@ -170,6 +183,27 @@ export interface Provider {
   apiKey: string | null;
   model: string;
   assistModel: string | null;
+  /**
+   * Models to try, in order, when the one above will not answer.
+   *
+   * A vendor outage is rarely the whole vendor: it is one model returning 429
+   * or 503 while the rest of the catalogue is fine. A second *provider* row
+   * covers the first case and needs a second account and a second key; this
+   * covers the second case with a list of strings on the row that already
+   * exists. `callChat` walks models within a provider and then providers,
+   * which is the order that costs least to recover from.
+   */
+  fallbackModels: string[];
+  /**
+   * Sampling parameters merged into every request to this provider.
+   *
+   * Already clamped against `PARAM_SPECS` by the time it is here — see
+   * `clampParams()` in `ai-catalog.ts` and the comment on the column in
+   * `migrations/0006_ai_params.sql`. Empty is the normal case and means "send
+   * no sampling fields", which is not the same as sending each vendor's
+   * documented defaults.
+   */
+  params: Record<string, number>;
   active: boolean;
   priority: number;
   updatedAt: string;
@@ -182,6 +216,8 @@ export interface ProviderSummary {
   baseUrl: string;
   model: string;
   assistModel: string | null;
+  fallbackModels: string[];
+  params: Record<string, number>;
   active: boolean;
   priority: number;
   updatedAt: string;
@@ -198,9 +234,30 @@ type ProviderRow = {
   api_key: string | null;
   model: string;
   assist_model: string | null;
+  fallback_models: string | null;
+  params: string | null;
   active: number;
   priority: number;
   updated_at: string;
+};
+
+/**
+ * The fallback list, from a column that may hold anything.
+ *
+ * Written as a JSON array by the `list` encoder in `content-schema.ts`, but
+ * this is also a column a person edits in `wrangler d1 execute` at midnight, so
+ * a comma-separated string parses too and garbage becomes an empty list rather
+ * than an exception on every request.
+ */
+const parseModels = (raw: string | null | undefined): string[] => {
+  if (!raw || !raw.trim()) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed.map(String).map(m => m.trim()).filter(Boolean);
+  } catch {
+    /* Not JSON. Fall through to the comma-separated reading. */
+  }
+  return raw.split(/[,\n]/).map(m => m.trim()).filter(Boolean);
 };
 
 const toProvider = (r: ProviderRow): Provider => ({
@@ -210,6 +267,8 @@ const toProvider = (r: ProviderRow): Provider => ({
   apiKey: r.api_key,
   model: r.model,
   assistModel: r.assist_model,
+  fallbackModels: parseModels(r.fallback_models),
+  params: clampParams(r.params),
   active: r.active === 1,
   priority: r.priority,
   updatedAt: r.updated_at,
@@ -245,6 +304,10 @@ export const summarise = (p: Provider): ProviderSummary => ({
   baseUrl: p.baseUrl,
   model: p.model,
   assistModel: p.assistModel,
+  fallbackModels: p.fallbackModels,
+  /* Safe to show, unlike the key: these are knobs the same screen sets, and
+     they have already been through the allowlist on the way out of the row. */
+  params: p.params,
   active: p.active,
   priority: p.priority,
   updatedAt: p.updatedAt,
@@ -329,7 +392,11 @@ const CHAT_TIMEOUT_MS = 30_000;
  */
 export const asciiHeader = (value: string) => value.replace(/[^ -~]+/g, ' ').trim();
 
-async function callProvider(provider: Provider, options: CallOptions): Promise<Response> {
+async function callProvider(
+  provider: Provider,
+  model: string,
+  options: CallOptions,
+): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? CHAT_TIMEOUT_MS);
 
@@ -343,25 +410,39 @@ async function callProvider(provider: Provider, options: CallOptions): Promise<R
         'X-Title': asciiHeader(`${site.name} portfolio assistant`),
       },
       body: JSON.stringify({
-        model: provider.model,
+        model,
         messages: options.messages,
         max_tokens: options.maxTokens,
         temperature: options.temperature ?? 0.3,
         stream: options.stream ?? false,
-        /* Ask the router not to generate chain-of-thought at all.
+        /* The owner's tuning, last, so it wins.
 
-           This is the cheapest of the three defences against reasoning reaching
-           a reader — tokens that are never generated cost nothing and cannot
-           leak — and `ndjsonFromSSE` strips inline `<think>` blocks as the
-           backstop for the providers that have no such switch.
+           `temperature` above is what the *task* asked for — low for answering
+           from a corpus, higher for drafting — and a provider that sets one
+           here overrides all of them. That is the intended reading of a knob on
+           the provider row: it is the setting for this endpoint, and a model
+           that needs to be run at 0.2 needs it for every task.
 
-           Gated on the host rather than sent to everyone, because an unknown
-           top-level field is *ignored* by most OpenAI-compatible providers and
-           rejected with a 400 by the strict ones — and a 400 here is
-           indistinguishable from a bad key. Same class of failure as the em
-           dash in `X-Title` above: a body the vendor refuses takes the whole
-           feature down for a reason nothing on screen can name. */
-        ...(provider.baseUrl.includes('openrouter.ai') ? { reasoning: { exclude: true } } : {}),
+           Nothing else in the body can be reached this way. The keys come from
+           `PARAM_SPECS` in source and `max_tokens` is deliberately not one of
+           them, so the ceiling above cannot be lifted from a settings screen —
+           the same rule `clampSettings()` enforces one field up. */
+        ...provider.params,
+        /* Nothing is sent to suppress reasoning any more.
+
+           This used to carry `reasoning: { exclude: true }` for OpenRouter, on
+           the argument that a token never generated cannot leak. Two things
+           were wrong with it. It did not work: the models that hurt narrate in
+           `content`, which that switch has no reach into, so the leak it was
+           meant to stop happened anyway and `thinkStripper()` is what actually
+           catches it. And it was expensive in the one currency that mattered —
+           the deliberation a reader is now *shown* was being generated, billed
+           and then thrown away by the router before it ever reached this
+           Worker, so the disclosure had nothing to open.
+
+           Omitting the field is also one less body-field gamble: the request
+           is now plain OpenAI-compatible JSON that no strict provider can
+           refuse for a key it does not recognise. Decision 29. */
       }),
       signal: controller.signal,
     });
@@ -371,13 +452,35 @@ async function callProvider(provider: Provider, options: CallOptions): Promise<R
 }
 
 /**
- * Ask the first provider that answers, walking the list on failure.
+ * The models to try for one provider, best first.
  *
- * A 4xx that is not 429 stops the walk: a malformed request or a rejected key
- * will be rejected identically by the next provider, and retrying it just
- * spends latency to arrive at the same answer. A 429, a 5xx, a timeout or a
- * network error moves on — those are the failures a second provider actually
- * fixes, which is the entire reason the table allows more than one active row.
+ * The primary for the role, then whatever the row lists as fallbacks. De-duped,
+ * because "the fallback is the same as the model" is the most likely thing to
+ * be typed into that field and retrying the model that just refused is a wasted
+ * round trip.
+ */
+export const modelsFor = (provider: Provider, which: 'chat' | 'assist'): string[] => {
+  const primary = which === 'assist' && provider.assistModel ? provider.assistModel : provider.model;
+  return [primary, ...provider.fallbackModels]
+    .map(m => m?.trim())
+    .filter((m, i, all): m is string => Boolean(m) && all.indexOf(m) === i);
+};
+
+/**
+ * Ask the first model that answers, walking models and then providers.
+ *
+ * Two nested walks, because there are two different outages. A model that is
+ * overloaded, deprecated overnight or rate-limited on its own is the common
+ * one, and the recovery for it is a second model on the same key — no second
+ * account, no second row. A provider that is unreachable, out of credit or
+ * holding a rejected key is the rarer one, and only a second row fixes that.
+ *
+ * `401` and `403` are the credential rather than the model, so they end that
+ * provider's inner walk immediately: every model on it will refuse identically.
+ * Everything else — `400` naming a model that does not exist, `402`, `404`,
+ * `429`, a `5xx`, a timeout, a DNS failure — moves to the next model and then
+ * to the next provider, which is the whole point of the table allowing more
+ * than one of either.
  *
  * The `Response` is returned unread so the caller can stream it. Every early
  * return here has already consumed the error body, so nothing leaks a reader.
@@ -395,31 +498,33 @@ export async function callChat(
   let lastError = 'Every configured provider refused.';
 
   for (const base of providers) {
-    const provider =
-      which === 'assist' && base.assistModel ? { ...base, model: base.assistModel } : base;
+    for (const model of modelsFor(base, which)) {
+      const provider = { ...base, model };
 
-    let response: Response;
-    try {
-      response = await callProvider(provider, options);
-    } catch (error) {
-      /* An abort is the timeout above; anything else is DNS or transport. Both
-         are worth trying the next provider for. */
-      lastError = error instanceof Error && error.name === 'AbortError'
-        ? `${provider.label} did not answer in time.`
-        : `${provider.label} could not be reached.`;
-      continue;
+      let response: Response;
+      try {
+        response = await callProvider(provider, model, options);
+      } catch (error) {
+        /* An abort is the timeout above; anything else is DNS or transport.
+           Both are worth trying the next model, then the next provider, for. */
+        lastError = error instanceof Error && error.name === 'AbortError'
+          ? `${base.label} (${model}) did not answer in time.`
+          : `${base.label} (${model}) could not be reached.`;
+        continue;
+      }
+
+      if (response.ok) return { response, provider };
+
+      /* Read it here so the connection is released either way, and so the
+         message below is the vendor's own rather than a status code.
+         Truncated: an error body is occasionally an entire HTML page. */
+      const detail = (await response.text().catch(() => '')).slice(0, 300);
+      lastError = `${base.label} (${model}) refused (${response.status}). ${detail}`.trim();
+
+      /* The key, not the model. Trying its other models spends latency to
+         collect the same 401 once per entry in the list. */
+      if (response.status === 401 || response.status === 403) break;
     }
-
-    if (response.ok) return { response, provider };
-
-    /* Read it here so the connection is released either way, and so the message
-       below is the vendor's own rather than a status code. Truncated: an error
-       body is occasionally an entire HTML page. */
-    const detail = (await response.text().catch(() => '')).slice(0, 300);
-    lastError = `${provider.label} refused (${response.status}). ${detail}`.trim();
-
-    const retryable = response.status === 429 || response.status >= 500;
-    if (!retryable) break;
   }
 
   throw new ProviderError(lastError);
@@ -451,29 +556,16 @@ export function completionText(payload: unknown): string {
  * The tags a model wraps inline chain-of-thought in.
  *
  * Providers that *separate* reasoning put it in `delta.reasoning` (OpenRouter)
- * or `delta.reasoning_content` (DeepSeek's own API), and dropping those is one
+ * or `delta.reasoning_content` (DeepSeek's own API), and routing those is one
  * line. The models that hurt are the ones that emit thinking as **content** —
  * either fenced in one of these tags, or as bare prose ("Here's a thinking
- * process:") with nothing at all marking it.
- *
- * Three defences, and none of them is sufficient alone:
- *
- *   1. `reasoning: { exclude: true }` on the request, where the router takes
- *      it. Nothing generated, nothing to leak, nothing billed.
- *   2. These tags, stripped here. Catches every model that marks its thinking.
- *   3. A prompt rule, in `ai-guard.ts` for the public chat and in
- *      `assist-tasks.ts` for the editor. The only thing that touches unmarked
- *      prose, and the weakest of the three — same honesty as the scope prompt.
- *
- * **Known gap:** a model whose opener is a prefill emits only `</think>`, with
- * the thinking ahead of it and nothing marking where it began. Catching that
- * needs the whole response buffered before a single character is forwarded,
- * which is the streaming this file exists to do. It is deliberately not handled
- * — defence 1 covers the router it actually happens on, and defence 3 is the
- * rest. If it shows up, the answer is a different model, not a buffer here.
+ * process:") with nothing at all marking it. Both are handled below, and both
+ * end in the same place: the `reasoning` half of the split, which the frame
+ * protocol carries as `{"thinking":…}` and every UI shows collapsed beside the
+ * answer rather than inside it.
  */
-const THINK_OPEN = /<(?:think|thinking|reasoning|reflection|scratchpad)>/i;
-const THINK_CLOSE = /<\/(?:think|thinking|reasoning|reflection|scratchpad)>/i;
+const THINK_OPEN = /<(?:think|thinking|thought|reason|reasoning|reflection|scratchpad|analysis)>/i;
+const THINK_CLOSE = /<\/(?:think|thinking|thought|reason|reasoning|reflection|scratchpad|analysis)>/i;
 
 /** `</scratchpad>` is the longest of them, at 13. Nothing longer can be partial. */
 const TAG_MAX = 14;
@@ -481,15 +573,91 @@ const TAG_MAX = 14;
 /** A candidate tag start: `<`, an optional slash, then letters and nothing else. */
 const PARTIAL_TAG = /^<\/?[a-zA-Z]*$/;
 
+/**
+ * How a model that marks nothing opens its chain-of-thought.
+ *
+ * Tested **once**, against the first line (or first ninety characters) of the
+ * content and never again, which is what keeps this from reclassifying an
+ * answer halfway through. Every pattern here is an opener a model that is
+ * *answering* would not use: an assistant told to be brief and to start at the
+ * first character of the answer does not begin "The user is asking", and the
+ * writing assistant is told in as many words never to begin with "Here's my
+ * thinking process".
+ *
+ * Deliberately short. A false positive hides real prose behind a disclosure —
+ * recoverable, but wrong — so the rule is the one `screenQuestion()` follows:
+ * precision over recall, and when in doubt leave it out. Anything not caught
+ * here is treated as the answer, which is where this started.
+ */
+const NARRATION: RegExp[] = [
+  /^\s*(?:here|this)\s*(?:'|’)?s?\s+(?:is\s+)?(?:my|a|the)\s+(?:thinking|thought|reasoning|analysis|plan)\b/i,
+  /^\s*(?:thinking|thought|reasoning|analysis)\s*(?:process)?\s*:/i,
+  /^\s*\**\s*(?:thinking|reasoning|thought process)\s*\**\s*$/i,
+  /^\s*let\s*(?:'|’)?s?\s+(?:me\s+)?(?:think|analy|break\s+(?:this|it)\s+down|work\s+through|unpack|start\s+by)/i,
+  /^\s*(?:okay|ok|alright|right|so)\s*,?\s+(?:let|i\s+need|first|the\s+user)\b/i,
+  /^\s*the\s+user\s+(?:is\s+)?(?:asking|asks|wants|said|says|gave|provided)\b/i,
+  /^\s*i\s+need\s+to\s+(?:analy|understand|figure|work\s+out|carefully|first)/i,
+  /^\s*(?:first|step)\s*,?\s*(?:1\s*[.:)]|i\s+(?:need|should|must|will))/i,
+];
+
+/**
+ * A complete line saying the deliberation is over and the answer starts.
+ *
+ * Line-anchored, which is why unmarked narration is routed a line at a time:
+ * only a finished line can be tested, and holding back the partial one is the
+ * whole of the state that needs. The line itself is a label rather than prose
+ * and is dropped.
+ */
+const NARRATION_STOP =
+  /^\s*(?:\**|#{1,6}\s*)?(?:final\s+answer|final\s+response|final|answer|response|output|result|draft|here(?:'|’)?s\s+the\s+\w+)\b\s*\**\s*:?\s*$/i;
+
+/** A horizontal rule, which is how several models separate notes from output. */
+const NARRATION_RULE = /^\s*(?:-{3,}|={3,}|\*{3,})\s*$/;
+
+/**
+ * A labelled field line — `TITLE:`, `READ TIME:`, `BODY:`.
+ *
+ * The strongest end-of-thinking signal the authoring assistant has, because a
+ * `document` task's entire output contract is these labels (`POST_KEYS` and
+ * friends in `assist-tasks.ts`). Unlike the two above, this line **is** the
+ * answer's first line, so it is kept.
+ */
+const FIELD_LABEL = /^[A-Z][A-Z ]{1,14}:/;
+
+/** Enough of the opening to decide on, when no newline arrives first. */
+const HEAD_WINDOW = 90;
+
 export interface ThoughtSplit {
   /** What belongs in the answer. */
   text: string;
-  /** What the model was thinking. Counted, never forwarded to a browser. */
+  /** What the model was thinking. Shown beside the answer, never inside it. */
   reasoning: string;
 }
 
+const NOTHING: ThoughtSplit = { text: '', reasoning: '' };
+
 /**
- * Split streamed content into prose and inline chain-of-thought.
+ * Prose that arrived *before* a tagged block, classified once.
+ *
+ * A model that marks its thinking has already said where its thinking is, so
+ * the opening it wrote before the tag is almost always the answer — but not
+ * always: "Here's my thinking process: <think>…" is a real shape, and without
+ * this that first fragment would be the one line of narration that got through.
+ * It is judged and routed, and narration mode is deliberately **not** entered:
+ * after a tag, the tags govern.
+ */
+const judged = (opening: string): ThoughtSplit =>
+  NARRATION.some(pattern => pattern.test(opening))
+    ? { text: '', reasoning: opening }
+    : { text: opening, reasoning: '' };
+
+const both = (a: ThoughtSplit, b: ThoughtSplit): ThoughtSplit => ({
+  text: a.text + b.text,
+  reasoning: a.reasoning + b.reasoning,
+});
+
+/**
+ * Split streamed content into prose and chain-of-thought, marked or not.
  *
  * Stateful across chunks, because it has to be: `<think>` is seven characters
  * and a TCP read can end after two of them. The carry buffer holds back any
@@ -500,17 +668,86 @@ export interface ThoughtSplit {
  * The carry is restricted to a run of letters after the `<`, so a post
  * containing `a < b` is not held hostage waiting for a tag that never arrives.
  *
- * An opening tag with no closer swallows the remainder, which is correct: a
- * model that opened one and then ran out of tokens produced no answer, and the
- * caller's "it wrote nothing" message is the honest report of that. A closing
- * tag with no opener passes through as ordinary text — see the known gap above.
+ * Two passes, in this order:
+ *
+ *   1. **Tags.** An opening tag with no closer swallows the remainder, which is
+ *      correct: a model that opened one and then ran out of tokens produced no
+ *      answer, and the caller's "it wrote nothing" is the honest report of it.
+ *      A closing tag with no opener passes through as ordinary text.
+ *   2. **Narration.** The opening of the *prose* is held back until a newline
+ *      or ninety characters, then tested against `NARRATION` once. A match
+ *      routes everything into `reasoning` a line at a time until a line says
+ *      the answer has begun. This is what catches the model that writes "Here's
+ *      a thinking process:" with no tag anywhere — the case the first three
+ *      defences all miss, and the one that put a numbered analysis of a
+ *      visitor's own question on the public site. A response carrying a tagged
+ *      block is never sniffed: it has already said where its thinking is.
+ *
+ * The ninety-character delay applies once, to the first line of an answer, with
+ * a thinking or waiting state on screen throughout it.
  *
  * Exported so `scripts/test-ai.mjs` can feed it a tag one character at a time,
  * which is the case that matters and the one no manual test will produce.
  */
 export function thinkStripper() {
   let carry = '';
-  let inThink = false;
+  let inTag = false;
+  /** The opening prose, until there is enough of it to classify. */
+  let head = '';
+  let decided = false;
+  let narrating = false;
+  /** The partial last line, while narration is routed line by line. */
+  let partial = '';
+
+  /* Forward complete lines to `reasoning` until one of them ends the thinking. */
+  const narrate = (text: string): ThoughtSplit => {
+    let reasoning = '';
+    partial += text;
+
+    for (;;) {
+      const cut = partial.indexOf('\n');
+      if (cut === -1) return { text: '', reasoning };
+
+      const one = partial.slice(0, cut);
+      partial = partial.slice(cut + 1);
+
+      if (FIELD_LABEL.test(one)) {
+        /* The answer's own first line. Kept, along with everything after it. */
+        narrating = false;
+        const rest = `${one}\n${partial}`;
+        partial = '';
+        return { text: rest, reasoning };
+      }
+      if (NARRATION_STOP.test(one) || NARRATION_RULE.test(one)) {
+        narrating = false;
+        const rest = partial;
+        partial = '';
+        return { text: rest, reasoning };
+      }
+      reasoning += `${one}\n`;
+    }
+  };
+
+  /* Classify the opening, once there is enough of it. */
+  const settle = (): ThoughtSplit => {
+    decided = true;
+    const opening = head;
+    head = '';
+    if (!NARRATION.some(pattern => pattern.test(opening))) return { text: opening, reasoning: '' };
+    narrating = true;
+    return narrate(opening);
+  };
+
+  const route = (text: string): ThoughtSplit => {
+    if (!decided) {
+      head += text;
+      /* A newline is enough to judge an opener by; ninety characters is the
+         backstop for a model that writes its first paragraph unbroken. */
+      if (head.length < HEAD_WINDOW && !head.includes('\n')) return NOTHING;
+      return settle();
+    }
+    return narrating ? narrate(text) : { text, reasoning: '' };
+  };
 
   return {
     split(chunk: string): ThoughtSplit {
@@ -520,12 +757,12 @@ export function thinkStripper() {
       let reasoning = '';
 
       for (;;) {
-        const match = (inThink ? THINK_CLOSE : THINK_OPEN).exec(buffer);
+        const match = (inTag ? THINK_CLOSE : THINK_OPEN).exec(buffer);
         if (!match) break;
-        if (inThink) reasoning += buffer.slice(0, match.index);
+        if (inTag) reasoning += buffer.slice(0, match.index);
         else text += buffer.slice(0, match.index);
         buffer = buffer.slice(match.index + match[0].length);
-        inThink = !inThink;
+        inTag = !inTag;
       }
 
       const open = buffer.lastIndexOf('<');
@@ -534,16 +771,44 @@ export function thinkStripper() {
         buffer = buffer.slice(0, open);
       }
 
-      if (inThink) reasoning += buffer;
+      if (inTag) reasoning += buffer;
       else text += buffer;
-      return { text, reasoning };
+
+      /* A tag settles the question the sniffer asks, so the opening still held
+         back is released here rather than being stranded in `head` for the rest
+         of the response — which is exactly what a first `<think>` arriving four
+         characters into an answer used to do to the four characters. */
+      if (reasoning && !decided) {
+        decided = true;
+        const opening = judged(head);
+        head = '';
+        text = opening.text + text;
+        reasoning = opening.reasoning + reasoning;
+      }
+
+      return both({ text: '', reasoning }, route(text));
     },
 
     /** Whatever is still held back when upstream ends. */
     flush(): ThoughtSplit {
       const rest = carry;
       carry = '';
-      return inThink ? { text: '', reasoning: rest } : { text: rest, reasoning: '' };
+      if (inTag) {
+        /* Still inside a block that never closed. Whatever preceded it is the
+           only thing that could be an answer. */
+        const opening = judged(head);
+        head = '';
+        return both(opening, { text: '', reasoning: rest + partial });
+      }
+
+      let out = route(rest);
+      /* Nothing more is coming, so an undecided opening has to be judged on
+         what there is — a two-word answer never reaches the window. */
+      if (!decided) out = both(out, settle());
+
+      const last = partial;
+      partial = '';
+      return both(out, narrating ? { text: '', reasoning: last } : { text: last, reasoning: '' });
     },
   };
 }
@@ -551,8 +816,12 @@ export function thinkStripper() {
 /**
  * Turn an upstream SSE stream into newline-delimited JSON.
  *
- * The browser gets `{"delta":"…"}` per chunk and `{"done":true}` at the end,
- * which is three lines of client code to read. Re-emitting the vendor's SSE
+ * The browser gets `{"delta":"…"}` per chunk of the answer, `{"thinking":"…"}`
+ * per chunk of the model's deliberation, and `{"done":true}` at the end, which
+ * is four lines of client code to read. The two text channels are separate all
+ * the way down so no UI has to guess which is which: an answer renders, a
+ * thought goes behind a disclosure, and nothing can put one where the other
+ * belongs. Decision 29. Re-emitting the vendor's SSE
  * verbatim would work too, and would also forward whatever else the vendor
  * chose to put in a frame — model names, token accounting, occasionally the
  * whole request echoed back. This is a re-encode, not a proxy, and only the
@@ -584,9 +853,6 @@ export function ndjsonFromSSE(upstream: ReadableStream<Uint8Array>): ReadableStr
   const reader = upstream.getReader();
   const thoughts = thinkStripper();
   let buffer = '';
-  /* Emitted once, the first time thinking is seen, so a UI can say so rather
-     than showing an idle spinner. The thought text never goes with it. */
-  let announced = false;
   /* The last non-empty `finish_reason` upstream sent. `length` is the one worth
      carrying: it is the difference between "the model had nothing more to add"
      and "the ceiling cut it off mid-sentence", and nothing else on either
@@ -606,6 +872,7 @@ export function ndjsonFromSSE(upstream: ReadableStream<Uint8Array>): ReadableStr
             /* Whatever the tag guard was still holding back. A response that
                ends mid-`<thi` is not a tag, it is those four characters. */
             const tail = thoughts.flush();
+            if (tail.reasoning) controller.enqueue(line({ thinking: tail.reasoning }));
             if (tail.text) controller.enqueue(line({ delta: tail.text }));
             controller.enqueue(line(stopReason ? { done: true, stopReason } : { done: true }));
             controller.close();
@@ -647,16 +914,19 @@ export function ndjsonFromSSE(upstream: ReadableStream<Uint8Array>): ReadableStr
               const choice = parsed.choices?.[0];
               if (choice?.finish_reason) stopReason = choice.finish_reason;
 
-              /* Reasoning arrives two ways and neither is forwarded. These are
-                 the providers that separate it; the stripper below catches the
-                 ones that put it in `content` behind a tag. */
+              /* Reasoning arrives three ways and all three land in the same
+                 channel: `delta.reasoning` (OpenRouter), `delta.reasoning_content`
+                 (DeepSeek), and — through the stripper — thinking a model wrote
+                 into `content`, tagged or bare. It is forwarded as its own frame
+                 so a UI can show it collapsed; it is never mixed into `delta`,
+                 which is the field that renders as the answer. */
               const separated = choice?.delta?.reasoning || choice?.delta?.reasoning_content || '';
               const content = choice?.delta?.content;
               const split = thoughts.split(typeof content === 'string' ? content : '');
+              const thinking = `${separated}${split.reasoning}`;
 
-              if (!announced && (separated || split.reasoning)) {
-                controller.enqueue(line({ status: 'thinking' }));
-                announced = true;
+              if (thinking) {
+                controller.enqueue(line({ thinking }));
                 emitted = true;
               }
 

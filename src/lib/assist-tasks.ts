@@ -97,8 +97,13 @@ export type AssistTarget = JournalTarget | ProjectTarget;
  * rule `group` follows: each surface renders `ASSIST_MENU` filtered by its own
  * name, so a task added here appears in exactly one place and no page script
  * changes to receive it.
+ *
+ * `both` exists for `chat`, which is not on either menu because it is what
+ * happens when nothing is picked. A task carrying it is offered nowhere and
+ * reachable everywhere, which is the opposite of every other entry here and is
+ * why it says so rather than lying about being a journal task.
  */
-export type AssistSurface = 'journal' | 'project';
+export type AssistSurface = 'journal' | 'project' | 'both';
 
 /**
  * What a task does to the post, which is the only sorting that helps.
@@ -149,6 +154,20 @@ export type AssistField =
 export interface AssistTask {
   /** Shown on the button in the editor. */
   label: string;
+  /**
+   * What to type to run it, without the slash.
+   *
+   * The panel is a conversation now, so a task is a *command* in it: typing `/`
+   * opens the list, and `/draw-diagram` runs the same table entry the shelf
+   * button used to. It is written out per task rather than derived from the
+   * label, because a label is copy and a command is an interface — "Write the
+   * whole post" becoming `/write-the-whole-post` on the day someone adds a
+   * definite article is a shortcut that silently stops working.
+   *
+   * Absent means the task has no command and appears in no menu. `chat` is the
+   * only one: it is what plain text does.
+   */
+  command?: string;
   /** One line under it, so the author knows what they are about to spend. */
   hint: string;
   /** Which editor offers it. Nothing renders a task from another surface. */
@@ -307,6 +326,7 @@ export const ASSIST_TASKS = {
    */
   compose: {
     label: 'Write the whole post',
+    command: 'write-whole-post',
     surface: 'journal',
     group: 'write',
     hint: 'From a topic: title, summary, tags and a full draft, straight into the fields.',
@@ -343,6 +363,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
 
   outline: {
     label: 'Draft an outline',
+    command: 'draft-outline',
     surface: 'journal',
     group: 'write',
     hint: 'Headings and a sentence each, from the title and summary.',
@@ -359,6 +380,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
 
   expand: {
     label: 'Expand the selection',
+    command: 'expand-selection',
     surface: 'journal',
     group: 'write',
     hint: 'Writes out the selected heading or note in full.',
@@ -372,6 +394,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
 
   tighten: {
     label: 'Tighten the prose',
+    command: 'tighten-prose',
     surface: 'journal',
     group: 'refine',
     hint: 'Same argument, fewer words. Rewrites the selection.',
@@ -387,6 +410,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
 
   summary: {
     label: 'Write the summary',
+    command: 'write-summary',
     surface: 'journal',
     group: 'refine',
     hint: 'One sentence for the card and the meta description.',
@@ -417,6 +441,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
    */
   revise: {
     label: 'Revise the post',
+    command: 'revise-post',
     surface: 'journal',
     group: 'refine',
     hint: 'Rewrites the whole draft to your instruction. Undoable.',
@@ -434,6 +459,7 @@ Return only the rewritten post, in markdown, starting at its first line. No prea
 
   titles: {
     label: 'Suggest titles',
+    command: 'suggest-titles',
     surface: 'journal',
     group: 'suggest',
     hint: 'Five alternatives, from what is written so far.',
@@ -447,6 +473,7 @@ Return only the rewritten post, in markdown, starting at its first line. No prea
 
   tags: {
     label: 'Suggest tags',
+    command: 'suggest-tags',
     surface: 'journal',
     group: 'suggest',
     hint: 'Reuses tags already on the site where they fit.',
@@ -465,6 +492,7 @@ Return only the rewritten post, in markdown, starting at its first line. No prea
 
   diagram: {
     label: 'Draw a diagram',
+    command: 'draw-diagram',
     surface: 'journal',
     group: 'suggest',
     hint: 'Mermaid source, rendered here and saved as an SVG.',
@@ -486,6 +514,7 @@ Rules, and the first two are hard requirements because the output is rendered ra
 
   alt: {
     label: 'Describe the image',
+    command: 'describe-image',
     surface: 'journal',
     group: 'suggest',
     hint: 'Alt text and a caption for the hero image.',
@@ -519,6 +548,7 @@ Rules, and the first two are hard requirements because the output is rendered ra
    */
   project: {
     label: 'Write the frontmatter',
+    command: 'write-frontmatter',
     surface: 'project',
     group: 'write',
     hint: 'From the repository: summary, category, tags, stack and highlights.',
@@ -565,6 +595,7 @@ Emit nothing before TITLE: and nothing after the last highlight. Do not wrap the
    */
   casestudy: {
     label: 'Write the case study fields',
+    command: 'write-case-study',
     surface: 'project',
     group: 'write',
     hint: 'Problem, solution, achievements and stack, from this project.',
@@ -595,6 +626,86 @@ Emit nothing before TITLE: and nothing after the last achievement. Do not wrap t
     context: ['repo', 'readme', 'title', 'summary', 'stack', 'highlights'],
     live: 'caseStudy',
   },
+  /**
+   * The selection, rewritten to an instruction typed beside it.
+   *
+   * `tighten` and `expand` are two fixed things to do to a selection. This is
+   * the open one: highlight a paragraph, say what is wrong with it, watch the
+   * replacement arrive and either take it or throw it away. It is the task
+   * behind the button that appears over a selection in the body field.
+   *
+   * Deliberately **not** `live`. Every other rewriting task writes into the
+   * field as it streams because the field is where the author is looking; this
+   * one is replacing text they have already written, in a range they chose, and
+   * "it is written, press Undo" is the wrong offer for that. It streams into a
+   * preview beside the selection and replaces nothing until Replace is pressed.
+   */
+  selection: {
+    command: 'rewrite-selection',
+    label: 'Rewrite the selection',
+    surface: 'journal',
+    group: 'refine',
+    hint: 'Whatever you ask, applied to the selected text. Nothing changes until you accept it.',
+    instructions: `Rewrite the selected passage according to the author's instruction.
+
+Rules:
+- Return **only** the rewritten passage. It replaces the selection exactly as you write it.
+- Keep the author's voice, their markdown, and their level of formality.
+- Keep any heading, list or code fence structure the selection had unless the instruction is to change it.
+- Do not add a preamble, do not explain what you changed, do not wrap the answer in a code fence unless the selection itself was one.
+- If the instruction cannot be applied to this passage, return the passage unchanged.`,
+    format: 'markdown',
+    maxTokens: 1500,
+    temperature: 0.6,
+    needsCorpus: false,
+    context: ['selection', 'title', 'summary'],
+    needsTopic: true,
+  },
+
+  /**
+   * Plain conversation, which is what the panel does when no command is typed.
+   *
+   * The panel used to be twelve buttons and a topic box: every exchange with it
+   * had to be one of twelve shapes, and "why is this paragraph not working"
+   * was not one of them. This is the default now, and the twelve are commands
+   * inside it.
+   *
+   * It is still a *closed* task in the table — the route looks it up by name
+   * like every other one, and the reason from decision 24 has not changed: this
+   * endpoint holds the owner's key, and "only the owner can call it" is a
+   * weaker claim than "there are thirteen things it can be asked to do". What
+   * makes this one different is that its instruction is a conversation rather
+   * than a job, not that the caller supplies its prompt. Nothing here is
+   * forwarded from the request except the author's own message and the fields
+   * `context` names, exactly as before.
+   *
+   * It never writes into the editor. `live` is absent and no branch of the
+   * panel applies a chat reply to a field: an answer to a question is not a
+   * draft, and the commands are what change the post.
+   */
+  chat: {
+    label: 'Ask about the draft',
+    surface: 'both',
+    group: 'suggest',
+    hint: 'A question about what is on screen, or about what to do next.',
+    instructions: `You are talking to the author in the editor where they are writing. Answer the question they asked, about the draft in front of them or about writing it.
+
+Rules:
+- Be specific about *their* text. Quote the line you mean rather than describing it.
+- Short. A paragraph, or a short list. This is a conversation, not a document.
+- If they are asking you to write or rewrite something, say which command does it — the panel has commands for drafting a post, outlining, tightening a selection, summarising, suggesting titles and tags, drawing a diagram and writing alt text — and answer the question anyway.
+- Never output a labelled field block (TITLE:, SUMMARY:, BODY:). Nothing you say here goes into the post.
+- If you do not know, say so. Do not invent facts about their project.`,
+    format: 'markdown',
+    maxTokens: 1200,
+    temperature: 0.5,
+    needsCorpus: false,
+    /* Everything either editor might have. A field a surface does not have
+       arrives empty, which is what `source[key] ?? ''` in both panels already
+       does — and every one of these is capped by `CONTEXT_LIMITS`. */
+    context: ['title', 'summary', 'tags', 'body', 'selection', 'stack', 'highlights'],
+    needsTopic: true,
+  },
 } as const satisfies Record<string, AssistTask>;
 
 export type AssistTaskName = keyof typeof ASSIST_TASKS;
@@ -602,10 +713,18 @@ export type AssistTaskName = keyof typeof ASSIST_TASKS;
 export const isAssistTask = (value: unknown): value is AssistTaskName =>
   typeof value === 'string' && Object.prototype.hasOwnProperty.call(ASSIST_TASKS, value);
 
-/** The task list as the editor renders it — label, hint and what it will send. */
-export const ASSIST_MENU = (Object.entries(ASSIST_TASKS) as [AssistTaskName, AssistTask][]).map(
-  ([name, task]) => ({
+/**
+ * The task list as the editor renders it — label, hint and what it will send.
+ *
+ * Only the tasks that have a command, which is every one of them except `chat`.
+ * A task with no command is not on a menu by definition: there is nothing to
+ * type for it.
+ */
+export const ASSIST_MENU = (Object.entries(ASSIST_TASKS) as [AssistTaskName, AssistTask][])
+  .filter(([, task]) => Boolean(task.command))
+  .map(([name, task]) => ({
     name,
+    command: task.command as string,
     label: task.label,
     hint: task.hint,
     surface: task.surface,
@@ -615,8 +734,50 @@ export const ASSIST_MENU = (Object.entries(ASSIST_TASKS) as [AssistTaskName, Ass
     needsSelection: task.context.includes('selection'),
     needsTopic: task.needsTopic === true,
     live: task.live ?? null,
-  }),
-);
+  }));
+
+export type AssistMenuItem = (typeof ASSIST_MENU)[number];
+
+/**
+ * The task a typed command names, or `null`.
+ *
+ * Case-insensitive and tolerant of the leading slash, because both are things
+ * a person types. It is a lookup against the table rather than a
+ * transformation of the string — the same rule the route follows, and the
+ * reason a command that does not exist is a message in the panel rather than a
+ * prompt sent to a model.
+ */
+export function taskForCommand(input: string): AssistMenuItem | null {
+  const wanted = input.trim().replace(/^\//, '').toLowerCase();
+  if (!wanted) return null;
+  return ASSIST_MENU.find(item => item.command === wanted) ?? null;
+}
+
+/**
+ * Split a composer line into the command it starts with and the rest.
+ *
+ * `/draw-diagram the retry queue` is the diagram task with "the retry queue"
+ * as its steer; `/draw-diagram` alone is the same task with none; anything not
+ * starting with a slash is a chat message with no command. A slash followed by
+ * a word that is not a command returns the word in `unknown`, so the panel can
+ * say which one rather than quietly sending it as prose.
+ */
+export function parseCommand(line: string): {
+  task: AssistMenuItem | null;
+  instruction: string;
+  unknown: string | null;
+} {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('/')) return { task: null, instruction: trimmed, unknown: null };
+
+  const cut = trimmed.search(/\s/);
+  const word = cut === -1 ? trimmed : trimmed.slice(0, cut);
+  const rest = cut === -1 ? '' : trimmed.slice(cut).trim();
+  const task = taskForCommand(word);
+  return task
+    ? { task, instruction: rest, unknown: null }
+    : { task: null, instruction: rest, unknown: word.slice(1) };
+}
 
 /* ---------- reading a labelled-field response ---------- */
 
@@ -793,7 +954,24 @@ export interface AssistContext {
   instruction: string;
   corpus: string;
   persona: string;
+  /**
+   * What has been said in this conversation already, oldest first.
+   *
+   * Empty for every command the panel runs without one, which is most of them:
+   * "suggest five titles" is a function of the draft, not of what was said ten
+   * minutes ago, and paying for the transcript on each of those would be the
+   * whole history billed twelve times an afternoon.
+   *
+   * It goes in as real `assistant`/`user` turns rather than being flattened
+   * into the prompt, because that is what a model is trained to read and
+   * because a flattened transcript is indistinguishable from the author having
+   * typed a document that happens to contain the word "Assistant:".
+   */
+  history?: { role: 'user' | 'assistant'; content: string }[];
 }
+
+/** Turns of history kept, and the size of each. Both bound one request's bill. */
+export const HISTORY_LIMITS = { turns: 12, chars: 4000 } as const;
 
 /**
  * The editor's fields, as text a model reads, capped so a long post cannot
@@ -849,8 +1027,8 @@ const CONTEXT_LABELS: Record<AssistField, string> = {
  */
 export function assistPrompt(
   task: AssistTask,
-  { ownerName, context, instruction, corpus, persona }: AssistContext,
-): { role: 'system' | 'user'; content: string }[] {
+  { ownerName, context, instruction, corpus, persona, history }: AssistContext,
+): { role: 'system' | 'user' | 'assistant'; content: string }[] {
   let system = `You are a writing assistant for ${ownerName}'s personal journal. You draft and edit; you never publish, and nothing you produce goes anywhere until they press save.
 
 Write the way they do: plain, direct, specific. Prefer a concrete example to an adjective. Never open with "In today's fast-paced world" or any variant. Do not use em-dash-heavy filler, and do not end with a summary of what you just said.
@@ -881,8 +1059,21 @@ ${task.instructions}`;
 
   if (!parts.length) parts.push('The draft is empty. Work from the task description alone.');
 
+  /* The last few turns, trimmed at both ends: the most recent `turns` of them,
+     each capped at `chars`. Oldest first, and always ending on the author's
+     new message — which is the `user` turn built below, not anything in here.
+
+     Trimmed here rather than in the panel because this is the function that
+     knows what a request costs. The panel decides *whether* a task is
+     conversational; how much of a conversation fits is a property of the call. */
+  const turns = (history ?? [])
+    .filter(turn => turn.content.trim())
+    .slice(-HISTORY_LIMITS.turns)
+    .map(turn => ({ role: turn.role, content: turn.content.slice(0, HISTORY_LIMITS.chars) }));
+
   return [
     { role: 'system', content: system },
+    ...turns,
     { role: 'user', content: parts.join('\n\n') },
   ];
 }

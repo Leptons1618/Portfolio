@@ -14,6 +14,55 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **The thinking a reader was told to open was never sent.** Every request to
+  OpenRouter carried `reasoning: { exclude: true }`, on the argument that a
+  token never generated cannot leak. It did not work — the models that hurt
+  narrate in `content`, which that switch has no reach into — and it was
+  expensive in the one currency that mattered: the deliberation was generated,
+  billed, and thrown away by the router before it reached the Worker. So a run
+  that spent its whole budget thinking said "open Thinking to read it" over an
+  empty box. The field is gone; reasoning arrives on its own channel and is
+  shown as it streams.
+
+- **A model deliberating looked like a model that had hung.** The thinking
+  disclosure was closed until the run ended, so the twenty seconds before the
+  first token were a panel with nothing in it. It opens itself now, follows its
+  own tail as text arrives, and closes again on the first token of the answer —
+  unless the reader has touched it, in which case nothing programmatic moves it
+  again.
+
+- **A reasoning model's narration still reached readers, because it marked it
+  with nothing.** The `<think>`-family stripper only ever saw thinking a model
+  *tagged*. The one that shipped opened `content` with "Here's a thinking
+  process:" and a numbered analysis of the visitor's own question — no tag, no
+  `delta.reasoning`, nothing for any of the three existing defences to catch —
+  and on the writing assistant the same shape filled the panel with several
+  hundred words of deliberation instead of a post.
+
+  `thinkStripper()` now classifies the **opening** of a response: the first
+  line, or ninety characters, tested once against a short list of openers no
+  answering model uses, and on a match everything is routed into the reasoning
+  channel a line at a time until a line says the answer has started —
+  `Answer:`, a horizontal rule, or a labelled field line like `TITLE:`, which is
+  kept because for a `document` task that line *is* the answer. Eight ordinary
+  answers are in `check:ai` as the guard against the opposite failure.
+  Decision 29.
+
+- **A single provider outage took the assistant down.** `callChat` stopped its
+  walk on any 4xx that was not a 429, on the reasoning that a malformed request
+  will be refused identically everywhere. True of a malformed request, false of
+  a **model id** — which is the field that goes stale, so a model retired
+  overnight or briefly unrouteable ended the walk and the visitor was told the
+  assistant could not answer. It walks models and then providers now, and only
+  `401`/`403` — the credential rather than the model — ends a provider's turn.
+  Decision 32.
+
+- **A reasoning model could not be given room to think.** `maxOutputTokens` was
+  clamped at 1500. A model that deliberates spends that budget *before* it
+  writes anything, so the ceiling went on thinking and the answer arrived
+  truncated or not at all. The ceiling is 4000; nothing is billed for headroom,
+  and the failure without it is a dead answer.
+
 - **Stopping a rewrite before the first token emptied the post.** `applyLive`
   is not a no-op for the two prose targets — it assigns what arrived, and what
   had arrived was `''`. Pressing Stop on `revise` or `summary` in the first
@@ -36,11 +85,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
   Three fixes, none of them sufficient alone: `reasoning: { exclude: true }` on
   the request where the router takes it, a stateful `<think>`-family stripper in
-  the SSE re-encoder, and a rule in both prompts. **No frame leaving the Worker
-  carries thought text** — the most a client learns is `{"status":"thinking"}`,
-  so no future UI change can reintroduce this by choosing to display a field.
-  `parseDocument` reports `recognised: false` and the editor routes that
-  response to the panel with Copy and Try again. Decision 29.
+  the SSE re-encoder, and a rule in both prompts. `parseDocument` reports
+  `recognised: false` and the editor routes that response to the panel with Copy
+  and Try again. Decision 29. *(Amended by the two entries above it: thinking
+  travels in its own frame now rather than being discarded, and a fourth defence
+  catches the narration that carries no tag at all.)*
 
 - **The whole chat transcript was unstyled in production.** `AskWidget.astro`
   builds every turn, bubble, note and chip in script, and styled them with bare
@@ -55,6 +104,48 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `done` frame carries `stopReason`, and the editor says so.
 
 ### Added
+
+- **The writing assistant is a conversation.** The same panel on both authoring
+  screens, with the twelve tasks as commands inside it: `/write-whole-post`,
+  `/draft-outline`, `/suggest-titles`, `/draw-diagram` and the rest, typed
+  after a `/` that opens a filtered list. Plain text is a question about the
+  draft. Conversations are saved, listed, reopened, deleted, and can be
+  compacted into a summary when they get long. Decision 35.
+
+- **The assistant, over a selection.** Highlight a passage in the body, press
+  the button that appears, say what should change, and watch the replacement
+  arrive beside it. Nothing is replaced until Replace is pressed, and Discard
+  leaves the draft exactly as it was. Deliberately the one rewriting task that
+  is *not* live — decision 36.
+
+- **Providers are picked, not typed.** A vendor list fills the base URL and
+  links where the key is bought, and Browse asks the provider what it serves —
+  searchable, filterable by free and by context length, and multi-select for
+  the fallback list. Three fields that used to be spelling tests with a 404 for
+  feedback. Decision 33.
+
+- **Sampling parameters, per provider.** Temperature, top-p, top-k, the
+  penalties, min-p, top-a and a seed, each optional and each unsent when blank.
+  Read through an allowlist with a range per key, so nothing stored — or typed
+  — can add a field to the outbound request. `max_tokens` is deliberately not
+  one of them. Decision 34.
+
+- **Fallback models.** A provider row carries a `fallback_models` list, tried in
+  order when its model will not answer — same key, same base URL, no second
+  account. Set on the AI screen, comma- or newline-separated. Decision 32.
+
+- **Thinking is shown, in a disclosure beside the answer.** Reasoning used to be
+  stripped and counted; it is forwarded now as its own `{"thinking":…}` frame
+  and lands in a closed `<details>` — above the answer in the public chat, above
+  the output in both authoring panels. The answer is still `{"delta":…}` and
+  still the only thing written into a post, a field or a bubble; the two never
+  mix. A run that spent its whole budget deliberating says so *and* shows what
+  it worked through, rather than reporting that the model wrote nothing.
+
+- **The assistant panels report where the eye already is.** The status line, the
+  thinking disclosure and the output moved above the task shelves in both the
+  journal and project panels: a run used to finish off the bottom of a scrolled
+  panel and announce "Ready" on a line nobody could see.
 
 - **The assistant reached the project screen, and writes a project from its
   GitHub URL.** Two new tasks: `project` fills title, summary, category, tags,

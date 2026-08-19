@@ -109,6 +109,15 @@ const AI_PROVIDER_COLUMNS: ColumnMap = {
   apiKey: ['api_key', 'text'],
   model: ['model', 'text'],
   assistModel: ['assist_model', 'text'],
+  /* A JSON array of model ids, tried in order when the primary will not answer.
+     `list` is the same encoder `tags` and `stack` use. */
+  fallbackModels: ['fallback_models', 'list'],
+  /* A JSON *object* of sampling parameters, stringified by the caller — the
+     same arrangement as `documents.json`, and for the same reason: there is no
+     object encoder because a column holding one is a column nothing queries.
+     The server rebuilds it against an allowlist on read (`clampParams()` in
+     `ai-catalog.ts`), so what is stored here is never what is sent. */
+  params: ['params', 'text'],
   active: ['active', 'bool'],
   priority: ['priority', 'number'],
 };

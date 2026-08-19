@@ -1,0 +1,22 @@
+-- Sampling parameters, per provider row.
+--
+-- One nullable JSON object — `{"temperature":0.7,"top_p":0.9}` — merged into
+-- the outbound `/chat/completions` body by `callProvider()` in `src/lib/ai.ts`.
+--
+-- A column rather than nine, because these are settings for a third party's API
+-- rather than data this site queries. Nothing here is ever selected on, sorted
+-- by or joined to; the whole object is read once per request and spread into a
+-- body. Nine nullable REAL columns would buy per-field types that no statement
+-- would use, and would need a migration every time a vendor invents a knob.
+--
+-- The same reasoning as the resume document and the assistant's settings row,
+-- and the same protection: the JSON is **not** trusted on read. `clampParams()`
+-- in `src/lib/ai-catalog.ts` rebuilds it against an allowlist of nine keys with
+-- a range each, so a value edited in by hand — or a key that is not a sampling
+-- parameter at all, `max_tokens` being the one that matters — cannot reach the
+-- request. `npm run check:ai` is what pins that.
+--
+-- NULL means "send no sampling fields", which is the default and is different
+-- from sending each vendor's documented default: several providers reject
+-- `top_k` outright, and an unset knob has to stay genuinely unset.
+ALTER TABLE ai_providers ADD COLUMN params TEXT;
