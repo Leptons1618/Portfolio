@@ -1,7 +1,17 @@
 import type { APIRoute } from 'astro';
 import { json, refusal, requireOwner } from '../../../lib/authorize';
-import { ProviderError, callChat, getAiSettings, ndjsonFromSSE, usableProviders } from '../../../lib/ai';
-import { buildCorpus } from '../../../lib/ai-corpus';
+import {
+  ProviderError,
+  agentStream,
+  callChat,
+  getAiSettings,
+  modelsFor,
+  usableProviders,
+  type Provider,
+} from '../../../lib/ai';
+import { clampEffort } from '../../../lib/ai-catalog';
+import { buildIndex } from '../../../lib/ai-corpus';
+import { MAX_TOOL_CALLS, runTool, toolSummary, toolsFor } from '../../../lib/ai-tools';
 import { getCaseStudies, getPosts, getProjects } from '../../../lib/content';
 import { getResume } from '../../../lib/resume';
 import { ASSIST_TASKS, assistPrompt, isAssistTask } from '../../../lib/assist-tasks';
@@ -56,6 +66,42 @@ interface AssistBody {
    * become a second `system` message.
    */
   history?: unknown;
+  /**
+   * Which of the configured models to run this on.
+   *
+   * Validated against the provider rows rather than trusted: `pickModel()`
+   * below only ever returns a string that was already in `ai_providers`, so the
+   * panel's picker is a *selection from the owner's own configuration* and not
+   * a model id in a request body. The difference matters even behind
+   * `requireOwner()` — a stolen session that could name any model could name an
+   * expensive one.
+   */
+  model?: unknown;
+  /** `low` / `medium` / `high`, or anything else for "use the row's setting". */
+  effort?: unknown;
+  /** `false` turns the lookup tools off for this run. */
+  tools?: unknown;
+}
+
+/**
+ * The caller's chosen model, if it is one this site is configured with.
+ *
+ * The panel offers a picker built from the same rows, so the normal case is a
+ * value that matches. Anything else — a stale option from a provider that has
+ * since been edited, or a model id somebody typed into a fetch — comes back
+ * `null` and the walk runs as usual. That is the whole check, and it is the
+ * reason this is a lookup rather than a validation: there is no pattern that
+ * distinguishes a model this account may use from one it may not, and there is
+ * a list that does.
+ */
+function pickModel(providers: Provider[], raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  const wanted = raw.trim();
+  const configured = providers.some(
+    provider =>
+      modelsFor(provider, 'assist').includes(wanted) || modelsFor(provider, 'chat').includes(wanted),
+  );
+  return configured ? wanted : null;
 }
 
 /** Whatever was in `history`, as turns a model may be given. */
@@ -94,23 +140,43 @@ export const POST: APIRoute = async ({ request, locals }) => {
     );
   }
 
+  const settings = await getAiSettings(DB);
+
+  /* Tools go to the tasks that were given the index, and to conversation.
+     A task that rewrites a selection has nothing to look up, and offering it
+     tools is a round trip it will occasionally take anyway. */
+  const wantsTools =
+    payload.tools !== false &&
+    (task.needsCorpus || payload.task === 'chat') &&
+    Boolean(providers[0]?.toolsEnabled);
+  const tools = wantsTools ? toolsFor('assist') : [];
+
   /* The author's own voice is the point of a writing assistant, and the only
      record of it this system has is what they have already published. Tasks
      that draft prose ask for it; the ones that reformat what is on screen do
      not, and skipping four queries and several thousand tokens for those is
-     worth the flag. */
+     worth the flag.
+
+     What they get is the *index* rather than the corpus. The corpus was every
+     post's opening twelve hundred characters on every run — several thousand
+     tokens of reference on a task whose ceiling then had to cover the thinking
+     *and* the post. A model that wants to match the voice reads one post; a
+     model that wants a fact reads the thing it is a fact about.
+
+     Also built for a task that has tools but did not ask for the corpus, which
+     is `chat`: the tools take a slug, and the index is the only list of slugs
+     there is. Tools without it would be a model told never to invent a slug and
+     given nowhere to find one. */
   let voice = '';
-  if (task.needsCorpus) {
+  if (task.needsCorpus || wantsTools) {
     const [projects, caseStudies, posts, resume] = await Promise.all([
       getProjects(DB),
       getCaseStudies(DB),
       getPosts(DB),
       getResume(DB),
     ]);
-    voice = buildCorpus({ projects, caseStudies, posts, resume });
+    voice = buildIndex({ projects, caseStudies, posts, resume });
   }
-
-  const settings = await getAiSettings(DB);
 
   const messages = assistPrompt(task, {
     ownerName: site.name,
@@ -119,33 +185,49 @@ export const POST: APIRoute = async ({ request, locals }) => {
     corpus: voice,
     persona: settings.persona,
     history: turns(payload.history),
+    tools: tools.length ? toolSummary('assist') : '',
   });
 
+  const model = pickModel(providers, payload.model);
+  const effort = clampEffort(payload.effort);
+
+  const call = {
+    maxTokens: task.maxTokens,
+    temperature: task.temperature,
+    stream: true,
+    /* Drafting a whole post is a longer generation than answering a
+       question, and timing out at thirty seconds mid-outline would be the
+       most annoying possible failure. */
+    timeoutMs: 60_000,
+    ...(tools.length ? { tools } : {}),
+    ...(model ? { model } : {}),
+    /* `undefined` leaves the provider row's setting alone; a value the panel
+       sent replaces it for this run only. */
+    ...(effort ? { effort } : {}),
+  };
+
   try {
-    const { response } = await callChat(
-      providers,
-      {
+    const first = await callChat(providers, { ...call, messages }, 'assist');
+
+    if (!first.response.body) return json({ error: 'The model returned nothing.' }, 502);
+
+    return new Response(
+      agentStream({
+        first,
+        which: 'assist',
+        call,
         messages,
-        maxTokens: task.maxTokens,
-        temperature: task.temperature,
-        stream: true,
-        /* Drafting a whole post is a longer generation than answering a
-           question, and timing out at thirty seconds mid-outline would be the
-           most annoying possible failure. */
-        timeoutMs: 60_000,
+        runTool: (name, args) => runTool(DB, name, args),
+        maxCalls: MAX_TOOL_CALLS,
+      }),
+      {
+        headers: {
+          'Content-Type': 'application/x-ndjson; charset=utf-8',
+          'Cache-Control': 'no-store',
+          'X-Accel-Buffering': 'no',
+        },
       },
-      'assist',
     );
-
-    if (!response.body) return json({ error: 'The model returned nothing.' }, 502);
-
-    return new Response(ndjsonFromSSE(response.body), {
-      headers: {
-        'Content-Type': 'application/x-ndjson; charset=utf-8',
-        'Cache-Control': 'no-store',
-        'X-Accel-Buffering': 'no',
-      },
-    });
   } catch (error) {
     if (error instanceof ProviderError) {
       /* Shown in full, unlike on the public route. The reader is the owner and

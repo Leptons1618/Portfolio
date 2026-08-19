@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import { json, refusal, requireOwner } from '../../../lib/authorize';
 import { getAiSettings, getProviders, summarise } from '../../../lib/ai';
-import { corpusSize, buildCorpus } from '../../../lib/ai-corpus';
+import { corpusSize, buildCorpus, buildIndex } from '../../../lib/ai-corpus';
 import { usageToday } from '../../../lib/ai-guard';
 import { getCaseStudies, getPosts, getProjects } from '../../../lib/content';
 import { getResume } from '../../../lib/resume';
@@ -49,7 +49,13 @@ export const GET: APIRoute = async ({ request, locals }) => {
     usageToday(DB),
   ]);
 
-  const corpus = buildCorpus({ projects, caseStudies, posts, resume });
+  const content = { projects, caseStudies, posts, resume };
+  const corpus = buildCorpus(content);
+  /* What a request actually carries now. The corpus is still measured beside
+     it, because the difference between the two *is* the saving and a screen
+     that reported only the smaller number would be a screen that could not
+     show it. */
+  const index = buildIndex(content);
 
   return json({
     providers: providers.map(summarise),
@@ -60,11 +66,12 @@ export const GET: APIRoute = async ({ request, locals }) => {
        no key is set yet would be a control that refuses to stay where it is
        put. This is the raw document, clamped. */
     settings,
-    /* Size, never content. The admin can already read every page this is built
-       from; shipping the assembled text would only be a large response nobody
-       reads, and it is the exact string the model sees — worth keeping in one
-       place rather than two. */
+    /* Size, never content. The admin can already read every page these are
+       built from; shipping the assembled text would only be a large response
+       nobody reads, and it is the exact string the model sees — worth keeping
+       in one place rather than two. */
     corpus: corpusSize(corpus),
+    index: corpusSize(index),
     usage,
   });
 };

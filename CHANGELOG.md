@@ -12,6 +12,69 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+
+- **The assistant looks things up instead of being handed the whole site.**
+  Every question used to carry the entire corpus — identity, résumé, every
+  project, every case-study excerpt, every post excerpt — in the system prompt.
+  Affordable once; on the tenth message of a conversation it is the whole site
+  billed ten times to answer ten questions, most of which touched one post. The
+  prompt now carries an *index* (a line per thing, with its slug) and five
+  read-only lookups fetch the rest: `search_content`, `read_post`,
+  `read_project`, `read_case_study`, `read_resume`. Nothing in that table
+  writes, nothing in it takes anything that becomes SQL, and every one of them
+  re-applies the public filters, so a hidden project and a withdrawn post are as
+  unreachable through a lookup as they were through the corpus. Decision 37 is
+  explicit about why this does not reopen the closed task table.
+
+- **Lookups are shown, in both panels.** A row per call — the tool, what it was
+  given, how long it took — above the answer. On the writing assistant it reads
+  like a terminal; on the public widget it is quieter and reads as provenance,
+  which is the panel's "a model reading published pages" line made specific.
+
+- **A model picker, an effort picker and a lookups switch, on the assistant
+  panel itself.** All three are things an author changes between two runs, and a
+  setting you have to open another screen for is a setting nobody turns. The
+  server validates a chosen model against the configured provider rows and
+  ignores anything else — a model id in a request body would be a caller
+  choosing what the owner's key pays for.
+
+- **The writing assistant resizes**, from the same top-left grip the public chat
+  has, with the size remembered per browser.
+
+- **Providers gained an output ceiling, a reasoning effort, a lookups switch and
+  a prompt-cache switch.** The ceiling is filled in from the vendor's own model
+  listing the moment a model is picked, so "use the model's maximum" is the
+  default rather than something to look up. The model browser now shows each
+  model's completion limit, and whether it advertises tools and reasoning.
+
+- **The stable half of every prompt is one leading message, marked cacheable.**
+  Rules, persona and index first; the task and the fields after. On OpenRouter
+  and Anthropic that becomes a `cache_control` breakpoint; everywhere else it is
+  dropped and an unchanging prefix is enough on its own. The per-task
+  instructions used to come *first*, which meant no two requests shared a prefix
+  and no provider's cache could ever hit.
+
+### Changed
+
+- **A token ceiling now clears the thinking by default.** `max_tokens` bounds
+  reasoning *plus* answer, so the per-task numbers — sized to their answers —
+  were the direct cause of a reasoning model narrating for fifteen thousand
+  characters and never writing the post. A provider row naming the model's real
+  maximum **raises** every task ceiling to it and never lowers it, the settings
+  ceiling went from 4,000 to 32,000 (the same constant the provider ceiling is
+  capped at), the public assistant's default answer length from 600 to 2,000,
+  and every task's own floor was raised. Nothing is billed for a ceiling that is
+  not reached.
+
+- **A model that cannot be given tools degrades instead of failing.** If every
+  model refused with a 4xx while tools were sent, the walk runs once more
+  without them rather than reporting "every provider refused".
+
+- **The AI screen's "what it knows" now reports what a request actually
+  carries** — the index — beside the size of the writing that is fetched a page
+  at a time.
+
 ### Fixed
 
 - **The thinking a reader was told to open was never sent.** Every request to

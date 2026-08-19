@@ -76,6 +76,42 @@ const { surface, sub } = Astro.props;
     </div>
   </header>
 
+  {/* Which model, how hard it thinks, and whether it may look things up.
+
+      Three selects rather than a settings screen, because all three are
+      per-conversation choices: the model that drafts a whole post is rarely the
+      one that suggests six tags, and effort is the dial between "answers" and
+      "narrates a plan for fifteen thousand characters". They default to the
+      provider row, so a panel nobody touches behaves exactly as it did.
+
+      `select.input` so `src/lib/select.ts` replaces them — its popover sits at
+      z-index 90 and this panel at 70, which is the arrangement that lets a list
+      open over the panel that raised it. */}
+  <div class="asx-toolbar" id="assist-toolbar">
+    <label class="asx-tool">
+      <span class="asx-tool-label">Model</span>
+      <select class="input is-auto" id="assist-model" aria-label="Model">
+        <option value="">Default</option>
+      </select>
+    </label>
+    <label class="asx-tool">
+      <span class="asx-tool-label">Effort</span>
+      <select class="input is-auto" id="assist-effort" aria-label="Reasoning effort">
+        <option value="">Auto</option>
+        <option value="low">Low</option>
+        <option value="medium">Medium</option>
+        <option value="high">High</option>
+      </select>
+    </label>
+    <label class="asx-tool">
+      <span class="asx-tool-label">Lookups</span>
+      <select class="input is-auto" id="assist-tools" aria-label="Content lookups">
+        <option value="on">On</option>
+        <option value="off">Off</option>
+      </select>
+    </label>
+  </div>
+
   <div class="asx-body">
     {/* The history drawer. Hidden by the attribute, never by a class — see the
         rule about `hidden` in `.claude/rules/admin-surface.md`. */}
@@ -115,4 +151,17 @@ const { surface, sub } = Astro.props;
       </div>
     </div>
   </div>
+
+  {/* The corner the panel grows from, and the same control the public widget
+      carries — a `<button>`, so it is reachable with the arrow keys and not
+      only with a pointer. It has to be *top-left* because the panel is anchored
+      bottom-right: CSS `resize` only ever puts a handle at bottom-right, which
+      on this dialog drags it off the screen. */}
+  <button
+    type="button"
+    class="asx-grip"
+    id="assist-grip"
+    aria-label="Resize the assistant. Use the arrow keys."
+    title="Drag to resize"
+  ></button>
 </dialog>

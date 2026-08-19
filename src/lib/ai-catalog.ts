@@ -151,6 +151,75 @@ export function presetForUrl(baseUrl: string): ProviderPreset {
   );
 }
 
+/* ---------- what a model may be asked to write ---------- */
+
+/**
+ * The largest completion this site will ever ask any provider for.
+ *
+ * A hard cap in source, and it exists for the same reason `clampParams()` does:
+ * `max_tokens` is a request-body field, and the number that reaches it now
+ * comes off a *vendor's model listing* rather than out of this repository. A
+ * listing that reports 1e9 — or a row edited by hand at midnight — must not
+ * become a body a vendor 400s on, or a bill nobody sanctioned.
+ *
+ * 32,000 is above every real model's completion ceiling that this site would
+ * plausibly use, and far below anything alarming. Raising it is a one-line
+ * change; the point is that it is a decision in a file, not a value from a
+ * third party.
+ */
+export const MAX_OUTPUT_CEILING = 32_000;
+
+/**
+ * Nothing under this is a usable ceiling for a model that deliberates.
+ *
+ * The reported failure was a 2,000-token ceiling consumed entirely by thinking.
+ * A row that stores a ceiling at all stores one that clears the thinking, so a
+ * mistyped `20` becomes 256 rather than a task that cannot finish a sentence.
+ */
+export const MIN_OUTPUT_CEILING = 256;
+
+/** A stored output ceiling, from whatever was in the column or the form. */
+export function clampOutputCeiling(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return Math.min(Math.max(Math.floor(n), MIN_OUTPUT_CEILING), MAX_OUTPUT_CEILING);
+}
+
+/**
+ * How hard a model should think, where the vendor implements the idea.
+ *
+ * `reasoning_effort` is OpenAI's field name and the one OpenRouter, Groq and
+ * xAI all accept; providers that have never heard of it ignore an unknown body
+ * key. The absent case is the default and is deliberately *not* one of these
+ * values — sending `medium` to a model with no notion of effort is a body field
+ * for nothing, and sending it to one that has is a decision nobody made.
+ */
+export const EFFORT_LEVELS = ['low', 'medium', 'high'] as const;
+export type ReasoningEffort = (typeof EFFORT_LEVELS)[number];
+
+/** The stored effort, or `null` for "send nothing". */
+export const clampEffort = (raw: unknown): ReasoningEffort | null =>
+  typeof raw === 'string' && (EFFORT_LEVELS as readonly string[]).includes(raw)
+    ? (raw as ReasoningEffort)
+    : null;
+
+/**
+ * Whether a base URL belongs to an API that reads `cache_control` breakpoints.
+ *
+ * Anthropic's caching is explicit: a `cache_control` marker on a content block
+ * says "everything up to here is reusable", and OpenRouter passes it through to
+ * the models that take it. Every other provider here caches a repeated prefix
+ * automatically or not at all, and would be handed a content-array message
+ * shape it has no use for.
+ *
+ * A URL check rather than a trusted flag, because the flag is a column and the
+ * cost of getting it wrong is a 400 on every request. The provider row's
+ * `promptCache` can only ever turn this *off*.
+ */
+export const supportsCacheControl = (baseUrl: string): boolean =>
+  /(?:^|\/\/|\.)(?:openrouter\.ai|api\.anthropic\.com)(?:\/|$)/i.test(baseUrl.trim());
+
 /* ---------- the model catalog ---------- */
 
 /**
@@ -167,6 +236,20 @@ export interface ModelInfo {
   description: string;
   /** Tokens of context, when the listing says. */
   contextLength: number | null;
+  /**
+   * The largest `max_tokens` this model will accept, when the listing says.
+   *
+   * Distinct from `contextLength`, and the distinction is the whole point of
+   * the field: context is prompt *plus* completion, and asking for a completion
+   * the size of the context window is a 400 at every vendor that checks. This
+   * is the number the AI screen fills the output ceiling in from, so "use the
+   * model's maximum" is a fact read off the listing rather than a guess.
+   *
+   * `null` where the vendor did not say, which is most of them outside
+   * OpenRouter — the screen then falls back to a fraction of the context
+   * length, which is a guess, and says so.
+   */
+  maxOutput: number | null;
   /** USD per million tokens. `0` is free; `null` is "the vendor did not say". */
   promptPrice: number | null;
   completionPrice: number | null;
@@ -175,6 +258,10 @@ export interface ModelInfo {
   supported: string[];
   /** `text->text`, `text+image->text`. Empty when the listing does not say. */
   modality: string;
+  /** Whether the listing says this model can be given tools. */
+  tools: boolean;
+  /** Whether the listing says this model takes a reasoning effort. */
+  reasoning: boolean;
 }
 
 /** Number, from whatever the vendor put there — often a string, sometimes null. */
@@ -224,6 +311,10 @@ export function normaliseModels(payload: unknown): ModelInfo[] {
 
     const pricing = (row.pricing ?? {}) as Record<string, unknown>;
     const architecture = (row.architecture ?? {}) as Record<string, unknown>;
+    /* OpenRouter nests the completion ceiling one level down, under the
+       endpoint it would route to. Everyone else who reports it at all puts it
+       at the top level, under one of three names. */
+    const top = (row.top_provider ?? {}) as Record<string, unknown>;
 
     const perToken = (value: unknown): number | null => {
       const n = num(value);
@@ -233,20 +324,39 @@ export function normaliseModels(payload: unknown): ModelInfo[] {
     const promptPrice = perToken(pricing.prompt);
     const completionPrice = perToken(pricing.completion);
 
+    const supported = Array.isArray(row.supported_parameters)
+      ? row.supported_parameters.filter((p): p is string => typeof p === 'string')
+      : [];
+
+    const maxOutput =
+      num(top.max_completion_tokens) ??
+      num(row.max_completion_tokens) ??
+      num(row.max_output_tokens) ??
+      num(row.max_tokens);
+
     models.push({
       id,
       name: str(row.name) || id,
       description: str(row.description).slice(0, 400),
       contextLength: num(row.context_length) ?? num(row.context_window) ?? num(row.max_context_length),
+      /* Clamped here rather than at the form, because this is the value the
+         screen offers as "the model's maximum" and a listing is a third party's
+         JSON. A number that is not a positive integer is not a ceiling. */
+      maxOutput: maxOutput !== null && maxOutput > 0 ? Math.min(Math.floor(maxOutput), MAX_OUTPUT_CEILING) : null,
       promptPrice,
       completionPrice,
       /* Two ways to be free and both are common: a zero price, and OpenRouter's
          `:free` suffix on a variant that has no pricing block at all. */
       free: id.endsWith(':free') || (promptPrice === 0 && completionPrice === 0),
-      supported: Array.isArray(row.supported_parameters)
-        ? row.supported_parameters.filter((p): p is string => typeof p === 'string')
-        : [],
+      supported,
       modality: str(architecture.modality) || str(row.modality),
+      /* Both read off `supported_parameters`, which only OpenRouter sends. A
+         quiet listing means "unknown", and unknown is rendered as nothing
+         rather than as a claim — the tools switch and the effort picker are
+         both offered either way, because a vendor not describing a model is not
+         the same as the model lacking the feature. */
+      tools: supported.includes('tools') || supported.includes('tool_choice'),
+      reasoning: supported.includes('reasoning') || supported.includes('include_reasoning'),
     });
   }
 

@@ -810,3 +810,62 @@ The difference is what is at risk. A live task fills empty fields or rewrites a 
 **Positioned from the pointer, deliberately.** A `<textarea>` exposes no geometry for a run of characters inside it — there is no range object and no client rect — so the honest options are a mirrored `<div>` duplicating every one of the field's text metrics, or the pointer. The pointer is where the author just finished dragging, it is right for the gesture that produces a selection nine times out of ten, and it is eight lines instead of eighty. A keyboard selection gets the field's own corner.
 
 It does not go through the conversation panel. A conversation entry for every "cut this in half" would bury the conversation, and the range would have to survive a dialog that can be scrolled, reopened and restored from history.
+
+---
+
+## 37. The assistant looks content up instead of being handed all of it, and the model's own maximum is the ceiling
+
+**Status:** accepted
+
+**Supersedes part of decision 31.**
+
+**Context.** Three failures, reported together, all of them the same shape.
+
+`/write-whole-post` on a 20-billion-parameter reasoning model produced fifteen thousand characters of "Here's a thinking process: 1. Analyze the Request…" and then stopped. No title, no summary, no body — the whole 2,000-token ceiling spent narrating a plan for a post it never wrote. The editor's own message named the cause correctly and then offered no fix worth taking: *raise the ceiling on the AI screen*, where the ceiling was capped at 4,000 and the per-task numbers were sized to their answers.
+
+The second failure was in the same request and less visible. Every question, on both assistants, carried the entire site as one block of markdown in the system prompt — identity, résumé, every project, every case study excerpt, every post excerpt. Affordable once. On the tenth message of a conversation it is the whole corpus billed ten times to answer ten questions, most of which touched one post. And it is *the reason the first failure hurt so much*: a model given twelve thousand tokens of reference and two thousand to answer in spends the second budget reasoning about the first.
+
+The third is that the same rules and the same corpus went out on every single call, in an order that made them impossible to cache: the per-task instructions came first, so no two requests shared a prefix and no provider's cache — implicit at OpenAI, DeepSeek and Groq, explicit at Anthropic — could ever hit.
+
+**Decision.** Three changes, and they are one change.
+
+**1. The prompt carries an index; the bodies are fetched.** `buildIndex()` in `ai-corpus.ts` emits a line per project, post and case study — title, slug, summary, tags — and `ai-tools.ts` is a closed table of five read-only functions that fetch the rest: `search_content`, `read_post`, `read_project`, `read_case_study`, `read_resume`. `agentStream()` in `ai.ts` runs the loop.
+
+**2. A ceiling is the model's own maximum, by default.** `ai_providers.max_output_tokens` holds what the model will actually accept, filled in from the vendor's own `/models` listing the moment a model is picked on the AI screen. `effectiveMaxTokens()` **raises** every task's ceiling to it and never lowers it. `MAX_OUTPUT_CEILING` — 32,000, in source — is the hard cap on both that and the settings screen, which now share one number.
+
+**3. The stable half of a prompt is one leading message.** Rules, persona and index first, marked `cache`; the task and the fields after. `wireMessages()` turns the mark into an Anthropic-style `cache_control` breakpoint for OpenRouter and Anthropic and drops it everywhere else, where an unchanging prefix is enough on its own.
+
+**Why a ceiling can be raised for free.** A vendor bills tokens *generated*, not tokens *permitted*. `max_tokens` is a stop condition, so the cost of headroom is zero and the cost of its absence is a task that streams nothing at all — decision 29's argument, one level up. The number was never a budget; the budget is `ai_rate`, and it is unchanged.
+
+### This does not reopen decision 24, and here is the precise reason
+
+Decision 31 refused a tool-calling loop, in one sentence: *a loop where a model chooses what to call next is precisely the general-purpose endpoint that table exists to prevent.* That argument is about **actions**, and it still holds exactly as written. What the model chooses here is **which published page to read**.
+
+- Nothing in `TOOL_SPECS` writes. The test asserts it by name — every tool is `search_`, `read_` or `list_` — because a naming rule is easier to keep than a review habit.
+- No tool takes a URL, a table, a column, or anything that becomes SQL. They take a slug, which is matched against rows already in memory.
+- Every tool goes back through `publicProjects()` and `publicPosts()`, so a hidden project and a non-published post are unreachable through a lookup for the same reason they are absent from the corpus. `check:ai` hands each tool the withdrawn thing and asserts it comes back "there is no such post".
+- `read_resume` omits the email, phone and address, like `buildCorpus()` and with the same test.
+
+So a stolen admin session buys a model that can read the public site. That was already true of `curl`. **The task table is still closed** — tools are what the model may *look up*, tasks are what it may be *asked to do*, and adding a capability still means adding a task.
+
+**The loop's bounds are the design, not defensive extras.** Rounds (three for the authoring assistant, two for the public one), total calls (eight), and — the one that actually terminates it — **the tools are withdrawn when either runs out**. A model merely *told* it is out of lookups asks again, is told again, and is told again, every turn of it billed. `agentStream()` strips the `tools` field from the next request instead, and breaks outright if a provider asks for one it was not offered. `check:ai` runs a stub that asks forever and asserts the stream ends.
+
+**The model still gets told, not just cut off.** The last round carries a tool result saying the limit was reached and to answer from what it has. A model that knows writes the best answer it can; one that is simply stopped leaves a blank bubble.
+
+**A refused tool call degrades rather than failing.** `callChat()` retries the whole walk once without tools if every model refused with a 4xx while tools were sent, because "this model has no function calling" should not surface as "every provider refused". `ai_providers.tools_enabled` makes it permanent.
+
+### Where the model, effort and lookups are chosen
+
+On the panel, not on the settings screen. All three are things an author changes *between two runs* — "that model narrated instead of writing, try the other one" is the whole workflow — and a setting you have to open another screen for is a setting nobody turns.
+
+**The model picker is a selection from the owner's own rows.** `pickModel()` in `/api/ai/assist` looks the value up in `modelsFor()` across the configured providers and ignores anything else. That matters even behind `requireOwner()`: a stolen session that could name *any* model could name an expensive one, and there is no pattern that separates a model this account may use from one it may not — there is a list that does.
+
+`reasoning_effort` is sent only when something asked for it. Absent is the default and is **not** the same as sending a vendor's own default: a model with no notion of effort may reject the key outright. `null` from the panel means "send nothing for this run even though the row says otherwise", which is how a conversation opts out.
+
+**Both assistants are resizable now, from the same top-left grip the public widget has.** The size is two custom properties rather than an inline `width`/`height`, because the narrow-screen rules have to be able to win — an inline style outranks every stylesheet rule, and a panel resized on a desktop would otherwise hang off the side of a laptop.
+
+**Lookups are shown, in both panels.** A row per call: the tool, its argument, and how long it took. In the authoring panel it is terminal-shaped and above the answer; in the public one it is quieter and reads as provenance. Not a debugging affordance — four seconds of silence reads as a broken widget, and four seconds saying `Reading post · thundering-herd` reads as the thing working. It is also the disclosure made specific: the panel already tells a visitor it is a model reading published pages, and this says which ones.
+
+**What is deliberately not offered:** none of these controls appear on the public widget. A visitor picking a model is a visitor picking a price, on somebody else's account.
+
+**When this would change.** If a tool ever needed to *write* — publish a post, upload a file, call an external API — decision 31's refusal applies again in full, and the answer is a task in `ASSIST_TASKS`, not an entry in `TOOL_SPECS`.
