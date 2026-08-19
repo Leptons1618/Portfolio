@@ -1,0 +1,23 @@
+-- ---------------------------------------------------------------------------
+-- Fallback models
+-- ---------------------------------------------------------------------------
+--
+-- `active` plus `priority` already made a second *provider* row a fallback: if
+-- the first refuses or times out, `callChat` walks to the next one. That covers
+-- a vendor being down, and it costs a second account and a second key.
+--
+-- It does not cover the failure that actually happens. A model is deprecated
+-- overnight, or is overloaded and answers 429 while everything else on the same
+-- key is fine, or is temporarily unrouteable at OpenRouter — one model out, one
+-- account, one key. The recovery for that is a second *model*, and a list of
+-- them on the row that already exists is the whole feature.
+--
+-- JSON, like every other list column here (`tags`, `stack`): SQLite has no
+-- array type, and `content-schema.ts`'s `list` encoder is what writes it.
+-- `parseModels()` in `src/lib/ai.ts` also accepts a comma-separated string,
+-- because this is a column a person edits by hand in `wrangler d1 execute`.
+--
+-- One column, not two. The chat model and the writing model differ often enough
+-- to be worth `assist_model`, but a fallback is a fallback: if the list has to
+-- differ per role, that is a second column then and not now.
+ALTER TABLE ai_providers ADD COLUMN fallback_models TEXT;

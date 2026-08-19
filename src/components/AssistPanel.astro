@@ -1,0 +1,118 @@
+---
+/**
+ * The writing assistant, as a conversation.
+ *
+ * One component for both authoring surfaces. The journal editor and the project
+ * screen used to carry a near-identical three-hundred-line panel each, which is
+ * how the two of them drifted: the same buttons in a different order, the same
+ * copy with different wording, and a fix to one of them landing in the other a
+ * week later or never. Decision 31 said "the assistant is the same table on two
+ * screens"; this is the same *panel* on two screens, and the only thing either
+ * page still supplies is what a result does to its own fields.
+ *
+ * ## Why a chat replaced the shelves
+ *
+ * The shelves were twelve buttons in three groups, and the panel was: a topic
+ * box, a status line, an output pane, and a footer of five conditionally hidden
+ * buttons. Everything about it assumed a single run — one instruction in, one
+ * result out, and the result gone when the next run started. So there was
+ * nowhere to say "shorter", nowhere to ask why a paragraph was not working, and
+ * a finished run announced itself on a status line that had scrolled off the
+ * bottom of the panel.
+ *
+ * A conversation answers all three, and the twelve tasks lose nothing by
+ * becoming commands inside it: `/write-whole-post` is the same table entry the
+ * button ran, with the same allowlist of fields and the same live target. The
+ * closed task table is untouched — decision 24's argument was never about the
+ * shape of the control that runs a task.
+ *
+ * ## The markup here is a shell; `src/lib/assist-panel.ts` fills it
+ *
+ * Every message, chip, command row and session row is built in script, so their
+ * rules live in `admin.css` — the same door `#import-list` and the media
+ * library go through, and for the same reason: DOM built in a client script
+ * carries no `data-astro-cid` and a scoped selector never reaches it.
+ */
+import { Icon } from 'astro-icon/components';
+
+interface Props {
+  /** Which command set this panel offers. Nothing else differs between them. */
+  surface: 'journal' | 'project';
+  /** The line under the title. Each screen says what its own fields are. */
+  sub: string;
+}
+
+const { surface, sub } = Astro.props;
+---
+
+{/* `show()` rather than `showModal()` — the editor behind this stays visible
+    and usable, because watching the fields fill is the point. `data-surface` is
+    what the script reads to know which commands to offer. */}
+<dialog class="asx" id="assist-dialog" aria-label="Writing assistant" data-surface={surface}>
+  <header class="asx-head">
+    <div class="asx-head-copy">
+      <h3 class="asx-title">
+        <Icon name="lucide:sparkles" class="admin-nav-icon" />Writing assistant
+      </h3>
+      <p class="asx-sub">{sub}</p>
+    </div>
+    <div class="asx-head-actions">
+      <button
+        type="button"
+        class="btn btn-icon"
+        id="assist-history"
+        aria-label="Conversations"
+        aria-pressed="false"
+        title="Conversations"
+      >
+        <Icon name="lucide:history" class="admin-nav-icon" />
+      </button>
+      <button type="button" class="btn btn-icon" id="assist-new" aria-label="New conversation" title="New conversation">
+        <Icon name="lucide:plus" class="admin-nav-icon" />
+      </button>
+      <button type="button" class="btn btn-icon" id="assist-close" aria-label="Close assistant">
+        <Icon name="lucide:x" class="admin-nav-icon" />
+      </button>
+    </div>
+  </header>
+
+  <div class="asx-body">
+    {/* The history drawer. Hidden by the attribute, never by a class — see the
+        rule about `hidden` in `.claude/rules/admin-surface.md`. */}
+    <aside class="asx-sessions" id="assist-sessions" hidden>
+      <div class="asx-sessions-head">
+        <h4 class="asx-sessions-title">Conversations</h4>
+        <button type="button" class="btn btn-ghost btn-sm" id="assist-compact" title="Replace this conversation with a summary of it">
+          Compact
+        </button>
+      </div>
+      <div class="asx-session-list" id="assist-session-list"></div>
+    </aside>
+
+    <div class="asx-main">
+      <div class="asx-log" id="assist-log" aria-live="polite"></div>
+
+      <div class="asx-composer">
+        {/* The command list, over the composer. A popover would escape the
+            dialog's scroll container, but this one does not need to — it is
+            inside the panel's own flex column and above the input it filters. */}
+        <div class="asx-menu" id="assist-menu" role="listbox" aria-label="Commands" hidden></div>
+
+        <textarea
+          class="input asx-input"
+          id="assist-input"
+          rows="2"
+          placeholder="Ask about the draft, or type / for a command"
+        ></textarea>
+
+        <div class="asx-composer-row">
+          <span class="text-muted asx-hint" id="assist-hint">
+            <kbd>/</kbd> for commands · <kbd>Enter</kbd> sends · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a newline
+          </span>
+          <button type="button" class="btn btn-secondary btn-sm" id="assist-stop" hidden>Stop</button>
+          <button type="button" class="btn btn-primary btn-sm" id="assist-send">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</dialog>

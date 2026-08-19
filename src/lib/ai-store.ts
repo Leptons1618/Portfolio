@@ -13,6 +13,8 @@
 
 import type { AiSettings, ProviderSummary } from './ai';
 import { AI_SETTINGS_KEY } from './ai';
+import type { ModelInfo } from './ai-catalog';
+import { clampParams } from './ai-catalog';
 import { ContentError, type WriteResult } from './content-store';
 import { getToken } from './github';
 
@@ -46,6 +48,27 @@ async function read<T>(url: string, init: RequestInit = {}): Promise<T> {
 /** Providers (masked), settings, corpus size and today's usage, in one request. */
 export const loadOverview = (): Promise<AiOverview> => read<AiOverview>('/api/ai/providers');
 
+/**
+ * What a provider will serve, for the picker.
+ *
+ * `error` is a *message*, not a failure: the endpoint answers 200 with an empty
+ * list and a sentence for every ordinary reason a listing does not arrive — a
+ * base URL still being typed, a local server that is not running, a key the
+ * vendor will not accept. Throwing for those would mean the picker had to
+ * distinguish "no models" from "could not ask", which is the one thing the
+ * sentence already does.
+ *
+ * `baseUrl` is for a provider that has not been saved yet, which is the normal
+ * way this is called: the dialog asks what models exist *before* there is a row
+ * to ask about.
+ */
+export const listModels = (where: { slug?: string; baseUrl?: string }): Promise<{ models: ModelInfo[]; error?: string }> => {
+  const query = new URLSearchParams();
+  if (where.slug) query.set('slug', where.slug);
+  if (where.baseUrl) query.set('baseUrl', where.baseUrl);
+  return read<{ models: ModelInfo[]; error?: string }>(`/api/ai/models?${query.toString()}`);
+};
+
 export interface TestResult {
   ok: boolean;
   status?: number;
@@ -65,6 +88,18 @@ export interface ProviderFields {
   baseUrl: string;
   model: string;
   assistModel?: string;
+  /** Tried in order when `model` will not answer. Same key, same base URL. */
+  fallbackModels?: string[];
+  /**
+   * Sampling parameters, as the form's number fields left them.
+   *
+   * Sent as a JSON string because the write endpoint has no object encoder —
+   * `documents.json` is stored the same way, for the same reason. Clamped here
+   * as well as on the server: the ranges are the same table either side, and a
+   * form that sends a value it knows is out of range only to have it silently
+   * corrected is a form that lies about what it saved.
+   */
+  params?: Record<string, number>;
   active: boolean;
   priority: number;
   /**
@@ -107,9 +142,13 @@ async function write(
 
 /** Strip the key when it is blank, so an untouched field changes nothing. */
 const payload = (fields: ProviderFields): Record<string, unknown> => {
-  const { apiKey, ...rest } = fields;
+  const { apiKey, params, ...rest } = fields;
   const body: Record<string, unknown> = { ...rest };
   if (apiKey && apiKey.trim()) body.apiKey = apiKey.trim();
+  /* An empty object is written as `{}` rather than omitted: clearing every knob
+     has to actually clear them, and the key rule above — omit rather than blank
+     — exists for a credential that cannot be read back, which this is not. */
+  if (params) body.params = JSON.stringify(clampParams(params));
   return body;
 };
 
@@ -160,18 +199,85 @@ export async function saveAiSettings(settings: AiSettings): Promise<WriteResult>
   return { slug: AI_SETTINGS_KEY, url: '/admin/ai' };
 }
 
+/* ---------- conversations ---------- */
+
+/**
+ * The authoring assistant's saved conversations.
+ *
+ * A thin wrapper over `/api/ai/chats`, and thin on purpose: every write is one
+ * request, nothing is batched, and nothing is cached. A transcript is written a
+ * message at a time while a reply streams, so the failure that matters is a
+ * lost message rather than a slow one — and the way to lose one is to hold it
+ * in a buffer waiting for company.
+ *
+ * Every call here is best-effort from the panel's point of view. Losing the
+ * *record* of an exchange must never take the exchange itself down: the reply
+ * is on screen and in the editor whether or not the row was written, so the
+ * panel reports a save failure and carries on rather than throwing away a
+ * finished run. See `remember()` in `assist-panel.ts`.
+ */
+export interface ChatSummary {
+  id: string;
+  surface: string;
+  doc_slug: string | null;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  messages: number;
+}
+
+export interface ChatMessageRow {
+  id: number;
+  role: 'user' | 'assistant' | 'note';
+  content: string;
+  thinking: string | null;
+  task: string | null;
+  created_at: string;
+}
+
+export const listChats = (surface: string): Promise<{ chats: ChatSummary[] }> =>
+  read<{ chats: ChatSummary[] }>(`/api/ai/chats?surface=${encodeURIComponent(surface)}`);
+
+export const loadChat = (id: string): Promise<{ chat: ChatSummary; messages: ChatMessageRow[] }> =>
+  read<{ chat: ChatSummary; messages: ChatMessageRow[] }>(`/api/ai/chats?id=${encodeURIComponent(id)}`);
+
+const chatWrite = (body: Record<string, unknown>): Promise<{ ok?: boolean }> =>
+  read<{ ok?: boolean }>('/api/ai/chats', { method: 'POST', body: JSON.stringify(body) });
+
+export const createChat = (
+  id: string,
+  surface: string,
+  docSlug: string,
+  title: string,
+): Promise<{ ok?: boolean }> => chatWrite({ op: 'create', id, surface, docSlug, title });
+
+export const appendMessage = (
+  id: string,
+  message: { role: 'user' | 'assistant' | 'note'; content: string; thinking?: string; task?: string },
+): Promise<{ ok?: boolean }> => chatWrite({ op: 'append', id, ...message });
+
+export const renameChat = (id: string, title: string): Promise<{ ok?: boolean }> =>
+  chatWrite({ op: 'rename', id, title });
+
+/** Replace a transcript with one summary of it. Destructive, and says so. */
+export const compactChat = (id: string, summary: string): Promise<{ ok?: boolean }> =>
+  chatWrite({ op: 'compact', id, summary });
+
+export const deleteChat = (id: string): Promise<{ ok?: boolean }> => chatWrite({ op: 'delete', id });
+
 /* ---------- streaming ---------- */
 
 export interface StreamHandlers {
   onDelta: (text: string) => void;
   /**
-   * The model started deliberating.
+   * A chunk of the model's deliberation.
    *
-   * Carries no text and never will — the server sends a bare
-   * `{"status":"thinking"}` and nothing else, so there is nothing here to
-   * accidentally render into a post. See the header of `src/lib/ai.ts`.
+   * Its own channel, never mixed into `onDelta` — the server separates
+   * `<think>`-family tags, `delta.reasoning` and bare narrated prose out of the
+   * answer and sends them as `{"thinking":…}`. Show it behind a disclosure;
+   * never write it into a field. See the header of `src/lib/ai.ts`.
    */
-  onThinking?: () => void;
+  onThinking?: (text: string) => void;
   /** Why the generation ended, when upstream said. `length` means truncated. */
   onDone?: (stopReason?: string) => void;
 }
@@ -216,9 +322,9 @@ export async function readStream(response: Response, handlers: StreamHandlers): 
       if (!raw.trim()) continue;
       let frame: {
         delta?: string;
+        thinking?: string;
         error?: string;
         done?: boolean;
-        status?: string;
         stopReason?: string;
       };
       try {
@@ -227,7 +333,7 @@ export async function readStream(response: Response, handlers: StreamHandlers): 
         continue;
       }
       if (frame.error) throw new ContentError(frame.error, 502);
-      if (frame.status === 'thinking') handlers.onThinking?.();
+      if (frame.thinking) handlers.onThinking?.(frame.thinking);
       if (frame.delta) {
         text += frame.delta;
         handlers.onDelta(frame.delta);
@@ -239,18 +345,28 @@ export async function readStream(response: Response, handlers: StreamHandlers): 
   return text;
 }
 
-/** Run one assistant task and stream its output back. */
+/**
+ * Run one assistant task and stream its output back.
+ *
+ * `history` is the conversation so far, and it is the only thing about this
+ * call that changed when the panel became a chat. It is optional because most
+ * of the twelve commands do not want it — "suggest five titles" is a function
+ * of the draft, not of what was said ten minutes ago — and the panel sends it
+ * only for the ones that are conversational. The server caps and trims it; see
+ * `/api/ai/assist`.
+ */
 export async function runAssist(
   task: string,
   context: Record<string, unknown>,
   instruction: string,
   handlers: StreamHandlers,
   signal?: AbortSignal,
+  history?: { role: 'user' | 'assistant'; content: string }[],
 ): Promise<string> {
   const response = await fetch('/api/ai/assist', {
     method: 'POST',
     headers: authorized(),
-    body: JSON.stringify({ task, context, instruction }),
+    body: JSON.stringify({ task, context, instruction, history }),
     signal,
   });
   return readStream(response, handlers);

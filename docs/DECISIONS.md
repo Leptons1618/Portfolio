@@ -648,13 +648,15 @@ Three separate faults with one symptom, so three separate fixes.
 2. **`thinkStripper()` in `ai.ts`**, a stateful split of `content` into prose and anything inside `<think>`, `<thinking>`, `<reasoning>`, `<reflection>` or `<scratchpad>`. Stateful because a tag is seven characters and a TCP read can end after two of them; the carry buffer holds back a trailing run that could still become a tag, and is restricted to letters so that a post about `a < b` is not held hostage. `delta.reasoning` and `delta.reasoning_content` are dropped in the same place.
 3. **A prompt rule in both prompts.** The only thing that touches a model marking its thinking with nothing at all, and the weakest of the three — the same honesty the scope prompt already applies to itself.
 
-**The most a client learns is `{"status":"thinking"}`.** No text rides with it. That is the difference between a guarantee and a convention: a widget cannot render what it was never sent, so no future change to either UI can reintroduce this by choosing to display a field.
+**Amended.** Reasoning is no longer discarded — it travels in **its own channel**, as `{"thinking":…}` frames, and every surface shows it in a closed `<details>` beside the answer. The guarantee moved from *the text never crosses* to *the two halves never mix*: `delta` is the answer and is the only thing written into a post, a field or a chat bubble; `thinking` is the working and is only ever a disclosure. That is still structural rather than a convention — a UI cannot accidentally render thinking as an answer, because it arrives on a different key — and it is strictly more honest than dropping it was. A model that spent its whole budget deliberating used to produce "the model wrote nothing" with no way to see what it did instead; now the run says so *and* shows the deliberation.
 
-**Known gap, deliberately not closed.** A model whose opening tag is a prefill emits only `</think>`, with the thinking ahead of it and nothing marking where it began. Catching that needs the whole response buffered before a single character is forwarded, which is the streaming the file exists to do. Defence 1 covers the router it happens on and defence 3 covers the rest; if it shows up, the answer is a different model, not a buffer.
+**A fourth defence, for the thinking a model marks with nothing at all.** The original three all assumed a marker — a router flag, a tag, or a prompt the model chose to follow. The failure that shipped had none: `content` opened "Here's a thinking process:" and never closed. `thinkStripper()` now tests the *opening* of a response — the first line, or ninety characters, whichever comes first — against a short list of openers no answering model uses ("The user is asking", "Let me think", "Here's my thinking process"), and on a match routes the rest into `reasoning` a line at a time until a line says the answer has begun: `Answer:`, a horizontal rule, or a labelled field line like `TITLE:` — which is kept, because for a `document` task that line *is* the answer. It is tested once and never re-tested, so it cannot reclassify a reply halfway through, and the check that keeps it honest is the one listing eight ordinary answers that must survive it, in the spirit of `screenQuestion()`'s seventeen questions. Precision over recall: a missed narration is the old behaviour, a false positive hides real prose.
+
+**Known gap, deliberately not closed.** A model whose opening tag is a prefill emits only `</think>`, with the thinking ahead of it and nothing marking where it began. Catching that in general needs the whole response buffered before a single character is forwarded, which is the streaming the file exists to do. The narration sniffer covers the common shape of it now; defence 1 covers the router it happens on and defence 3 covers the rest.
 
 **`parseDocument` no longer falls back.** It reports `recognised: false` and the editor puts the response in the panel with Copy and Try again. Nothing is discarded and nothing is guessed at — recovering a malformed answer is the panel's job, and the body of a post is not a scratch space.
 
-`scripts/test-ai.mjs` pins all of it: the stripper fed one character at a time, a tag split across three reads, prose containing `<`, an unclosed tag, and both prompts still carrying the rule.
+`scripts/test-ai.mjs` pins all of it: the stripper fed one character at a time, a tag split across three reads, prose containing `<`, an unclosed tag, unmarked narration classified and ended, eight ordinary answers that must *not* be classified, both reasoning fields forwarded on their own key, and both prompts still carrying the rule.
 
 ---
 
@@ -704,3 +706,107 @@ The pull is real, because the shopping list looks like a framework's feature lis
 **The test is the argument.** `npm run check:ai` runs in a plain Node process with no network, no mocks and no framework test harness, because the security-relevant halves of this feature are pure functions: which fields a task may send, what the corpus may contain, what the parser does with a response. A framework moves that logic inside someone else's abstraction, where the questions worth asserting — *can a task send a field it did not declare?* — stop being answerable by importing a module and calling it.
 
 **When this would change.** If a task genuinely needed a model to choose between actions and see the result, the loop would be real work and worth taking from a library. Nothing here does. Every task is one prompt, one response, one place the text goes.
+
+---
+
+## 32. A fallback is a list of models before it is a second account
+
+**Status:** accepted
+
+**Context.** `ai_providers` allowed several active rows and `callChat` walked them, so "the vendor is down" had an answer. The failure that actually happens is smaller and more common: one model is overloaded and answers 429, or is retired overnight and answers 404, or is briefly unrouteable at OpenRouter — one model out, on an account that is otherwise fine. The configured recovery for that was "add a second provider row", which means a second vendor, a second account and a second key to keep alive, for a fault that lasts ten minutes and affects one model id.
+
+Worse, the walk *stopped* on it. Any 4xx that was not a 429 ended the whole loop, on the reasoning that a malformed request will be refused identically by the next provider. True of a malformed request; false of a model id, which is precisely the field that goes stale.
+
+**Decision.** One nullable `fallback_models` column, a JSON list, walked **inside** each provider before moving to the next one.
+
+- The order is models-then-providers because that is the order that costs least to recover from: the same key, the same base URL, the same latency, no second account.
+- `401` and `403` end that provider's inner walk immediately — those are the credential, not the model, and every entry in its list would collect the same answer. The walk still moves to the *next provider*, which has a different key and is worth a try.
+- Everything else keeps walking: `400`, `402`, `404`, `429`, any `5xx`, a timeout, a DNS failure.
+- One column, not one per role. `assist_model` exists because drafting and answering want different prices; a fallback is a fallback, and if the lists ever have to differ that is a second column then and not now.
+- `parseModels()` also accepts a comma-separated string, because this is a column that gets edited by hand in `wrangler d1 execute`.
+
+**Not the vendor's own version of this.** OpenRouter accepts a `models: […]` array and will do the walk server-side. It is one provider's extension, it is the same class of body-field gamble that `reasoning: { exclude: true }` has to be gated for, and it would leave every other provider without the feature. Fifteen lines of loop works everywhere and is testable against a stubbed `fetch`, which is what `check:ai` does — including the case that regressed: a retired model must not end the walk.
+
+---
+
+## 33. A provider is a preset and a catalogue, not three strings to remember
+
+**Status:** accepted
+
+**Context.** Decision 22 said a provider is "a row with a URL in it", and that is still true of the *storage*. What it was not true of was the *screen*. Adding a provider meant typing a base URL from memory, then typing a model id from memory into one field, optionally a second model id into another, and a comma-separated list of more into a third. Every one of those was a spelling test whose only feedback was a 404 — in front of a visitor, hours later, reported as "the assistant could not answer".
+
+Two of the three failures that produced this change came from exactly that: a model id that was right last month, and a base URL missing its `/v1`.
+
+**Decision.** Keep the row. Add two things around it.
+
+1. **`PROVIDER_PRESETS` in `ai-catalog.ts`.** Nine vendors and an escape hatch. Choosing one fills the base URL, suggests a row key and a name, and links where the key is bought. It is *not* stored: the row still holds a free-text URL, so a provider nobody has heard of is one paste into "Something else" away and does not need a release. Editing an existing row derives the preset from its URL rather than writing one back, which is what stops the screen quietly re-pointing a row nobody asked it to touch.
+
+2. **`GET /api/ai/models`**, which asks the provider what it serves and normalises the answer. Every one of the three model fields is filled from the same browser, with a search, a free filter and a context filter, and the fallback list picks several at once. `normaliseModels()` is tolerant because "OpenAI-compatible" is a spectrum here too: OpenRouter returns pricing, context and `supported_parameters`; OpenAI returns an id and an owner; Groq calls the context window something else. A listing carrying nothing but ids still produces a searchable list, which beats a text field either way.
+
+**A proxy, not a passthrough.** The route rebuilds each row into the seven fields this site uses. Partly hygiene — OpenRouter's listing is about a megabyte, most of it per-endpoint routing detail — and partly the rule the rest of that directory follows: what leaves the Worker is built key by key rather than forwarded because it arrived. Prices are converted to dollars per million tokens, which is the unit every vendor quotes in prose and none of them return.
+
+**Failure is a message, not a status.** A base URL still being typed, a local server that is not running, a key the vendor will not accept — all ordinary states of a screen mid-edit, all `200` with `{ models: [], error: '…' }`. Anything else would mean the picker had to tell "no models" apart from "could not ask", which is the one thing the sentence already does.
+
+---
+
+## 34. Sampling parameters are an allowlist, because they are request-body fields
+
+**Status:** accepted
+
+**Context.** "Let the owner tune the model" sounds like a settings feature. It is not: whatever it stores is **spread into the body of a request to a third party's API**, which makes the storage a way to set fields on that API. The obvious one is `max_tokens` — this site's spending ceiling, set per task and clamped by `clampSettings()` — and decision 22 is explicit that a settings screen must not be able to lift its own limits. `messages`, `model` and `stream` are all the same class of problem.
+
+**Decision.** One nullable `params` JSON column, and `clampParams()` in `ai-catalog.ts` between it and the request.
+
+- The keys come from `PARAM_SPECS` **in source**. A key that is not in that table is dropped, so nothing in the database and nothing typed into the form can add a field to the outbound body. `max_tokens` is deliberately not in it.
+- Every value is coerced, clamped to the spec's range, and rounded where the spec's step is a whole number — several providers refuse a fractional `top_k` outright.
+- A non-finite value is dropped rather than sent, because `NaN` serialises to `null` and is a 400 at most vendors.
+- Nothing is sent for a knob that was left blank. That is different from sending the vendor's documented default, and the difference matters: `top_k` is rejected outright by OpenAI, so a form that helpfully pre-filled it with 40 would turn every OpenAI request into a 400 that reads as a bad key.
+- The provider's `temperature` wins over the task's. That is the intended reading of a knob on a provider row — it is the setting for this endpoint, and a model that has to be run at 0.2 has to be run at 0.2 for every task.
+
+This is the same shape as `content-schema.ts` and for the same reason, which is why it is in a module a plain Node script can import: `npm run check:ai` asserts that `max_tokens`, `model` and `messages` do not survive it, and that what does survive reaches the body.
+
+**One column rather than nine.** Nothing queries these. They are read once per request and spread into a body, so nine nullable columns would buy per-field types no statement uses and a migration every time a vendor invents a knob. Same reasoning as the resume document and the assistant's settings row — and, like both of those, the JSON is not trusted on read.
+
+---
+
+## 35. The authoring assistant is a conversation, and its commands are the old buttons
+
+**Status:** accepted
+
+**Context.** The panel was a topic box, a status line, an output pane, three shelves of twelve buttons, and a footer of five conditionally hidden ones. Everything about it assumed a *single run*: one instruction in, one result out, and the result gone when the next run started.
+
+So there was nowhere to say "shorter". Nowhere to ask why a paragraph was not working. A finished run announced itself on a status line below three shelves, which on a scrolled panel had gone off the bottom of the screen — the author was told "Ready" by a line they could not see. And the whole thing existed **twice**, near-identically, in the journal editor and the project screen, which is how the two drifted: same buttons in a different order, same copy in different words, a fix landing in one of them and in the other a week later or never.
+
+**Decision.** One shared panel (`AssistPanel.astro` + `assist-panel.ts`), and it is a chat.
+
+- **A task is a command.** `/write-whole-post` is the `compose` entry of `ASSIST_TASKS`, unchanged — same field allowlist, same live target, same token ceiling. Typing `/` opens the list, filtered to `task.surface`. Decision 24's argument was never about the shape of the control that runs a task, and the table is as closed as it was: `parseCommand()` *looks a command up*; a slash followed by something that is not one is a message in the panel, not a prompt sent to a model.
+- **Plain text is `chat`**, a thirteenth entry in the same closed table. It has no `command` and appears on no menu, because it is what happens when nothing is picked. It has no `live` target and no Insert, and `check:ai` pins both: an answer to a question is not a draft, and a button that appended it would make asking indistinguishable from commanding.
+- **Only `chat` carries the transcript.** The twelve commands are a function of the draft, not of what was said ten minutes ago, and paying for the history on each would be the whole conversation billed twelve times an afternoon. `assistPrompt()` trims it to twelve turns of four thousand characters and passes it as real `user`/`assistant` messages rather than flattening it into the prompt.
+- **Thinking is per message**, in its own disclosure, and it opens itself while it is the only thing happening. A model deliberating for twenty seconds behind a closed box is indistinguishable from one that has hung. It closes again on the first token of the answer, unless the reader has touched it — `data-pinned` is what stops the panel arguing with them.
+- **The page still owns its own fields.** `run()` in, a `Turn` back. `assist-panel.ts` knows about conversation, the page knows about its form, `assist-tasks.ts` knows about the twelve jobs, and none of the three has an opinion about the others.
+
+**Conversations are two tables and their own route.** `ai_chats` and `ai_messages`, written through `/api/ai/chats` rather than `/api/content`. That looks like the second write path decision 18 exists to prevent, and it is worth saying why it is not. The rule is that **a table or column name cannot be a bound parameter**, so identifiers have to come from source rather than from a request — and concentrating that makes it one thing to test. Nothing in `chats.ts` takes an identifier from a caller: every statement is written out with `?` placeholders and there is no map to look a column up in. What it needs that the generic endpoint cannot give is an **append**, and `/api/content` is a slug-keyed upsert. Bending it into an insert-only mode for one table would put a second mode into the endpoint whose whole value is having one.
+
+Two tables rather than one JSON blob per chat — the opposite of the resume and the settings row — because these are appended to a message at a time *while a response streams*. A JSON column would mean read-modify-write per message: a lost message the first time two tabs are open, and a whole transcript rewritten for every sentence.
+
+**Saving is best-effort, and that is the design.** Every append can fail, and none of them may take the run down. The reply is on screen and in the editor whether or not the row was written, so a failed save is one line in the log. Losing the transcript of a good answer is a small loss; discarding a good answer because its transcript would not save is a large one.
+
+**Compaction is destructive on purpose.** The point of compacting is that the next request carries one paragraph instead of forty messages; keeping the originals "just in case" would mean it carried both. The summary is inserted *before* the delete, so a failure between the two leaves a transcript with a summary at the end rather than nothing.
+
+---
+
+## 36. The selection assistant is not live, and that is the whole difference
+
+**Status:** accepted
+
+**Context.** Every rewriting task writes into the field as it streams, because the field is where the author is looking and watching it fill is the feature (decision 28). The button that appears over a selection in the body looks like one more of those, and it must not behave like one.
+
+**Decision.** `/rewrite-selection` streams into a preview beside the selection and replaces nothing until Replace is pressed.
+
+The difference is what is at risk. A live task fills empty fields or rewrites a whole draft the author asked it to rewrite; "it is already written, press Undo" is a fair offer for that. This one overwrites *a range they chose by hand*, in the middle of prose they are working on, and the failure mode is losing a paragraph they liked to a rewrite they did not. Discard leaves the draft untouched, and Replace goes through `setRangeText`, which keeps the browser's own undo stack — so Ctrl+Z still works afterwards.
+
+**The range is captured when the button is pressed, not when the reply lands.** The author can click into the popup, which moves the selection, before the model has written a word.
+
+**Positioned from the pointer, deliberately.** A `<textarea>` exposes no geometry for a run of characters inside it — there is no range object and no client rect — so the honest options are a mirrored `<div>` duplicating every one of the field's text metrics, or the pointer. The pointer is where the author just finished dragging, it is right for the gesture that produces a selection nine times out of ten, and it is eight lines instead of eighty. A keyboard selection gets the field's own corner.
+
+It does not go through the conversation panel. A conversation entry for every "cut this in half" would bury the conversation, and the range would have to survive a dialog that can be scrolled, reopened and restored from history.

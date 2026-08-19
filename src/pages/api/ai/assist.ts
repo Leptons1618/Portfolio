@@ -46,6 +46,29 @@ interface AssistBody {
   context?: Record<string, unknown>;
   /** Free-text steer from the author: "make it shorter", "focus on the API". */
   instruction?: string;
+  /**
+   * The conversation so far, oldest first.
+   *
+   * Sent only for the conversational tasks and trimmed by `assistPrompt` to the
+   * last few turns. Every entry is text the owner's own browser wrote or
+   * received, and it is re-shaped here rather than forwarded: a role that is
+   * not `user` or `assistant` is dropped, so nothing in a stored transcript can
+   * become a second `system` message.
+   */
+  history?: unknown;
+}
+
+/** Whatever was in `history`, as turns a model may be given. */
+function turns(raw: unknown): { role: 'user' | 'assistant'; content: string }[] {
+  if (!Array.isArray(raw)) return [];
+  const out: { role: 'user' | 'assistant'; content: string }[] = [];
+  for (const entry of raw) {
+    const turn = entry as { role?: unknown; content?: unknown };
+    if (turn?.role !== 'user' && turn?.role !== 'assistant') continue;
+    if (typeof turn.content !== 'string' || !turn.content.trim()) continue;
+    out.push({ role: turn.role, content: turn.content });
+  }
+  return out;
 }
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -95,6 +118,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     instruction: typeof payload.instruction === 'string' ? payload.instruction.slice(0, 2000) : '',
     corpus: voice,
     persona: settings.persona,
+    history: turns(payload.history),
   });
 
   try {
