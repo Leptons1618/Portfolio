@@ -301,13 +301,12 @@ const firstName = site.name.split(' ')[0];
      *
      * Two states share this element and the label is the whole difference:
      * WAITING means the request is out and nothing has come back, THINKING
-     * means the server sent a `{"status":"thinking"}` frame and the delay is
-     * the model deliberating rather than the network.
+     * means `{"thinking":…}` frames are arriving and the delay is the model
+     * deliberating rather than the network.
      *
-     * That frame carries **no thought text**, deliberately — see the header of
-     * `src/lib/ai.ts`. A visitor learns that thinking is happening and never
-     * what it says, which is the difference between this and the version of
-     * this panel that printed "Here's a thinking process:" into the answer.
+     * What it is thinking goes into the disclosure below, never into the
+     * answer — see the header of `src/lib/ai.ts`. This row only says which
+     * kind of wait a reader is looking at.
      */
     function waiting(label: string): HTMLElement {
       const wrap = document.createElement('div');
@@ -324,6 +323,76 @@ const firstName = site.name.split(' ')[0];
 
       wrap.append(text, dots);
       return wrap;
+    }
+
+    /**
+     * The model's deliberation, behind a disclosure above the answer.
+     *
+     * Reasoning used to be dropped at the Worker and the panel showed the word
+     * THINKING and nothing else. It is forwarded now, in its own
+     * `{"thinking":…}` frame, and it lands **here** — a closed `<details>`
+     * above the answer, never in the prose. That is the whole arrangement: the
+     * answer is what the bubble says, and the thinking is something a reader
+     * can open if they want to know how it got there.
+     *
+     * `<details>` rather than a button and a class, because the disclosure, the
+     * keyboard behaviour and the closed content leaving the focus order are all
+     * the element's job. Created on the first thinking frame — a model that does
+     * not deliberate leaves no empty box behind.
+     *
+     * It opens itself while the thinking is the only thing happening, and
+     * `settleThought()` closes it again when the answer starts. A model that
+     * deliberates for twenty seconds behind a closed box is indistinguishable
+     * from one that has hung, and "nothing is happening" is the single most
+     * common reading of a stream that has not produced a word yet. A reader who
+     * touches the disclosure pins it: `data-pinned` is set on the first click
+     * and nothing programmatic moves it after that.
+     */
+    function thoughtBox(target: HTMLElement): HTMLElement {
+      const existing = target.querySelector<HTMLElement>('.ask-think-body');
+      if (existing) return existing;
+
+      const box = document.createElement('details');
+      box.className = 'ask-think';
+      box.open = true;
+
+      const summary = document.createElement('summary');
+      summary.className = 'ask-think-summary';
+      summary.textContent = 'Thinking';
+      /* On the summary rather than the `toggle` event, which also fires for the
+         two assignments above and below and would pin the box against itself. */
+      summary.addEventListener('click', () => {
+        box.dataset.pinned = '';
+      });
+      box.append(summary);
+
+      const body = document.createElement('div');
+      body.className = 'ask-think-body';
+      box.append(body);
+
+      /* Above the answer, and before anything already in the bubble — the wait
+         row and the answer are both appended, so a first thinking frame that
+         arrives after them still reads top to bottom. */
+      target.prepend(box);
+      return body;
+    }
+
+    /**
+     * Close the disclosure and label it, once the thinking is no longer the news.
+     *
+     * Called when the first token of the answer arrives and again when the
+     * stream ends, because a reply that is *only* thinking never reaches the
+     * first case and would otherwise be left with a live-looking box.
+     *
+     * A reader who opened or closed it themselves has pinned it, and this does
+     * not argue with them.
+     */
+    function settleThought(target: HTMLElement, thinking: string): void {
+      const box = target.querySelector<HTMLDetailsElement>('.ask-think');
+      if (!box) return;
+      const summary = box.querySelector('.ask-think-summary');
+      if (summary) summary.textContent = `Thinking · ${thinking.length.toLocaleString()} characters`;
+      if (!('pinned' in box.dataset)) box.open = false;
     }
 
     /**
@@ -392,10 +461,19 @@ const firstName = site.name.split(' ')[0];
 
       const target = bubble('assistant');
       target.dataset.state = 'waiting';
-      target.replaceChildren(waiting('Waiting'));
+      /* Three children, in this order: the thinking disclosure (added by
+         `thoughtBox` if the model deliberates), the wait row, and the answer.
+         `renderAnswer` replaces the children of the *answer* element rather
+         than of the bubble, which is what lets a disclosure survive every
+         repaint of a streaming reply. */
+      const wait = waiting('Waiting');
+      const answerEl = document.createElement('div');
+      answerEl.className = 'ask-answer';
+      target.replaceChildren(wait, answerEl);
 
       inFlight = new AbortController();
       let answer = '';
+      let thinking = '';
       /* From the `done` frame's `stopReason`. `length` means the answer ran
          into the site's output ceiling rather than finishing — which reads as
          a model that stopped mid-sentence for no reason, and is the one
@@ -435,8 +513,8 @@ const firstName = site.name.split(' ')[0];
             if (!raw.trim()) continue;
             let frame: {
               delta?: string;
+              thinking?: string;
               error?: string;
-              status?: string;
               done?: boolean;
               stopReason?: string;
             };
@@ -446,27 +524,64 @@ const firstName = site.name.split(' ')[0];
               continue;
             }
             if (frame.error) throw new Error(frame.error);
-            /* The model is deliberating. Relabel the wait — but only while the
-               answer is still empty, because a reasoning model that thinks
-               again mid-sentence must not blank what it has already written. */
-            if (frame.status === 'thinking' && !answer) {
-              target.dataset.state = 'thinking';
-              target.replaceChildren(waiting('Thinking'));
+            /* The model is deliberating. It goes into the disclosure as it
+               arrives, and the wait row says which kind of wait this is — but
+               only while the answer is still empty, because a model that thinks
+               again mid-sentence must not relabel a reply already on screen. */
+            if (frame.thinking) {
+              thinking += frame.thinking;
+              const thoughts = thoughtBox(target);
+              thoughts.textContent = thinking;
+              /* Pinned to the bottom, like the log itself. A disclosure that
+                 shows the first two lines of a growing wall of text is a box
+                 that stopped updating, as far as anyone watching can tell. */
+              thoughts.scrollTop = thoughts.scrollHeight;
+              if (!answer) {
+                target.dataset.state = 'thinking';
+                const label = wait.querySelector('.ask-wait-label');
+                if (label) label.textContent = 'Thinking';
+              }
             }
             if (frame.delta) {
               answer += frame.delta;
               target.dataset.state = 'streaming';
-              renderAnswer(target, answer);
+              wait.remove();
+              /* The answer is the thing to read now. The thinking stays, one
+                 click away, with the summary saying how much of it there is. */
+              settleThought(target, thinking);
+              renderAnswer(answerEl, answer);
               log.scrollTop = log.scrollHeight;
             }
             if (frame.done) truncated = frame.stopReason === 'length';
           }
         }
 
+        wait.remove();
+        settleThought(target, thinking);
+
         /* Deliberately not the editor's version of this message: a visitor is
            owed "it did not work, try again", not a note about which model the
-           owner configured and what its token ceiling is. */
-        if (!answer.trim()) throw new Error('The assistant had nothing to say. Please try again.');
+           owner configured and what its token ceiling is.
+
+           Unless it *did* say something, to itself. A model that narrated its
+           whole way through the budget without answering used to print that
+           narration as the answer; now it is in the disclosure, and the honest
+           report is that there is no answer and where the words went. The
+           bubbles stay so the thinking is still readable, but the turn is
+           dropped from `history` — there was no answer for a follow-up to
+           follow. */
+        if (!answer.trim()) {
+          if (!thinking.trim()) throw new Error('The assistant had nothing to say. Please try again.');
+          target.dataset.state = 'done';
+          history.pop();
+          note(
+            'The model spent the whole answer thinking and never wrote one. Open Thinking to read what it worked through, or ask again.',
+            'error',
+            () => void ask(question),
+          );
+          return;
+        }
+
         target.dataset.state = 'done';
         citations(target, answer);
         history.push({ role: 'assistant', content: answer });
@@ -485,7 +600,8 @@ const firstName = site.name.split(' ')[0];
                follow-up would be answered against a turn the model does not
                know it gave. */
             target.dataset.state = 'done';
-            renderAnswer(target, answer);
+            wait.remove();
+            renderAnswer(answerEl, answer);
             citations(target, answer);
             history.push({ role: 'assistant', content: answer });
           } else {
@@ -951,15 +1067,63 @@ const firstName = site.name.split(' ')[0];
     padding: 1px 4px;
   }
 
+  /* — thinking —
+
+     A closed disclosure above the answer, and the *only* place a word of the
+     model's deliberation may appear. The answer is the bubble's prose; this is
+     the working behind it, in mono and muted so it never competes with what it
+     sits above. Collapsed by default because nobody opened this panel to read
+     a model reason with itself — but it is there, which is the difference
+     between an assistant that shows its work and one that hides a failure.
+
+     Everything here is script-built, so it comes through `.ask-log` like the
+     rest. */
+
+  .ask-log :global(.ask-think) {
+    margin-bottom: var(--space-2);
+    padding-bottom: var(--space-1);
+    border-bottom: 1px dashed var(--color-divider);
+  }
+
+  .ask-log :global(.ask-think-summary) {
+    cursor: pointer;
+    list-style: none;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  /* Safari still paints the default triangle without this. */
+  .ask-log :global(.ask-think-summary::-webkit-details-marker) { display: none; }
+
+  .ask-log :global(.ask-think-summary::before) {
+    content: '+ ';
+    font-weight: 600;
+  }
+  .ask-log :global(.ask-think[open] .ask-think-summary::before) { content: '− '; }
+
+  .ask-log :global(.ask-think-body) {
+    margin-top: var(--space-1);
+    /* The model's own line breaks are the only structure a thought has, and it
+       is not markdown — it is notes. `pre-wrap` keeps them without a parser. */
+    white-space: pre-wrap;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--color-text-muted);
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+
   /* — waiting —
 
      Two different waits, and conflating them is what made the panel feel dead.
      WAITING is "the request is out and nothing has come back". THINKING is the
-     same wait with a reason: the server sent a `{"status":"thinking"}` frame,
-     so the model is deliberating rather than the network being slow, and the
-     visitor is told which one they are looking at. Neither ever shows a word of
-     what the model is thinking — the frame carries no text to show, which is
-     the point of it being a status rather than content.
+     same wait with a reason: `{"thinking":…}` frames are arriving, so the model
+     is deliberating rather than the network being slow, and the visitor is told
+     which one they are looking at. What it is thinking goes into the disclosure
+     above, never into the answer.
 
      Squares, not a spinner and not circles: nothing else in this theme has a
      border radius. */
