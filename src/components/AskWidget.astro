@@ -52,9 +52,14 @@ const firstName = site.name.split(' ')[0];
         <p class="ask-title">Ask about {firstName}</p>
         <p class="ask-sub">Answers come from this site's own pages.</p>
       </div>
-      <button type="button" class="ask-close" id="ask-close" aria-label="Close">
-        <Icon name="lucide:x" class="ask-close-icon" />
-      </button>
+      <div class="ask-head-actions">
+        <button type="button" class="ask-icon-btn" id="ask-new" aria-label="New chat" title="New chat">
+          <Icon name="lucide:message-square-plus" class="ask-icon" />
+        </button>
+        <button type="button" class="ask-icon-btn" id="ask-close" aria-label="Close" title="Close">
+          <Icon name="lucide:x" class="ask-icon" />
+        </button>
+      </div>
     </header>
 
     {/* `aria-live="polite"` rather than `assertive`: an answer arriving is
@@ -82,6 +87,18 @@ const firstName = site.name.split(' ')[0];
       This is a language model reading published pages. It can be wrong — the
       pages themselves are the record.
     </p>
+
+    {/* The corner the panel grows from. Bottom-right anchored, so the handle
+        has to be top-left — CSS `resize` only ever puts one at bottom-right,
+        which on this panel drags it off the screen. A button rather than a
+        div so it is focusable, and the arrow keys resize from the keyboard. */}
+    <button
+      type="button"
+      class="ask-grip"
+      id="ask-grip"
+      aria-label="Resize the panel. Use the arrow keys."
+      title="Drag to resize"
+    ></button>
   </section>
 </div>
 
@@ -105,8 +122,10 @@ const firstName = site.name.split(' ')[0];
     const input = $<HTMLTextAreaElement>('ask-input');
     const send = $<HTMLButtonElement>('ask-send');
     const suggestions = $('ask-suggestions');
+    const grip = $<HTMLButtonElement>('ask-grip');
 
     const STATUS_KEY = 'om-ask-status';
+    const SIZE_KEY = 'om-ask-size';
 
     interface Status {
       enabled: boolean;
@@ -325,7 +344,10 @@ const firstName = site.name.split(' ')[0];
           }
         }
 
-        if (!answer.trim()) throw new Error('The assistant had nothing to say.');
+        /* Deliberately not the editor's version of this message: a visitor is
+           owed "it did not work, try again", not a note about which model the
+           owner configured and what its token ceiling is. */
+        if (!answer.trim()) throw new Error('The assistant had nothing to say. Please try again.');
         target.dataset.state = 'done';
         history.push({ role: 'assistant', content: answer });
       } catch (error) {
@@ -350,6 +372,45 @@ const firstName = site.name.split(' ')[0];
 
     /* — panel — */
 
+    /** The greeting and the starter chips. Drawn on open, and again on New chat. */
+    function drawIntro(status: Status) {
+      note(status.greeting);
+      suggestions.replaceChildren();
+      if (!status.suggestions.length) return;
+      suggestions.hidden = false;
+      for (const text of status.suggestions) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'ask-chip';
+        chip.textContent = text;
+        chip.addEventListener('click', () => {
+          input.value = '';
+          void ask(text);
+        });
+        suggestions.append(chip);
+      }
+    }
+
+    /**
+     * Back to an empty conversation.
+     *
+     * The transcript is the *only* thing that carries a follow-up's meaning —
+     * `history` is what gets posted, and it grows until the tab is closed. So a
+     * visitor who has finished one subject and wants to ask about another is
+     * paying for the first one on every question, and getting answers coloured
+     * by it. Clearing is one press, and it is the same press that undoes a
+     * conversation that has gone somewhere unhelpful.
+     */
+    function newChat(status: Status) {
+      inFlight?.abort();
+      history.length = 0;
+      log.replaceChildren();
+      input.value = '';
+      input.style.height = '';
+      drawIntro(status);
+      input.focus();
+    }
+
     let opened = false;
 
     function openPanel(status: Status) {
@@ -359,21 +420,7 @@ const firstName = site.name.split(' ')[0];
 
       if (!opened) {
         opened = true;
-        note(status.greeting);
-        if (status.suggestions.length) {
-          suggestions.hidden = false;
-          for (const text of status.suggestions) {
-            const chip = document.createElement('button');
-            chip.type = 'button';
-            chip.className = 'ask-chip';
-            chip.textContent = text;
-            chip.addEventListener('click', () => {
-              input.value = '';
-              void ask(text);
-            });
-            suggestions.append(chip);
-          }
-        }
+        drawIntro(status);
       }
       input.focus();
     }
@@ -389,18 +436,136 @@ const firstName = site.name.split(' ')[0];
       launcher.focus();
     }
 
+    /* — size —
+
+       Two custom properties on the root rather than inline width and height on
+       the panel, and that is not a style preference: the phone breakpoint below
+       has to be able to win. An inline `style` beats any stylesheet rule, so a
+       panel resized on a desktop and then reloaded on a narrow window would
+       ignore the full-screen rule entirely and hang off the side. A custom
+       property is only an *input* to a declaration, so the media query can
+       override the declaration that reads it.
+
+       Persisted in `localStorage`, not `sessionStorage`: public pages are plain
+       MPA, so every navigation rebuilds this widget. A size that did not
+       survive that would be a control that resets itself on the next click. */
+    const MIN_W = 320;
+    const MIN_H = 320;
+
+    /** Whatever the window can actually hold right now. */
+    const roomW = () => Math.max(MIN_W, window.innerWidth - 32);
+    const roomH = () => Math.max(MIN_H, window.innerHeight - 48);
+
+    /** Set the size. Cheap enough to call on every frame of a drag. */
+    function applySize(width: number, height: number) {
+      const w = Math.round(Math.min(Math.max(width, MIN_W), roomW()));
+      const h = Math.round(Math.min(Math.max(height, MIN_H), roomH()));
+      root.style.setProperty('--ask-w', `${w}px`);
+      root.style.setProperty('--ask-h', `${h}px`);
+    }
+
+    /* Separate from `applySize` because a drag calls that on every pointer
+       move, and `localStorage.setItem` is synchronous — persisting there would
+       be a disk write per frame for a value only the last one of which
+       matters. Called when a gesture ends. */
+    function rememberSize() {
+      try {
+        const box = panel.getBoundingClientRect();
+        localStorage.setItem(SIZE_KEY, `${Math.round(box.width)},${Math.round(box.height)}`);
+      } catch {
+        /* Private browsing. The panel still resizes, it just forgets. */
+      }
+    }
+
+    /** Whether this visitor has ever chosen a size. Nothing is stored until they do. */
+    const hasCustomSize = () => root.style.getPropertyValue('--ask-w') !== '';
+
+    function restoreSize() {
+      let stored: string | null = null;
+      try {
+        stored = localStorage.getItem(SIZE_KEY);
+      } catch {
+        /* As above. */
+      }
+      if (!stored) return;
+      const [w, h] = stored.split(',').map(Number);
+      if (Number.isFinite(w) && Number.isFinite(h)) applySize(w, h);
+    }
+
+    function wireResize() {
+      /* Pointer events rather than mouse ones, so the grip works under a finger
+         and a stylus. Capture is what keeps the drag alive when the pointer
+         leaves the 16px handle, which at any real speed it does immediately. */
+      grip.addEventListener('pointerdown', event => {
+        event.preventDefault();
+        const startX = event.clientX;
+        const startY = event.clientY;
+        const box = panel.getBoundingClientRect();
+        grip.setPointerCapture(event.pointerId);
+        root.dataset.resizing = '1';
+
+        /* The panel is anchored bottom-right, so dragging the top-left corner
+           *up and left* is what makes it bigger — hence start minus current. */
+        const move = (e: PointerEvent) =>
+          applySize(box.width + (startX - e.clientX), box.height + (startY - e.clientY));
+
+        const stop = () => {
+          delete root.dataset.resizing;
+          rememberSize();
+          grip.removeEventListener('pointermove', move);
+          grip.removeEventListener('pointerup', stop);
+          grip.removeEventListener('pointercancel', stop);
+        };
+
+        grip.addEventListener('pointermove', move);
+        grip.addEventListener('pointerup', stop);
+        grip.addEventListener('pointercancel', stop);
+      });
+
+      /* A drag-only handle is unreachable without a pointing device, and this
+         one is a `<button>` precisely so it does not have to be. */
+      grip.addEventListener('keydown', event => {
+        const step = event.shiftKey ? 64 : 16;
+        const by = { ArrowLeft: [step, 0], ArrowRight: [-step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] }[
+          event.key
+        ];
+        if (!by) return;
+        event.preventDefault();
+        const box = panel.getBoundingClientRect();
+        applySize(box.width + by[0], box.height + by[1]);
+        rememberSize();
+      });
+
+      /* A window narrowed after the fact must not leave the panel wider than
+         it — `applySize` re-clamps against the room there is now.
+
+         Only for a visitor who has actually resized something. Running this
+         unconditionally would write the *default* size into the custom
+         properties the first time anyone turned their phone sideways, pinning
+         the panel to a number nobody chose and one that no later change to the
+         default could ever move. */
+      window.addEventListener('resize', () => {
+        if (panel.hidden || !hasCustomSize()) return;
+        const box = panel.getBoundingClientRect();
+        applySize(box.width, box.height);
+      });
+    }
+
     void (async () => {
       const status = await readStatus();
       if (!status?.enabled) return;
 
       root.hidden = false;
       input.maxLength = status.maxQuestionChars;
+      restoreSize();
+      wireResize();
 
       launcher.addEventListener('click', () => {
         if (panel.hidden) openPanel(status);
         else closePanel();
       });
       $<HTMLButtonElement>('ask-close').addEventListener('click', closePanel);
+      $<HTMLButtonElement>('ask-new').addEventListener('click', () => newChat(status));
 
       document.addEventListener('keydown', event => {
         if (event.key === 'Escape' && !panel.hidden) closePanel();
@@ -484,17 +649,53 @@ const firstName = site.name.split(' ')[0];
      on top of it. */
   .ask[data-open] .ask-launcher { display: none; }
 
+  /* `--ask-w` / `--ask-h` are written by the resize handle and read here. The
+     fallbacks are the size the panel ships at; the `max-*` pair is what keeps a
+     size chosen on a wide window from hanging off a narrow one. */
   .ask-panel {
+    position: relative;
     display: flex;
     flex-direction: column;
-    width: min(380px, calc(100vw - var(--space-4) * 2));
-    height: min(560px, calc(100dvh - var(--space-8)));
+    width: var(--ask-w, 380px);
+    height: var(--ask-h, 560px);
+    max-width: calc(100vw - var(--space-4) * 2);
+    max-height: calc(100dvh - var(--space-8));
     background: var(--color-bg);
     border: 1px solid var(--color-divider);
-    box-shadow: 0 8px 40px rgb(0 0 0 / 18%);
+    box-shadow: var(--shadow-lg);
   }
 
   .ask-panel[hidden] { display: none; }
+
+  /* The resize handle, at the corner the panel actually grows from. Two rules
+     carry the affordance: the diagonal, drawn as a gradient rather than a data
+     URI so it follows `currentColor` through a theme change, and the cursor. */
+  .ask-grip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    background: linear-gradient(
+      135deg,
+      var(--color-divider) 0 2px,
+      transparent 2px 5px,
+      var(--color-divider) 5px 7px,
+      transparent 7px
+    );
+    color: var(--color-text-muted);
+    cursor: nwse-resize;
+    touch-action: none;
+    z-index: 1;
+  }
+  .ask-grip:hover { background-color: var(--color-surface); }
+  .ask-grip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+
+  /* A drag over a panel full of text selects the text unless this is set, and
+     an accidental selection under the cursor makes the resize look broken. */
+  .ask[data-resizing] .ask-panel { user-select: none; }
 
   .ask-head {
     display: flex;
@@ -502,45 +703,70 @@ const firstName = site.name.split(' ')[0];
     justify-content: space-between;
     gap: var(--space-2);
     padding: var(--space-3);
+    padding-left: var(--space-6);
     border-bottom: 1px solid var(--color-divider);
   }
 
   .ask-title { margin: 0; font-size: 14px; font-weight: 700; }
   .ask-sub { margin: 2px 0 0; font-size: 11px; color: var(--color-text-muted); }
 
-  .ask-close {
+  .ask-head-actions { display: flex; gap: var(--space-1); flex: none; }
+
+  .ask-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
     border: 0;
     background: none;
     color: var(--color-text-muted);
     cursor: pointer;
-    padding: 2px;
+    padding: 0;
   }
-  .ask-close:hover { color: var(--color-accent); }
-  .ask-close-icon { width: 16px; height: 16px; }
+  .ask-icon-btn:hover { color: var(--color-accent); background: var(--color-surface); }
+  .ask-icon { width: 16px; height: 16px; }
 
   .ask-log {
     flex: 1;
     overflow-y: auto;
+    /* A chat that has scrolled to its end must not then start scrolling the
+       article behind it — the panel floats over a page, not beside one. */
+    overscroll-behavior: contain;
     padding: var(--space-3);
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
     font-size: 13px;
-    line-height: 1.55;
+    line-height: 1.6;
   }
 
+  /* Two turns, two different weights of chrome rather than two boxes. A
+     question is a short thing the visitor wrote, so it gets a filled block; an
+     answer is prose to be read, so it gets no box at all — only a rule down its
+     left edge to say where it starts. Bordering both was what made the log
+     read as a stack of receipts. */
   .ask-turn { display: flex; }
   .ask-turn[data-role='user'] { justify-content: flex-end; }
 
   .ask-bubble {
-    max-width: 85%;
-    padding: var(--space-2) var(--space-3);
-    border: 1px solid var(--color-divider);
+    max-width: 100%;
+    min-width: 0;
+    /* A pasted URL or a long identifier in an answer must wrap rather than
+       widen the panel past the size the visitor chose. */
+    overflow-wrap: anywhere;
   }
 
   .ask-turn[data-role='user'] .ask-bubble {
+    max-width: 85%;
+    padding: var(--space-2) var(--space-3);
     background: var(--color-surface);
-    border-color: var(--color-surface);
+    border-right: 2px solid var(--color-accent);
+  }
+
+  .ask-turn[data-role='assistant'] .ask-bubble {
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--color-divider);
   }
 
   .ask-bubble :global(p) { margin: 0 0 var(--space-2); }
@@ -652,7 +878,13 @@ const firstName = site.name.split(' ')[0];
   }
 
   /* On a phone the panel is the screen. Anchoring it to all four insets rather
-     than sizing it means it cannot be pushed off by the address bar. */
+     than sizing it means it cannot be pushed off by the address bar.
+
+     These win over the resized size because `--ask-w` is only an *input* to the
+     `width` declaration above, and this declaration is later and equally
+     specific. That is the whole reason the size is a custom property rather
+     than an inline style, which would have outranked this and left a panel
+     resized on a laptop hanging off the side of a phone. */
   @media (max-width: 520px) {
     .ask[data-open] {
       inset: 0;
@@ -662,7 +894,28 @@ const firstName = site.name.split(' ')[0];
     .ask[data-open] .ask-panel {
       width: 100%;
       height: 100%;
+      max-width: none;
+      max-height: none;
     }
+    /* Nothing to resize when the panel is the whole screen. */
+    .ask-grip { display: none; }
+    .ask-head { padding-left: var(--space-3); }
+    /* Thumb-sized, because on a phone these are the only two controls in the
+       header and they sit right where the hand is. */
+    .ask-icon-btn { width: 36px; height: 36px; }
+    .ask-log { font-size: 14px; }
+  }
+
+  /* A short window — a laptop in a split view, or a phone in landscape — has
+     no room for a 560px panel plus its launcher, and the `max-height` above
+     only stops it overflowing rather than making it usable. */
+  @media (max-height: 640px) and (min-width: 521px) {
+    .ask-panel { height: var(--ask-h, calc(100dvh - var(--space-8))); }
+    /* The disclaimer stays — it is the one line saying the answers can be
+       wrong, and a short window is not a reason to stop saying it. It gives up
+       its padding, not its place. */
+    .ask-foot { padding-bottom: var(--space-2); }
+    .ask-sub { display: none; }
   }
 
   @media print {
