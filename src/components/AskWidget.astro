@@ -78,8 +78,13 @@ const firstName = site.name.split(' ')[0];
         placeholder="Ask a question…"
         autocomplete="off"
       ></textarea>
+      {/* Send and Stop are one button in two states, and both icons are in the
+          markup because swapping them in script would mean writing over an
+          inlined `astro-icon` SVG — the same trap `setLabel()` exists for on
+          the admin surface. `data-busy` picks which one paints. */}
       <button type="submit" class="ask-send" id="ask-send" aria-label="Send">
         <Icon name="lucide:arrow-up" class="ask-send-icon" />
+        <Icon name="lucide:square" class="ask-send-icon ask-send-stop" />
       </button>
     </form>
 
@@ -263,13 +268,100 @@ const firstName = site.name.split(' ')[0];
       if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
     }
 
-    function note(text: string, tone: 'info' | 'error' = 'info') {
+    function note(text: string, tone: 'info' | 'error' = 'info', retry?: () => void) {
       const p = document.createElement('p');
       p.className = 'ask-note';
       p.dataset.tone = tone;
-      p.textContent = text;
+
+      const words = document.createElement('span');
+      words.textContent = text;
+      p.append(words);
+
+      /* `ask()` empties the field before it sends, so a failure used to leave a
+         red sentence and nothing to act on — the question was gone and the only
+         way back was to remember it and retype it. */
+      if (retry) {
+        const again = document.createElement('button');
+        again.type = 'button';
+        again.className = 'ask-retry';
+        again.textContent = 'Try again';
+        again.addEventListener('click', () => {
+          p.remove();
+          retry();
+        });
+        p.append(again);
+      }
+
       log.append(p);
       log.scrollTop = log.scrollHeight;
+    }
+
+    /**
+     * The wait, as a labelled row rather than an ellipsis.
+     *
+     * Two states share this element and the label is the whole difference:
+     * WAITING means the request is out and nothing has come back, THINKING
+     * means the server sent a `{"status":"thinking"}` frame and the delay is
+     * the model deliberating rather than the network.
+     *
+     * That frame carries **no thought text**, deliberately — see the header of
+     * `src/lib/ai.ts`. A visitor learns that thinking is happening and never
+     * what it says, which is the difference between this and the version of
+     * this panel that printed "Here's a thinking process:" into the answer.
+     */
+    function waiting(label: string): HTMLElement {
+      const wrap = document.createElement('div');
+      wrap.className = 'ask-wait';
+
+      const text = document.createElement('span');
+      text.className = 'ask-wait-label';
+      text.textContent = label;
+
+      const dots = document.createElement('span');
+      dots.className = 'ask-dots';
+      dots.setAttribute('aria-hidden', 'true');
+      for (let i = 0; i < 3; i += 1) dots.append(document.createElement('i'));
+
+      wrap.append(text, dots);
+      return wrap;
+    }
+
+    /**
+     * The pages an answer named, as links under it.
+     *
+     * The corpus gives every entry a `- Page: /projects/x` line and rule 7 of
+     * the scope prompt asks for the path to be quoted, so a grounded answer
+     * already says where it came from — this only lifts those paths out of the
+     * prose and puts them where a reader can act on them.
+     *
+     * The pattern is anchored on a leading slash and a closed set of section
+     * names, which is what makes assigning `href` safe: it cannot produce
+     * another scheme, the same guarantee `inline()` above relies on. An answer
+     * naming no page gets no row rather than an empty one.
+     */
+    const CITED = /\/(?:projects|case-studies|journal|about|resume)(?:\/[a-z0-9-]+)?/g;
+
+    function citations(target: HTMLElement, text: string) {
+      const paths = [...new Set(text.match(CITED) ?? [])].slice(0, 5);
+      if (!paths.length) return;
+
+      const row = document.createElement('div');
+      row.className = 'ask-cites';
+
+      const label = document.createElement('span');
+      label.className = 'ask-cites-label';
+      label.textContent = paths.length === 1 ? 'Page' : 'Pages';
+      row.append(label);
+
+      for (const path of paths) {
+        const link = document.createElement('a');
+        link.href = path;
+        link.className = 'ask-cite';
+        link.textContent = path;
+        row.append(link);
+      }
+
+      target.append(row);
     }
 
     /* — conversation —
@@ -280,19 +372,27 @@ const firstName = site.name.split(' ')[0];
     const history: { role: Role; content: string }[] = [];
     let busy = false;
     let inFlight: AbortController | null = null;
+    /* Whether the visitor stopped the answer or the panel closed under it. Both
+       arrive as the same `AbortError` and they want opposite outcomes: a
+       deliberate stop keeps what was written, a closed panel throws it away. */
+    let stopped = false;
 
     async function ask(question: string) {
       if (busy || !question.trim()) return;
       busy = true;
-      send.disabled = true;
+      stopped = false;
+      /* Not `disabled`: while an answer streams this button is the Stop
+         control, so it has to stay pressable. `data-busy` swaps which of its
+         two inlined icons paints. */
+      send.dataset.busy = '';
 
       history.push({ role: 'user', content: question });
       bubble('user').textContent = question;
       suggestions.hidden = true;
 
       const target = bubble('assistant');
-      target.dataset.state = 'thinking';
-      target.textContent = '…';
+      target.dataset.state = 'waiting';
+      target.replaceChildren(waiting('Waiting'));
 
       inFlight = new AbortController();
       let answer = '';
@@ -328,13 +428,20 @@ const firstName = site.name.split(' ')[0];
 
           for (const raw of lines) {
             if (!raw.trim()) continue;
-            let frame: { delta?: string; error?: string };
+            let frame: { delta?: string; error?: string; status?: string };
             try {
               frame = JSON.parse(raw);
             } catch {
               continue;
             }
             if (frame.error) throw new Error(frame.error);
+            /* The model is deliberating. Relabel the wait — but only while the
+               answer is still empty, because a reasoning model that thinks
+               again mid-sentence must not blank what it has already written. */
+            if (frame.status === 'thinking' && !answer) {
+              target.dataset.state = 'thinking';
+              target.replaceChildren(waiting('Thinking'));
+            }
             if (frame.delta) {
               answer += frame.delta;
               target.dataset.state = 'streaming';
@@ -349,22 +456,39 @@ const firstName = site.name.split(' ')[0];
            owner configured and what its token ceiling is. */
         if (!answer.trim()) throw new Error('The assistant had nothing to say. Please try again.');
         target.dataset.state = 'done';
+        citations(target, answer);
         history.push({ role: 'assistant', content: answer });
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
-          /* The visitor closed the panel mid-answer. Not a failure, and the
-             half-written bubble goes with it. */
-          target.closest('.ask-turn')?.remove();
+          if (stopped && answer.trim()) {
+            /* Stopped on purpose, with something already on screen. Keeping it
+               is the entire point of a Stop button — the visitor read as much
+               as they wanted and said so. It goes into `history` too, or the
+               follow-up would be answered against a turn the model does not
+               know it gave. */
+            target.dataset.state = 'done';
+            renderAnswer(target, answer);
+            citations(target, answer);
+            history.push({ role: 'assistant', content: answer });
+          } else {
+            /* The panel closed under it, or nothing had arrived yet. The
+               half-written bubble goes, and so does the question — leaving it
+               would make the next one a follow-up to a turn with no answer. */
+            target.closest('.ask-turn')?.remove();
+            history.pop();
+          }
         } else {
           target.closest('.ask-turn')?.remove();
-          note(error instanceof Error ? error.message : 'Something went wrong.', 'error');
           /* Drop the question too, so a retry is not counted as a follow-up to
-             a turn that never got an answer. */
+             a turn that never got an answer — `ask()` pushes it again. */
           history.pop();
+          note(error instanceof Error ? error.message : 'Something went wrong.', 'error', () => {
+            void ask(question);
+          });
         }
       } finally {
         busy = false;
-        send.disabled = false;
+        delete send.dataset.busy;
         inFlight = null;
         input.focus();
       }
@@ -573,6 +697,15 @@ const firstName = site.name.split(' ')[0];
 
       form.addEventListener('submit', event => {
         event.preventDefault();
+        /* While an answer is streaming the send button *is* the stop button, so
+           submitting the form stops it — which also makes Enter stop it, the
+           convention every chat box follows. `stopped` is what tells the catch
+           in `ask()` to keep what was written rather than discard it. */
+        if (busy) {
+          stopped = true;
+          inFlight?.abort();
+          return;
+        }
         const question = input.value.trim();
         input.value = '';
         input.style.height = '';
@@ -746,10 +879,29 @@ const firstName = site.name.split(' ')[0];
      answer is prose to be read, so it gets no box at all — only a rule down its
      left edge to say where it starts. Bordering both was what made the log
      read as a stack of receipts. */
-  .ask-turn { display: flex; }
-  .ask-turn[data-role='user'] { justify-content: flex-end; }
+  /* — everything below is built by the script, so every selector goes through
+       `:global()` hung off a server-rendered ancestor —
 
-  .ask-bubble {
+     Astro compiles a scoped rule by appending `[data-astro-cid-…]` to each
+     compound not wrapped in `:global()`, and it only ever puts that attribute
+     on elements it rendered itself. `.ask-bubble` was written bare, so it
+     shipped as `.ask-bubble[data-astro-cid-lhhdizdp]` and matched nothing —
+     every turn, every note and every chip in this panel was **unstyled in
+     production**, which is most of why the chat read as a plain-text dump with
+     a border round it. The rules were all correct; none of them applied.
+
+     `.ask-log` and `.ask-suggestions` are in the markup above, so they carry
+     the attribute and are the doors everything else comes through. It is the
+     same seam `#import-list` and the resume editor's generated fields use, and
+     it is written down in `.claude/rules/admin-surface.md` — this file was
+     simply never checked against it. Anything added to `bubble()`, `note()` or
+     `drawIntro()` has to come through one of these two ancestors or it will
+     silently not exist. */
+
+  .ask-log :global(.ask-turn) { display: flex; }
+  .ask-log :global(.ask-turn[data-role='user']) { justify-content: flex-end; }
+
+  .ask-log :global(.ask-bubble) {
     max-width: 100%;
     min-width: 0;
     /* A pasted URL or a long identifier in an answer must wrap rather than
@@ -757,52 +909,137 @@ const firstName = site.name.split(' ')[0];
     overflow-wrap: anywhere;
   }
 
-  .ask-turn[data-role='user'] .ask-bubble {
+  .ask-log :global(.ask-turn[data-role='user'] .ask-bubble) {
     max-width: 85%;
     padding: var(--space-2) var(--space-3);
     background: var(--color-surface);
     border-right: 2px solid var(--color-accent);
   }
 
-  .ask-turn[data-role='assistant'] .ask-bubble {
+  .ask-log :global(.ask-turn[data-role='assistant'] .ask-bubble) {
     padding-left: var(--space-3);
     border-left: 2px solid var(--color-divider);
   }
 
-  .ask-bubble :global(p) { margin: 0 0 var(--space-2); }
-  .ask-bubble :global(p:last-child) { margin-bottom: 0; }
-  .ask-bubble :global(ul) { margin: 0 0 var(--space-2); padding-left: 18px; }
-  .ask-bubble :global(li) { list-style: disc; }
-  .ask-bubble :global(a) { color: var(--color-accent); text-underline-offset: 2px; }
-  .ask-bubble :global(code) {
+  .ask-log :global(.ask-bubble p) { margin: 0 0 var(--space-2); }
+  .ask-log :global(.ask-bubble p:last-child) { margin-bottom: 0; }
+  .ask-log :global(.ask-bubble ul) { margin: 0 0 var(--space-2); padding-left: 18px; }
+  .ask-log :global(.ask-bubble li) { list-style: disc; }
+  .ask-log :global(.ask-bubble a) { color: var(--color-accent); text-underline-offset: 2px; }
+  .ask-log :global(.ask-bubble code) {
     font-family: var(--font-mono);
     font-size: 12px;
     background: var(--color-surface);
     padding: 1px 4px;
   }
 
-  /* The three dots while the first token is still in the post. Opacity rather
-     than a spinner: it is one character wide and belongs in the text flow. */
-  .ask-bubble[data-state='thinking'] {
+  /* — waiting —
+
+     Two different waits, and conflating them is what made the panel feel dead.
+     WAITING is "the request is out and nothing has come back". THINKING is the
+     same wait with a reason: the server sent a `{"status":"thinking"}` frame,
+     so the model is deliberating rather than the network being slow, and the
+     visitor is told which one they are looking at. Neither ever shows a word of
+     what the model is thinking — the frame carries no text to show, which is
+     the point of it being a status rather than content.
+
+     Squares, not a spinner and not circles: nothing else in this theme has a
+     border radius. */
+
+  .ask-log :global(.ask-wait) {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
     color: var(--color-text-muted);
-    animation: ask-pulse 1.2s ease-in-out infinite;
   }
 
+  .ask-log :global(.ask-wait-label) {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .ask-log :global(.ask-dots) { display: inline-flex; gap: 3px; }
+
+  .ask-log :global(.ask-dots i) {
+    width: 4px;
+    height: 4px;
+    background: currentColor;
+    animation: ask-pulse 1.1s ease-in-out infinite;
+  }
+  .ask-log :global(.ask-dots i:nth-child(2)) { animation-delay: 0.15s; }
+  .ask-log :global(.ask-dots i:nth-child(3)) { animation-delay: 0.3s; }
+
   @keyframes ask-pulse {
-    0%, 100% { opacity: 0.35; }
-    50% { opacity: 1; }
+    0%, 65%, 100% { opacity: 0.2; }
+    30% { opacity: 1; }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .ask-bubble[data-state='thinking'] { animation: none; opacity: 0.6; }
+    .ask-log :global(.ask-dots i) { animation: none; opacity: 0.55; }
   }
 
-  .ask-note {
+  /* — citations —
+
+     Every corpus entry carries its own `- Page: /projects/x` line and rule 7 of
+     the scope prompt asks for the path to be quoted, so an honest answer
+     already names where it came from. This lifts those paths out of the prose
+     and puts them under the answer as the thing a reader wants next: the page
+     itself, which is the record this panel's own footer defers to. */
+
+  .ask-log :global(.ask-cites) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-divider);
+  }
+
+  .ask-log :global(.ask-cites-label) {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .ask-log :global(.ask-cite) {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-accent);
+    border: 1px solid var(--color-divider);
+    padding: 2px 6px;
+    text-decoration: none;
+  }
+  .ask-log :global(.ask-cite:hover) { border-color: var(--color-accent); }
+
+  .ask-log :global(.ask-note) {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
     margin: 0;
     font-size: 12px;
     color: var(--color-text-muted);
   }
-  .ask-note[data-tone='error'] { color: var(--color-accent-700); }
+  .ask-log :global(.ask-note[data-tone='error']) { color: var(--color-accent-700); }
+
+  /* An error that offers no way forward is a dead end in a panel with no other
+     controls: the question has already been taken out of the field by the time
+     the note appears, so there is nothing left to press Enter on. */
+  .ask-log :global(.ask-retry) {
+    border: 1px solid currentColor;
+    background: none;
+    color: inherit;
+    font-family: var(--font-body);
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .ask-log :global(.ask-retry:hover) { background: var(--color-surface); }
 
   .ask-suggestions {
     display: flex;
@@ -811,7 +1048,9 @@ const firstName = site.name.split(' ')[0];
     padding: 0 var(--space-3) var(--space-2);
   }
 
-  .ask-chip {
+  /* Script-built, like everything in the log — through the server-rendered
+     `.ask-suggestions` for the reason given above. */
+  .ask-suggestions :global(.ask-chip) {
     border: 1px solid var(--color-divider);
     background: none;
     color: var(--color-text-muted);
@@ -821,7 +1060,10 @@ const firstName = site.name.split(' ')[0];
     cursor: pointer;
     text-align: left;
   }
-  .ask-chip:hover { border-color: var(--color-accent); color: var(--color-accent); }
+  .ask-suggestions :global(.ask-chip:hover) {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
 
   .ask-form {
     display: flex;
@@ -858,6 +1100,9 @@ const firstName = site.name.split(' ')[0];
     cursor: pointer;
   }
   .ask-send:disabled { opacity: 0.5; cursor: default; }
+  .ask-send-stop { display: none; }
+  .ask-send[data-busy] .ask-send-icon { display: none; }
+  .ask-send[data-busy] .ask-send-stop { display: block; }
   .ask-send-icon { width: 16px; height: 16px; }
 
   .ask-foot {

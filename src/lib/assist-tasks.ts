@@ -66,11 +66,38 @@ export type AssistFormat = 'markdown' | 'lines' | 'mermaid' | 'document';
  */
 export type AssistTarget = 'document' | 'summary' | 'body';
 
+/**
+ * What a task does to the post, which is the only sorting that helps.
+ *
+ * Ten buttons in one flat column is a menu you read end to end every time, and
+ * the thing an author actually knows before opening the panel is not which of
+ * ten prompts they want — it is whether they want something *made*, something
+ * they wrote *changed*, or *options* to pick from. Three groups answers that in
+ * one glance, and it lines up with the risk: `refine` is where a task can
+ * overwrite work, `suggest` is where nothing moves until Insert.
+ */
+export type AssistGroup = 'write' | 'refine' | 'suggest';
+
+/**
+ * The groups in the order the panel shows them, with the line under each.
+ *
+ * Here rather than in the editor because it is the same kind of fact as the
+ * task table — what the assistant can do — and because the editor generates its
+ * whole list from this module rather than retyping any of it.
+ */
+export const ASSIST_GROUPS: { id: AssistGroup; label: string; hint: string }[] = [
+  { id: 'write', label: 'Write', hint: 'Makes something that is not there yet.' },
+  { id: 'refine', label: 'Refine', hint: 'Changes what you have already written.' },
+  { id: 'suggest', label: 'Suggest', hint: 'Offers options. Nothing moves until you pick one.' },
+];
+
 export interface AssistTask {
   /** Shown on the button in the editor. */
   label: string;
   /** One line under it, so the author knows what they are about to spend. */
   hint: string;
+  /** Which of the three shelves in the panel it sits on. */
+  group: AssistGroup;
   /** The rules for this specific job, appended to the shared preamble. */
   instructions: string;
   format: AssistFormat;
@@ -110,6 +137,7 @@ export const ASSIST_TASKS = {
    */
   compose: {
     label: 'Write the whole post',
+    group: 'write',
     hint: 'From a topic: title, summary, tags and a full draft, straight into the fields.',
     instructions: `Write a complete journal post on the topic the author gives you. It should be publishable: a real argument or a real account of doing something, not an overview of a subject area.
 
@@ -143,6 +171,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
 
   outline: {
     label: 'Draft an outline',
+    group: 'write',
     hint: 'Headings and a sentence each, from the title and summary.',
     instructions: `Produce a section outline for this post. Use level-2 markdown headings, and under each one write a single sentence saying what that section will cover — not the section itself. Six sections at most. No preamble, no closing note: start at the first heading.`,
     format: 'markdown',
@@ -157,6 +186,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
 
   expand: {
     label: 'Expand the selection',
+    group: 'write',
     hint: 'Writes out the selected heading or note in full.',
     instructions: `The author has selected part of their draft — a heading, a bullet, or a rough note. Write that part out properly, in their voice, as finished prose. Match the surrounding document's heading levels. Return only the replacement text: it is going straight into the editor where the selection was, so a sentence of explanation would be pasted into the post.`,
     format: 'markdown',
@@ -168,6 +198,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
 
   tighten: {
     label: 'Tighten the prose',
+    group: 'refine',
     hint: 'Same argument, fewer words. Rewrites the selection.',
     instructions: `Rewrite the selected text to be shorter and clearer without losing anything it says. Cut hedging, throat-clearing and repetition. Keep the author's voice, keep every technical claim exactly as stated, and keep all markdown formatting and links intact. Return only the rewritten text.`,
     format: 'markdown',
@@ -181,6 +212,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
 
   summary: {
     label: 'Write the summary',
+    group: 'refine',
     hint: 'One sentence for the card and the meta description.',
     instructions: `Write one sentence that would work as both the card blurb and the meta description for this post. Under 160 characters. Concrete and specific — name the thing the post is actually about. No "in this post", no "we explore", no question marks. Return the sentence and nothing else.`,
     format: 'markdown',
@@ -209,6 +241,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
    */
   revise: {
     label: 'Revise the post',
+    group: 'refine',
     hint: 'Rewrites the whole draft to your instruction. Undoable.',
     instructions: `Rewrite this post according to what the author asked for. Keep every technical claim exactly as stated unless the instruction is to change it, keep their voice, and keep all markdown structure — headings, lists, code fences and links — intact and valid.
 
@@ -224,6 +257,7 @@ Return only the rewritten post, in markdown, starting at its first line. No prea
 
   titles: {
     label: 'Suggest titles',
+    group: 'suggest',
     hint: 'Five alternatives, from what is written so far.',
     instructions: `Suggest five alternative titles for this post. Specific over clever; no colons-and-subtitles unless the post genuinely has two halves. One per line, nothing else on the line — no numbering, no bullets, no quotes.`,
     format: 'lines',
@@ -235,6 +269,7 @@ Return only the rewritten post, in markdown, starting at its first line. No prea
 
   tags: {
     label: 'Suggest tags',
+    group: 'suggest',
     hint: 'Reuses tags already on the site where they fit.',
     instructions: `Suggest up to six tags for this post. Prefer tags that already appear on this site's other posts and projects — a tag used once is a tag that does nothing. Title Case. One per line, nothing else on the line.`,
     format: 'lines',
@@ -251,6 +286,7 @@ Return only the rewritten post, in markdown, starting at its first line. No prea
 
   diagram: {
     label: 'Draw a diagram',
+    group: 'suggest',
     hint: 'Mermaid source, rendered here and saved as an SVG.',
     instructions: `Produce one Mermaid diagram illustrating what this post describes. Choose the diagram type that fits — flowchart for a pipeline or an architecture, sequenceDiagram for a protocol or a request path, stateDiagram-v2 for a lifecycle, erDiagram for a schema.
 
@@ -270,6 +306,7 @@ Rules, and the first two are hard requirements because the output is rendered ra
 
   alt: {
     label: 'Describe the image',
+    group: 'suggest',
     hint: 'Alt text and a caption for the hero image.',
     instructions: `Based on what this post is about, write alt text for its hero image: one sentence describing what such an image would show, written for someone who cannot see it. Then, on a second line, a short caption. Label neither — the first line is the alt text, the second is the caption.`,
     format: 'lines',
@@ -291,6 +328,7 @@ export const ASSIST_MENU = (Object.entries(ASSIST_TASKS) as [AssistTaskName, Ass
     name,
     label: task.label,
     hint: task.hint,
+    group: task.group,
     /* The editor greys out a task whose required context is empty rather than
        sending an empty selection and getting an apology back. */
     needsSelection: task.context.includes('selection'),
@@ -318,6 +356,15 @@ export interface ComposedDocument {
   body: string;
   /** Whether `BODY:` has been seen — i.e. the header is final and will not change. */
   bodyStarted: boolean;
+  /**
+   * Whether a single labelled line was found.
+   *
+   * False means the response is not a document — an early chunk that has not
+   * reached `TITLE:` yet, or a model that ignored the contract outright. The
+   * editor must not write any of it into a field while this is false, however
+   * finished the stream is; see the note at the bottom of `parseDocument`.
+   */
+  recognised: boolean;
 }
 
 /** `READTIME:` in the contract, `readTime` in the editor. One place to disagree. */
@@ -364,6 +411,7 @@ export function parseDocument(text: string): ComposedDocument {
     readTime: '',
     body: '',
     bodyStarted: false,
+    recognised: false,
   };
 
   /* A fence around the *whole* response, which some models add however firmly
@@ -420,12 +468,22 @@ export function parseDocument(text: string): ComposedDocument {
   }
 
   doc.body = bodyLines.join('\n').replace(/^\n+/, '');
+  doc.recognised = seenLabel;
 
-  /* Nothing recognisable at all — an early chunk, or a model that ignored the
-     format outright. Treating the lot as body is the recoverable failure: the
-     author sees prose in the editor and can fix the fields, where an empty
-     form and a discarded response looks like a broken feature. */
-  if (!seenLabel && text.trim()) doc.body = text.trim();
+  /* There was a fallback here: nothing recognised, so treat the whole response
+     as body text — on the grounds that prose in the editor beats an empty form
+     and a discarded answer.
+
+     It was the worst bug in this feature. A model that emits chain-of-thought
+     as content never writes `TITLE:`, so `seenLabel` stayed false for the whole
+     run and the fallback committed several hundred words of the model
+     deliberating about its own prompt directly into the post body, where the
+     preview pane then rendered it as if the author had written it.
+
+     Nothing is discarded now either: `recognised` is false, and the editor puts
+     the raw response in the panel with a Copy button and says the format was
+     ignored. Recovering a malformed answer is the panel's job. The body of a
+     post is not a scratch space. */
 
   return doc;
 }
@@ -475,6 +533,8 @@ export function assistPrompt(
   let system = `You are a writing assistant for ${ownerName}'s personal journal. You draft and edit; you never publish, and nothing you produce goes anywhere until they press save.
 
 Write the way they do: plain, direct, specific. Prefer a concrete example to an adjective. Never open with "In today's fast-paced world" or any variant. Do not use em-dash-heavy filler, and do not end with a summary of what you just said.
+
+Never show your reasoning. Do not restate the task, do not plan out loud, do not number your steps, do not explain what you are about to write, and never begin with anything like "Here's my thinking process". Your entire response is the thing the task asks for, starting at its first character — it goes straight into an editor field, so a sentence about your approach is a sentence pasted into their post.
 
 TASK
 ${task.instructions}`;

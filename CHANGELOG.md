@@ -14,6 +14,69 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **A model's chain-of-thought reached readers, and got written into posts.**
+  Both assistants forwarded whatever a provider put in `delta.content`, which on
+  a reasoning model is the model talking to itself before it answers. The public
+  chat replied to "what has he built with computer vision?" with *"Here's a
+  thinking process: 1. Analyze User Input…"*; the journal editor was worse,
+  because `parseDocument` had a fallback treating an unrecognised response as
+  body text and a model that deliberates never writes `TITLE:` — so the
+  deliberation was committed to the post and rendered in the preview pane.
+
+  Three fixes, none of them sufficient alone: `reasoning: { exclude: true }` on
+  the request where the router takes it, a stateful `<think>`-family stripper in
+  the SSE re-encoder, and a rule in both prompts. **No frame leaving the Worker
+  carries thought text** — the most a client learns is `{"status":"thinking"}`,
+  so no future UI change can reintroduce this by choosing to display a field.
+  `parseDocument` reports `recognised: false` and the editor routes that
+  response to the panel with Copy and Try again. Decision 29.
+
+- **The whole chat transcript was unstyled in production.** `AskWidget.astro`
+  builds every turn, bubble, note and chip in script, and styled them with bare
+  class selectors — which Astro compiles to `.ask-bubble[data-astro-cid-…]`, an
+  attribute script-created nodes never carry. No right-aligned question block,
+  no rule down the answer's edge, no chips; the panel *around* it was styled,
+  which is what made it hard to spot. Every such rule now hangs off the
+  server-rendered `.ask-log` / `.ask-suggestions` through `:global()`. Decision
+  30.
+
+- **A generation cut off by its token ceiling looked like a short answer.** The
+  `done` frame carries `stopReason`, and the editor says so.
+
+### Added
+
+- **Stop, Try again and citations in the public chat.** The send button becomes
+  a stop button while an answer streams (both icons are in the markup — swapping
+  them in script would write over an inlined `astro-icon` SVG), and stopping
+  deliberately *keeps* what was written where closing the panel discards it. A
+  failed question offers Try again instead of leaving a red sentence and an
+  empty field. Answers name pages by path already, so those paths are lifted out
+  and listed under the answer as links.
+
+- **A real waiting state.** WAITING while the request is out, THINKING once the
+  server reports the model is deliberating — the difference between a stalled
+  request and one worth waiting for, with no thought text shown in either.
+
+### Changed
+
+- **The writing assistant's ten tasks are three groups** — Write, Refine,
+  Suggest — declared on the task rather than decided by the editor. Ten buttons
+  in a flat column is a menu read end to end every time; what an author knows
+  before opening the panel is whether they want something made, something
+  changed, or options to pick from.
+
+- **Suggested titles and tags are pickable chips.** Insert used to take the
+  first suggestion and leave the rest to be copied by hand. Each chip applies one
+  thing, the panel stays open, and a used chip is marked rather than removed.
+  Tags also gained an "Add all".
+
+- **The assistant panel no longer sits over the field it is writing into.** It
+  is `position: fixed` bottom-right by design, so the editor's right-hand column
+  gets room to scroll clear of it while the panel is open.
+
+
+### Fixed
+
 - **GitHub sign-in failed with "Token exchange failed (404)", because the Worker
   URL had no scheme.** `PUBLIC_GITHUB_OAUTH_WORKER` was `anishgiri.dev`, and
   that value is interpolated into ``fetch(`${WORKER_ORIGIN}/token`)`` — so a

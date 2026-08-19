@@ -50,8 +50,18 @@ register(pathToFileURL(join(here, 'ts-resolve.mjs')));
 
 const load = path => import(pathToFileURL(join(root, path)).href);
 
-const { clampSettings, maskKey, summarise, completionText, DEFAULTS, SETTINGS_CEILINGS } =
-  await load('src/lib/ai.ts');
+const {
+  clampSettings,
+  maskKey,
+  summarise,
+  completionText,
+  ndjsonFromSSE,
+  thinkStripper,
+  asciiHeader,
+  DEFAULTS,
+  SETTINGS_CEILINGS,
+} = await load('src/lib/ai.ts');
+const { site } = await load('src/lib/site.ts');
 const { buildCorpus, publicPosts, publicProjects, corpusSize } = await load('src/lib/ai-corpus.ts');
 const { boundTurns, scopePrompt, dayStamp, GuardError, screenQuestion, OFF_TOPIC } =
   await load('src/lib/ai-guard.ts');
@@ -71,9 +81,23 @@ function check(name, run) {
   }
 }
 
-/* ---------- 1. the key must not leave ---------- */
+/* The stream re-encoder is the one thing here that cannot be asserted
+   synchronously — it is a `ReadableStream`, and the bug it guards against is
+   precisely that a read never resolves. Awaited at the call site, so a hang is
+   a failed assertion rather than a test run that never ends. */
+async function checkAsync(name, run) {
+  try {
+    await run();
+    checks += 1;
+    process.stdout.write(`  ok  ${name}\n`);
+  } catch (error) {
+    process.stdout.write(`  FAIL  ${name}\n    ${error.message}\n`);
+    process.exitCode = 1;
+  }
+}
 
-const SECRET = 'sk-or-v1-0123456789abcdef0123456789abcdef';
+/* ---------- 1. the key must not leave ---------- */
+const SECRET = process.env.OPENROUTER_API_KEY;
 
 const provider = {
   slug: 'openrouter',
@@ -624,14 +648,23 @@ check('label variations a model actually emits are accepted', () => {
   assert.equal(parseDocument(['TITLE: T', 'BODY: starts here'].join('\n')).body, 'starts here');
 });
 
-check('a response that ignores the format entirely becomes body, not nothing', () => {
-  /* The recoverable failure. An author looking at prose in the editor can fix
-     the fields; an author looking at an empty form has been told the feature
-     is broken. */
-  const doc = parseDocument('I think you should write about caching.');
-  assert.equal(doc.body, 'I think you should write about caching.');
+check('a response that ignores the format entirely writes nothing into the post', () => {
+  /* This assertion used to say the opposite: an unrecognised response became
+     the body, on the grounds that prose in the editor beats an empty form.
+
+     It was the bug. A model that emits chain-of-thought as content never writes
+     `TITLE:`, so this branch caught every one of them and committed the whole
+     monologue to the post. `recognised` is the flag the editor branches on now;
+     the text is not lost, it goes to the panel with a Copy button. */
+  const doc = parseDocument('Here is my thinking process: 1. Analyze the user input.');
+  assert.equal(doc.recognised, false);
+  assert.equal(doc.body, '');
   assert.equal(doc.title, '');
   assert.equal(doc.bodyStarted, false);
+});
+
+check('a well-formed document is recognised', () => {
+  assert.equal(parseDocument(WHOLE_POST).recognised, true);
 });
 
 check('every live task names a field the editor can actually write', () => {
@@ -694,6 +727,203 @@ check('a completion is read from every shape providers use', () => {
   for (const bad of [null, {}, { choices: [] }, { choices: [{}] }]) {
     assert.equal(completionText(bad), '');
   }
+});
+
+/* ---------- 5. the outbound headers must be constructible ---------- */
+
+check('the attribution header survives whatever the owner calls themselves', () => {
+  /* A header value is a ByteString. One code point above 255 in it makes
+     `fetch()` throw a `TypeError` *before a request is sent*, which `callChat`
+     cannot tell apart from a provider being unreachable — so every provider
+     "fails" and the visitor is told the assistant could not answer. An em dash
+     in this exact template string did that to both endpoints.
+
+     The real `site.name` is used rather than a fixture, because the value that
+     breaks this is the one the owner types into their own identity file. */
+  const title = asciiHeader(`${site.name} portfolio assistant`);
+  assert.doesNotThrow(() => new Headers({ 'X-Title': title, 'HTTP-Referer': site.url }));
+
+  for (const hostile of ['Anish — Giri', 'José Ñ', '🙂 portfolio', 'name\r\nX-Injected: 1']) {
+    const cleaned = asciiHeader(hostile);
+    assert.doesNotThrow(() => new Headers({ 'X-Title': cleaned }), hostile);
+    /* CR and LF are below 255 and would not throw — they would split the
+       header. The same filter has to take them out. */
+    assert.ok(!/[\r\n]/.test(cleaned), `${hostile} kept a newline`);
+  }
+});
+
+/* ---------- 6. the SSE re-encoder must always terminate ---------- */
+
+/**
+ * Read the re-encoded stream to the end, or give up.
+ *
+ * The deadline *is* the assertion. A `pull` that queues nothing is never called
+ * again, so the failure being guarded against is not a wrong value — it is a
+ * `read()` whose promise never settles, and without a timeout that would hang
+ * `npm run check` rather than fail it.
+ */
+const drain = async frames => {
+  const encoder = new TextEncoder();
+  const upstream = new ReadableStream({
+    start(controller) {
+      for (const frame of frames) controller.enqueue(encoder.encode(frame));
+      controller.close();
+    },
+  });
+
+  const reader = ndjsonFromSSE(upstream).getReader();
+  const decoder = new TextDecoder();
+
+  const read = (async () => {
+    let out = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      out += decoder.decode(value, { stream: true });
+    }
+    return out;
+  })();
+
+  return Promise.race([
+    read,
+    new Promise((_, reject) =>
+      /* `unref` so a passing run is not held open by a timer nobody is waiting
+         for any more. */
+      setTimeout(() => reject(new Error('the stream stalled: a read never resolved')), 2000).unref(),
+    ),
+  ]);
+};
+
+await checkAsync('a first frame carrying no content does not stall the stream', async () => {
+  /* This is every OpenAI-compatible provider's opening frame — `delta:
+     {"role":"assistant"}`, no text — and it used to be the end of the response.
+     The pull read it, enqueued nothing, returned, and was never called again,
+     so the browser sat on a `read()` that never settled. Both AI endpoints were
+     dead on arrival for it. */
+  const out = await drain([
+    'data: {"choices":[{"delta":{"role":"assistant"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]);
+  assert.equal(out, '{"delta":"hi"}\n{"done":true}\n');
+});
+
+await checkAsync('a reasoning model that never emits content still terminates', async () => {
+  /* `delta.reasoning` is not content and its text is never forwarded — but a
+     run made entirely of it still has to end in `{"done":true}`, so the caller
+     can say "the model wrote nothing" instead of waiting for ever. The one
+     thing that does cross is the bare `thinking` status, so a UI can say what
+     is happening; note it carries no thought text. */
+  const out = await drain([
+    'data: {"choices":[{"delta":{"content":"","reasoning":"thinking"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"","reasoning":" harder"}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]);
+  assert.equal(out, '{"status":"thinking"}\n{"done":true}\n');
+});
+
+await checkAsync('a keep-alive comment and a torn payload both survive', async () => {
+  /* The two things the line buffer exists for: a vendor's SSE comment, which is
+     not a `data:` line at all, and a JSON object split by a chunk boundary —
+     the normal case on a real connection, not an edge one. */
+  const out = await drain([
+    ': OPENROUTER PROCESSING\n\n',
+    'data: {"choices":[{"delta":{"cont',
+    'ent":"split"}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]);
+  assert.equal(out, '{"delta":"split"}\n{"done":true}\n');
+});
+
+await checkAsync('an error frame is forwarded rather than swallowed', async () => {
+  const out = await drain([
+    'data: {"error":{"message":"out of credit"}}\n\n',
+    'data: [DONE]\n\n',
+  ]);
+  assert.equal(out, '{"error":"out of credit"}\n{"done":true}\n');
+});
+
+/* ---------- 7. reasoning must not reach a reader ---------- */
+
+check('the think stripper leaks no tag when fed one character at a time', () => {
+  /* `<think>` is seven characters and a TCP read can end after two of them.
+     This is what the carry buffer exists for, and the case no manual test
+     produces — a real provider sends whole tags most of the time, so the bug
+     would appear once a week to one visitor and never in development. */
+  const strip = thinkStripper();
+  let text = '';
+  let reasoning = '';
+  for (const character of 'Before<think>secret plan</think>After') {
+    const part = strip.split(character);
+    text += part.text;
+    reasoning += part.reasoning;
+  }
+  text += strip.flush().text;
+
+  assert.equal(text, 'BeforeAfter');
+  assert.equal(reasoning, 'secret plan');
+  assert.ok(!text.includes('<'), 'a fragment of the tag survived into the answer');
+});
+
+check('prose containing a less-than sign is not held back waiting for a tag', () => {
+  /* The carry is restricted to a run of letters after the `<` precisely so that
+     a post about `a < b` streams rather than stalling. */
+  assert.equal(thinkStripper().split('if a < b then').text, 'if a < b then');
+});
+
+check('an unclosed think tag swallows the rest rather than leaking it', () => {
+  /* A model that opened a block and then hit its token ceiling produced no
+     answer. Reporting nothing is honest; reporting its notes is not. */
+  const strip = thinkStripper();
+  assert.equal(strip.split('Answer.<think>then it ran out of tok').text, 'Answer.');
+  assert.equal(strip.flush().text, '');
+});
+
+await checkAsync('inline chain-of-thought never reaches the browser', async () => {
+  const out = await drain([
+    'data: {"choices":[{"delta":{"content":"<think>The user wants"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":" a summary. Let me plan.</think>Caching is hard."}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]);
+  assert.equal(out, '{"status":"thinking"}\n{"delta":"Caching is hard."}\n{"done":true}\n');
+});
+
+await checkAsync('a think tag split across three reads is still stripped', async () => {
+  const out = await drain([
+    'data: {"choices":[{"delta":{"content":"<th"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"ink>plan</thi"}}]}\n\n',
+    'data: {"choices":[{"delta":{"content":"nk>Answer."}}]}\n\n',
+    'data: [DONE]\n\n',
+  ]);
+  assert.equal(out, '{"status":"thinking"}\n{"delta":"Answer."}\n{"done":true}\n');
+});
+
+await checkAsync('a truncated generation reports why it stopped', async () => {
+  /* `length` is the difference between "the model had nothing more to add" and
+     "the task's ceiling cut it off mid-sentence", and nothing else on either
+     surface can tell those two apart. */
+  const out = await drain([
+    'data: {"choices":[{"delta":{"content":"half a sen"},"finish_reason":null}]}\n\n',
+    'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n\n',
+    'data: [DONE]\n\n',
+  ]);
+  assert.equal(out, '{"delta":"half a sen"}\n{"done":true,"stopReason":"length"}\n');
+});
+
+check('both assistants are told not to show their reasoning', () => {
+  /* The weakest of the three defences and the only one that touches a model
+     which marks its thinking with nothing at all. Pinned because it is one
+     sentence in a long prompt and the easiest thing in this repo to lose to a
+     reword. */
+  assert.match(scopePrompt('Ada', 'REF'), /Never show your reasoning/);
+  const [system] = assistPrompt(ASSIST_TASKS.summary, {
+    ownerName: 'Ada',
+    context: { title: 'T' },
+    instruction: '',
+    corpus: '',
+    persona: '',
+  });
+  assert.match(system.content, /Never show your reasoning/);
 });
 
 process.stdout.write(`\nai: ${checks} checks passed\n`);

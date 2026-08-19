@@ -21,7 +21,7 @@
  */
 import { Icon } from 'astro-icon/components';
 import { POST_STATUSES, postPath, type PostFields } from '../lib/content-store';
-import { ASSIST_MENU } from '../lib/assist-tasks';
+import { ASSIST_GROUPS, ASSIST_MENU } from '../lib/assist-tasks';
 
 interface Props {
   /** The post being edited, or `null` for a new one. Also the row's key. */
@@ -307,20 +307,32 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       </div>
     </div>
 
+    {/* Three shelves rather than ten buttons in a row. The grouping is a field
+        on the task (`ASSIST_GROUPS` in `assist-tasks.ts`), not a decision made
+        here, so a new task lands on the right shelf by declaring where it
+        belongs — the same reason the buttons themselves are generated. */}
     <div class="asx-tasks" id="assist-tasks">
-      {ASSIST_MENU.map(task => (
-        <button
-          type="button"
-          class="asx-task"
-          data-task={task.name}
-          data-needs-selection={task.needsSelection ? '1' : undefined}
-          data-needs-topic={task.needsTopic ? '1' : undefined}
-          data-live={task.live ?? undefined}
-          aria-pressed="false"
-        >
-          <span class="asx-task-label">{task.label}</span>
-          <span class="asx-task-hint">{task.hint}</span>
-        </button>
+      {ASSIST_GROUPS.map(group => (
+        <section class="asx-group">
+          <div class="asx-group-head">
+            <h4 class="asx-group-label">{group.label}</h4>
+            <p class="asx-group-hint">{group.hint}</p>
+          </div>
+          {ASSIST_MENU.filter(task => task.group === group.id).map(task => (
+            <button
+              type="button"
+              class="asx-task"
+              data-task={task.name}
+              data-needs-selection={task.needsSelection ? '1' : undefined}
+              data-needs-topic={task.needsTopic ? '1' : undefined}
+              data-live={task.live ?? undefined}
+              aria-pressed="false"
+            >
+              <span class="asx-task-label">{task.label}</span>
+              <span class="asx-task-hint">{task.hint}</span>
+            </button>
+          ))}
+        </section>
       ))}
     </div>
 
@@ -333,6 +345,11 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         the author is looking at the form, and a second copy of the same text
         beside it is noise competing with the thing it duplicates. */}
     <div class="asx-output" id="assist-output" hidden>
+      {/* Suggestions that are a *list* — five titles, six tags — are pickable
+          here rather than being printed as text with an Insert button that
+          silently took the first one and left the other four to be copied by
+          hand. One chip, one thing applied, and the panel says which. */}
+      <div class="asx-options" id="assist-options" hidden></div>
       <pre class="asx-text" id="assist-text"></pre>
       <div class="asx-preview" id="assist-preview" hidden></div>
     </div>
@@ -857,6 +874,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
        writing straight into the form reasonable rather than reckless. */
     const assistDialog = $<HTMLDialogElement>('assist-dialog');
     const assistOutput = $('assist-output');
+    const assistOptions = $('assist-options');
     const assistText = $('assist-text');
     const assistPreview = $('assist-preview');
     const assistStatus = $('assist-status');
@@ -875,7 +893,22 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
        task because "insert" means four different things — replace the
        selection, append to the body, fill a field, merge tags — and branching
        on the task name at click time would put that knowledge in two places. */
-    let result: { text: string; apply: () => void } | null = null;
+    interface Prepared {
+      text: string;
+      apply: () => void;
+      /**
+       * Individually applicable results, rendered as chips.
+       *
+       * A task whose output is a *list* has no single correct Insert. The panel
+       * used to print all five titles and have Insert take the first one, with
+       * a comment conceding that the rest were there to be copied — which is a
+       * picker that makes the author do the picking by hand. When this is set,
+       * the chips are the action and Insert is hidden.
+       */
+      options?: { label: string; apply: () => void }[];
+    }
+
+    let result: Prepared | null = null;
     let lastTask: AssistTaskName | null = null;
     let selected: AssistTaskName | null = null;
 
@@ -965,14 +998,21 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
      * Write a partially-arrived response into the fields it belongs to.
      *
      * Called on every animation frame while a live task streams, and once more
-     * when it finishes. `final` is not a formality: `parseDocument` falls back
-     * to treating an unrecognised response as body text, which is the right
-     * recovery for a *finished* response that ignored the format and exactly
-     * the wrong thing to do to the first three characters of a good one — the
-     * body would be set to `TIT` and then never corrected, because by the time
-     * `TITLE:` parses the fallback has stopped firing. So a live body is only
-     * written once the parser has actually seen `BODY:`, and the fallback is
-     * honoured at the end or not at all.
+     * when it finishes.
+     *
+     * A `document` run writes the body **only once `BODY:` has parsed**, and
+     * there is no longer any fallback for a response that carried no labels at
+     * all. That fallback is what wrote a reasoning model's chain-of-thought
+     * into the post; `parseDocument`'s closing comment has the account, and
+     * `runTask` now routes an unlabelled response to the panel instead.
+     *
+     * Every branch here is guarded on a *parsed* field, which is what makes
+     * that safe: a run that recognised nothing writes nothing, so there is no
+     * half-applied state to unpick.
+     *
+     * `final` still matters to the two prose targets — a streaming body keeps
+     * its trailing whitespace so the caret does not jump, a finished one is
+     * trimmed.
      */
     function applyLive(target: AssistTarget, raw: string, final: boolean) {
       if (target === 'document') {
@@ -982,7 +1022,6 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         if (doc.tags) fields.tags.value = doc.tags;
         if (doc.readTime) fields.readTime.value = doc.readTime;
         if (doc.bodyStarted) fields.body.value = doc.body;
-        else if (final && doc.body) fields.body.value = doc.body;
       } else if (target === 'summary') {
         /* Models quote a one-line answer about a third of the time, and a
            quoted summary goes into the card and the meta description with the
@@ -1015,45 +1054,85 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
      * Every branch returns an `apply` that touches exactly one thing, so the
      * Insert button is never ambiguous about what it is about to change.
      */
-    function prepare(task: string, output: string): { text: string; apply: () => void } {
+    /**
+     * Draw a list result as chips.
+     *
+     * Each chip applies exactly one thing, and the panel stays open — so
+     * picking three of six tags is three clicks rather than three runs. A used
+     * chip is marked rather than removed: the author needs to see what they
+     * have already taken, and a list that shortens under the cursor is how the
+     * wrong tag gets clicked.
+     */
+    function renderOptions(options?: Prepared['options']) {
+      assistOptions.replaceChildren();
+      assistOptions.hidden = !options?.length;
+      if (!options?.length) return;
+
+      for (const option of options) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'asx-option';
+        chip.textContent = option.label;
+        chip.addEventListener('click', () => {
+          option.apply();
+          chip.dataset.used = '';
+        });
+        assistOptions.append(chip);
+      }
+    }
+
+    function prepare(task: string, output: string): Prepared {
       switch (task) {
         case 'titles': {
-          const options = asLines(output);
+          const suggested = asLines(output);
+          const setTitle = (title: string) => () => {
+            fields.title.value = title;
+            render();
+            holdLocally();
+            toast('Title set.', { tone: 'success' });
+          };
           return {
-            text: options.join('\n'),
-            apply: () => {
-              /* The first suggestion, because Insert has to do one thing. The
-                 rest stay in the panel to be copied — a picker here would be a
-                 second selection UI for a list already on screen. */
-              fields.title.value = options[0] ?? fields.title.value;
-              render();
-              holdLocally();
-              toast('Title set to the first suggestion.', { tone: 'success' });
-            },
+            text: suggested.join('\n'),
+            /* Unreachable while `options` is set, because Insert is hidden —
+               but a `Prepared` that sometimes has no `apply` would be a second
+               shape for every caller to handle. */
+            apply: setTitle(suggested[0] ?? fields.title.value),
+            options: suggested.map(title => ({ label: title, apply: setTitle(title) })),
           };
         }
 
         case 'tags': {
           const suggested = asLines(output);
+          /* Merged with what is already there rather than replacing it, in both
+             paths: the author's own tags are a deliberate choice and a
+             suggestion is not grounds to drop them. Case-insensitively, because
+             "Caching" and "caching" are one tag with two spellings and the site
+             would otherwise list both. */
+          const merge = (incoming: string[]) => () => {
+            const existing = fields.tags.value.split(',').map(t => t.trim()).filter(Boolean);
+            const seen = new Set(existing.map(t => t.toLowerCase()));
+            for (const tag of incoming) {
+              if (seen.has(tag.toLowerCase())) continue;
+              existing.push(tag);
+              seen.add(tag.toLowerCase());
+            }
+            fields.tags.value = existing.join(', ');
+            render();
+            holdLocally();
+            toast(incoming.length > 1 ? 'Tags merged in.' : `Added "${incoming[0]}".`, {
+              tone: 'success',
+            });
+          };
           return {
             text: suggested.join('\n'),
-            apply: () => {
-              /* Merged with what is already there, case-insensitively, rather
-                 than replacing: the author's own tags are a deliberate choice
-                 and a suggestion is not grounds to drop them. */
-              const existing = fields.tags.value.split(',').map(t => t.trim()).filter(Boolean);
-              const seen = new Set(existing.map(t => t.toLowerCase()));
-              for (const tag of suggested) {
-                if (!seen.has(tag.toLowerCase())) {
-                  existing.push(tag);
-                  seen.add(tag.toLowerCase());
-                }
-              }
-              fields.tags.value = existing.join(', ');
-              render();
-              holdLocally();
-              toast('Tags merged in.', { tone: 'success' });
-            },
+            apply: merge(suggested),
+            /* "Add all" first, because taking the lot is the common case and
+               the per-tag chips are for the run that got four right and two
+               wrong. */
+            options: [
+              { label: 'Add all', apply: merge(suggested) },
+              ...suggested.map(tag => ({ label: tag, apply: merge([tag]) })),
+            ],
           };
         }
 
@@ -1152,14 +1231,20 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
        did not all agree. `hidden` rather than `disabled` for most of them: a
        greyed-out Insert beside a live task is an offer that will never make
        sense, and hiding it is the honest rendering. */
-    type FootState = 'idle' | 'running' | 'live-done' | 'panel-done' | 'error';
+    /* `salvage` is the model answering, but not in the shape the task asked
+       for. Copy and Try again, deliberately no Insert: there is nothing this
+       screen could confidently do with the text, and an Insert that guesses is
+       how a chain-of-thought ended up in a post body in the first place. */
+    type FootState = 'idle' | 'running' | 'live-done' | 'panel-done' | 'salvage' | 'error';
 
     function setFoot(state: FootState) {
       const live = state === 'live-done';
       stopBtn.hidden = state !== 'running';
       undoBtn.hidden = !(live && undoable !== null);
-      copyBtn.hidden = state !== 'panel-done';
-      insertBtn.hidden = state !== 'panel-done';
+      copyBtn.hidden = !(state === 'panel-done' || state === 'salvage');
+      /* Hidden when the result is a list of chips: they are the Insert, and a
+         button beside them that silently picks one is the thing this replaced. */
+      insertBtn.hidden = !(state === 'panel-done' && result !== null && !result.options);
       retryBtn.hidden = state === 'idle' || state === 'running';
       runBtn.disabled = state === 'running';
     }
@@ -1242,6 +1327,8 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       undoable = null;
       assistPreview.hidden = true;
       assistPreview.replaceChildren();
+      renderOptions();
+      assistText.hidden = false;
       assistText.textContent = '';
       /* A live task has nothing to show in the panel — the output is going
          where the author is already looking. */
@@ -1268,6 +1355,12 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       assisting = controller;
 
       let raw = '';
+      /* Set from the `done` frame's `stopReason`. `length` means the model was
+         cut off by this task's ceiling rather than having finished, which is
+         otherwise indistinguishable from a short answer — and on `compose` it
+         is the difference between a draft and a draft missing its last
+         paragraph. See `maxTokens` in `assist-tasks.ts`. */
+      let truncated = false;
       /* One repaint per frame, not one per token. A live `document` run reparses
          the whole response and rewrites five inputs; at a fast provider's token
          rate that is a few hundred passes a second, all but sixty of which are
@@ -1306,6 +1399,17 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
                 assistText.scrollTop = assistText.scrollHeight;
               }
             },
+            /* The model is deliberating rather than the request having stalled.
+               Worth saying, because the two look identical from here and one of
+               them is worth waiting for. The frame carries no thought text —
+               only the fact that there is thinking — so there is nothing to
+               show and nothing that could leak into the post. */
+            onThinking: () => {
+              if (!raw) setAssistStatus(`${task.label} — thinking…`);
+            },
+            onDone: reason => {
+              truncated = reason === 'length';
+            },
           },
           controller.signal,
         );
@@ -1322,10 +1426,43 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         }
         settled = true;
 
+        /* Appended to whichever "done" line is shown, rather than raised as its
+           own toast: it is a qualification of the result, not an event, and it
+           belongs beside the sentence saying the result is ready. */
+        const cutOff = () =>
+          truncated ? ' It hit this task’s token ceiling, so the end may be cut off.' : '';
+
         if (live) {
+          /* A `document` run that recognised no label wrote nothing — every
+             branch in `applyLive` is guarded on a parsed field — so there is no
+             half-applied state to unpick and nothing for Undo to put back. The
+             reply is still worth reading, so it goes to the panel instead of
+             into the post. This is the path a model that deliberates out loud
+             rather than answering takes, and it used to end with several
+             hundred words of that deliberation in the post body. */
+          if (live === 'document' && !parseDocument(output).recognised) {
+            undoable = null;
+            assistOutput.hidden = false;
+            assistText.textContent = output;
+            assistText.scrollTop = 0;
+            /* So Copy has something to copy. `apply` is unreachable — `salvage`
+               hides Insert — but a `Prepared` without one would be a second
+               shape for every reader of `result` to handle. */
+            result = { text: output, apply: () => {} };
+            setFoot('salvage');
+            setAssistStatus(
+              'The model answered without using the field format, so nothing was written to the post. Its reply is below — Copy takes it, Try again asks for another.',
+              'error',
+            );
+            toast('Nothing written: the reply was not in the expected format.', { tone: 'error' });
+            return;
+          }
+
           applyLive(live, output, true);
           setFoot('live-done');
-          setAssistStatus('Done — it is in the editor. Undo puts it back; nothing is saved until you press Save.');
+          setAssistStatus(
+            `Done — it is in the editor. Undo puts it back; nothing is saved until you press Save.${cutOff()}`,
+          );
           toast(
             live === 'document' ? 'Draft written into the fields.' : 'Rewritten in place.',
             { tone: 'success' },
@@ -1339,9 +1476,15 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         /* The parsed form, which for a diagram is the Mermaid source rather
            than the fenced block it arrived wrapped in. Showing what will
            actually be used beats showing what arrived. */
+        renderOptions(result.options);
+        /* The chips *are* the list for a task that produced one, so printing it
+           again underneath is the same five titles twice. */
+        assistText.hidden = Boolean(result.options);
         assistText.textContent = result.text;
         setFoot('panel-done');
-        setAssistStatus('Ready. Insert puts it in the post; nothing is saved until you press Save.');
+        setAssistStatus(
+          `${result.options ? 'Ready. Pick one below' : 'Ready. Insert puts it in the post'}; nothing is saved until you press Save.${cutOff()}`,
+        );
       } catch (error) {
         settled = true;
         if (error instanceof DOMException && error.name === 'AbortError') {
@@ -1530,6 +1673,19 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
   /* The mockup's bento: writing surface left, everything that describes the
      post right. Focus mode hides the right column outright. */
   .editor-grid { display: grid; grid-template-columns: 8fr 4fr; gap: var(--space-4); align-items: start; }
+
+  /* The assistant docks to the bottom-right of the viewport, which is exactly
+     where this column's fields are — so the panel sat over the Summary field
+     while the Summary task was writing into it. The panel cannot move: it is
+     `position: fixed` and non-modal on purpose, and watching the fields fill in
+     is the whole point of decision 28. So the column gets room to scroll clear
+     of it instead, and only while the panel is actually open.
+
+     Below 620px the panel is a full-width bottom sheet and the grid is a single
+     column, so there is nothing beside it to uncover. */
+  @media (min-width: 621px) {
+    :global(body:has(.asx[open])) .editor-side { padding-bottom: min(76dvh, 680px); }
+  }
 
   /* — focus mode —
 
