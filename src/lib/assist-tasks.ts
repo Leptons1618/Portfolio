@@ -15,6 +15,18 @@
  * 900-word post" want nothing in common — one wants determinism and a JSON
  * array, the other wants room to write.
  *
+ * ## `maxTokens` is a ceiling, not a budget, and it has to clear the thinking
+ *
+ * Every ceiling here is generous relative to the output it bounds, and that is
+ * deliberate. A reasoning model spends tokens *before* it writes anything and
+ * they count against the same `max_tokens`, so a ceiling sized to the answer
+ * stops the generation during the thinking and returns an empty `content` — the
+ * task appears to run, streams nothing, and the editor reports "the model
+ * returned nothing" with no way to tell that from a broken key. `summary` at
+ * 120 did exactly that on every reasoning model tried; at 500 the same model
+ * answers in 99 characters. Nothing is billed for an unused ceiling, so the
+ * cost of the headroom is zero and the cost of not having it is a dead button.
+ *
  * ## Output contracts
  *
  * `format` says what the editor should do with the result. `markdown` goes into
@@ -134,7 +146,10 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
     hint: 'Headings and a sentence each, from the title and summary.',
     instructions: `Produce a section outline for this post. Use level-2 markdown headings, and under each one write a single sentence saying what that section will cover — not the section itself. Six sections at most. No preamble, no closing note: start at the first heading.`,
     format: 'markdown',
-    maxTokens: 700,
+    /* Headroom for the same reason `tags` has it: this one carries the corpus
+       too, so a reasoning model thinks proportionally to the site before
+       writing six headings. It came back empty at 700. */
+    maxTokens: 1200,
     temperature: 0.6,
     needsCorpus: true,
     context: ['title', 'summary', 'tags'],
@@ -169,7 +184,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
     hint: 'One sentence for the card and the meta description.',
     instructions: `Write one sentence that would work as both the card blurb and the meta description for this post. Under 160 characters. Concrete and specific — name the thing the post is actually about. No "in this post", no "we explore", no question marks. Return the sentence and nothing else.`,
     format: 'markdown',
-    maxTokens: 120,
+    maxTokens: 500,
     temperature: 0.5,
     needsCorpus: false,
     context: ['title', 'body'],
@@ -212,7 +227,7 @@ Return only the rewritten post, in markdown, starting at its first line. No prea
     hint: 'Five alternatives, from what is written so far.',
     instructions: `Suggest five alternative titles for this post. Specific over clever; no colons-and-subtitles unless the post genuinely has two halves. One per line, nothing else on the line — no numbering, no bullets, no quotes.`,
     format: 'lines',
-    maxTokens: 200,
+    maxTokens: 600,
     temperature: 0.9,
     needsCorpus: true,
     context: ['title', 'summary', 'body'],
@@ -223,7 +238,12 @@ Return only the rewritten post, in markdown, starting at its first line. No prea
     hint: 'Reuses tags already on the site where they fit.',
     instructions: `Suggest up to six tags for this post. Prefer tags that already appear on this site's other posts and projects — a tag used once is a tag that does nothing. Title Case. One per line, nothing else on the line.`,
     format: 'lines',
-    maxTokens: 120,
+    /* The largest ceiling of any task that returns six words, and measured
+       rather than guessed: this is the one task that both carries the whole
+       corpus *and* asks the model to reason over all of it ("prefer tags that
+       already appear"), so its thinking is proportional to the site's size.
+       At 500 it returned nothing; at 1500 the same model answered. */
+    maxTokens: 1500,
     temperature: 0.4,
     needsCorpus: true,
     context: ['title', 'summary', 'body'],
@@ -240,7 +260,7 @@ Rules, and the first two are hard requirements because the output is rendered ra
 - Keep it under about twelve nodes. A diagram that needs more is two diagrams.
 - Do not set any styling, colours or CSS classes. The site's theme colours it.`,
     format: 'mermaid',
-    maxTokens: 700,
+    maxTokens: 1200,
     /* Near-deterministic: this output is parsed by a renderer, and a creative
        flourish here is a syntax error rather than a nicer diagram. */
     temperature: 0.2,
@@ -253,7 +273,7 @@ Rules, and the first two are hard requirements because the output is rendered ra
     hint: 'Alt text and a caption for the hero image.',
     instructions: `Based on what this post is about, write alt text for its hero image: one sentence describing what such an image would show, written for someone who cannot see it. Then, on a second line, a short caption. Label neither — the first line is the alt text, the second is the caption.`,
     format: 'lines',
-    maxTokens: 160,
+    maxTokens: 500,
     temperature: 0.5,
     needsCorpus: false,
     context: ['title', 'summary'],
