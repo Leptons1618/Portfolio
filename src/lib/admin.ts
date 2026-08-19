@@ -535,3 +535,78 @@ export function setBusy(button: HTMLButtonElement, busy: boolean, label = 'Worki
   button.disabled = true;
   button.setAttribute('aria-busy', 'true');
 }
+
+/* ---------- undo for the assistants ---------- */
+
+/**
+ * One assistant run's worth of "what these fields said before".
+ *
+ * `label` is what the button offers to take back — "the draft", "the summary" —
+ * because after three runs "Undo" alone does not say which one is next.
+ */
+export interface UndoEntry {
+  label: string;
+  values: Record<string, string>;
+}
+
+/** What an editor gets back from `undoRing()`. */
+export interface UndoRing {
+  /** Snapshot the fields a run is about to overwrite. */
+  push(entry: UndoEntry): void;
+  /** The most recent snapshot, removed. `null` when there is nothing left. */
+  pop(): UndoEntry | null;
+  /** The most recent snapshot, left in place — for labelling the button. */
+  peek(): UndoEntry | null;
+  /** How many steps back are still available. */
+  readonly depth: number;
+  /** Forget everything. Used when the thing being edited is replaced outright. */
+  clear(): void;
+}
+
+/**
+ * A bounded stack of field snapshots, most recent first.
+ *
+ * The assistants write straight into the form, which is the feature — an author
+ * watches a title appear letter by letter rather than reading it in a panel and
+ * pressing Insert. What makes that reasonable rather than reckless is that it
+ * is takeable back, and for a while "takeable back" meant one slot: the last
+ * run, and only until the next one started.
+ *
+ * One slot is wrong for how these get used. Tasks are run in sequence —
+ * generate the frontmatter, then rewrite the summary, then rewrite it again
+ * with a different steer — and it is the *second* one back that the author
+ * wants when the third turns out worse than what they had. With one slot, the
+ * only route to that is retyping it.
+ *
+ * Three, and not more, for two reasons. A ring deep enough to be a document
+ * history is a document history, and this is not one — nothing here survives a
+ * reload, because a snapshot of an unsaved form outliving the page is a
+ * different and much worse feature. And the entries hold whole field values,
+ * including a post body: three copies of a long draft is nothing, thirty is a
+ * tab that grows all afternoon.
+ *
+ * It holds plain strings and knows nothing about inputs. Which fields an entry
+ * covers is the caller's business, and it has to be — undoing a summary rewrite
+ * must not revert the paragraph typed beside it while the model was running.
+ */
+export function undoRing(depth = 3): UndoRing {
+  const entries: UndoEntry[] = [];
+
+  return {
+    push(entry) {
+      entries.unshift(entry);
+      /* Oldest out. `length = depth` rather than `pop()` in a loop: the array
+         only ever grows by one per push, but a caller that changed `depth`
+         would otherwise leave the excess behind for good. */
+      if (entries.length > depth) entries.length = depth;
+    },
+    pop: () => entries.shift() ?? null,
+    peek: () => entries[0] ?? null,
+    get depth() {
+      return entries.length;
+    },
+    clear() {
+      entries.length = 0;
+    },
+  };
+}

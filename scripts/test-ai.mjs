@@ -65,8 +65,17 @@ const { site } = await load('src/lib/site.ts');
 const { buildCorpus, publicPosts, publicProjects, corpusSize } = await load('src/lib/ai-corpus.ts');
 const { boundTurns, scopePrompt, dayStamp, GuardError, screenQuestion, OFF_TOPIC } =
   await load('src/lib/ai-guard.ts');
-const { ASSIST_TASKS, assistPrompt, isAssistTask, parseDocument, ASSIST_MENU } =
-  await load('src/lib/assist-tasks.ts');
+const {
+  ASSIST_TASKS,
+  ASSIST_MENU,
+  CASE_STUDY_KEYS,
+  POST_KEYS,
+  PROJECT_KEYS,
+  assistPrompt,
+  isAssistTask,
+  parseDocument,
+  parseFields,
+} = await load('src/lib/assist-tasks.ts');
 const { extractMermaid, diagramName, diagramMarkdown } = await load('src/lib/diagram.ts');
 
 let checks = 0;
@@ -667,20 +676,275 @@ check('a well-formed document is recognised', () => {
   assert.equal(parseDocument(WHOLE_POST).recognised, true);
 });
 
-check('every live task names a field the editor can actually write', () => {
+/* ---------- the per-task key sets ---------- */
+
+/* Three shapes now, not one. The journal's `compose` was the only task
+   returning labelled fields until the project screen gained two, and the parser
+   that read it knew the post's four keys by name. What is asserted here is that
+   *each* shape round-trips through the same parser, that a label belonging to
+   one shape is not a field in another, and that the streaming property the live
+   fill depends on holds for all of them — because "the title fills in character
+   by character" is a claim about a parser being pure, and it is now pure over
+   three inputs rather than one. */
+
+const SHAPES = {
+  post: POST_KEYS,
+  project: PROJECT_KEYS,
+  casestudy: CASE_STUDY_KEYS,
+};
+
+check('every document task declares a well-formed key set', () => {
+  for (const [name, task] of Object.entries(ASSIST_TASKS)) {
+    if (task.format !== 'document') {
+      assert.equal(task.keys, undefined, `${name} declares keys but is not a document task`);
+      continue;
+    }
+
+    const shape = task.keys;
+    assert.ok(shape, `${name} returns a document and names no key set`);
+    assert.ok(shape.head.length > 0, `${name}'s key set has no head fields`);
+    assert.ok(shape.tail && shape.tail.key, `${name}'s key set has no tail field`);
+
+    /* A duplicate key is one field silently overwriting another; a duplicate
+       label is a line that could parse as either. Both are the kind of mistake
+       a table invites and a typecheck does not catch. */
+    const keys = [...shape.head, shape.tail].map(spec => spec.key);
+    assert.equal(new Set(keys).size, keys.length, `${name} repeats a key: ${keys.join(', ')}`);
+
+    const labels = [...shape.head, shape.tail].flatMap(spec => [spec.label, ...(spec.also ?? [])]);
+    const upper = labels.map(label => label.toUpperCase());
+    assert.equal(new Set(upper).size, upper.length, `${name} repeats a label: ${labels.join(', ')}`);
+
+    /* The label pattern in `parseFields` spans three to sixteen letters and
+       spaces. A label outside it can never match, which is a field that simply
+       never arrives — and nothing else would report it. */
+    for (const label of labels) {
+      assert.match(label, /^[A-Za-z][A-Za-z ]{2,15}$/, `${name}'s label ${label} cannot be matched`);
+    }
+  }
+});
+
+const WHOLE_PROJECT = [
+  'TITLE: Fathom',
+  'SUMMARY: A depth estimator that runs on a phone, for surveyors who work where there is no signal.',
+  'CATEGORY: ml',
+  'TAGS: Computer Vision, Edge Inference, Mobile',
+  'STACK: PyTorch, CoreML, Swift',
+  'HIGHLIGHTS:',
+  '- Runs a 4M parameter model at 30fps on an iPhone 12',
+  '- Cut the export pipeline from three manual steps to one command',
+].join('\n');
+
+check('a project response lands in the project key set', () => {
+  const { values, tailStarted, recognised } = parseFields(WHOLE_PROJECT, PROJECT_KEYS);
+  assert.equal(recognised, true);
+  assert.equal(tailStarted, true);
+  assert.equal(values.title, 'Fathom');
+  assert.equal(values.category, 'ml');
+  assert.equal(values.tags, 'Computer Vision, Edge Inference, Mobile');
+  assert.equal(values.stack, 'PyTorch, CoreML, Swift');
+  assert.match(values.highlights, /^- Runs a 4M parameter model/);
+  /* The post's keys are not the project's, so nothing leaks between them. */
+  assert.equal(values.body, undefined);
+  assert.equal(values.readTime, undefined);
+});
+
+const WHOLE_CASE_STUDY = [
+  'TITLE: Putting depth estimation on a phone',
+  'SUBTITLE: What it took to run a 4M parameter model offline.',
+  'PROBLEM: Surveyors work where there is no signal, so a round trip to a GPU was not available at all.',
+  'SOLUTION: Quantised the model to 8 bits and moved the pipeline to CoreML, trading two points of accuracy for running at all.',
+  'STACK: PyTorch, CoreML, Swift',
+  'READTIME: 9 min',
+  'ACHIEVEMENTS:',
+  '- 30fps on an iPhone 12',
+  '- Works with the radio off',
+].join('\n');
+
+check('a case study response lands in the case study key set', () => {
+  const { values, tailStarted, recognised } = parseFields(WHOLE_CASE_STUDY, CASE_STUDY_KEYS);
+  assert.equal(recognised, true);
+  assert.equal(tailStarted, true);
+  assert.equal(values.subtitle, 'What it took to run a 4M parameter model offline.');
+  assert.match(values.problem, /^Surveyors work where there is no signal/);
+  assert.match(values.solution, /^Quantised the model to 8 bits/);
+  assert.equal(values.readTime, '9 min');
+  assert.equal(values.achievements, '- 30fps on an iPhone 12\n- Works with the radio off');
+});
+
+check('each key set reads only its own labels', () => {
+  /* `HIGHLIGHTS:` is a field on a project and an ordinary line in a post; the
+     same is true of `BODY:` the other way round. A parser with one global label
+     table would put each of them in the wrong place, which is the bug this
+     shape-per-task arrangement exists to make impossible. */
+  const postWithProjectLabel = ['TITLE: T', 'BODY:', 'HIGHLIGHTS:', 'still the body'].join('\n');
+  const post = parseFields(postWithProjectLabel, POST_KEYS);
+  assert.equal(post.values.body, 'HIGHLIGHTS:\nstill the body');
+
+  const projectWithPostLabel = ['TITLE: T', 'BODY: not a field here', 'HIGHLIGHTS:', 'one'].join('\n');
+  const project = parseFields(projectWithPostLabel, PROJECT_KEYS);
+  assert.equal(project.values.title, 'T');
+  assert.equal(project.values.highlights, 'one');
+  assert.equal(project.values.body, undefined);
+});
+
+check('every key set parses as a pure function of the text so far', () => {
+  /* The property every live fill depends on: feeding a response one character
+     at a time and parsing at every step must end where parsing the whole thing
+     at once ends, and must never *lose* a field it had already read. Asserted
+     per shape, because a parser that is pure over one input and stateful over
+     another is the failure this would otherwise miss. */
+  for (const [name, shape] of Object.entries(SHAPES)) {
+    const source = { post: WHOLE_POST, project: WHOLE_PROJECT, casestudy: WHOLE_CASE_STUDY }[name];
+    const final = parseFields(source, shape);
+    const held = {};
+    let wasRecognised = false;
+    let wasTailStarted = false;
+
+    for (let i = 1; i <= source.length; i += 1) {
+      const partial = parseFields(source.slice(0, i), shape);
+      for (const spec of shape.head) {
+        const value = partial.values[spec.key];
+        if (held[spec.key] && !value) {
+          assert.fail(`${name}: ${spec.key} was read and then lost at ${i} characters`);
+        }
+        if (value) held[spec.key] = true;
+      }
+
+      /* Both flags are one-way. The editor branches on them — `recognised`
+         decides whether a response is written into the fields at all, and
+         `tailStarted` is what lets the body be written before it is finished —
+         so a flag that could go back to false mid-stream would be a run that
+         wrote into the post and then decided it should not have. */
+      if (wasRecognised) {
+        assert.ok(partial.recognised, `${name}: recognised went back to false at ${i} characters`);
+      }
+      if (wasTailStarted) {
+        assert.ok(partial.tailStarted, `${name}: tailStarted went back to false at ${i} characters`);
+      }
+      wasRecognised = partial.recognised;
+      wasTailStarted = partial.tailStarted;
+    }
+
+    assert.deepEqual(parseFields(source, shape), final, `${name} is not idempotent`);
+    assert.equal(final.recognised, true, `${name} was not recognised`);
+  }
+});
+
+check('a response in no key set writes nothing, whichever set is asked', () => {
+  /* The bug decision 29 is about, asserted against all three: a model that
+     deliberates out loud never writes a label, and the old fallback treated
+     the whole reply as the tail field — which put several hundred words of a
+     model reasoning about its own prompt into a post body. */
+  const thinking = 'Here is my thinking process: 1. Analyze the user input. 2. Consider the tone.';
+  for (const [name, shape] of Object.entries(SHAPES)) {
+    const parsed = parseFields(thinking, shape);
+    assert.equal(parsed.recognised, false, `${name} recognised chain-of-thought as its format`);
+    assert.equal(parsed.tailStarted, false, `${name} started its tail field`);
+    for (const value of Object.values(parsed.values)) {
+      assert.equal(value, '', `${name} wrote a field from an unrecognised response`);
+    }
+  }
+});
+
+check('parseDocument is parseFields against the post key set', () => {
+  /* The journal editor reads a flat object rather than indexing a record, so
+     the wrapper stays — and it has to keep agreeing with what it wraps. */
+  const wrapped = parseDocument(WHOLE_POST);
+  const direct = parseFields(WHOLE_POST, POST_KEYS);
+  assert.equal(wrapped.title, direct.values.title);
+  assert.equal(wrapped.readTime, direct.values.readTime);
+  assert.equal(wrapped.body, direct.values.body);
+  assert.equal(wrapped.bodyStarted, direct.tailStarted);
+  assert.equal(wrapped.recognised, direct.recognised);
+});
+
+/* ---------- surfaces ---------- */
+
+check('every task belongs to a surface, and each surface has tasks', () => {
+  const surfaces = new Set();
+  for (const [name, task] of Object.entries(ASSIST_TASKS)) {
+    assert.ok(
+      ['journal', 'project'].includes(task.surface),
+      `${name} belongs to no known surface: ${task.surface}`,
+    );
+    surfaces.add(task.surface);
+  }
+  assert.deepEqual([...surfaces].sort(), ['journal', 'project']);
+
+  /* The menu carries it, or each editor's filter silently renders everything —
+     which is the journal panel offering to write a project's frontmatter into
+     fields that are not on the page. */
+  for (const entry of ASSIST_MENU) {
+    assert.ok(entry.surface, `${entry.name} is in the menu with no surface`);
+    assert.equal(entry.surface, ASSIST_TASKS[entry.name].surface);
+  }
+
+  const journal = ASSIST_MENU.filter(entry => entry.surface === 'journal').map(e => e.name);
+  const project = ASSIST_MENU.filter(entry => entry.surface === 'project').map(e => e.name);
+  assert.ok(journal.includes('compose'), 'the journal lost its headline task');
+  assert.ok(!journal.includes('project'), 'a project task is offered in the journal panel');
+  assert.deepEqual(project.sort(), ['casestudy', 'project']);
+});
+
+check('every live task names a target its own surface can write', () => {
+  /* Per surface, not one flat list. `document` is a journal target and
+     `caseStudy` is a project one, and a task that streamed into the other
+     screen's target would write into fields that are not on the page. */
+  const TARGETS = {
+    journal: ['document', 'summary', 'body'],
+    project: ['project', 'caseStudy'],
+  };
   for (const [name, task] of Object.entries(ASSIST_TASKS)) {
     if (!task.live) continue;
     assert.ok(
-      ['document', 'summary', 'body'].includes(task.live),
-      `${name} streams into an unknown target: ${task.live}`,
+      TARGETS[task.surface].includes(task.live),
+      `${name} streams into ${task.live}, which ${task.surface} cannot write`,
     );
   }
-  /* And the menu the editor renders carries the flag, or every button on the
-     surface falls back to the panel-and-Insert path silently. */
+
   const compose = ASSIST_MENU.find(entry => entry.name === 'compose');
   assert.ok(compose, 'compose is missing from the menu');
   assert.equal(compose.live, 'document');
   assert.equal(compose.needsTopic, true);
+
+  /* Both project tasks write live. There is no Insert on that screen, so one
+     that did not would land in a panel with no way to apply it. */
+  for (const name of ['project', 'casestudy']) {
+    assert.ok(ASSIST_TASKS[name].live, `${name} has no live target and no Insert to fall back on`);
+  }
+});
+
+check('no context field a task declares travels uncapped', () => {
+  /* The reason `AssistField` is a closed union. `CONTEXT_LIMITS` is indexed by
+     the field name, so a field missing from it slices to `undefined` — which is
+     not a cap, it is the whole value. A typo in a task's allowlist would
+     therefore be an *unbounded* field on a metered call rather than a missing
+     one, which is the opposite of the failure anyone would expect.
+
+     Asserted through `assistPrompt` rather than against the table, because the
+     property that matters is what leaves, not what is written down. 12,000 is
+     the largest limit in the table (`body`); nothing may exceed it. */
+  const huge = 'x'.repeat(40_000);
+  for (const [name, task] of Object.entries(ASSIST_TASKS)) {
+    const context = Object.fromEntries(task.context.map(field => [field, huge]));
+    const [, user] = assistPrompt(task, {
+      ownerName: 'Someone',
+      context,
+      instruction: '',
+      corpus: '',
+      persona: '',
+    });
+
+    const longest = Math.max(0, ...[...user.content.matchAll(/x+/g)].map(match => match[0].length));
+    assert.ok(longest > 0, `${name} sent none of its declared fields`);
+    assert.ok(longest <= 12_000, `${name} sent ${longest} characters of one field uncapped`);
+
+    /* A field with no label prints `undefined:` above its own contents, which
+       is both nonsense to the model and the same missing-table-entry mistake
+       showing up in the other map. */
+    assert.ok(!user.content.includes('undefined:'), `${name} sent a field with no label`);
+  }
 });
 
 /* ---------- diagrams ---------- */

@@ -1,5 +1,11 @@
 /**
- * The ten things the journal assistant can be asked to do.
+ * The twelve things the authoring assistant can be asked to do.
+ *
+ * Ten of them belong to the journal editor and two to the project screen; each
+ * task says which by its `surface`, and each screen renders the menu filtered
+ * to its own. One table rather than one per screen, because the property below
+ * is a property of the *table* — a second table is a second thing to keep
+ * closed, and the first one to be forgotten.
  *
  * A closed table, and that is the security property of the whole authoring
  * agent. `/api/ai/assist` is behind `requireOwner()`, so the obvious design is
@@ -8,7 +14,8 @@
  * token in a browser tab, and an endpoint that forwards arbitrary prompts on
  * the owner's API key is a general-purpose model with a billing account
  * attached, one stolen session away from being someone else's. A table of tasks
- * bounds what a stolen session is worth: ten prompts about journal writing.
+ * bounds what a stolen session is worth: twelve prompts about writing up
+ * this person's own work.
  *
  * It also makes the assistant *better*. Each task carries its own temperature,
  * token ceiling and output contract, because "suggest five tags" and "draft a
@@ -64,7 +71,34 @@ export type AssistFormat = 'markdown' | 'lines' | 'mermaid' | 'document';
  * the editor snapshots the affected fields before the first token arrives —
  * which is what makes writing straight into the form safe rather than reckless.
  */
-export type AssistTarget = 'document' | 'summary' | 'body';
+export type JournalTarget = 'document' | 'summary' | 'body';
+
+/**
+ * The project screen's live targets: the frontmatter form, and the case study's
+ * structured half.
+ *
+ * Two targets rather than one for the same reason the journal has three — Undo
+ * has to put back exactly what a run overwrote. Generating a project's fields
+ * must not revert the case-study paragraph that was being edited beside it.
+ */
+export type ProjectTarget = 'project' | 'caseStudy';
+
+export type AssistTarget = JournalTarget | ProjectTarget;
+
+/**
+ * Which editor a task belongs to.
+ *
+ * The table is shared — one endpoint, one prompt builder, one parser — but a
+ * task is not offered everywhere. "Suggest tags" on the project screen would
+ * send a post body that does not exist; "generate the frontmatter from the
+ * repository" in the journal panel would fill fields that are not there.
+ *
+ * Declared on the task rather than decided by the editor, which is the same
+ * rule `group` follows: each surface renders `ASSIST_MENU` filtered by its own
+ * name, so a task added here appears in exactly one place and no page script
+ * changes to receive it.
+ */
+export type AssistSurface = 'journal' | 'project';
 
 /**
  * What a task does to the post, which is the only sorting that helps.
@@ -91,11 +125,34 @@ export const ASSIST_GROUPS: { id: AssistGroup; label: string; hint: string }[] =
   { id: 'suggest', label: 'Suggest', hint: 'Offers options. Nothing moves until you pick one.' },
 ];
 
+/**
+ * Everything a task is allowed to ask the editor for.
+ *
+ * A closed union rather than `string`, and the reason is `CONTEXT_LIMITS`: a
+ * field with no entry there is sliced to `undefined`, which is not a cap but
+ * the whole value. A typo in a task's allowlist would therefore be an
+ * *uncapped* field on the request rather than a missing one — the opposite of
+ * the failure anyone would expect. The union makes that a typecheck failure,
+ * and `check:ai` asserts every member of it carries a limit and a label.
+ */
+export type AssistField =
+  | 'title'
+  | 'summary'
+  | 'tags'
+  | 'body'
+  | 'selection'
+  | 'repo'
+  | 'readme'
+  | 'stack'
+  | 'highlights';
+
 export interface AssistTask {
   /** Shown on the button in the editor. */
   label: string;
   /** One line under it, so the author knows what they are about to spend. */
   hint: string;
+  /** Which editor offers it. Nothing renders a task from another surface. */
+  surface: AssistSurface;
   /** Which of the three shelves in the panel it sits on. */
   group: AssistGroup;
   /** The rules for this specific job, appended to the shared preamble. */
@@ -106,12 +163,125 @@ export interface AssistTask {
   /** Whether the author's published writing is worth the tokens for this task. */
   needsCorpus: boolean;
   /** Which fields of the editor are sent. Nothing else is, ever. */
-  context: readonly ('title' | 'summary' | 'tags' | 'body' | 'selection')[];
+  context: readonly AssistField[];
   /** The field this streams into as it generates. Absent means panel-and-Insert. */
   live?: AssistTarget;
+  /**
+   * The labelled fields a `document` task returns, in contract order.
+   *
+   * Required for `format: 'document'` and meaningless otherwise — it is what
+   * `parseFields()` reads the response against. Per-task rather than one global
+   * list, because a post, a project and a case study are three different sets
+   * of fields and a parser that knew only the post's would drop the other two
+   * on the floor. `check:ai` asserts every document task carries one.
+   */
+  keys?: FieldShape;
   /** Whether the task is useless without a steer in the instruction box. */
   needsTopic?: true;
 }
+
+/* ---------- the labelled-field format ---------- */
+
+/**
+ * One field in a `document` response.
+ *
+ * `label` is what the model is told to write and `key` is what the editor calls
+ * the input — they differ often enough (`READTIME` against `readTime`) that
+ * collapsing them would mean a case convention encoded in a regex.
+ */
+export interface FieldSpec {
+  /** The name the editor knows the field by, and the key in the parse result. */
+  key: string;
+  /** The label the model is told to write, at the start of its own line. */
+  label: string;
+  /** Other spellings accepted on the way in. Models are inconsistent here. */
+  also?: readonly string[];
+}
+
+/**
+ * The set of fields one `document` task returns.
+ *
+ * Every shape is a run of single-line fields followed by exactly one field that
+ * takes the rest of the response, and that is not an accident of the post
+ * format — it is what makes the whole thing readable while it is still
+ * arriving. The cheap fields land in the first few dozen tokens so the form is
+ * visibly filling in, and the one expensive field is last, so nothing is
+ * waiting behind it.
+ *
+ * `tail` is `BODY` for a post, `HIGHLIGHTS` for a project and `ACHIEVEMENTS`
+ * for a case study. There is deliberately no shape without one: a parser with
+ * an optional terminator has a second mode to get wrong, and every list this
+ * generates is happier at the end than crammed onto one line.
+ */
+export interface FieldShape {
+  /** One line each, in the order the contract asks for them. */
+  head: readonly FieldSpec[];
+  /** Everything after this label is its value, to the end of the response. */
+  tail: FieldSpec;
+}
+
+/** What `compose` returns: the journal post's five fields. */
+export const POST_KEYS: FieldShape = {
+  head: [
+    { key: 'title', label: 'TITLE' },
+    { key: 'summary', label: 'SUMMARY' },
+    { key: 'tags', label: 'TAGS' },
+    { key: 'readTime', label: 'READTIME', also: ['READ TIME', 'READ'] },
+  ],
+  tail: { key: 'body', label: 'BODY' },
+};
+
+/**
+ * What `project` returns: the frontmatter fields worth generating.
+ *
+ * Deliberately not every column on the form. `year`, `status` and
+ * `featuredRank` are facts about the author's relationship to the work rather
+ * than about the repository, and a model asked for them invents a plausible
+ * one — a wrong year written confidently into a field nobody re-reads is worse
+ * than an empty one. `repoUrl` is what the task was given, so asking for it
+ * back is a chance to get it wrong.
+ */
+export const PROJECT_KEYS: FieldShape = {
+  head: [
+    { key: 'title', label: 'TITLE' },
+    { key: 'summary', label: 'SUMMARY' },
+    { key: 'category', label: 'CATEGORY' },
+    { key: 'tags', label: 'TAGS' },
+    { key: 'stack', label: 'STACK' },
+  ],
+  tail: { key: 'highlights', label: 'HIGHLIGHTS' },
+};
+
+/**
+ * What `casestudy` returns: the structured half of a write-up.
+ *
+ * No body. `setCaseStudyBody` is a separate write and the long-form prose is a
+ * different job from filling in the header — and a task that produced both
+ * would need a token ceiling large enough for the prose, which is exactly the
+ * ceiling that makes a reasoning model spend the whole budget thinking.
+ *
+ * **`PROBLEM` and `SOLUTION` are paragraphs on one line, and that is a real
+ * constraint rather than a formatting preference.** `parseFields` ignores an
+ * unrecognised line before the tail label — deliberately, so a stray blank line
+ * in a post's header does not start the body four fields early — which means a
+ * model that wraps either of these across two lines loses everything after the
+ * first. The instructions say "on a single line" for exactly that reason. The
+ * alternative, treating unlabelled head lines as a continuation of the field
+ * above, would trade a rare truncation here for a common misparse in the post
+ * format, so it is not taken; if this turns out to bite, the fix is a per-shape
+ * flag and not a change to the shared rule.
+ */
+export const CASE_STUDY_KEYS: FieldShape = {
+  head: [
+    { key: 'title', label: 'TITLE' },
+    { key: 'subtitle', label: 'SUBTITLE' },
+    { key: 'problem', label: 'PROBLEM' },
+    { key: 'solution', label: 'SOLUTION' },
+    { key: 'stack', label: 'STACK' },
+    { key: 'readTime', label: 'READTIME', also: ['READ TIME'] },
+  ],
+  tail: { key: 'achievements', label: 'ACHIEVEMENTS' },
+};
 
 /**
  * `satisfies` rather than a plain object, so every task is checked against the
@@ -137,6 +307,7 @@ export const ASSIST_TASKS = {
    */
   compose: {
     label: 'Write the whole post',
+    surface: 'journal',
     group: 'write',
     hint: 'From a topic: title, summary, tags and a full draft, straight into the fields.',
     instructions: `Write a complete journal post on the topic the author gives you. It should be publishable: a real argument or a real account of doing something, not an overview of a subject area.
@@ -159,6 +330,7 @@ Rules for the body:
 
 Emit nothing before TITLE: and nothing after the body. Do not wrap the response in a code fence.`,
     format: 'document',
+    keys: POST_KEYS,
     maxTokens: 2000,
     temperature: 0.7,
     needsCorpus: true,
@@ -171,6 +343,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
 
   outline: {
     label: 'Draft an outline',
+    surface: 'journal',
     group: 'write',
     hint: 'Headings and a sentence each, from the title and summary.',
     instructions: `Produce a section outline for this post. Use level-2 markdown headings, and under each one write a single sentence saying what that section will cover — not the section itself. Six sections at most. No preamble, no closing note: start at the first heading.`,
@@ -186,6 +359,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
 
   expand: {
     label: 'Expand the selection',
+    surface: 'journal',
     group: 'write',
     hint: 'Writes out the selected heading or note in full.',
     instructions: `The author has selected part of their draft — a heading, a bullet, or a rough note. Write that part out properly, in their voice, as finished prose. Match the surrounding document's heading levels. Return only the replacement text: it is going straight into the editor where the selection was, so a sentence of explanation would be pasted into the post.`,
@@ -198,6 +372,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
 
   tighten: {
     label: 'Tighten the prose',
+    surface: 'journal',
     group: 'refine',
     hint: 'Same argument, fewer words. Rewrites the selection.',
     instructions: `Rewrite the selected text to be shorter and clearer without losing anything it says. Cut hedging, throat-clearing and repetition. Keep the author's voice, keep every technical claim exactly as stated, and keep all markdown formatting and links intact. Return only the rewritten text.`,
@@ -212,6 +387,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
 
   summary: {
     label: 'Write the summary',
+    surface: 'journal',
     group: 'refine',
     hint: 'One sentence for the card and the meta description.',
     instructions: `Write one sentence that would work as both the card blurb and the meta description for this post. Under 160 characters. Concrete and specific — name the thing the post is actually about. No "in this post", no "we explore", no question marks. Return the sentence and nothing else.`,
@@ -241,6 +417,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
    */
   revise: {
     label: 'Revise the post',
+    surface: 'journal',
     group: 'refine',
     hint: 'Rewrites the whole draft to your instruction. Undoable.',
     instructions: `Rewrite this post according to what the author asked for. Keep every technical claim exactly as stated unless the instruction is to change it, keep their voice, and keep all markdown structure — headings, lists, code fences and links — intact and valid.
@@ -257,6 +434,7 @@ Return only the rewritten post, in markdown, starting at its first line. No prea
 
   titles: {
     label: 'Suggest titles',
+    surface: 'journal',
     group: 'suggest',
     hint: 'Five alternatives, from what is written so far.',
     instructions: `Suggest five alternative titles for this post. Specific over clever; no colons-and-subtitles unless the post genuinely has two halves. One per line, nothing else on the line — no numbering, no bullets, no quotes.`,
@@ -269,6 +447,7 @@ Return only the rewritten post, in markdown, starting at its first line. No prea
 
   tags: {
     label: 'Suggest tags',
+    surface: 'journal',
     group: 'suggest',
     hint: 'Reuses tags already on the site where they fit.',
     instructions: `Suggest up to six tags for this post. Prefer tags that already appear on this site's other posts and projects — a tag used once is a tag that does nothing. Title Case. One per line, nothing else on the line.`,
@@ -286,6 +465,7 @@ Return only the rewritten post, in markdown, starting at its first line. No prea
 
   diagram: {
     label: 'Draw a diagram',
+    surface: 'journal',
     group: 'suggest',
     hint: 'Mermaid source, rendered here and saved as an SVG.',
     instructions: `Produce one Mermaid diagram illustrating what this post describes. Choose the diagram type that fits — flowchart for a pipeline or an architecture, sequenceDiagram for a protocol or a request path, stateDiagram-v2 for a lifecycle, erDiagram for a schema.
@@ -306,6 +486,7 @@ Rules, and the first two are hard requirements because the output is rendered ra
 
   alt: {
     label: 'Describe the image',
+    surface: 'journal',
     group: 'suggest',
     hint: 'Alt text and a caption for the hero image.',
     instructions: `Based on what this post is about, write alt text for its hero image: one sentence describing what such an image would show, written for someone who cannot see it. Then, on a second line, a short caption. Label neither — the first line is the alt text, the second is the caption.`,
@@ -314,6 +495,105 @@ Rules, and the first two are hard requirements because the output is rendered ra
     temperature: 0.5,
     needsCorpus: false,
     context: ['title', 'summary'],
+  },
+  /* ---------- the project screen ---------- */
+
+  /**
+   * A project's frontmatter, from the repository it points at.
+   *
+   * The one task here whose input is not the author's own writing. Importing a
+   * repository fills in a title, a URL and GitHub's one-line description, and
+   * then leaves a form of empty fields that have to be written from memory of a
+   * project finished a year ago — which is why half the portfolio's summaries
+   * used to be the repository description with the full stop added.
+   *
+   * The README is the input that makes this worth doing. GitHub's `description`
+   * is one sentence written for a repository list; the README is what the
+   * author already wrote about the work, and a summary derived from it says
+   * what the thing *does* rather than what language it is in.
+   *
+   * `category` is generated even though it is a `<select>`: the model is given
+   * the closed list in the instructions and the editor refuses anything not in
+   * it, so the worst case is one unset dropdown rather than a bad value. The
+   * fields that are *not* here are the point — see `PROJECT_KEYS`.
+   */
+  project: {
+    label: 'Write the frontmatter',
+    surface: 'project',
+    group: 'write',
+    hint: 'From the repository: summary, category, tags, stack and highlights.',
+    instructions: `Write the portfolio frontmatter for this project, from its repository. The reader is someone deciding in ten seconds whether this project is worth opening — not someone who already knows what it is.
+
+Return it in exactly this shape, with each label at the start of its own line:
+
+TITLE: the project's display name, plain text, no quotes. Prefer a readable name over the repository slug.
+SUMMARY: one or two sentences, under 200 characters, saying what it does and for whom. Concrete. No "a project that", no "this repository contains".
+CATEGORY: exactly one of ml, web, systems, data, tooling, other. Nothing else, no explanation.
+TAGS: three to six comma-separated tags in Title Case, about the problem domain.
+STACK: the comma-separated languages, frameworks and services it is actually built on, most important first.
+HIGHLIGHTS:
+one per line, three to five of them, each a single sentence naming something specific the project does or achieved
+
+Rules:
+- Work only from the repository material you were given. If the README does not say it, do not claim it — no invented benchmarks, no invented user counts, no invented dates.
+- Highlights are facts, not adjectives. "Streams inference over WebSockets at 40ms median" is a highlight; "Built with a modern stack" is not.
+- If the material is too thin to say anything specific, write a short honest summary rather than a padded one.
+
+Emit nothing before TITLE: and nothing after the last highlight. Do not wrap the response in a code fence.`,
+    format: 'document',
+    keys: PROJECT_KEYS,
+    maxTokens: 1600,
+    temperature: 0.5,
+    /* The author's other projects, so a new summary reads like the twenty
+       already on the page rather than like a README. */
+    needsCorpus: true,
+    context: ['repo', 'readme', 'title', 'summary'],
+    live: 'project',
+  },
+
+  /**
+   * The case study's structured half, from the project beside it.
+   *
+   * Its context is the *project form as it stands*, not the repository alone:
+   * the case study is the long form of a project that has already been
+   * described, and generating it from the README again would produce a second
+   * independent account that contradicts the first in small ways.
+   *
+   * It writes the header and stops. The body is `setCaseStudyBody`, a separate
+   * write behind a separate button, and keeping them apart is what stops one
+   * press replacing prose the author wrote by hand.
+   */
+  casestudy: {
+    label: 'Write the case study fields',
+    surface: 'project',
+    group: 'write',
+    hint: 'Problem, solution, achievements and stack, from this project.',
+    instructions: `Write the structured header of a case study for this project. This is the long-form write-up's framing — the prose body is written separately and is not yours to write here.
+
+Return it in exactly this shape, with each label at the start of its own line:
+
+TITLE: the case study's title. It may differ from the project's name; make it about what was done.
+SUBTITLE: one line under the title saying what the write-up covers.
+PROBLEM: one paragraph, on a single line, on what was actually hard. Name the constraint — the latency budget, the data that did not exist, the system that could not be taken down.
+SOLUTION: one paragraph, on a single line, on the approach taken and why that one.
+STACK: comma-separated technologies, most important first.
+READTIME: an estimate like "8 min"
+ACHIEVEMENTS:
+one per line, three to five of them, each a single sentence stating an outcome
+
+Rules:
+- Work only from the project material you were given. Do not invent a number, a date, a client or a result that is not in it.
+- The problem is a problem, not a preamble. Do not open with "In today's landscape" or with a description of the field.
+- Achievements are outcomes, not activities. "Cut cold-start from 4s to 300ms" is an outcome; "Implemented caching" is an activity.
+
+Emit nothing before TITLE: and nothing after the last achievement. Do not wrap the response in a code fence.`,
+    format: 'document',
+    keys: CASE_STUDY_KEYS,
+    maxTokens: 1600,
+    temperature: 0.5,
+    needsCorpus: true,
+    context: ['repo', 'readme', 'title', 'summary', 'stack', 'highlights'],
+    live: 'caseStudy',
   },
 } as const satisfies Record<string, AssistTask>;
 
@@ -328,6 +608,7 @@ export const ASSIST_MENU = (Object.entries(ASSIST_TASKS) as [AssistTaskName, Ass
     name,
     label: task.label,
     hint: task.hint,
+    surface: task.surface,
     group: task.group,
     /* The editor greys out a task whose required context is empty rather than
        sending an empty selection and getting an apology back. */
@@ -337,48 +618,27 @@ export const ASSIST_MENU = (Object.entries(ASSIST_TASKS) as [AssistTaskName, Ass
   }),
 );
 
-/* ---------- the document format ---------- */
+/* ---------- reading a labelled-field response ---------- */
 
-/**
- * The fields `compose` returns, in the order it is told to return them.
- *
- * Exported because the editor maps them onto its inputs and the test asserts
- * the round trip, and because a second copy of these four strings in either
- * place is a rename waiting to go wrong.
- */
-export const DOCUMENT_KEYS = ['title', 'summary', 'tags', 'readTime'] as const;
-
-export interface ComposedDocument {
-  title: string;
-  summary: string;
-  tags: string;
-  readTime: string;
-  body: string;
-  /** Whether `BODY:` has been seen — i.e. the header is final and will not change. */
-  bodyStarted: boolean;
+/** The parse of one `document` response, whole or half-arrived. */
+export interface ParsedFields {
+  /** Every key in the shape, present whether or not it has arrived yet. */
+  values: Record<string, string>;
+  /** Whether the tail label has been seen — i.e. the head is final. */
+  tailStarted: boolean;
   /**
    * Whether a single labelled line was found.
    *
-   * False means the response is not a document — an early chunk that has not
-   * reached `TITLE:` yet, or a model that ignored the contract outright. The
-   * editor must not write any of it into a field while this is false, however
-   * finished the stream is; see the note at the bottom of `parseDocument`.
+   * False means the response is not this format — an early chunk that has not
+   * reached the first label yet, or a model that ignored the contract outright.
+   * An editor must not write any of it into a field while this is false,
+   * however finished the stream is; see the note at the bottom of this file.
    */
   recognised: boolean;
 }
 
-/** `READTIME:` in the contract, `readTime` in the editor. One place to disagree. */
-const DOCUMENT_LABELS: Record<string, (typeof DOCUMENT_KEYS)[number]> = {
-  TITLE: 'title',
-  SUMMARY: 'summary',
-  TAGS: 'tags',
-  READTIME: 'readTime',
-  'READ TIME': 'readTime',
-  READ: 'readTime',
-};
-
 /**
- * Read a `compose` response — including a half-arrived one.
+ * Read a labelled-field response — including a half-arrived one.
  *
  * **This is called on every delta**, against the whole accumulated string, and
  * that is the design rather than an inefficiency. A parser that consumed deltas
@@ -388,6 +648,11 @@ const DOCUMENT_LABELS: Record<string, (typeof DOCUMENT_KEYS)[number]> = {
  * hundred times is free, and being a pure function of the text so far is what
  * makes it testable without a network and idempotent when the stream retries.
  *
+ * It takes the shape as an argument rather than knowing one, because there are
+ * three: a post, a project and a case study. The alternative — a parser per
+ * format — is three copies of the forgiving-input rules below, and those rules
+ * are the whole substance of it.
+ *
  * Everything about it is deliberately forgiving, because the input is a model's
  * best effort at a format rather than a serialisation:
  *
@@ -396,36 +661,40 @@ const DOCUMENT_LABELS: Record<string, (typeof DOCUMENT_KEYS)[number]> = {
  *   - A wrapping code fence is stripped. Same reason.
  *   - Labels are matched case-insensitively, with or without surrounding
  *     markdown bold, because `**TITLE:**` is a common variation.
- *   - An unrecognised line *before* `BODY:` is ignored rather than treated as
- *     body, so a stray blank line in the header does not silently start the
- *     post four fields early.
+ *   - An unrecognised line *before* the tail label is ignored rather than
+ *     treated as tail content, so a stray blank line in the head does not
+ *     silently start the body four fields early.
  *   - The last line is assumed partial while streaming, and is written out
  *     anyway — that is what makes the title fill in character by character
  *     rather than appearing all at once.
+ *
+ * A label is only a label if the shape it was handed declares it. That is what
+ * lets the pattern be loose enough to reach `ACHIEVEMENTS` without a line of
+ * prose that happens to end in a colon becoming a field.
  */
-export function parseDocument(text: string): ComposedDocument {
-  const doc: ComposedDocument = {
-    title: '',
-    summary: '',
-    tags: '',
-    readTime: '',
-    body: '',
-    bodyStarted: false,
-    recognised: false,
-  };
+export function parseFields(text: string, shape: FieldShape): ParsedFields {
+  const specs = [...shape.head, shape.tail];
+
+  const labels = new Map<string, string>();
+  const values: Record<string, string> = {};
+  for (const spec of specs) {
+    values[spec.key] = '';
+    labels.set(spec.label.toUpperCase(), spec.key);
+    for (const alias of spec.also ?? []) labels.set(alias.toUpperCase(), spec.key);
+  }
 
   /* A fence around the *whole* response, which some models add however firmly
      they are told not to. The closing one is only stripped when there was an
      opening one to match it — a post that legitimately ends in a code block
-     ends in ``` too, and taking that away would break the markdown it is
+     ends in a fence too, and taking that away would break the markdown it is
      closing. The opening fence is stripped either way: it has already arrived
      and its partner may still be minutes off. */
   const wrapped = /^\s*```/.test(text);
   let source = text.replace(/^\s*```[a-z]*\s*\n?/i, '');
   if (wrapped) source = source.replace(/\n?```\s*$/, '');
 
-  const lines = source.split('\n');
-  const bodyLines: string[] = [];
+  const tailLines: string[] = [];
+  let tailStarted = false;
   let seenLabel = false;
 
   /* `**TITLE:** x` puts the closing bold marker on the *value* side of the
@@ -434,45 +703,41 @@ export function parseDocument(text: string): ComposedDocument {
      post with a stray `**`. */
   const clean = (value: string) => value.replace(/^\*\*\s*/, '').replace(/\s*\*\*$/, '').trim();
 
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i];
-
-    if (doc.bodyStarted) {
-      bodyLines.push(line);
+  for (const line of source.split('\n')) {
+    if (tailStarted) {
+      tailLines.push(line);
       continue;
     }
 
-    /* `**TITLE:** x` and `TITLE: x` are the same line as far as this cares. */
-    const match = line.match(/^\s*(?:\*\*)?\s*([A-Za-z ]{3,9})\s*(?:\*\*)?\s*:\s*(.*)$/);
-    const key = match ? DOCUMENT_LABELS[match[1].trim().toUpperCase()] : undefined;
+    /* `**TITLE:** x` and `TITLE: x` are the same line as far as this cares.
+       Three to sixteen characters spans `TAGS` and `ACHIEVEMENTS`; anything
+       matching that is still only a label if the shape declares it. */
+    const match = line.match(/^\s*(?:\*\*)?\s*([A-Za-z][A-Za-z ]{2,15})\s*(?:\*\*)?\s*:\s*(.*)$/);
+    const key = match ? labels.get(match[1].trim().toUpperCase()) : undefined;
 
-    if (match && /^\s*(?:\*\*)?\s*BODY\s*(?:\*\*)?\s*:/i.test(line)) {
-      doc.bodyStarted = true;
-      seenLabel = true;
-      /* `BODY: first sentence` — the contract says the body starts on the next
+    /* Before any label, this is preamble. After one, it is a head line the
+       model invented; neither belongs in the result. */
+    if (!match || !key) continue;
+
+    seenLabel = true;
+
+    if (key === shape.tail.key) {
+      tailStarted = true;
+      /* `BODY: first sentence` — the contract says the value starts on the next
          line, but a model that puts it on the same one has still answered. */
       const trailing = clean(match[2]);
-      if (trailing) bodyLines.push(trailing);
+      if (trailing) tailLines.push(trailing);
       continue;
     }
 
-    if (key) {
-      seenLabel = true;
-      doc[key] = clean(match![2]);
-      continue;
-    }
-
-    /* Before any label, this is preamble. After one, it is a header line the
-       model invented; neither belongs in the post. */
-    if (!seenLabel) continue;
+    values[key] = clean(match[2]);
   }
 
-  doc.body = bodyLines.join('\n').replace(/^\n+/, '');
-  doc.recognised = seenLabel;
+  values[shape.tail.key] = tailLines.join('\n').replace(/^\n+/, '');
 
   /* There was a fallback here: nothing recognised, so treat the whole response
-     as body text — on the grounds that prose in the editor beats an empty form
-     and a discarded answer.
+     as the tail field — on the grounds that prose in the editor beats an empty
+     form and a discarded answer.
 
      It was the worst bug in this feature. A model that emits chain-of-thought
      as content never writes `TITLE:`, so `seenLabel` stayed false for the whole
@@ -485,7 +750,41 @@ export function parseDocument(text: string): ComposedDocument {
      ignored. Recovering a malformed answer is the panel's job. The body of a
      post is not a scratch space. */
 
-  return doc;
+  return { values, tailStarted, recognised: seenLabel };
+}
+
+/* ---------- the composed post, which is one shape of the above ---------- */
+
+export interface ComposedDocument {
+  title: string;
+  summary: string;
+  tags: string;
+  readTime: string;
+  body: string;
+  /** Whether `BODY:` has been seen — i.e. the header is final and will not change. */
+  bodyStarted: boolean;
+  /** Whether a single labelled line was found. See `ParsedFields.recognised`. */
+  recognised: boolean;
+}
+
+/**
+ * `parseFields` against `POST_KEYS`, named.
+ *
+ * The journal editor reads five properties off a flat object rather than
+ * indexing a record, and keeping that is worth the eight lines: `doc.readTime`
+ * is checked by the compiler and `values.readTime` is not.
+ */
+export function parseDocument(text: string): ComposedDocument {
+  const { values, tailStarted, recognised } = parseFields(text, POST_KEYS);
+  return {
+    title: values.title,
+    summary: values.summary,
+    tags: values.tags,
+    readTime: values.readTime,
+    body: values.body,
+    bodyStarted: tailStarted,
+    recognised,
+  };
 }
 
 export interface AssistContext {
@@ -496,21 +795,43 @@ export interface AssistContext {
   persona: string;
 }
 
-/** The editor's fields, as text a model reads, capped so a long post cannot uncap the call. */
-const CONTEXT_LIMITS: Record<string, number> = {
+/**
+ * The editor's fields, as text a model reads, capped so a long post cannot
+ * uncap the call.
+ *
+ * `Record<AssistField, number>` rather than `Record<string, number>`: with the
+ * loose type a field missing from this table typechecks and then slices to
+ * `undefined`, which returns the entire string. An unbounded field on a
+ * metered call is the one failure this table exists to prevent, so the type is
+ * what makes forgetting an entry impossible rather than expensive.
+ *
+ * `readme` is the largest by a distance and still the smallest useful number:
+ * READMEs run to tens of thousands of characters, most of it installation
+ * instructions and badges, and the part that says what the project *is* is at
+ * the top. Eight thousand reaches it on every repository tried.
+ */
+const CONTEXT_LIMITS: Record<AssistField, number> = {
   title: 200,
   summary: 500,
   tags: 300,
   body: 12_000,
   selection: 6000,
+  repo: 2000,
+  readme: 8000,
+  stack: 300,
+  highlights: 1500,
 };
 
-const CONTEXT_LABELS: Record<string, string> = {
+const CONTEXT_LABELS: Record<AssistField, string> = {
   title: 'Current title',
   summary: 'Current summary',
   tags: 'Current tags',
   body: 'The draft so far',
   selection: 'The selected text',
+  repo: 'The GitHub repository it points at',
+  readme: 'That repository’s README',
+  stack: 'Current stack',
+  highlights: 'Current highlights',
 };
 
 /**

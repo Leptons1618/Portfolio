@@ -28,6 +28,7 @@ import {
   type ProjectFields,
 } from '../../../lib/content-store';
 import { parseRepoUrl } from '../../../lib/github';
+import { ASSIST_GROUPS, ASSIST_MENU } from '../../../lib/assist-tasks';
 
 export const prerender = false;
 
@@ -55,6 +56,14 @@ const seed = {
   caseStudy: linked ? { slug: linked.slug, data: linked.data as CaseStudyFields } : null,
 };
 const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
+
+/* The assistant's menu, filtered to this surface. The three shelves are the
+   journal panel's; this surface fills one of them, so the empty two are
+   dropped rather than rendered as headings with nothing under them. */
+const assistTasks = ASSIST_MENU.filter(task => task.surface === 'project');
+const assistGroups = ASSIST_GROUPS.filter(group =>
+  assistTasks.some(task => task.group === group.id),
+);
 
 const STATUS_VARIANT: Record<string, string> = {
   active: 'tag-accent-2',
@@ -101,6 +110,9 @@ const STATUS_VARIANT: Record<string, string> = {
           ><span></span></button>
         </div>
         <div class="admin-actions">
+          <button type="button" class="btn btn-secondary btn-sm" id="assist-open">
+            <Icon name="lucide:sparkles" class="admin-nav-icon" />Assistant
+          </button>
           <a class="btn btn-secondary btn-sm" href={fields.repoUrl} target="_blank" rel="noopener">
             <Icon name="lucide:github" class="admin-nav-icon" />{owner}/{repoName}
           </a>
@@ -238,6 +250,19 @@ const STATUS_VARIANT: Record<string, string> = {
           <p class="text-muted admin-note">
             A public read — this one works signed out.
           </p>
+          {/* Beside the facts it reads from, because that is what it is: the
+              same repository, read for its README instead of its branch name.
+              One press opens the panel and runs the task. */}
+          <button
+            type="button"
+            class="btn btn-secondary btn-sm btn-block"
+            data-assist-task="project"
+          >
+            <Icon name="lucide:sparkles" class="admin-nav-icon" />Write the frontmatter from it
+          </button>
+          <p class="text-muted admin-note">
+            Reads the README and fills the fields on the left. Undo puts them back.
+          </p>
         </section>
 
         <section class="card elev-sm">
@@ -271,6 +296,9 @@ const STATUS_VARIANT: Record<string, string> = {
             <a class="btn btn-secondary btn-sm" href={`/case-studies/${linked.slug}`} target="_blank" rel="noopener">
               <Icon name="lucide:external-link" class="admin-nav-icon" />Read it
             </a>
+            <button type="button" class="btn btn-secondary btn-sm" data-assist-task="casestudy">
+              <Icon name="lucide:sparkles" class="admin-nav-icon" />Write the fields
+            </button>
             <button type="button" class="btn btn-secondary btn-sm" id="cs-unlink">Unlink</button>
           </div>
         </div>
@@ -361,12 +389,120 @@ const STATUS_VARIANT: Record<string, string> = {
     </div>
   </div>
 
+
+  {/* The same dock as the journal editor's, and the same reasoning behind it:
+      `show()` rather than `showModal()`, because the point of this panel is
+      watching the form fill in, and a modal is a sheet pulled over the only
+      thing worth looking at. Decision 28.
+
+      No Insert button, and that is not an omission — both tasks on this
+      surface are `live`, so there is never a result sitting here waiting to be
+      placed. Copy and Try again appear only on the salvage path, where a model
+      answered outside the format and nothing was written. */}
+  <dialog class="asx" id="assist-dialog" aria-label="Project assistant">
+    <header class="asx-head">
+      <div class="asx-head-copy">
+        <h3 class="asx-title">
+          <Icon name="lucide:sparkles" class="admin-nav-icon" />Project assistant
+        </h3>
+        <p class="asx-sub">Writes into the fields. Nothing is saved until you press Save.</p>
+      </div>
+      <button type="button" class="btn btn-icon" id="assist-close" aria-label="Close assistant">
+        <Icon name="lucide:x" class="admin-nav-icon" />
+      </button>
+    </header>
+
+    <div class="asx-body">
+      <div class="asx-ask">
+        <label class="asx-ask-label" for="assist-instruction">Anything to steer it? (optional)</label>
+        <textarea
+          class="input asx-ask-input"
+          id="assist-instruction"
+          rows="2"
+          placeholder="e.g. lead with the latency work, that is the interesting part"
+        ></textarea>
+        <div class="asx-ask-row">
+          <span class="text-muted asx-ask-hint" id="assist-hint"></span>
+          <button type="button" class="btn btn-primary btn-sm" id="assist-run">Write the frontmatter</button>
+        </div>
+      </div>
+
+      {/* Generated from `ASSIST_MENU` filtered to this surface, the same way
+          the journal panel generates its ten. A task added to the table with
+          `surface: 'project'` appears here and nothing on this page changes. */}
+      <div class="asx-tasks" id="assist-tasks">
+        {assistGroups.map(group => (
+          <section class="asx-group">
+            <div class="asx-group-head">
+              <h4 class="asx-group-label">{group.label}</h4>
+              <p class="asx-group-hint">{group.hint}</p>
+            </div>
+            {assistTasks.filter(task => task.group === group.id).map(task => (
+              <button
+                type="button"
+                class="asx-task"
+                data-task={task.name}
+                data-live={task.live ?? undefined}
+                aria-pressed="false"
+              >
+                <span class="asx-task-label">{task.label}</span>
+                <span class="asx-task-hint">{task.hint}</span>
+              </button>
+            ))}
+          </section>
+        ))}
+      </div>
+
+      <p class="admin-note asx-status" id="assist-status">
+        Reads the repository, then writes the fields. Nothing is sent until you press a button.
+      </p>
+
+      {/* Only the salvage path fills this — a response that carried none of the
+          labels the task asked for, which is what a model that deliberates out
+          loud produces. It is shown rather than written anywhere. Decision 29. */}
+      <div class="asx-output" id="assist-output" hidden>
+        <pre class="asx-text" id="assist-text"></pre>
+      </div>
+    </div>
+
+    <footer class="asx-foot">
+      <span class="text-muted asx-note" id="assist-note"></span>
+      <div class="asx-foot-actions">
+        <button type="button" class="btn btn-secondary btn-sm" id="assist-stop" hidden>Stop</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="assist-undo" hidden>Undo</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="assist-copy" hidden>Copy</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="assist-retry" hidden>Try again</button>
+      </div>
+    </footer>
+  </dialog>
+
   <script is:inline type="application/json" id="project-detail-seed" set:html={seedJson}></script>
 </AdminLayout>
 
 <script>
-  import { onAdminPage, setBusy, setLabel, toast, wireTabs } from '../../../lib/admin';
+  import {
+    onAdminPage,
+    setBusy,
+    setLabel,
+    toast,
+    undoRing,
+    wireTabs,
+    type UndoEntry,
+  } from '../../../lib/admin';
+  import { copyText } from '../../../lib/clipboard';
   import { relativeTime } from '../../../lib/format';
+  import { runAssist } from '../../../lib/ai-store';
+  import {
+    ASSIST_TASKS,
+    CASE_STUDY_KEYS,
+    PROJECT_KEYS,
+    isAssistTask,
+    parseFields,
+    type AssistTask,
+    type AssistTaskName,
+    type FieldShape,
+    type ProjectTarget,
+  } from '../../../lib/assist-tasks';
   import {
     createCaseStudy,
     patchCaseStudy,
@@ -378,7 +514,9 @@ const STATUS_VARIANT: Record<string, string> = {
   } from '../../../lib/content-store';
   import {
     canWriteContent,
+    fetchRepoLanguages,
     fetchRepoMeta,
+    fetchRepoReadme,
     getToken,
     getUser,
     parseRepoUrl,
@@ -860,6 +998,603 @@ const STATUS_VARIANT: Record<string, string> = {
         } finally {
           pick.disabled = false;
         }
+      });
+    }
+
+    // ------------------------------------------------------------ assistant
+
+    /* The project assistant, which is the journal editor's one with a
+       different field map.
+
+       **No new route.** `/api/ai/assist` takes a task name and a context
+       object; a second surface is two more entries in `ASSIST_TASKS` and a page
+       that renders the menu filtered to its own name. That is what decision 24
+       buys — the table is closed, so adding a surface adds two prompts to what
+       a stolen session is worth rather than adding an endpoint.
+
+       Both tasks here are `live`: they write into the form as the response
+       arrives, and Undo is what makes that reasonable rather than reckless.
+       Three runs back, not one — see `undoRing()` in `admin.ts`.
+
+       Neither task saves. `patchProject` and `patchCaseStudy` are still the
+       only things that write a row, and both are still behind the Save buttons
+       above. An assistant that could save would be an assistant that could
+       publish. */
+
+    const assistDialog = $<HTMLDialogElement>('assist-dialog');
+    const assistOutput = $('assist-output');
+    const assistText = $('assist-text');
+    const assistStatus = $('assist-status');
+    const assistNote = $('assist-note');
+    const assistHint = $('assist-hint');
+    const assistInstruction = $<HTMLTextAreaElement>('assist-instruction');
+    const assistOpen = $<HTMLButtonElement>('assist-open');
+    const runBtn = $<HTMLButtonElement>('assist-run');
+    const stopBtn = $<HTMLButtonElement>('assist-stop');
+    const undoBtn = $<HTMLButtonElement>('assist-undo');
+    const copyBtn = $<HTMLButtonElement>('assist-copy');
+    const retryBtn = $<HTMLButtonElement>('assist-retry');
+
+    const setAssistStatus = (text: string, tone: 'info' | 'error' = 'info') => {
+      assistStatus.dataset.tone = tone;
+      assistStatus.textContent = text;
+    };
+
+    /** Which shape each live target's response is read against. */
+    const TARGET_SHAPES: Record<ProjectTarget, FieldShape> = {
+      project: PROJECT_KEYS,
+      caseStudy: CASE_STUDY_KEYS,
+    };
+
+    type AnyField = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+
+    /**
+     * The inputs a target writes into, keyed by the parser's key.
+     *
+     * `null` for `caseStudy` when there is no case study linked — the fields
+     * are not on the page at all in that state, and the task is blocked before
+     * it runs rather than writing into nothing.
+     *
+     * Looked up by id rather than closed over the `study` object above, because
+     * that object only exists inside `if (linkedSlug)` and hoisting it out to
+     * reach it from here would restructure a section this change has no other
+     * business in.
+     */
+    function targetInputs(target: ProjectTarget): Record<string, AnyField> | null {
+      if (target === 'project') {
+        return {
+          title: project.title,
+          summary: project.summary,
+          category: project.category,
+          tags: project.tags,
+          stack: project.stack,
+          highlights: project.highlights,
+        };
+      }
+
+      if (!linkedSlug) return null;
+      const byId = {
+        title: document.getElementById('cs-title'),
+        subtitle: document.getElementById('cs-subtitle'),
+        problem: document.getElementById('cs-problem'),
+        solution: document.getElementById('cs-solution'),
+        stack: document.getElementById('cs-stack'),
+        readTime: document.getElementById('cs-readtime'),
+        achievements: document.getElementById('cs-achievements'),
+      };
+      const found = Object.entries(byId).filter(([, node]) => node !== null);
+      if (found.length !== Object.keys(byId).length) return null;
+      return Object.fromEntries(found) as Record<string, AnyField>;
+    }
+
+    /** One item per line, with any bullet or numbering the model added stripped. */
+    const asLines = (text: string) =>
+      text
+        .split('\n')
+        .map(line => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim())
+        .filter(Boolean)
+        .join('\n');
+
+    /**
+     * Write a partially-arrived response into the fields it belongs to.
+     *
+     * Called on every animation frame while a task streams, and once more when
+     * it finishes. Every branch is guarded on a *parsed* value, which is what
+     * makes a response that recognised nothing write nothing — there is no
+     * half-applied state to unpick, and no path by which text the parser did
+     * not understand reaches a field. Decision 29.
+     */
+    function applyLive(target: ProjectTarget, raw: string) {
+      const inputs = targetInputs(target);
+      if (!inputs) return;
+
+      const shape = TARGET_SHAPES[target];
+      const { values, tailStarted } = parseFields(raw, shape);
+
+      for (const [key, input] of Object.entries(inputs)) {
+        const value = values[key] ?? '';
+
+        /* The tail is the one field that may legitimately be empty mid-stream
+           — it is written from the moment its label lands, so the textarea
+           fills line by line rather than appearing whole at the end. */
+        if (key === shape.tail.key) {
+          if (tailStarted) input.value = asLines(value);
+          continue;
+        }
+
+        if (!value) continue;
+
+        if (input instanceof HTMLSelectElement) {
+          /* A model handed a closed list still answers outside it now and
+             then, and assigning an unknown value to a `<select>` does not
+             leave the previous one in place — it clears the selection. So the
+             option list is checked first, and an unrecognised category is
+             simply not applied. `select.ts` overrides the `value` setter, so
+             this also updates the custom dropdown's visible label. */
+          const wanted = value.trim().toLowerCase();
+          if (Array.from(input.options).some(option => option.value === wanted)) {
+            input.value = wanted;
+          }
+          continue;
+        }
+
+        input.value = value;
+      }
+    }
+
+    /** A short, honest description of how far a run has got, from the shape. */
+    function liveProgress(target: ProjectTarget, raw: string): string {
+      const shape = TARGET_SHAPES[target];
+      const { values, tailStarted } = parseFields(raw, shape);
+      const landed = shape.head.filter(spec => values[spec.key]).map(spec => spec.key);
+      if (tailStarted) landed.push(shape.tail.key);
+      return landed.length ? `Writing… ${landed.join(', ')}.` : 'Writing…';
+    }
+
+    /* — undo —
+
+       Which inputs a target touches decides what its snapshot covers, and it
+       has to: generating the case study's fields must not revert the summary
+       being edited beside it. */
+    const undos = undoRing();
+
+    /* Which target each snapshot belongs to. A `WeakMap` rather than a field on
+       the entry, because `UndoEntry` is the shared shape in `admin.ts` and this
+       page's need to know which form an entry restores is this page's business
+       alone. */
+    const snapshotTargets = new WeakMap<UndoEntry, ProjectTarget>();
+
+    function takeSnapshot(target: ProjectTarget, label: string) {
+      const inputs = targetInputs(target);
+      if (!inputs) return;
+      const values: Record<string, string> = {};
+      for (const [key, input] of Object.entries(inputs)) values[key] = input.value;
+      const entry: UndoEntry = { label, values };
+      snapshotTargets.set(entry, target);
+      undos.push(entry);
+    }
+
+    /**
+     * Drop the snapshot the current run took, if that run changed nothing.
+     *
+     * The snapshot is taken before the first token, because by the time
+     * anything is known about the response the fields have been written to. A
+     * run that then failed, or answered outside the format, would otherwise
+     * leave an Undo that does nothing while pushing a real snapshot off the end
+     * of a three-deep ring.
+     */
+    function dropUnusedSnapshot() {
+      const entry = undos.peek();
+      if (!entry) return;
+      const target = snapshotTargets.get(entry);
+      const inputs = target ? targetInputs(target) : null;
+      if (!inputs) return;
+      const untouched = Object.entries(entry.values).every(
+        ([key, value]) => inputs[key]?.value === value,
+      );
+      if (untouched) undos.pop();
+    }
+
+    function undoAssist() {
+      const entry = undos.pop();
+      if (!entry) return;
+      const target = snapshotTargets.get(entry);
+      const inputs = target ? targetInputs(target) : null;
+      if (!inputs) return;
+
+      for (const [key, value] of Object.entries(entry.values)) {
+        const input = inputs[key];
+        if (input) input.value = value;
+      }
+
+      setFoot('idle');
+      const left = undos.depth;
+      setAssistStatus(
+        left
+          ? `Put back the way it was before “${entry.label}”. ${left} more step${left === 1 ? '' : 's'} back.`
+          : `Put back the way it was before “${entry.label}”.`,
+      );
+      toast('Reverted.', { tone: 'success' });
+    }
+
+    /* — the repository, read once —
+
+       Both tasks want the same two things and neither is cheap: three GitHub
+       calls, one of which can return twenty kilobytes. Keyed by the URL in the
+       field rather than by nothing, so re-pointing the project at a different
+       repository is not answered out of the last one's cache. */
+    let repoCache: { url: string; repo: string; readme: string } | null = null;
+
+    async function repoContext(): Promise<{ repo: string; readme: string }> {
+      const url = project.repo.value.trim() || seed.project.repoUrl;
+      if (repoCache?.url === url) return repoCache;
+
+      const { owner, name } = parseRepoUrl(url);
+      const [meta, languages, readme] = await Promise.all([
+        /* Metadata is the optional half. A repository that cannot be read
+           still has a README worth having, and the other way round. */
+        fetchRepoMeta(owner, name).catch(() => null),
+        fetchRepoLanguages(owner, name),
+        fetchRepoReadme(owner, name),
+      ]);
+
+      const facts = [
+        `Repository: ${owner}/${name}`,
+        `URL: ${url}`,
+        meta?.description ? `GitHub description: ${meta.description}` : '',
+        languages.length ? `Languages GitHub detected, largest first: ${languages.join(', ')}` : '',
+        meta?.archived ? 'The repository is archived on GitHub.' : '',
+      ].filter(Boolean);
+
+      repoCache = { url, repo: facts.join('\n'), readme };
+      return repoCache;
+    }
+
+    /* — the footer's five buttons, from one state —
+
+       `hidden` rather than `disabled`: a greyed-out Copy beside a run that
+       wrote straight into the fields is an offer that will never make sense. */
+    type FootState = 'idle' | 'running' | 'done' | 'salvage' | 'error';
+
+    function setFoot(state: FootState) {
+      stopBtn.hidden = state !== 'running';
+      copyBtn.hidden = state !== 'salvage';
+      retryBtn.hidden = state === 'idle' || state === 'running';
+      runBtn.disabled = state === 'running';
+
+      /* Undo outlives the run that filled it. Pressing it once and wanting the
+         step before that is the whole reason the ring exists, and a button that
+         vanished after the first press would make the other two unreachable. */
+      const undoable = state === 'running' ? null : undos.peek();
+      undoBtn.hidden = undoable === null;
+      if (undoable) {
+        setLabel(undoBtn, undos.depth > 1 ? `Undo (${undos.depth})` : 'Undo');
+        undoBtn.title = `Put the fields back the way they were before “${undoable.label}”.`;
+      }
+    }
+
+    /* — choosing and running — */
+
+    const taskButtons = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('#assist-tasks .asx-task'),
+    );
+
+    /**
+     * A task name this page may run.
+     *
+     * `isAssistTask` alone is not enough here: the table holds the journal's
+     * ten as well, and a `data-assist-task` naming one of them would reach a
+     * `live` target this page has no fields for. The surface is on the task, so
+     * the check is one property rather than a second list to keep in step.
+     */
+    const isProjectTask = (name: string): name is AssistTaskName =>
+      isAssistTask(name) && ASSIST_TASKS[name].surface === 'project';
+
+    let selected: AssistTaskName = 'project';
+    let lastTask: AssistTaskName | null = null;
+    let salvaged = '';
+
+    /**
+     * Why this task cannot run yet, or `null`.
+     *
+     * The sentence rather than a boolean, because "that button is disabled"
+     * tells the author neither what is wrong nor which of the two fixes it.
+     */
+    function blockedBecause(name: AssistTaskName): string | null {
+      const url = project.repo.value.trim() || seed.project.repoUrl;
+      try {
+        new URL(url);
+      } catch {
+        return 'This project needs a valid repository URL before the assistant can read it.';
+      }
+      if (name === 'casestudy' && !linkedSlug) {
+        return 'There is no case study linked yet — scaffold or link one on the Case study tab, then run this.';
+      }
+      return null;
+    }
+
+    function selectTask(name: AssistTaskName) {
+      selected = name;
+      const task: AssistTask = ASSIST_TASKS[name];
+      taskButtons.forEach(button => {
+        button.setAttribute('aria-pressed', String(button.dataset.task === name));
+      });
+      setLabel(runBtn, task.label);
+      assistHint.textContent = task.hint;
+      assistNote.textContent = 'Writes into the fields as it goes. Undo puts them back.';
+    }
+
+    /** Select, then run if it has everything it needs — otherwise say what is missing. */
+    function chooseAndRun(name: AssistTaskName) {
+      selectTask(name);
+      const blocked = blockedBecause(name);
+      if (blocked) {
+        setAssistStatus(blocked, 'error');
+        return;
+      }
+      void runTask(name);
+    }
+
+    let assisting: AbortController | null = null;
+
+    async function runTask(name: AssistTaskName) {
+      const task: AssistTask = ASSIST_TASKS[name];
+      lastTask = name;
+      selectTask(name);
+
+      const blocked = blockedBecause(name);
+      if (blocked) return setAssistStatus(blocked, 'error');
+
+      const live = task.live as ProjectTarget;
+      const shape = TARGET_SHAPES[live];
+
+      assistOutput.hidden = true;
+      assistText.textContent = '';
+      salvaged = '';
+      setFoot('running');
+
+      assisting?.abort();
+      const controller = new AbortController();
+      assisting = controller;
+
+      let raw = '';
+      /* Set from the `done` frame's `stopReason`. `length` means the model was
+         cut off by this task's ceiling rather than having finished, which is
+         otherwise indistinguishable from a short answer — and on a frontmatter
+         run it is the difference between five highlights and three. */
+      let truncated = false;
+      let queued = false;
+      /* A frame can still be queued when the last chunk lands, and it would run
+         *after* the completion handler below, repainting the fields from a
+         non-final parse. The abort signal does not cover it: a run that
+         finished normally was never aborted. */
+      let settled = false;
+
+      const paint = () => {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(() => {
+          queued = false;
+          if (settled || controller.signal.aborted) return;
+          applyLive(live, raw);
+          setAssistStatus(liveProgress(live, raw));
+        });
+      };
+
+      try {
+        setAssistStatus('Reading the repository…');
+        const { repo, readme } = await repoContext();
+        /* `repoContext` does not take the signal — three GitHub reads that are
+           already in flight are not worth threading one through — so a stop
+           pressed while it was out lands here rather than as an AbortError. */
+        if (controller.signal.aborted) {
+          setFoot('idle');
+          setAssistStatus('Stopped before anything was written. Nothing changed.');
+          return;
+        }
+
+        /* Only the fields this task declares. `context` on the task is an
+           allowlist, and the endpoint's copy of it is what actually enforces
+           the cap — this just avoids sending what will be dropped. */
+        const source: Record<string, string> = {
+          repo,
+          readme,
+          title: project.title.value,
+          summary: project.summary.value,
+          stack: project.stack.value,
+          highlights: project.highlights.value,
+        };
+        const context: Record<string, string> = {};
+        for (const key of task.context) context[key] = source[key] ?? '';
+
+        /* Taken here rather than before the GitHub reads: a run abandoned while
+           waiting on the network has written nothing, and a snapshot for it
+           would push a real one off the end of the ring. */
+        takeSnapshot(live, task.label);
+        setAssistStatus('Writing…');
+
+        const output = await runAssist(
+          name,
+          context,
+          assistInstruction.value,
+          {
+            onDelta: chunk => {
+              raw += chunk;
+              paint();
+            },
+            /* The model is deliberating rather than the request having stalled.
+               Worth saying, because the two look identical from here and one of
+               them is worth waiting for. The frame carries no thought text —
+               only the fact that there is thinking. Decision 29. */
+            onThinking: () => {
+              if (!raw) setAssistStatus(`${task.label} — thinking…`);
+            },
+            onDone: reason => {
+              truncated = reason === 'length';
+            },
+          },
+          controller.signal,
+        );
+
+        settled = true;
+
+        /* Names the cause, because there is exactly one that produces this and
+           it is not obvious: a reasoning model that spent the task's whole
+           token ceiling thinking and stopped before writing a word. */
+        if (!output.trim()) {
+          throw new Error(
+            'The model finished without writing anything — usually a reasoning model that used the whole token budget thinking. Try again, or pick a different model on the AI screen.',
+          );
+        }
+
+        /* A response carrying none of the labels the task asked for is not a
+           result in the wrong shape, it is usually a model deliberating out
+           loud. Nothing was written — every branch of `applyLive` is guarded on
+           a parsed value — so it goes to the panel with Copy and Try again
+           rather than into a field. Decision 29. */
+        if (!parseFields(output, shape).recognised) {
+          dropUnusedSnapshot();
+          salvaged = output;
+          assistOutput.hidden = false;
+          assistText.textContent = output;
+          assistText.scrollTop = 0;
+          setFoot('salvage');
+          setAssistStatus(
+            'The model answered without using the field format, so nothing was written. Its reply is below — Copy takes it, Try again asks for another.',
+            'error',
+          );
+          toast('Nothing written: the reply was not in the expected format.', { tone: 'error' });
+          return;
+        }
+
+        applyLive(live, output);
+        setFoot('done');
+        setAssistStatus(
+          `Done — it is in the fields. Undo puts them back; nothing is saved until you press Save changes.${
+            truncated ? ' It hit this task’s token ceiling, so the end may be cut off.' : ''
+          }`,
+        );
+        toast(
+          live === 'project' ? 'Frontmatter written into the fields.' : 'Case study fields written.',
+          { tone: 'success' },
+        );
+      } catch (error) {
+        settled = true;
+
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          /* Stopped on purpose. Whatever arrived stays where it was written —
+             that is what "live" means — and Undo is still the way back. A run
+             stopped before anything arrived wrote nothing, so its snapshot goes
+             rather than sitting in the ring as an Undo that does nothing. */
+          if (raw) {
+            applyLive(live, raw);
+            setFoot('done');
+            setAssistStatus(
+              `Stopped. ${raw.length.toLocaleString()} characters were written; Undo puts it back.`,
+            );
+          } else {
+            dropUnusedSnapshot();
+            setFoot('idle');
+            setAssistStatus('Stopped before anything was written. Nothing changed.');
+          }
+          return;
+        }
+
+        const text = error instanceof Error ? error.message : 'The assistant failed.';
+        /* A run that failed part-way has already written into the fields, so
+           its snapshot is the only way out and has to stay. One that failed
+           before writing anything has nothing to offer, and
+           `dropUnusedSnapshot` is what tells the two apart. */
+        dropUnusedSnapshot();
+        setFoot('error');
+        setAssistStatus(text, 'error');
+        toast(text, { tone: 'error' });
+      } finally {
+        if (assisting === controller) assisting = null;
+      }
+    }
+
+    taskButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        const name = button.dataset.task ?? '';
+        if (isProjectTask(name)) chooseAndRun(name);
+      });
+    });
+
+    runBtn.addEventListener('click', () => chooseAndRun(selected));
+    stopBtn.addEventListener('click', () => assisting?.abort());
+    undoBtn.addEventListener('click', undoAssist);
+    retryBtn.addEventListener('click', () => {
+      if (lastTask) void runTask(lastTask);
+    });
+    copyBtn.addEventListener('click', () => {
+      if (salvaged) void copyText(salvaged).then(() => toast('Copied.', { tone: 'success' }));
+    });
+
+    /* Cmd/Ctrl+Enter from the steer box, the shortcut every prompt field has. */
+    assistInstruction.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        chooseAndRun(selected);
+      }
+    });
+
+    /* — opening and closing — */
+
+    function openAssist(task?: AssistTaskName) {
+      /* `show()`, not `showModal()`: the form behind this has to stay visible,
+         because watching it fill is the point. */
+      if (!assistDialog.open) assistDialog.show();
+      if (task) chooseAndRun(task);
+      else selectTask(selected);
+    }
+
+    assistOpen.addEventListener('click', () => {
+      if (assistDialog.open) assistDialog.close();
+      else openAssist();
+    });
+
+    $<HTMLButtonElement>('assist-close').addEventListener('click', () => assistDialog.close());
+
+    /* Every per-section button on this page: open the panel and run that
+       section's task in one press. `data-assist-task` is the whole wiring. */
+    document.querySelectorAll<HTMLButtonElement>('[data-assist-task]').forEach(button => {
+      button.addEventListener('click', () => {
+        const name = button.dataset.assistTask ?? '';
+        if (isProjectTask(name)) openAssist(name);
+      });
+    });
+
+    /* Escape is a modal dialog's for free and a non-modal one's to wire. Scoped
+       to the panel having focus inside it, so Escape in the form is still the
+       form's. */
+    assistDialog.addEventListener('keydown', event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        assistDialog.close();
+      }
+    });
+
+    /* A run still in flight is abandoned rather than left billing in the
+       background with nobody watching. Anything already written into the fields
+       stays there — closing the panel is not an undo. */
+    assistDialog.addEventListener('close', () => {
+      assisting?.abort();
+      setFoot('idle');
+    });
+
+    selectTask('project');
+    setFoot('idle');
+
+    /* Same rule as the save buttons: the endpoint asks GitHub who is calling,
+       so a signed-out screen says so rather than offering a button that 401s. */
+    if (!signedIn) {
+      const why = 'Sign in with GitHub to use the assistant.';
+      assistOpen.disabled = true;
+      assistOpen.title = why;
+      document.querySelectorAll<HTMLButtonElement>('[data-assist-task]').forEach(button => {
+        button.disabled = true;
+        button.title = why;
       });
     }
   });

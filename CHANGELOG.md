@@ -14,6 +14,17 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Stopping a rewrite before the first token emptied the post.** `applyLive`
+  is not a no-op for the two prose targets — it assigns what arrived, and what
+  had arrived was `''`. Pressing Stop on `revise` or `summary` in the first
+  moment therefore cleared the field it was about to rewrite. Undo recovered it;
+  nothing said so.
+
+- **A truncated answer in the public chat looked like a short one.** The editor
+  already read `stopReason` off the `done` frame; the chat dropped it. It now
+  says the answer hit the length limit, as a note under the answer rather than a
+  toast — it qualifies what is on screen and belongs beside it.
+
 - **A model's chain-of-thought reached readers, and got written into posts.**
   Both assistants forwarded whatever a provider put in `delta.content`, which on
   a reasoning model is the model talking to itself before it answers. The public
@@ -45,6 +56,40 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **The assistant reached the project screen, and writes a project from its
+  GitHub URL.** Two new tasks: `project` fills title, summary, category, tags,
+  stack and highlights into the frontmatter form, and `casestudy` fills the
+  structured half of a write-up. Both stream into the fields as they arrive,
+  the same way `compose` fills a post, and both are undoable.
+
+  The input that makes it worth having is the **README**, not GitHub's one-line
+  description — a summary derived from the description says which language the
+  project is in, and one derived from the README says what the thing does.
+  `fetchRepoReadme()` is a new read in `github.ts`; it takes no path, because
+  GitHub's `/readme` endpoint decides which file that is.
+
+  `year`, `status` and `featuredRank` are deliberately **not** generated. They
+  are facts about the author's relationship to the work rather than about the
+  repository, and a model asked for them invents a plausible one — a wrong year
+  written confidently into a field nobody re-reads is worse than an empty one.
+
+- **No new API route for any of it.** `/api/ai/assist` already took a task name
+  and a context object, so a second surface is two rows in `ASSIST_TASKS`, a
+  `surface` field on the task, and a page that renders `ASSIST_MENU` filtered to
+  its own name. The journal panel cannot offer a project task and the project
+  panel cannot offer a journal one, and neither page decides that — the task
+  does. Decision 31 is why there is no framework under this.
+
+- **Undo goes three runs back.** It was one slot, replaced by the next run —
+  which is wrong for how these actually get used, in sequence, where the run an
+  author wants back is often not the last one. `undoRing()` in `admin.ts` is a
+  bounded stack of field snapshots, shared by both editors; the button says how
+  many steps are left and which run it will take back. Three and not more: a
+  ring deep enough to be a document history is one, and nothing here survives a
+  reload. A run that wrote nothing — failed, stopped early, or answered outside
+  the format — drops its own snapshot rather than sitting in the ring as an Undo
+  that does nothing.
+
 - **Stop, Try again and citations in the public chat.** The send button becomes
   a stop button while an answer streams (both icons are in the markup — swapping
   them in script would write over an inlined `astro-icon` SVG), and stopping
@@ -58,6 +103,25 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   request and one worth waiting for, with no thought text shown in either.
 
 ### Changed
+
+- **One parser reads three shapes.** `parseDocument` knew the post's four field
+  names, which is fine until a second thing returns labelled fields. It is now
+  `parseFields(text, shape)`, and each `document` task names the key set it
+  returns — `POST_KEYS`, `PROJECT_KEYS`, `CASE_STUDY_KEYS`. The forgiving-input
+  rules that are the whole substance of it (preamble dropped, wrapping fence
+  stripped, `**TITLE:**` accepted, the last line assumed partial) exist once
+  rather than three times, and a label is only a label if the shape being read
+  declares it — so `HIGHLIGHTS:` is a field in a project and an ordinary line in
+  a post. `parseDocument` survives as an eight-line wrapper, so the journal
+  editor did not change.
+
+- **A task's context fields are a closed union.** `CONTEXT_LIMITS` is indexed by
+  field name, and a field missing from it slices to `undefined` — which is not a
+  cap, it is the whole value. A typo in a task's allowlist was therefore an
+  *unbounded* field on a metered call rather than a missing one, which is the
+  opposite of the failure anyone would expect. `AssistField` makes it a
+  typecheck failure, and `check:ai` asserts the cap holds against what actually
+  leaves rather than against the table.
 
 - **The writing assistant's ten tasks are three groups** — Write, Refine,
   Suggest — declared on the task rather than decided by the editor. Ten buttons
@@ -73,6 +137,23 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The assistant panel no longer sits over the field it is writing into.** It
   is `position: fixed` bottom-right by design, so the editor's right-hand column
   gets room to scroll clear of it while the panel is open.
+
+### Removed
+
+- **`scripts/seed-d1.mjs` and `npm run seed:d1`.** The script read
+  `src/content/`, which was deleted when D1 became the source of truth, so it
+  could only ever fail — `ENOENT: no such file or directory, scandir
+  'src/content/case-studies'` — and it was the one command in `package.json`
+  that was guaranteed to be broken for anyone who tried it. It was the one-way
+  door of the move to D1 and that door has been walked through:
+  `migrations/0002_seed_from_content.sql` is its frozen output, and applying the
+  migrations is what brings a fresh database up. It was also the only importer
+  of `yaml`, which no other file in the project uses. This does not, however,
+  fix the underlying habit: it imported `yaml` and `@astrojs/markdown-remark`
+  without either being declared in `package.json`, and
+  `src/pages/api/content.ts` still imports the latter the same way — a direct
+  import satisfied only by a transitive dependency of `astro`, which a lockfile
+  refresh could remove from under it.
 
 
 ### Fixed
