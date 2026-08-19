@@ -18,7 +18,6 @@
     "db:migrate": "wrangler d1 migrations apply portfolio-content --remote",
     "db:migrate:local": "wrangler d1 migrations apply portfolio-content --local",
     "db:console": "wrangler d1 execute portfolio-content --remote --command",
-    "seed:d1": "node scripts/seed-d1.mjs",
     "astro": "astro",
     "config": "node scripts/wrangler-config.mjs",
     "prepare": "node scripts/wrangler-config.mjs"
