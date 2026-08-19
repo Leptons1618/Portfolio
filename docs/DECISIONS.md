@@ -671,3 +671,36 @@ This is written down in `.claude/rules/admin-surface.md` — it is the same trap
 **The check is `npm run build` plus a grep**, not a rule anyone will remember. A selector for a script-built node that still carries `[data-astro-cid` in `dist/` is the bug, and it is one line to look for.
 
 The general rule stands and now applies to public components too: **a page or component `<style>` is for markup that component rendered; markup a module builds belongs in a global sheet or behind `:global()`.**
+
+---
+
+## 31. There is no agent framework, and the second surface is what proved there did not need to be
+
+**Status:** accepted
+
+**Context.** This site has an authoring assistant that reads content, streams into form fields, recovers from malformed output and runs against six interchangeable providers. That is the description of a thing people reach for LangChain, the Vercel AI SDK, or an agent runtime to build — and when the assistant grew from one surface to two, the argument for adopting one was at its strongest. A second screen meant a second set of fields, a second output shape and a second live-fill path, which is exactly the moment "we should have used a framework" gets said out loud.
+
+The pull is real, because the shopping list looks like a framework's feature list: provider abstraction, streaming, structured output, tool definitions, retries, a message-history type.
+
+**Decision.** No framework, no adapter interface, no tool-calling loop. The whole assistant is four things that already existed:
+
+- **A closed table** — `ASSIST_TASKS` in `src/lib/assist-tasks.ts`. Twelve entries, each with its own instructions, temperature, token ceiling, context allowlist, surface and output shape.
+- **One `fetch`** — `callChat()` in `src/lib/ai.ts`. Every provider worth having speaks `POST {base_url}/chat/completions`, so a provider is three strings in a D1 row and there is deliberately no adapter interface to implement.
+- **One parser** — `parseFields()`, a pure function from the text so far to a record of fields.
+- **The page's own form** — the fields are the output surface. Nothing renders a chat log the author then copies out of.
+
+**Why each framework feature is not wanted here:**
+
+*Provider abstraction* is what `ai_providers` already is. Six vendors, one wire format, no adapter — decision 22. A framework's abstraction would be a second layer over a shape that has one member.
+
+*Structured output* — function calling, JSON schema, constrained decoding — is the tempting one, and it is the wrong tool for output that has to be **readable while it is still arriving**. A JSON object is not readable until its last brace lands, so a schema-validated `compose` would be thirty seconds of a spinner and then a form filling in all at once. The labelled-line format exists so a title can appear before the body has started, and a truncated response is still a partial result rather than a parse error. That is the opposite of what a validator is for, and it is a product requirement, not a limitation.
+
+*A tool-calling loop* is the one that is actively refused rather than merely unnecessary. Decision 24 is that the task list is closed because `/api/ai/assist` runs on the owner's API key behind a browser token: a loop where a model chooses what to call next is precisely the general-purpose endpoint that table exists to prevent. There is nothing for a model to decide here — the author pressed a button that names the task.
+
+*Retries and fallback* are eleven lines in `callChat()`, walking the active providers in priority order.
+
+**What the second surface actually cost.** Adding the project screen was: two rows in the table, a `surface` field so each editor renders its own menu, a `keys` field naming which labelled fields a task returns, and generalising the post-only parser into `parseFields(text, shape)`. No new API route — `/api/ai/assist` already took a task name and a context object. No new dependency. `parseDocument` survives as an eight-line wrapper so the journal editor did not have to change at all.
+
+**The test is the argument.** `npm run check:ai` runs in a plain Node process with no network, no mocks and no framework test harness, because the security-relevant halves of this feature are pure functions: which fields a task may send, what the corpus may contain, what the parser does with a response. A framework moves that logic inside someone else's abstraction, where the questions worth asserting — *can a task send a field it did not declare?* — stop being answerable by importing a module and calling it.
+
+**When this would change.** If a task genuinely needed a model to choose between actions and see the result, the loop would be real work and worth taking from a library. Nothing here does. Every task is one prompt, one response, one place the text goes.

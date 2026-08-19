@@ -318,7 +318,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
             <h4 class="asx-group-label">{group.label}</h4>
             <p class="asx-group-hint">{group.hint}</p>
           </div>
-          {ASSIST_MENU.filter(task => task.group === group.id).map(task => (
+          {ASSIST_MENU.filter(task => task.surface === 'journal' && task.group === group.id).map(task => (
             <button
               type="button"
               class="asx-task"
@@ -371,7 +371,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
 <script>
   import { navigate } from 'astro:transitions/client';
-  import { ADMIN_KEYS, onAdminPage, setBusy, setLabel, toast, wireTabs } from '../lib/admin';
+  import { ADMIN_KEYS, onAdminPage, setBusy, setLabel, toast, undoRing, wireTabs } from '../lib/admin';
   import {
     buildPostMarkdown,
     createPost,
@@ -388,7 +388,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     ASSIST_TASKS,
     isAssistTask,
     parseDocument,
-    type AssistTarget,
+    type JournalTarget,
     type AssistTask,
     type AssistTaskName,
   } from '../lib/assist-tasks';
@@ -869,9 +869,12 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
        `image-upload.ts`, an unreferenced upload is harmless and a saved post
        pointing at bytes that were never written is not.
 
-       **Every live run is undoable in one press.** The affected fields are
-       snapshotted before the first token arrives, which is the thing that makes
-       writing straight into the form reasonable rather than reckless. */
+       **Every live run is undoable in one press, three runs back.** The
+       affected fields are snapshotted before the first token arrives, which is
+       the thing that makes writing straight into the form reasonable rather
+       than reckless — and the ring is what makes it survive being used the way
+       it actually is, which is several tasks in a row before deciding the
+       second one was the good one. */
     const assistDialog = $<HTMLDialogElement>('assist-dialog');
     const assistOutput = $('assist-output');
     const assistOptions = $('assist-options');
@@ -967,30 +970,61 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
        Which inputs a live task touches, so the snapshot behind Undo covers
        exactly those and no more. Undoing a summary rewrite must not also revert
        the paragraph the author typed while it was running. */
-    const LIVE_FIELDS: Record<AssistTarget, (keyof typeof fields)[]> = {
+    const LIVE_FIELDS: Record<JournalTarget, (keyof typeof fields)[]> = {
       document: ['title', 'summary', 'tags', 'readTime', 'body'],
       summary: ['summary'],
       body: ['body'],
     };
 
-    let undoable: { target: AssistTarget; values: Partial<Record<string, string>> } | null = null;
+    /* Three runs back, not one. Tasks get used in sequence — compose, then
+       rewrite the summary, then rewrite it again with a different steer — and
+       the one an author wants back is often not the last. `undoRing()` in
+       `admin.ts` has the reasoning and the reason it stops at three. */
+    const undos = undoRing();
 
-    function takeSnapshot(target: AssistTarget) {
+    function takeSnapshot(target: JournalTarget, label: string) {
       const values: Record<string, string> = {};
       for (const key of LIVE_FIELDS[target]) values[key] = fields[key].value;
-      undoable = { target, values };
+      undos.push({ label, values });
+    }
+
+    /**
+     * Drop the snapshot the current run took, if that run changed nothing.
+     *
+     * A failed or unusable run has already pushed an entry — the snapshot is
+     * taken before the first token, because by the time anything is known about
+     * the response the fields have been written to. Leaving it would offer Undo
+     * for a run that did nothing and push a real snapshot off the end of the
+     * ring, which is the one thing a three-deep ring must not do.
+     *
+     * Compared by value rather than tracked by a flag, so a run that wrote
+     * something and *then* failed keeps its entry — that is exactly the case
+     * where Undo is the only way back.
+     */
+    function dropUnusedSnapshot() {
+      const entry = undos.peek();
+      if (!entry) return;
+      const untouched = Object.entries(entry.values).every(
+        ([key, value]) => fields[key as keyof typeof fields].value === value,
+      );
+      if (untouched) undos.pop();
     }
 
     function undoLive() {
-      if (!undoable) return;
-      for (const [key, value] of Object.entries(undoable.values)) {
+      const entry = undos.pop();
+      if (!entry) return;
+      for (const [key, value] of Object.entries(entry.values)) {
         fields[key as keyof typeof fields].value = value ?? '';
       }
-      undoable = null;
       render();
       holdLocally();
       setFoot('idle');
-      setAssistStatus('Put back the way it was.');
+      const left = undos.depth;
+      setAssistStatus(
+        left
+          ? `Put back the way it was before “${entry.label}”. ${left} more step${left === 1 ? '' : 's'} back.`
+          : `Put back the way it was before “${entry.label}”.`,
+      );
       toast('Reverted.', { tone: 'success' });
     }
 
@@ -1014,7 +1048,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
      * its trailing whitespace so the caret does not jump, a finished one is
      * trimmed.
      */
-    function applyLive(target: AssistTarget, raw: string, final: boolean) {
+    function applyLive(target: JournalTarget, raw: string, final: boolean) {
       if (target === 'document') {
         const doc = parseDocument(raw);
         if (doc.title) fields.title.value = doc.title;
@@ -1035,7 +1069,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     }
 
     /** A short, honest description of how far a live run has got. */
-    function liveProgress(target: AssistTarget, raw: string): string {
+    function liveProgress(target: JournalTarget, raw: string): string {
       if (target !== 'document') return `Writing… ${raw.length.toLocaleString()} characters.`;
       const doc = parseDocument(raw);
       const landed = [
@@ -1238,9 +1272,17 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     type FootState = 'idle' | 'running' | 'live-done' | 'panel-done' | 'salvage' | 'error';
 
     function setFoot(state: FootState) {
-      const live = state === 'live-done';
       stopBtn.hidden = state !== 'running';
-      undoBtn.hidden = !(live && undoable !== null);
+      /* Not tied to `live-done` any more. With a ring, Undo outlives the run
+         that filled it — pressing it once and wanting the step before that is
+         the whole reason the ring exists, and a button that vanished after the
+         first press would make the other two entries unreachable. */
+      const undoable = state === 'running' ? null : undos.peek();
+      undoBtn.hidden = undoable === null;
+      if (undoable) {
+        setLabel(undoBtn, undos.depth > 1 ? `Undo (${undos.depth})` : 'Undo');
+        undoBtn.title = `Put the fields back the way they were before “${undoable.label}”.`;
+      }
       copyBtn.hidden = !(state === 'panel-done' || state === 'salvage');
       /* Hidden when the result is a list of chips: they are the Insert, and a
          button beside them that silently picks one is the thing this replaced. */
@@ -1320,11 +1362,10 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       const blocked = blockedBecause(name);
       if (blocked) return setAssistStatus(blocked, 'error');
 
-      const live = (task.live ?? null) as AssistTarget | null;
+      const live = (task.live ?? null) as JournalTarget | null;
 
       captured = currentSelection();
       result = null;
-      undoable = null;
       assistPreview.hidden = true;
       assistPreview.replaceChildren();
       renderOptions();
@@ -1336,7 +1377,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       setFoot('running');
       setAssistStatus(live ? 'Writing…' : `${task.label}…`);
 
-      if (live) takeSnapshot(live);
+      if (live) takeSnapshot(live, task.label);
 
       /* Only the fields this task declares. The allowlist on the task is what
          keeps "suggest tags" from paying for the whole post body twice over. */
@@ -1441,7 +1482,9 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
              rather than answering takes, and it used to end with several
              hundred words of that deliberation in the post body. */
           if (live === 'document' && !parseDocument(output).recognised) {
-            undoable = null;
+            /* Nothing was written, so the snapshot this run took is a no-op
+               occupying a ring slot a real one needs. */
+            dropUnusedSnapshot();
             assistOutput.hidden = false;
             assistText.textContent = output;
             assistText.scrollTop = 0;
@@ -1489,13 +1532,24 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         settled = true;
         if (error instanceof DOMException && error.name === 'AbortError') {
           /* Stopped on purpose. Whatever arrived stays where it was written —
-             that is what "live" means — and Undo is still the way back. */
+             that is what "live" means — and Undo is still the way back.
+
+             Unless nothing arrived: `applyLive` with an empty response is not a
+             no-op for the two prose targets, it assigns `''`, so stopping a
+             `revise` the instant it started used to empty the post. A run that
+             wrote nothing also has no snapshot worth keeping. */
           if (live) {
-            applyLive(live, raw, true);
-            setFoot('live-done');
-            setAssistStatus(
-              `Stopped. ${raw.length.toLocaleString()} characters were written; Undo puts it back.`,
-            );
+            if (raw) {
+              applyLive(live, raw, true);
+              setFoot('live-done');
+              setAssistStatus(
+                `Stopped. ${raw.length.toLocaleString()} characters were written; Undo puts it back.`,
+              );
+            } else {
+              dropUnusedSnapshot();
+              setFoot('idle');
+              setAssistStatus('Stopped before anything was written. Nothing changed.');
+            }
           }
           return;
         }
@@ -1504,8 +1558,11 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
             ? error.message
             : 'The assistant failed.';
         /* A live run that failed part-way has already written into the fields,
-           so the snapshot is the only way out and Undo has to stay offered. */
-        setFoot(live && undoable ? 'live-done' : 'error');
+           so the snapshot is the only way out and Undo has to stay offered.
+           One that failed before writing anything has nothing to offer, and
+           `dropUnusedSnapshot` is what tells the two apart. */
+        if (live) dropUnusedSnapshot();
+        setFoot('error');
         setAssistStatus(text, 'error');
         toast(text, { tone: 'error' });
       } finally {

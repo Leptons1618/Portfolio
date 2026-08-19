@@ -31,11 +31,14 @@ export const prerender = false;
 /**
  * Astro's own markdown processor, built once per isolate.
  *
- * The same one `scripts/seed-d1.mjs` used for the migrated rows, so a post
- * written today renders exactly like one written before the move: same GFM,
- * same smartypants, same heading slugs. Rendering happens here rather than in
- * the browser so `body_html` stays a function of `body_md` — the markdown is
- * the source of truth, and the HTML beside it is derived, never authored.
+ * The same one that rendered the migrated rows in
+ * `migrations/0002_seed_from_content.sql`, so a post written today renders
+ * exactly like one written before the move: same GFM, same smartypants, same
+ * heading slugs. (The script that produced them is gone along with
+ * `src/content/`; the migration is its frozen output.) Rendering happens here
+ * rather than in the browser so `body_html` stays a function of `body_md` — the
+ * markdown is the source of truth, and the HTML beside it is derived, never
+ * authored.
  */
 let processor: ReturnType<typeof createMarkdownProcessor> | null = null;
 const render = async (markdown: string): Promise<string> => {

@@ -396,6 +396,11 @@ const firstName = site.name.split(' ')[0];
 
       inFlight = new AbortController();
       let answer = '';
+      /* From the `done` frame's `stopReason`. `length` means the answer ran
+         into the site's output ceiling rather than finishing — which reads as
+         a model that stopped mid-sentence for no reason, and is the one
+         failure here a visitor can do something about by asking for less. */
+      let truncated = false;
 
       try {
         const response = await fetch('/api/ai/chat', {
@@ -428,7 +433,13 @@ const firstName = site.name.split(' ')[0];
 
           for (const raw of lines) {
             if (!raw.trim()) continue;
-            let frame: { delta?: string; error?: string; status?: string };
+            let frame: {
+              delta?: string;
+              error?: string;
+              status?: string;
+              done?: boolean;
+              stopReason?: string;
+            };
             try {
               frame = JSON.parse(raw);
             } catch {
@@ -448,6 +459,7 @@ const firstName = site.name.split(' ')[0];
               renderAnswer(target, answer);
               log.scrollTop = log.scrollHeight;
             }
+            if (frame.done) truncated = frame.stopReason === 'length';
           }
         }
 
@@ -458,6 +470,12 @@ const firstName = site.name.split(' ')[0];
         target.dataset.state = 'done';
         citations(target, answer);
         history.push({ role: 'assistant', content: answer });
+        /* After the citations, so it reads as a footnote on the answer rather
+           than as part of it. A note rather than a toast: it qualifies what is
+           on screen, and it has to stay beside it. */
+        if (truncated) {
+          note('That answer hit the length limit and stopped early — ask for a narrower slice of it and it will fit.');
+        }
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
           if (stopped && answer.trim()) {

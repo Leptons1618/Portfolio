@@ -738,3 +738,61 @@ export async function fetchRepoLanguages(owner: string, repo: string): Promise<s
     return [];
   }
 }
+
+/**
+ * A repository's README as text, or `''`.
+ *
+ * The one input that makes "write this project's frontmatter from its
+ * repository" worth having. GitHub's `description` is a sentence written for a
+ * repository list; the README is what the author already wrote about the work,
+ * and a summary derived from it says what the thing does rather than what
+ * language it is in.
+ *
+ * A *read*, like everything else left in this module — nothing here writes to a
+ * repository any more (decision 19), and this does not change that. It is not
+ * `readFile`, which was deleted along with the write path: that one took an
+ * arbitrary path in the content repository and existed to round-trip files this
+ * site used to store there. This one takes no path at all. GitHub's `/readme`
+ * endpoint decides which file is the README, so nothing a caller passes can
+ * name what comes back.
+ *
+ * `Accept: application/vnd.github.raw` returns the file rather than a JSON
+ * envelope with base64 in it, which is why this does not go through `request()`
+ * — that one parses JSON, and there is nothing here to parse.
+ *
+ * Failure is not worth surfacing. A repository with no README, a rate limit, a
+ * private repository the App was never installed on: in every case the answer
+ * is "no README", the task runs on the metadata alone and writes a thinner
+ * summary. The alternative is a dialog about GitHub in the middle of drafting.
+ *
+ * Capped here as well as in `assist-tasks.ts`. That cap is the one that bounds
+ * the request; this one bounds what a browser holds and hands around, and a
+ * README large enough to matter is one where the useful part was in the first
+ * few kilobytes anyway.
+ */
+export async function fetchRepoReadme(owner: string, repo: string): Promise<string> {
+  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/readme`;
+  const token = getToken();
+
+  const read = async (withToken: boolean): Promise<string> => {
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/vnd.github.raw',
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(withToken && token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    if (!response.ok) throw new GitHubError(`GitHub responded ${response.status}.`, response.status);
+    return (await response.text()).slice(0, 20_000);
+  };
+
+  try {
+    /* Same fallback as `fetchRepoMeta` and `fetchRepoLanguages`, for the same
+       reason: a token that cannot reach this repository is not a reason to stop
+       asking publicly. Being signed in must never be worse than being signed
+       out — decision 15. */
+    return token ? await read(true).catch(() => read(false)) : await read(false);
+  } catch {
+    return '';
+  }
+}
