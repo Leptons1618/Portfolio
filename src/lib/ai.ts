@@ -298,7 +298,26 @@ const CHAT_TIMEOUT_MS = 30_000;
  * harmless everywhere else — an unknown header is ignored by every other
  * provider — and they are what makes the spend on OpenRouter's dashboard say
  * which site incurred it rather than appearing as an anonymous key.
+ *
+ * `X-Title` is built from `site.name`, which is the owner's own text and may
+ * hold anything. A header value is a *ByteString*: one code point above 255 in
+ * it makes `fetch()` throw `TypeError` before a request is ever sent, which
+ * `callChat` below cannot distinguish from a provider being unreachable — so
+ * every provider "fails", and the visitor is told the assistant could not
+ * answer. That is not a hypothetical: the em dash this comment is written with
+ * was in that template string, and it took the whole feature down on both
+ * endpoints. `asciiHeader` is the guard, and it belongs here rather than in
+ * `site.ts` because this is the only place a site field becomes a header.
  */
+
+/**
+ * Latin-1-safe, so a name with a dash, an accent or an emoji cannot throw.
+ *
+ * Exported only so `scripts/test-ai.mjs` can pin it against the real `site.name`
+ * — the value that actually reaches the header, and the one a rename can break.
+ */
+export const asciiHeader = (value: string) => value.replace(/[^ -~]+/g, ' ').trim();
+
 async function callProvider(provider: Provider, options: CallOptions): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? CHAT_TIMEOUT_MS);
@@ -310,7 +329,7 @@ async function callProvider(provider: Provider, options: CallOptions): Promise<R
         Authorization: `Bearer ${provider.apiKey}`,
         'Content-Type': 'application/json',
         'HTTP-Referer': site.url,
-        'X-Title': `${site.name} — portfolio assistant`,
+        'X-Title': asciiHeader(`${site.name} portfolio assistant`),
       },
       body: JSON.stringify({
         model: provider.model,
@@ -414,6 +433,22 @@ export function completionText(payload: unknown): string {
  * Errors mid-stream become a `{"error":…}` line rather than a torn connection:
  * the response status was already sent as 200 by then, so a thrown exception
  * shows a visitor a half-finished sentence and nothing else.
+ *
+ * ## `pull` must not return without enqueueing, and the loop below is why
+ *
+ * A `pull` that queues nothing is not called again. The stream machinery
+ * re-pulls only if a *new* read request arrives while the pull is running, so a
+ * pull that reads a chunk, finds nothing to emit and returns leaves the
+ * consumer's pending `read()` unresolved for good — the response deadlocks with
+ * the upstream socket still open and the tokens still being billed.
+ *
+ * That is not an edge case, it is the *first* case. The opening frame of every
+ * OpenAI-compatible stream is `delta: {"role":"assistant"}` carrying no content;
+ * a reasoning model then sends nothing but content-free frames for its entire
+ * thinking phase, and several providers interleave keep-alive comments. Any one
+ * of those landing alone in a TCP read used to hang the whole answer. So the
+ * read sits in a loop that returns only once a line has been queued or upstream
+ * has ended.
  */
 export function ndjsonFromSSE(upstream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
   const decoder = new TextDecoder();
@@ -426,45 +461,56 @@ export function ndjsonFromSSE(upstream: ReadableStream<Uint8Array>): ReadableStr
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const { done, value } = await reader.read();
-        if (done) {
-          controller.enqueue(line({ done: true }));
-          controller.close();
-          return;
-        }
-
-        buffer += decoder.decode(value, { stream: true });
-
-        /* SSE frames are separated by a blank line, but every provider observed
-           puts one `data:` per frame, so splitting on newlines and ignoring
-           everything that is not a `data:` is both simpler and more tolerant of
-           the comment lines some send as keep-alives. The final partial line is
-           kept for the next chunk — a JSON payload split across two TCP reads
-           is the normal case, not an edge one. */
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const raw of lines) {
-          const trimmed = raw.trim();
-          if (!trimmed.startsWith('data:')) continue;
-          const data = trimmed.slice(5).trim();
-          if (!data || data === '[DONE]') continue;
-
-          try {
-            const parsed = JSON.parse(data) as {
-              choices?: { delta?: { content?: string } }[];
-              error?: { message?: string };
-            };
-            if (parsed.error) {
-              controller.enqueue(line({ error: parsed.error.message ?? 'The model stopped.' }));
-              continue;
-            }
-            const delta = parsed.choices?.[0]?.delta?.content;
-            if (delta) controller.enqueue(line({ delta }));
-          } catch {
-            /* A frame that is not JSON is a keep-alive or a vendor's own
-               commentary. Skipping it is correct; failing on it is not. */
+        /* One turn per upstream chunk, returning the moment this pull has
+           produced a line. Returning empty-handed is what stalls the stream. */
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) {
+            controller.enqueue(line({ done: true }));
+            controller.close();
+            return;
           }
+
+          let emitted = false;
+          buffer += decoder.decode(value, { stream: true });
+
+          /* SSE frames are separated by a blank line, but every provider
+             observed puts one `data:` per frame, so splitting on newlines and
+             ignoring everything that is not a `data:` is both simpler and more
+             tolerant of the comment lines some send as keep-alives. The final
+             partial line is kept for the next chunk — a JSON payload split
+             across two TCP reads is the normal case, not an edge one. */
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const raw of lines) {
+            const trimmed = raw.trim();
+            if (!trimmed.startsWith('data:')) continue;
+            const data = trimmed.slice(5).trim();
+            if (!data || data === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(data) as {
+                choices?: { delta?: { content?: string } }[];
+                error?: { message?: string };
+              };
+              if (parsed.error) {
+                controller.enqueue(line({ error: parsed.error.message ?? 'The model stopped.' }));
+                emitted = true;
+                continue;
+              }
+              const delta = parsed.choices?.[0]?.delta?.content;
+              if (delta) {
+                controller.enqueue(line({ delta }));
+                emitted = true;
+              }
+            } catch {
+              /* A frame that is not JSON is a keep-alive or a vendor's own
+                 commentary. Skipping it is correct; failing on it is not. */
+            }
+          }
+
+          if (emitted) return;
         }
       } catch (error) {
         controller.enqueue(line({ error: error instanceof Error ? error.message : 'Stream failed.' }));

@@ -1310,7 +1310,16 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
           controller.signal,
         );
 
-        if (!output.trim()) throw new Error('The model returned nothing.');
+        /* Names the cause, because there is exactly one that produces this and
+           it is not obvious: a reasoning model that spent the task's whole
+           token ceiling thinking and stopped before writing a word. The call
+           succeeded, the key is fine, and nothing else on this screen would
+           say so. See the note on `maxTokens` in `assist-tasks.ts`. */
+        if (!output.trim()) {
+          throw new Error(
+            'The model finished without writing anything — usually a reasoning model that used the whole token budget thinking. Try again, or pick a different model on the AI screen.',
+          );
+        }
         settled = true;
 
         if (live) {
