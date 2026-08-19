@@ -626,8 +626,48 @@ Consequences that follow from it:
 
 **`parseDocument()` is called on every delta, against the whole accumulated string.** An incremental parser would have to hold state across a chunk boundary that can fall mid-label, and the failure mode of getting that wrong is a title missing its first three characters. Re-reading a few kilobytes a few hundred times is free, and being a pure function of the text so far is what makes it testable without a network — the test feeds it one character at a time and asserts the title never regresses and no header label ever leaks into the body.
 
-**The `!seenLabel` fallback is honoured at the end and never mid-stream.** A response that ignores the format entirely becomes body text, which is the recoverable failure: an author looking at prose can fix the fields, where an empty form reads as a broken feature. Applying it live would set the body to `TIT` on the first delta and never correct it, because the fallback stops firing the moment `TITLE:` parses.
+**There was a `!seenLabel` fallback here, and removing it is decision 29.** It treated a response with no recognised label as body text, on the grounds that prose in the editor beats an empty form. What it actually caught was every reasoning model that writes its chain-of-thought as content — none of them emit `TITLE:`, so the fallback fired on all of them and committed the deliberation to the post. `parseDocument` reports `recognised: false` instead and the editor routes the response to the panel.
 
 **Per-field buttons carry `data-assist-task`.** "Ask the assistant to do this to this field" is one intention, and making it two — open a panel, find the right task among ten — is what stops people using it. A new field gets a button and no script changes.
 
 The task list is still closed, and the security property of decision 24 is unchanged: `compose` and `revise` are two more entries in `ASSIST_TASKS`, each with its own field allowlist, not a loosening of the check.
+
+---
+
+## 29. A model's reasoning is not an answer, and it never reaches a browser
+
+**Status:** accepted
+
+**Context.** Both assistants shipped forwarding whatever a provider put in `delta.content`. On a reasoning model that is not the answer — it is the model talking to itself first. The public chat answered "what has he built with computer vision?" with *"Here's a thinking process: 1. Analyze User Input…"* followed by a numbered analysis of the visitor's own question. The journal editor was worse: `compose` streams into the fields, `parseDocument` had a fallback treating an unrecognised response as body text, and a model that deliberates instead of answering never writes `TITLE:` — so several hundred words of deliberation went straight into the post body and rendered in the preview pane as if the author had written them.
+
+Three separate faults with one symptom, so three separate fixes.
+
+**Decision.** Reasoning is stripped server-side, and the frame protocol carries no thought text at all.
+
+1. **`reasoning: { exclude: true }` on the request**, gated on the base URL containing `openrouter.ai`. Tokens never generated cost nothing and cannot leak. It is gated rather than sent to everyone because an unknown top-level field is ignored by most OpenAI-compatible providers and rejected with a 400 by the strict ones — and a 400 there is indistinguishable from a bad key. Same class of failure as the em dash that took `X-Title` down.
+2. **`thinkStripper()` in `ai.ts`**, a stateful split of `content` into prose and anything inside `<think>`, `<thinking>`, `<reasoning>`, `<reflection>` or `<scratchpad>`. Stateful because a tag is seven characters and a TCP read can end after two of them; the carry buffer holds back a trailing run that could still become a tag, and is restricted to letters so that a post about `a < b` is not held hostage. `delta.reasoning` and `delta.reasoning_content` are dropped in the same place.
+3. **A prompt rule in both prompts.** The only thing that touches a model marking its thinking with nothing at all, and the weakest of the three — the same honesty the scope prompt already applies to itself.
+
+**The most a client learns is `{"status":"thinking"}`.** No text rides with it. That is the difference between a guarantee and a convention: a widget cannot render what it was never sent, so no future change to either UI can reintroduce this by choosing to display a field.
+
+**Known gap, deliberately not closed.** A model whose opening tag is a prefill emits only `</think>`, with the thinking ahead of it and nothing marking where it began. Catching that needs the whole response buffered before a single character is forwarded, which is the streaming the file exists to do. Defence 1 covers the router it happens on and defence 3 covers the rest; if it shows up, the answer is a different model, not a buffer.
+
+**`parseDocument` no longer falls back.** It reports `recognised: false` and the editor puts the response in the panel with Copy and Try again. Nothing is discarded and nothing is guessed at — recovering a malformed answer is the panel's job, and the body of a post is not a scratch space.
+
+`scripts/test-ai.mjs` pins all of it: the stripper fed one character at a time, a tag split across three reads, prose containing `<`, an unclosed tag, and both prompts still carrying the rule.
+
+---
+
+## 30. The chat transcript was unstyled in production for want of one `:global()`
+
+**Status:** accepted
+
+**Context.** `AskWidget.astro` builds every turn, bubble, note and suggestion chip with `createElement`. Its `<style>` block styled them by class — `.ask-turn`, `.ask-bubble`, `.ask-note`, `.ask-chip` — written bare. Astro compiles a scoped rule by appending `[data-astro-cid-…]` to every compound not wrapped in `:global()`, and it only ever puts that attribute on elements it rendered itself. So the whole transcript shipped as `.ask-bubble[data-astro-cid-lhhdizdp]` and matched nothing: no right-aligned question block, no rule down the answer's edge, no chips. The panel around it was styled, because that part is in the markup, which is exactly what made it hard to see.
+
+This is written down in `.claude/rules/admin-surface.md` — it is the same trap `#import-list` and the resume editor's generated fields already go through — and this file was simply never checked against it.
+
+**Decision.** Every rule for script-built DOM in this component hangs off a server-rendered ancestor: `.ask-log :global(…)` for the transcript, `.ask-suggestions :global(…)` for the chips. Anything added to `bubble()`, `note()` or `drawIntro()` has to come through one of those two doors or it will silently not exist.
+
+**The check is `npm run build` plus a grep**, not a rule anyone will remember. A selector for a script-built node that still carries `[data-astro-cid` in `dist/` is the bug, and it is one line to look for.
+
+The general rule stands and now applies to public components too: **a page or component `<style>` is for markup that component rendered; markup a module builds belongs in a global sheet or behind `:global()`.**
