@@ -26,7 +26,10 @@ export interface AiOverview {
   providers: ProviderSummary[];
   /** The stored settings, clamped — what the form edits. */
   settings: AiSettings;
+  /** Everything published, as the whole-corpus prompt used to carry it. */
   corpus: { chars: number; approxTokens: number };
+  /** The table of contents a request carries now, with the bodies looked up. */
+  index: { chars: number; approxTokens: number };
   usage: { day: string; answered: number; activeCallers: number };
 }
 
@@ -100,6 +103,17 @@ export interface ProviderFields {
    * corrected is a form that lies about what it saved.
    */
   params?: Record<string, number>;
+  /**
+   * What this provider's model may be asked to write, in tokens.
+   *
+   * Sent as a number and clamped again on read. `null` clears it, which is
+   * "use each task's own ceiling" — the behaviour before this field existed.
+   */
+  maxOutputTokens?: number | null;
+  /** `low` / `medium` / `high`, or `''` to send no effort field at all. */
+  reasoningEffort?: string;
+  promptCache?: boolean;
+  toolsEnabled?: boolean;
   active: boolean;
   priority: number;
   /**
@@ -267,8 +281,28 @@ export const deleteChat = (id: string): Promise<{ ok?: boolean }> => chatWrite({
 
 /* ---------- streaming ---------- */
 
+/** One lookup, as the stream reports it. `running` is followed by `done` or `error`. */
+export interface ToolFrame {
+  id: string;
+  name: string;
+  args?: Record<string, unknown>;
+  status: 'running' | 'done' | 'error';
+  detail?: string;
+  ms?: number;
+}
+
 export interface StreamHandlers {
   onDelta: (text: string) => void;
+  /**
+   * A tool the model asked for, and then its outcome.
+   *
+   * Two frames per call, keyed by `id`, because the interesting part of a
+   * lookup is that it is *happening* — a panel that only reported finished
+   * calls would sit silent for the second the query takes and then produce a
+   * row that was never in progress. Never mixed into `onDelta`, for the same
+   * reason thinking is not: only one of the three channels is the answer.
+   */
+  onTool?: (frame: ToolFrame) => void;
   /**
    * A chunk of the model's deliberation.
    *
@@ -323,6 +357,7 @@ export async function readStream(response: Response, handlers: StreamHandlers): 
       let frame: {
         delta?: string;
         thinking?: string;
+        tool?: ToolFrame;
         error?: string;
         done?: boolean;
         stopReason?: string;
@@ -334,6 +369,7 @@ export async function readStream(response: Response, handlers: StreamHandlers): 
       }
       if (frame.error) throw new ContentError(frame.error, 502);
       if (frame.thinking) handlers.onThinking?.(frame.thinking);
+      if (frame.tool) handlers.onTool?.(frame.tool);
       if (frame.delta) {
         text += frame.delta;
         handlers.onDelta(frame.delta);
@@ -362,11 +398,21 @@ export async function runAssist(
   handlers: StreamHandlers,
   signal?: AbortSignal,
   history?: { role: 'user' | 'assistant'; content: string }[],
+  /**
+   * What the panel's toolbar chose for this run.
+   *
+   * All three are *preferences*: the server validates `model` against the
+   * provider rows and ignores anything else, clamps `effort` to the three
+   * levels it knows, and treats `tools` as a switch it may already have off.
+   * A stale option from a screen left open overnight therefore degrades to the
+   * configured default rather than failing.
+   */
+  run?: { model?: string; effort?: string; tools?: boolean },
 ): Promise<string> {
   const response = await fetch('/api/ai/assist', {
     method: 'POST',
     headers: authorized(),
-    body: JSON.stringify({ task, context, instruction, history }),
+    body: JSON.stringify({ task, context, instruction, history, ...run }),
     signal,
   });
   return readStream(response, handlers);

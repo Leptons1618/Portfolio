@@ -1607,8 +1607,16 @@
      exactly the same reason. */
   inset: auto var(--space-4) var(--space-4) auto;
   z-index: 70;
-  width: min(500px, calc(100vw - var(--space-8)));
-  max-height: min(84dvh, 760px);
+  /* `--asx-w` / `--asx-h` are written by the resize handle and read here.
+     Custom properties rather than an inline `width`/`height`, so the narrow-
+     screen rules at the bottom of this block can still win — an inline style
+     outranks every stylesheet rule, and a panel resized on a desktop would then
+     hang off the side of a laptop. A custom property is only an *input* to a
+     declaration, so a later declaration overrides it. */
+  width: var(--asx-w, min(560px, calc(100vw - var(--space-8))));
+  height: var(--asx-h, auto);
+  max-width: calc(100vw - var(--space-8));
+  max-height: min(84dvh, 900px);
   padding: 0;
   margin: 0;
   overflow: hidden;
@@ -1643,6 +1651,92 @@
 
 .asx-head-copy { min-width: 0; }
 .asx-head-actions { display: flex; gap: 2px; flex: none; }
+
+/* — the run controls —
+
+   Model, effort and lookups, on one row under the title. A strip rather than a
+   dialog because all three are things an author changes *between two runs* —
+   "that model narrated instead of writing, try the other one" is the whole
+   workflow — and a setting you have to open a screen for is a setting nobody
+   turns.
+
+   `flex-wrap` and a `min-width: 0` on the labels: at 360px the panel is barely
+   wider than two of these, and a control that overflows its container is worse
+   than one that wraps onto a second line. */
+.asx-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  flex: none;
+  padding: 6px var(--space-4);
+  border-bottom: 1px solid var(--color-divider);
+  background: var(--color-bg);
+}
+
+.asx-tool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  font-weight: 400;
+}
+
+.asx-tool-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  flex: none;
+}
+
+/* Compact, because three of them share a 560px row. The height matches
+   `.btn-sm` so the strip reads as one band rather than three boxes.
+
+   `.select-button` as well as `.input`: `src/lib/select.ts` replaces every
+   `select.input` on this surface with a button and a popover, so styling only
+   the native element would style the one thing that is hidden. */
+.asx-toolbar .input,
+.asx-toolbar .select-button {
+  min-height: 26px;
+  padding: 2px 22px 2px 8px;
+  font-size: 11px;
+}
+
+.asx-toolbar .select { max-width: 190px; }
+
+/* — the resize handle —
+
+   Top-left, because the panel is anchored bottom-right and CSS `resize` only
+   ever puts one at bottom-right, which on this dialog drags it off the screen.
+   Two hairlines rather than a glyph: it has to read as a grip without becoming
+   a fourth thing in a header that already has three buttons. */
+.asx-grip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background:
+    linear-gradient(to bottom right, transparent 46%, var(--color-text-muted) 46%, var(--color-text-muted) 54%, transparent 54%)
+      no-repeat 3px 3px / 7px 7px,
+    linear-gradient(to bottom right, transparent 46%, var(--color-text-muted) 46%, var(--color-text-muted) 54%, transparent 54%)
+      no-repeat 3px 3px / 12px 12px;
+  cursor: nwse-resize;
+  opacity: 0.5;
+  z-index: 1;
+}
+
+.asx-grip:hover,
+.asx-grip:focus-visible { opacity: 1; }
+
+/* A drag over a panel full of text selects the text unless this is set, and an
+   accidental selection under the cursor makes the resize look broken. */
+.asx[data-resizing] { user-select: none; }
 
 .asx-title {
   display: flex;
@@ -1902,6 +1996,80 @@
 .asx-menu-hint { font-size: 11px; line-height: 1.35; color: var(--color-text-muted); }
 
 
+/* — lookups —
+
+   A model that answers from this site's content fetches it with a tool call,
+   and every one of those is a row here: the tool's name, what it was given, and
+   how long it took. Terminal-shaped on purpose — mono, one line, a state on the
+   right — because that is the vocabulary every other agent surface uses and an
+   author reading this panel has seen it before.
+
+   It sits *above* the answer rather than behind a disclosure like thinking,
+   because it is not deliberation: it is the evidence, and the reason a claim
+   about a post is worth believing. Built in script, so the rules are here. */
+.asx-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.asx-tool-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px var(--space-2);
+  border-left: 2px solid var(--color-divider);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.asx-tool-row[data-status='running'] { border-left-color: var(--color-accent); }
+.asx-tool-row[data-status='done'] { border-left-color: var(--color-text); }
+.asx-tool-row[data-status='error'] { border-left-color: var(--color-accent-700); }
+
+.asx-tool-name {
+  color: var(--color-text);
+  font-weight: 600;
+  flex: none;
+}
+
+.asx-tool-row[data-status='error'] .asx-tool-name { color: var(--color-accent-700); }
+
+/* The arguments, which are a model's own JSON and can be long. One line,
+   ellipsised: the whole value is in the result the model got, and this row is a
+   trace rather than a record. */
+.asx-tool-args {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asx-tool-state {
+  flex: none;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+/* A running lookup has to look like it is running. Reduced-motion turns the
+   pulse off and leaves the accent rule, which is still a state. */
+.asx-tool-row[data-status='running'] .asx-tool-state {
+  color: var(--color-accent);
+  animation: asx-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes asx-pulse {
+  50% { opacity: 0.4; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .asx-tool-row[data-status='running'] .asx-tool-state { animation: none; }
+}
+
+
 /* — the model's deliberation —
 
    A closed `<details>` between the status line and the output, and the only
@@ -2086,11 +2254,25 @@
 @media (max-width: 620px) {
   .asx {
     inset: auto 0 0 0;
+    /* These win over a resized size because `--asx-w` is only an *input* to the
+       `width` declaration above, and this one is later and equally specific.
+       An inline `width` would not lose, which is the whole reason the handle
+       writes custom properties. */
     width: 100%;
+    height: auto;
     max-height: 82dvh;
     border-radius: 0;
     border-left: 0;
     border-right: 0;
     border-bottom: 0;
   }
+
+  /* Nothing to resize when the panel is the full width of the screen. */
+  .asx-grip { display: none; }
+
+  /* The three run controls stack rather than scroll: at 360px two of them do
+     not fit on one row, and a horizontally scrolling toolbar is a control
+     nobody finds. */
+  .asx-toolbar { gap: 4px var(--space-2); }
+  .asx-toolbar .select { max-width: 140px; }
 }

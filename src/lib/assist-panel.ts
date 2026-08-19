@@ -47,8 +47,10 @@ import {
   deleteChat,
   listChats,
   loadChat,
+  loadOverview,
   runAssist,
   type ChatSummary,
+  type ToolFrame,
 } from './ai-store';
 import { ASSIST_MENU, parseCommand, type AssistMenuItem } from './assist-tasks';
 
@@ -58,6 +60,15 @@ import { ASSIST_MENU, parseCommand, type AssistMenuItem } from './assist-tasks';
 export interface AssistTurn {
   /** A chunk of the model's deliberation. Never the answer. */
   thinking(chunk: string): void;
+  /**
+   * A lookup the model asked for, and later its outcome.
+   *
+   * Rendered as a row above the answer — the tool's name, what it was given and
+   * how long it took — because a lookup is *work the reader paid for* and a
+   * panel that hides it is a panel where an answer takes four seconds for no
+   * visible reason. Matched to the earlier row by `id`.
+   */
+  tool(frame: ToolFrame): void;
   /** The answer *so far*, whole rather than as a delta. */
   answer(text: string): void;
   /**
@@ -98,6 +109,13 @@ export interface AssistPanelConfig {
   blocked?: (item: AssistMenuItem, instruction: string) => string | null;
 }
 
+/** What the toolbar was set to when a run started. Passed straight to the route. */
+export interface AssistRunOptions {
+  model?: string;
+  effort?: string;
+  tools?: boolean;
+}
+
 export interface AssistPanel {
   /** Show the panel. With a command, types it into the composer, ready to send. */
   open(command?: string): void;
@@ -111,6 +129,8 @@ export interface AssistPanel {
   say(text: string, tone?: 'info' | 'error'): void;
   /** The conversation so far, for the tasks that want it. */
   history(): { role: 'user' | 'assistant'; content: string }[];
+  /** What the toolbar is set to. Read at the start of every run, never cached. */
+  runOptions(): AssistRunOptions;
   /** Toggle the Stop button and the composer's disabled state. */
   running(on: boolean): void;
 }
@@ -123,6 +143,7 @@ interface Bubble {
   think: HTMLDetailsElement;
   thinkBody: HTMLElement;
   thinkSummary: HTMLElement;
+  tools: HTMLElement;
   body: HTMLElement;
   preview: HTMLElement;
   options: HTMLElement;
@@ -202,6 +223,13 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     const thinkBody = el('pre', 'asx-think-body');
     think.append(thinkSummary, thinkBody);
 
+    /* Above the answer rather than behind a disclosure like thinking, because
+       a lookup is not deliberation — it is the reason the answer says what it
+       says, and it is the one thing on screen that tells the reader *why* a
+       claim about a post is trustworthy. */
+    const tools = el('div', 'asx-tools');
+    tools.hidden = true;
+
     const body = el('div', 'asx-msg-body');
     const preview = el('div', 'asx-preview');
     preview.hidden = true;
@@ -212,11 +240,63 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     const note = el('p', 'asx-msg-note');
     note.hidden = true;
 
-    root.append(think, body, preview, options, actions, note);
+    root.append(think, tools, body, preview, options, actions, note);
     log.append(root);
     follow();
 
-    return { root, think, thinkBody, thinkSummary, body, preview, options, actions, note };
+    return { root, think, thinkBody, thinkSummary, tools, body, preview, options, actions, note };
+  }
+
+  /**
+   * One lookup, as a row in the message it belongs to.
+   *
+   * Written to read like a terminal: the tool's name in mono, its argument
+   * beside it, a state dot, and the time it took once it is over. Everything is
+   * `textContent` — a tool's name comes from this repository, but its arguments
+   * are a model's own JSON and its detail line quotes a slug that the model
+   * chose.
+   *
+   * Updated in place rather than appended twice, which is what `id` is for. A
+   * row that stayed `running` for ever would be the most common visible bug in
+   * a panel like this, so an unmatched `done` creates its own row rather than
+   * being dropped.
+   */
+  function toolRow(host: HTMLElement, frame: ToolFrame) {
+    host.hidden = false;
+
+    let row = host.querySelector<HTMLElement>(`[data-call="${CSS.escape(frame.id)}"]`);
+    if (!row) {
+      row = el('div', 'asx-tool-row');
+      row.dataset.call = frame.id;
+
+      const name = el('span', 'asx-tool-name');
+      name.textContent = frame.name;
+      const args = el('span', 'asx-tool-args');
+      const state = el('span', 'asx-tool-state');
+      row.append(name, args, state);
+      host.append(row);
+    }
+
+    row.dataset.status = frame.status;
+
+    if (frame.args && Object.keys(frame.args).length) {
+      const args = row.querySelector<HTMLElement>('.asx-tool-args');
+      if (args) {
+        args.textContent = Object.entries(frame.args)
+          .map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`)
+          .join(', ');
+      }
+    }
+
+    const state = row.querySelector<HTMLElement>('.asx-tool-state');
+    if (state) {
+      state.textContent =
+        frame.status === 'running'
+          ? 'looking…'
+          : [frame.detail, frame.ms === undefined ? '' : `${frame.ms} ms`].filter(Boolean).join(' · ');
+    }
+
+    follow();
   }
 
   /* ---------- storage ---------- */
@@ -354,6 +434,14 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
         view.thinkBody.textContent = thinking;
         view.thinkBody.scrollTop = view.thinkBody.scrollHeight;
         follow();
+      },
+
+      tool(frame) {
+        /* A model that has decided to look something up has stopped
+           deliberating, so the thinking box settles here too — otherwise it
+           stays open above a list of lookups, claiming to still be thinking. */
+        if (frame.status === 'running' && !answered) settleThinking();
+        toolRow(view.tools, frame);
       },
 
       answer(text) {
@@ -751,9 +839,14 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
             turn.answer(live);
           },
           onThinking: chunk => turn.thinking(chunk),
+          onTool: frame => turn.tool(frame),
         },
         undefined,
         turns,
+        /* Summarising a conversation is a function of the conversation. Nothing
+           in it needs looking up, and a lookup here would be tokens spent
+           reading a post to compress a chat about a different one. */
+        { ...readRunOptions(), tools: false },
       );
       if (!summary.trim()) throw new Error('The model returned an empty summary.');
 
@@ -776,9 +869,218 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     }
   });
 
+  /* ---------- the toolbar ---------- */
+
+  /**
+   * Model, effort and lookups, remembered per browser rather than per row.
+   *
+   * These are *this author's preference while working*, not configuration: the
+   * provider row is the configuration, and it is what an unset control falls
+   * back to. Storing them in `localStorage` rather than in D1 is the same
+   * judgement the sidebar's collapsed state gets — a write per dropdown change
+   * would be a row updated a dozen times an afternoon to record which of two
+   * models somebody is trying.
+   */
+  const RUN_KEY = 'om-assist-run';
+
+  const modelPick = $<HTMLSelectElement>('assist-model');
+  const effortPick = $<HTMLSelectElement>('assist-effort');
+  const toolsPick = $<HTMLSelectElement>('assist-tools');
+
+  function readRunOptions(): AssistRunOptions {
+    return {
+      model: modelPick.value || undefined,
+      effort: effortPick.value || undefined,
+      /* Only ever sent as `false`. `true` is the default and the server may
+         still have tools off for the provider, so claiming them on would be a
+         request asserting something the row decides. */
+      tools: toolsPick.value === 'off' ? false : undefined,
+    };
+  }
+
+  function rememberRunOptions() {
+    try {
+      localStorage.setItem(
+        RUN_KEY,
+        JSON.stringify({ model: modelPick.value, effort: effortPick.value, tools: toolsPick.value }),
+      );
+    } catch {
+      /* Private browsing. The controls work, they just forget. */
+    }
+  }
+
+  /**
+   * Fill the model list from the provider rows, once per panel.
+   *
+   * Over the network because that is the only place these live — `/admin/*` is
+   * public HTML and a server-rendered model list would be a page that had
+   * queried `ai_providers`, which is the one table this surface never renders
+   * from. Failure is silent: the list keeps its single "Default" entry, which
+   * is what every run did before this control existed.
+   */
+  async function fillModels() {
+    let saved: { model?: string; effort?: string; tools?: string } = {};
+    try {
+      saved = JSON.parse(localStorage.getItem(RUN_KEY) ?? '{}');
+    } catch {
+      /* As above. */
+    }
+    if (saved.effort) effortPick.value = saved.effort;
+    if (saved.tools) toolsPick.value = saved.tools;
+
+    try {
+      const { providers } = await loadOverview();
+      for (const provider of providers) {
+        if (!provider.active) continue;
+        /* The writing model first where there is one, because this panel is the
+           writing assistant and `assist` is the role its calls run under. */
+        const models = [provider.assistModel || provider.model, ...provider.fallbackModels].filter(
+          (model, index, all): model is string => Boolean(model) && all.indexOf(model) === index,
+        );
+        for (const [index, model] of models.entries()) {
+          const option = document.createElement('option');
+          option.value = model;
+          option.textContent =
+            providers.length > 1 ? `${provider.label} · ${model}` : model;
+          if (index === 0) option.textContent += ' (default)';
+          modelPick.append(option);
+        }
+      }
+      if (saved.model) modelPick.value = saved.model;
+      /* A model that is no longer configured leaves the select on nothing at
+         all, which reads as an empty control. Falling back to Default is both
+         the honest state and what the server would do with it anyway. */
+      if (saved.model && modelPick.value !== saved.model) modelPick.value = '';
+    } catch {
+      /* Signed out, or the endpoint refused. Default is still a valid choice. */
+    }
+  }
+
+  for (const control of [modelPick, effortPick, toolsPick]) {
+    control.addEventListener('change', rememberRunOptions);
+  }
+
+  /* ---------- size ---------- */
+
+  /**
+   * The same control the public widget has, and the same reasoning for it.
+   *
+   * Two custom properties on the dialog rather than inline `width`/`height`,
+   * because the narrow-screen rules in `admin.css` have to be able to win: an
+   * inline style beats any stylesheet rule, so a panel resized on a desktop and
+   * reopened on a laptop would ignore them and hang off the edge. A custom
+   * property is only an *input* to a declaration, so a media query can override
+   * the declaration that reads it.
+   */
+  const SIZE_KEY = 'om-assist-size';
+  const MIN_W = 360;
+  const MIN_H = 320;
+
+  const grip = $<HTMLButtonElement>('assist-grip');
+
+  const roomW = () => Math.max(MIN_W, window.innerWidth - 32);
+  const roomH = () => Math.max(MIN_H, window.innerHeight - 48);
+
+  function applySize(width: number, height: number) {
+    const w = Math.round(Math.min(Math.max(width, MIN_W), roomW()));
+    const h = Math.round(Math.min(Math.max(height, MIN_H), roomH()));
+    dialog.style.setProperty('--asx-w', `${w}px`);
+    dialog.style.setProperty('--asx-h', `${h}px`);
+  }
+
+  /* Separate from `applySize`, which runs on every frame of a drag:
+     `localStorage.setItem` is synchronous, and persisting there would be a disk
+     write per frame for a value only the last of which matters. */
+  function rememberSize() {
+    try {
+      const box = dialog.getBoundingClientRect();
+      localStorage.setItem(SIZE_KEY, `${Math.round(box.width)},${Math.round(box.height)}`);
+    } catch {
+      /* As above. */
+    }
+  }
+
+  function restoreSize() {
+    try {
+      const stored = localStorage.getItem(SIZE_KEY);
+      if (!stored) return;
+      const [w, h] = stored.split(',').map(Number);
+      if (Number.isFinite(w) && Number.isFinite(h)) applySize(w, h);
+    } catch {
+      /* As above. */
+    }
+  }
+
+  grip.addEventListener('pointerdown', event => {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const box = dialog.getBoundingClientRect();
+    grip.setPointerCapture(event.pointerId);
+    dialog.dataset.resizing = '1';
+
+    /* Anchored bottom-right, so dragging the top-left corner *up and left* is
+       what makes it bigger — hence start minus current. */
+    const move = (e: PointerEvent) =>
+      applySize(box.width + (startX - e.clientX), box.height + (startY - e.clientY));
+
+    const stop = () => {
+      delete dialog.dataset.resizing;
+      rememberSize();
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', stop);
+      grip.removeEventListener('pointercancel', stop);
+    };
+
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', stop);
+    grip.addEventListener('pointercancel', stop);
+  });
+
+  /* A drag-only handle is unreachable without a pointing device, and this one
+     is a `<button>` precisely so it does not have to be. */
+  grip.addEventListener('keydown', event => {
+    const step = event.shiftKey ? 64 : 16;
+    const by = { ArrowLeft: [step, 0], ArrowRight: [-step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] }[
+      event.key
+    ];
+    if (!by) return;
+    event.preventDefault();
+    /* Stopped here as well as prevented: the composer's own keydown handler is
+       on the dialog's subtree and Escape/Enter aside, an arrow key reaching it
+       would move a caret that is not where the author is looking. */
+    event.stopPropagation();
+    const box = dialog.getBoundingClientRect();
+    applySize(box.width + by[0], box.height + by[1]);
+    rememberSize();
+  });
+
+  /* A window narrowed after the fact must not leave the panel wider than it.
+     Only for a panel that has actually been resized — running this
+     unconditionally would write the *default* size into the custom properties
+     the first time anyone rotated a tablet, pinning it to a number nobody
+     chose and one no later change to the default could move. */
+  window.addEventListener('resize', () => {
+    if (!dialog.open || !dialog.style.getPropertyValue('--asx-w')) return;
+    const box = dialog.getBoundingClientRect();
+    applySize(box.width, box.height);
+  });
+
+  restoreSize();
+
   /* ---------- opening and closing ---------- */
 
+  /* The model list costs a request, and an editor session that never opens the
+     assistant should not pay for it. Deferred to the first open rather than run
+     at mount: the panel is mounted on every load of both authoring screens, and
+     it is used on a fraction of them. */
+  let modelsFilled = false;
+
   function open(command?: string) {
+    if (!modelsFilled) {
+      modelsFilled = true;
+      void fillModels();
+    }
     if (!dialog.open) dialog.show();
     if (command) {
       input.value = `/${command} `;
@@ -823,6 +1125,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     begin,
     say,
     history: () => turns.slice(),
+    runOptions: readRunOptions,
     running,
   };
 }

@@ -395,6 +395,95 @@ const firstName = site.name.split(' ')[0];
       if (!('pinned' in box.dataset)) box.open = false;
     }
 
+    /** One lookup, as `/api/ai/chat` reports it. Two frames per call, by `id`. */
+    interface ToolFrame {
+      id: string;
+      name: string;
+      args?: Record<string, unknown>;
+      status: 'running' | 'done' | 'error';
+      detail?: string;
+    }
+
+    /**
+     * The tool names, in words a visitor reads rather than function names.
+     *
+     * A public panel is not a terminal: `read_post` is precise and `Reading
+     * post` is what a person understands, and the mapping costs one object. An
+     * unmapped name falls through verbatim, which is the right failure for a
+     * tool added to the table and not to this list.
+     */
+    const LOOKUP_LABELS: Record<string, string> = {
+      search_content: 'Searching',
+      read_post: 'Reading post',
+      read_project: 'Reading project',
+      read_case_study: 'Reading case study',
+      read_resume: 'Reading background',
+    };
+
+    /**
+     * What the assistant looked up, as a line per lookup.
+     *
+     * The answer is generated from an *index* of this site plus whatever the
+     * model fetches while writing — `/api/ai/chat` explains why. That makes a
+     * lookup the visible half of the wait: four seconds of silence with nothing
+     * on screen reads as a broken widget, and four seconds with `read_post ·
+     * thundering-herd` on screen reads as the thing working.
+     *
+     * It is also the honest disclosure. This panel already tells a reader it is
+     * a language model reading published pages; showing *which* pages it read
+     * for this answer is that sentence made specific, and it is the one thing a
+     * reader can check the answer against.
+     *
+     * Every row is `textContent`. The tool's name comes from this repository,
+     * but its arguments are a model's own JSON.
+     */
+    function toolRow(target: HTMLElement, frame: ToolFrame): void {
+      let trail = target.querySelector<HTMLElement>('.ask-tools');
+      if (!trail) {
+        trail = document.createElement('div');
+        trail.className = 'ask-tools';
+        /* Under the thinking disclosure and above everything else, which is the
+           order things happened in. `thoughtBox` prepends, so appending after a
+           prepend puts this second. */
+        const think = target.querySelector('.ask-think');
+        if (think) think.after(trail);
+        else target.prepend(trail);
+      }
+
+      let row = trail.querySelector<HTMLElement>(`[data-call="${CSS.escape(frame.id)}"]`);
+      if (!row) {
+        row = document.createElement('div');
+        row.className = 'ask-tool';
+        row.dataset.call = frame.id;
+
+        const name = document.createElement('span');
+        name.className = 'ask-tool-name';
+        name.textContent = LOOKUP_LABELS[frame.name] ?? frame.name;
+
+        const args = document.createElement('span');
+        args.className = 'ask-tool-args';
+
+        const state = document.createElement('span');
+        state.className = 'ask-tool-state';
+
+        row.append(name, args, state);
+        trail.append(row);
+      }
+
+      row.dataset.status = frame.status;
+
+      if (frame.args) {
+        const args = row.querySelector('.ask-tool-args');
+        /* The values only. A visitor does not need to read `slug:` — they need
+           to see *which post*, and the tool's own name already said what kind
+           of thing it is. */
+        if (args) args.textContent = Object.values(frame.args).filter(v => typeof v === 'string').join(' · ');
+      }
+
+      const state = row.querySelector('.ask-tool-state');
+      if (state) state.textContent = frame.status === 'running' ? 'reading…' : (frame.detail ?? '');
+    }
+
     /**
      * The pages an answer named, as links under it.
      *
@@ -514,6 +603,7 @@ const firstName = site.name.split(' ')[0];
             let frame: {
               delta?: string;
               thinking?: string;
+              tool?: ToolFrame;
               error?: string;
               done?: boolean;
               stopReason?: string;
@@ -540,6 +630,21 @@ const firstName = site.name.split(' ')[0];
                 target.dataset.state = 'thinking';
                 const label = wait.querySelector('.ask-wait-label');
                 if (label) label.textContent = 'Thinking';
+              }
+            }
+            /* A lookup. It gets its own row above the answer and relabels the
+               wait, because "Reading post" is a far better account of a
+               four-second pause than three animated dots. */
+            if (frame.tool) {
+              toolRow(target, frame.tool);
+              if (!answer) {
+                target.dataset.state = 'looking';
+                const label = wait.querySelector('.ask-wait-label');
+                if (label) label.textContent = 'Looking things up';
+                /* The model stopped deliberating the moment it decided to
+                   fetch something; leaving the box open would have it claim to
+                   still be thinking underneath a list of lookups. */
+                settleThought(target, thinking);
               }
             }
             if (frame.delta) {
@@ -1114,6 +1219,62 @@ const firstName = site.name.split(' ')[0];
     color: var(--color-text-muted);
     max-height: 40vh;
     overflow-y: auto;
+  }
+
+  /* — lookups —
+
+     An answer is written from an index of this site plus whatever the model
+     fetched while writing, and these are the fetches. They sit between the
+     thinking disclosure and the prose, in the order things happened.
+
+     Quieter than either neighbour on purpose: this is provenance, not content.
+     A reader who wants to know where an answer came from can read it in a
+     glance; everyone else sees a two-line hint that something was looked up and
+     goes on reading the answer. */
+
+  .ask-log :global(.ask-tools) {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: var(--space-2);
+  }
+
+  .ask-log :global(.ask-tool) {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+  }
+
+  .ask-log :global(.ask-tool-name) { flex: none; color: var(--color-text); }
+  .ask-log :global(.ask-tool[data-status='error'] .ask-tool-name) { color: var(--color-accent); }
+
+  /* One line. The value is a slug or a search phrase and both are short, but a
+     model can pass anything and a wrapped trace would push the answer down the
+     panel. */
+  .ask-log :global(.ask-tool-args) {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ask-log :global(.ask-tool-state) { flex: none; font-size: 10px; }
+  .ask-log :global(.ask-tool[data-status='running'] .ask-tool-state) {
+    color: var(--color-accent);
+    animation: ask-tool-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes ask-tool-pulse {
+    50% { opacity: 0.4; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ask-log :global(.ask-tool[data-status='running'] .ask-tool-state) { animation: none; }
   }
 
   /* — waiting —

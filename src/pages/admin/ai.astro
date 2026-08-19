@@ -25,7 +25,12 @@
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { Icon } from 'astro-icon/components';
 import { SETTINGS_CEILINGS } from '../../lib/ai';
-import { PARAM_SPECS, PROVIDER_PRESETS } from '../../lib/ai-catalog';
+import {
+  MAX_OUTPUT_CEILING,
+  MIN_OUTPUT_CEILING,
+  PARAM_SPECS,
+  PROVIDER_PRESETS,
+} from '../../lib/ai-catalog';
 ---
 <AdminLayout title="AI Assistant">
   <div class="admin-main-wide" id="admin-ai">
@@ -140,7 +145,11 @@ import { PARAM_SPECS, PROVIDER_PRESETS } from '../../lib/ai-catalog';
             <div class="field">
               <label for="ai-maxout">Answer length</label>
               <input class="input" type="number" id="ai-maxout" min="1" max={SETTINGS_CEILINGS.maxOutputTokens} />
-              <span class="text-muted ai-cap">tokens, max {SETTINGS_CEILINGS.maxOutputTokens}</span>
+              <span class="text-muted ai-cap">
+                tokens, max {SETTINGS_CEILINGS.maxOutputTokens.toLocaleString()}. A model that thinks
+                before it writes spends this on both, so it has to clear the thinking — the provider's
+                own output ceiling raises it further where one is set.
+              </span>
             </div>
           </div>
         </section>
@@ -150,8 +159,9 @@ import { PARAM_SPECS, PROVIDER_PRESETS } from '../../lib/ai-catalog';
           <p class="text-muted admin-note" id="ai-corpus">Measuring…</p>
           <p class="text-muted admin-note">
             Published posts, visible projects, case studies and the resume. Hidden
-            projects, drafts and unpublished posts are never included, and neither
-            are your email, phone or address.
+            projects, drafts and unpublished posts are never included — not in the
+            index and not through a lookup — and neither are your email, phone or
+            address.
           </p>
           <hr class="rule ai-rule" />
           <h6 class="admin-eyebrow">Today</h6>
@@ -246,6 +256,76 @@ import { PARAM_SPECS, PROVIDER_PRESETS } from '../../lib/ai-catalog';
         <p class="text-muted admin-note">
           Tried in order when the model above will not answer — a 429, a 5xx, a
           timeout, or a model that was retired overnight. Same key, same base URL.
+        </p>
+      </div>
+
+      {/* — what a run may spend, and how it may think —
+
+          The three fields that answer the reported failure: a reasoning model
+          spent a task's whole 2,000-token ceiling narrating a plan and never
+          wrote the post. The ceiling is filled in from the vendor's own listing
+          the moment a model is picked above, so "use the model's maximum" is
+          the default rather than something to look up. */}
+      <div class="field field-row">
+        <div>
+          <label for="ai-f-maxout">Output ceiling</label>
+          <input
+            class="input"
+            type="number"
+            id="ai-f-maxout"
+            min={MIN_OUTPUT_CEILING}
+            max={MAX_OUTPUT_CEILING}
+            placeholder="from the model"
+          />
+          <p class="text-muted admin-note">
+            The largest completion this model will be asked for. It <strong>raises</strong>
+            every writing task's own ceiling, so a model that thinks before it writes has
+            room for both. Empty means each task keeps its own number. Nothing is billed
+            for an unused ceiling.
+          </p>
+          {/* A second paragraph rather than rewriting the one above: that one
+              carries markup, and `textContent` over it would delete the emphasis
+              for good — the same trap `setLabel()` exists for on buttons. */}
+          <p class="text-muted admin-note ai-cap" id="ai-f-maxout-note" hidden></p>
+        </div>
+        <div>
+          <label for="ai-f-effort">Reasoning effort</label>
+          <select class="input" id="ai-f-effort">
+            <option value="">Don't send one</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+          <p class="text-muted admin-note">
+            Where the vendor implements it. Low is the dial to reach for when a model
+            deliberates for a page before answering.
+          </p>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="ai-switch ai-switch-inline">
+          <input type="checkbox" id="ai-f-tools" />
+          <span>Let it look content up</span>
+        </label>
+        <p class="text-muted admin-note">
+          On, both assistants get an index of this site and fetch the posts and projects
+          they need. Off, the whole index still goes in the prompt and nothing is fetched
+          — which is the right setting for a model with no tool support, though a refused
+          tool call already falls back to it on its own.
+        </p>
+      </div>
+
+      <div class="field">
+        <label class="ai-switch ai-switch-inline">
+          <input type="checkbox" id="ai-f-cache" />
+          <span>Mark cacheable prompts</span>
+        </label>
+        <p class="text-muted admin-note">
+          The rules and the content index are identical from one question to the next, so
+          they can be sent as a cache breakpoint and charged once rather than every time.
+          Only ever sent to OpenRouter and Anthropic, which are the two APIs that read
+          one; everywhere else it is dropped and the field is ignored.
         </p>
       </div>
 
@@ -363,6 +443,7 @@ import { PARAM_SPECS, PROVIDER_PRESETS } from '../../lib/ai-catalog';
   import {
     PARAM_SPECS,
     PROVIDER_PRESETS,
+    clampOutputCeiling,
     clampParams,
     presetFor,
     presetForUrl,
@@ -482,6 +563,12 @@ import { PARAM_SPECS, PROVIDER_PRESETS } from '../../lib/ai-catalog';
         provider.model,
         provider.fallbackModels.length ? `then ${provider.fallbackModels.join(', ')}` : '',
         provider.assistModel ? `writing: ${provider.assistModel}` : '',
+        provider.maxOutputTokens ? `${provider.maxOutputTokens.toLocaleString()} out` : '',
+        provider.reasoningEffort ? `effort ${provider.reasoningEffort}` : '',
+        /* Only when it is *off*, which is the state worth reading: on is the
+           default and a row saying so nine times is nine things that say
+           nothing happened — the same rule the params line follows. */
+        provider.toolsEnabled ? '' : 'no lookups',
         /* Only when something is set. A row listing nine defaults is nine
            things to read that say nothing happened. */
         tuned.length ? tuned.map(([key, value]) => `${key} ${value}`).join(', ') : '',
@@ -622,6 +709,10 @@ import { PARAM_SPECS, PROVIDER_PRESETS } from '../../lib/ai-catalog';
       model: $<HTMLInputElement>('ai-f-model'),
       assist: $<HTMLInputElement>('ai-f-assist'),
       fallbacks: $<HTMLInputElement>('ai-f-fallbacks'),
+      maxOut: $<HTMLInputElement>('ai-f-maxout'),
+      effort: $<HTMLSelectElement>('ai-f-effort'),
+      tools: $<HTMLInputElement>('ai-f-tools'),
+      cache: $<HTMLInputElement>('ai-f-cache'),
       priority: $<HTMLInputElement>('ai-f-priority'),
       active: $<HTMLInputElement>('ai-f-active'),
     };
@@ -699,6 +790,24 @@ import { PARAM_SPECS, PROVIDER_PRESETS } from '../../lib/ai-catalog';
       dialogFields.model.value = provider?.model ?? '';
       dialogFields.assist.value = provider?.assistModel ?? '';
       dialogFields.fallbacks.value = (provider?.fallbackModels ?? []).join(', ');
+      dialogFields.maxOut.value = provider?.maxOutputTokens ? String(provider.maxOutputTokens) : '';
+      /* A stored number belongs to whoever saved it. Clearing the flag is what
+         stops the picker overwriting it the next time a model is browsed. */
+      delete dialogFields.maxOut.dataset.auto;
+      /* Says what to do, for the case this field exists to fix: a row written
+         before it did, on a model that thinks. The picker fills it in, and a
+         row that never opens the picker would otherwise sit on each task's own
+         ceiling with nothing on screen suggesting there was a better number. */
+      ceilingHint(
+        provider && !provider.maxOutputTokens
+          ? 'Empty, so every writing task keeps its own ceiling. Press Browse above and pick your model again to fill this in from what the vendor says it accepts — that is the fix for a model that spends the whole budget thinking and never writes a word.'
+          : '',
+      );
+      dialogFields.effort.value = provider?.reasoningEffort ?? '';
+      /* Both default on for a new row, which is what the migration's DEFAULT
+         does for one written any other way. */
+      dialogFields.tools.checked = provider?.toolsEnabled ?? true;
+      dialogFields.cache.checked = provider?.promptCache ?? true;
       dialogFields.priority.value = String(provider?.priority ?? 10);
       dialogFields.active.checked = provider?.active ?? false;
       fillParams(provider?.params);
@@ -752,6 +861,14 @@ import { PARAM_SPECS, PROVIDER_PRESETS } from '../../lib/ai-catalog';
           .map(m => m.trim())
           .filter(Boolean),
         params: readParams(),
+        /* `null` rather than omitted when it is blank: an emptied field means
+           "go back to each task's own ceiling", and omitting it on a patch
+           would leave the old number in place — the same trap the key field
+           has, with the opposite resolution, because this one is readable. */
+        maxOutputTokens: clampOutputCeiling(dialogFields.maxOut.value),
+        reasoningEffort: dialogFields.effort.value,
+        toolsEnabled: dialogFields.tools.checked,
+        promptCache: dialogFields.cache.checked,
         active: dialogFields.active.checked,
         priority: Number(dialogFields.priority.value) || 10,
         apiKey: dialogFields.key.value,
@@ -844,6 +961,12 @@ import { PARAM_SPECS, PROVIDER_PRESETS } from '../../lib/ai-catalog';
       };
       if (model.free) badge('free', 'on');
       if (model.contextLength) badge(`${Math.round(model.contextLength / 1000)}k ctx`);
+      /* The number the output ceiling is filled in from, shown where the choice
+         is made. It is the difference between two models that look identical on
+         price and context and then behave differently on a task that thinks. */
+      if (model.maxOutput) badge(`${model.maxOutput.toLocaleString()} out`);
+      if (model.tools) badge('tools');
+      if (model.reasoning) badge('reasoning');
       if (!model.free) {
         const p = price(model.promptPrice);
         const c = price(model.completionPrice);
@@ -989,8 +1112,66 @@ import { PARAM_SPECS, PROVIDER_PRESETS } from '../../lib/ai-catalog';
         $('ai-param-support').textContent = info?.supported.length
           ? `${info.id} accepts: ${info.supported.join(', ')}.`
           : '';
+        if (info) applyModelCeiling(info);
       }
       modelsDialog.close();
+    });
+
+    /**
+     * Fill the output ceiling from the model that was just picked.
+     *
+     * This is the whole point of the field. A ceiling is not a budget — a
+     * vendor bills tokens generated, not tokens permitted — so the right
+     * default is *the largest completion this model will accept*, and the model
+     * listing is the only place that number honestly exists. Typing it in from
+     * memory is how it ends up at 2,000 on a model that thinks for 4,000.
+     *
+     * Three sources, in descending order of honesty:
+     *
+     *   1. `maxOutput`, which the vendor stated. Used as-is.
+     *   2. A quarter of the context window, for the listings that report only
+     *      that — most of them outside OpenRouter. A guess, and the note says
+     *      so, because prompt and completion share the context and a completion
+     *      the size of the window is a 400 everywhere that checks.
+     *   3. Nothing, and the field is left alone rather than cleared: a number
+     *      the author typed is worth more than this function's silence.
+     *
+     * It only ever writes into an *empty* field or one this function last
+     * wrote, tracked by `data-auto`. Overwriting a deliberate number because
+     * somebody reopened the browser to check a spelling would be the screen
+     * editing a row nobody asked it to edit — the same rule `applyPreset` has.
+     */
+    /** The extra line under the ceiling field, or nothing. Hidden by the attribute. */
+    function ceilingHint(text: string) {
+      const note = $('ai-f-maxout-note');
+      note.textContent = text;
+      note.hidden = !text;
+    }
+
+    function applyModelCeiling(model: ModelInfo) {
+      const field = dialogFields.maxOut;
+      const mine = 'auto' in field.dataset;
+      if (field.value.trim() && !mine) return;
+
+      const stated = model.maxOutput;
+      const guessed = model.contextLength ? Math.round(model.contextLength / 4) : null;
+      const ceiling = clampOutputCeiling(stated ?? guessed);
+
+      if (ceiling === null) {
+        delete field.dataset.auto;
+        return;
+      }
+
+      field.value = String(ceiling);
+      field.dataset.auto = '';
+      ceilingHint(stated
+        ? `${ceiling.toLocaleString()} tokens — the largest completion ${model.id} accepts, as its listing reports it.`
+        : `${ceiling.toLocaleString()} tokens — a quarter of ${model.id}'s ${(model.contextLength ?? 0).toLocaleString()}-token context, because the listing does not state a completion limit. Lower it if the vendor refuses.`);
+    }
+
+    /* A number the author types is theirs, and this screen stops filling it in. */
+    dialogFields.maxOut.addEventListener('input', () => {
+      delete dialogFields.maxOut.dataset.auto;
     });
 
     /* A different endpoint serves a different catalogue. */
@@ -1046,9 +1227,13 @@ import { PARAM_SPECS, PROVIDER_PRESETS } from '../../lib/ai-catalog';
         for (const provider of data.providers) list.append(providerRow(provider));
       }
 
+      /* Two numbers, because the interesting one is the difference. The index
+         is what every question carries; the corpus is what it used to carry,
+         and what it still would if lookups were switched off on the provider. */
       $('ai-corpus').textContent =
-        `About ${data.corpus.approxTokens.toLocaleString()} tokens (${Math.round(data.corpus.chars / 1024)} KB) ` +
-        'of published content goes into every question.';
+        `About ${data.index.approxTokens.toLocaleString()} tokens go into every question — a line per project, post ` +
+        `and case study. The writing itself (${data.corpus.approxTokens.toLocaleString()} tokens) is fetched a page at a time, ` +
+        'only when a question needs it.';
 
       $('ai-usage').textContent =
         data.usage.answered === 0

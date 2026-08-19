@@ -1317,6 +1317,11 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
               thought += chunk;
               turn.thinking(chunk);
             },
+            /* A lookup the model made on the way to this answer. It goes in
+               the message beside the thinking disclosure and never into a
+               field — the same rule, and the same reason: only `delta` is the
+               answer. */
+            onTool: frame => turn.tool(frame),
             onDone: reason => {
               truncated = reason === 'length';
             },
@@ -1328,6 +1333,10 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
              afternoon. The last entry is dropped because it is the message this
              call is *about*, and the route appends it itself. */
           name === 'chat' ? panel.history().slice(0, -1) : undefined,
+          /* Read at the start of every run rather than when the panel opened:
+             changing the model between two runs is the whole point of having
+             the control on the panel. */
+          panel.runOptions(),
         );
 
         /* Names the cause, because there is exactly one that produces this and
@@ -1336,7 +1345,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         if (!output.trim()) {
           throw new Error(
             thought
-              ? 'The model spent the whole token budget thinking and never wrote an answer. Open Thinking above to read it, then raise the ceiling on the AI screen or pick a model that does not deliberate.'
+              ? 'The model spent the whole token budget thinking and never wrote an answer. Open Thinking above to read it, then set this provider’s output ceiling on the AI screen, lower the effort in the toolbar above, or pick a model that deliberates less.'
               : 'The model finished without writing anything. Try again, or pick a different model on the AI screen.',
           );
         }
@@ -1620,6 +1629,11 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
             },
           },
           controller.signal,
+          undefined,
+          /* Rewriting a selection is a function of the selection. Nothing about
+             it needs the site looked up, and the round trip a tool call costs
+             would be spent on a task the author is watching. */
+          { tools: false },
         );
 
         if (thought) {

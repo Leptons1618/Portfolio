@@ -118,6 +118,14 @@ const AI_PROVIDER_COLUMNS: ColumnMap = {
      The server rebuilds it against an allowlist on read (`clampParams()` in
      `ai-catalog.ts`), so what is stored here is never what is sent. */
   params: ['params', 'text'],
+  /* What the model can actually be asked to write, filled in from the vendor's
+     own listing when a model is picked. `number` rather than `text` because it
+     becomes `max_tokens` in a request body; `clampOutputCeiling()` bounds it
+     again on read, for the same reason `clampParams()` exists. */
+  maxOutputTokens: ['max_output_tokens', 'number'],
+  reasoningEffort: ['reasoning_effort', 'text'],
+  promptCache: ['prompt_cache', 'bool'],
+  toolsEnabled: ['tools_enabled', 'bool'],
   active: ['active', 'bool'],
   priority: ['priority', 'number'],
 };

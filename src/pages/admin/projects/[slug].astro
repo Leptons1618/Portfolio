@@ -1258,11 +1258,13 @@ const STATUS_VARIANT: Record<string, string> = {
                 thought += chunk;
                 turn.thinking(chunk);
               },
+              onTool: frame => turn.tool(frame),
             },
             controller.signal,
             /* The last entry is the message this call is *about*, and the route
                appends it itself. */
             panel.history().slice(0, -1),
+            panel.runOptions(),
           );
           if (!answer.trim()) {
             throw new Error(
@@ -1365,11 +1367,16 @@ const STATUS_VARIANT: Record<string, string> = {
               thought += chunk;
               turn.thinking(chunk);
             },
+            onTool: frame => turn.tool(frame),
             onDone: reason => {
               truncated = reason === 'length';
             },
           },
           controller.signal,
+          undefined,
+          /* Read at the start of the run, so changing the model between two
+             runs is what the control on the panel actually does. */
+          panel.runOptions(),
         );
 
         settled = true;
@@ -1380,7 +1387,7 @@ const STATUS_VARIANT: Record<string, string> = {
         if (!output.trim()) {
           throw new Error(
             thought
-              ? 'The model spent the whole token budget thinking and never wrote an answer. Open Thinking above to read it, then raise the ceiling on the AI screen or pick a model that does not deliberate.'
+              ? 'The model spent the whole token budget thinking and never wrote an answer. Open Thinking above to read it, then set this provider’s output ceiling on the AI screen, lower the effort in the toolbar above, or pick a model that deliberates less.'
               : 'The model finished without writing anything. Try again, or pick a different model on the AI screen.',
           );
         }
