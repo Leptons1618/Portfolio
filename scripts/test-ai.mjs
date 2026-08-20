@@ -80,6 +80,7 @@ const {
   HISTORY_LIMITS,
   POST_KEYS,
   PROJECT_KEYS,
+  VARIANT_KEYS,
   assistPrompt,
   isAssistTask,
   parseCommand,
@@ -885,6 +886,109 @@ check('a response in no key set writes nothing, whichever set is asked', () => {
   }
 });
 
+check('a markdown-shaped answer is read rather than thrown away', () => {
+  /* What a mid-sized model actually returns for `/build-variant`: the contract
+     answered in markdown. Every label is a heading or bold text with its value
+     on the lines underneath, and the sections are separated by rules. Before
+     this parsed, the whole reply came back as "the reply was not in the
+     expected format, so nothing changed" — a correct sentence about an answer
+     the author could read on the screen in front of them. */
+  const markdown = [
+    "Here's a variant for the role:",
+    '',
+    '**Label**',
+    'AI Engineer',
+    '',
+    '---',
+    '',
+    '**Summary**',
+    'Builds production systems where the model is one component of many.',
+    'Ships the service around it too.',
+    '',
+    '## Experience',
+    'exp-1, exp-2',
+    '',
+    '**Projects**',
+    'fathom — depth estimation on a phone, which is the closest thing to this role',
+  ].join('\n');
+
+  const { values, tailStarted, recognised } = parseFields(markdown, VARIANT_KEYS);
+  assert.equal(recognised, true);
+  assert.equal(values.label, 'AI Engineer');
+  /* Two lines of one paragraph, joined; the rule between sections dropped. */
+  assert.equal(
+    values.summary,
+    'Builds production systems where the model is one component of many. Ships the service around it too.',
+  );
+  assert.equal(values.experience, 'exp-1, exp-2');
+  assert.equal(tailStarted, true);
+  assert.match(values.projects, /^fathom — depth estimation/);
+  /* The preamble is still preamble: nothing before the first label is content,
+     whatever shape the labels turned out to be in. */
+  assert.ok(!values.label.includes('Here'));
+});
+
+check('a label written twice does not take back what it wrote', () => {
+  /* The live fills depend on a value never going backwards, and the empty-value
+     branch is new: `SUMMARY:` with nothing after it now means "the value is on
+     the lines below" rather than "the value is empty". A model that repeats a
+     label mid-answer must not clear the field it filled under the first one. */
+  const repeated = ['SUMMARY: the real one', 'SUMMARY:', 'HIGHLIGHTS:', 'one'].join('\n');
+  const { values } = parseFields(repeated, PROJECT_KEYS);
+  assert.equal(values.summary, 'the real one');
+});
+
+check('an unlabelled response is still unrecognised in every shape', () => {
+  /* The heading-shaped label must not have widened this into matching prose.
+     A line is a label when it is *only* a label and the shape declares it. */
+  for (const [name, shape] of Object.entries({ ...SHAPES, variant: VARIANT_KEYS })) {
+    const parsed = parseFields(
+      'I considered the summary first, then the tags. Here is what I would change.',
+      shape,
+    );
+    assert.equal(parsed.recognised, false, `${name} read prose as its format`);
+  }
+});
+
+check('a document task restates its shape as the last thing the model reads', () => {
+  /* Recency, and the reason is in `assistPrompt`: the contract is in the task
+     message, and a model halfway down the size range answers the *conversation*
+     rather than the instructions. Built from the key set, so a task cannot
+     describe a shape it does not return. */
+  const messages = assistPrompt(ASSIST_TASKS.resumeVariant, {
+    ownerName: 'A',
+    context: { resume: 'the sheet', jobDescription: 'the advert' },
+    instruction: 'ai engineer',
+    corpus: '',
+    persona: '',
+    history: [],
+    tools: '',
+  });
+  const last = messages[messages.length - 1];
+  assert.equal(last.role, 'user');
+  for (const spec of VARIANT_KEYS.head) {
+    assert.ok(last.content.includes(`${spec.label}:`), `the reminder omits ${spec.label}`);
+  }
+  assert.ok(last.content.includes(`${VARIANT_KEYS.tail.label}:`), 'the reminder omits the tail');
+  assert.ok(
+    last.content.lastIndexOf('Format, once more') > last.content.indexOf('the advert'),
+    'the reminder is not last',
+  );
+
+  /* And a task that returns prose gets no such sentence — there is no shape to
+     restate, and a paragraph told to obey a label format would obey it. */
+  const prose = assistPrompt(ASSIST_TASKS.resumeSummary, {
+    ownerName: 'A',
+    context: { resume: 'the sheet', jobDescription: 'the advert' },
+    instruction: '',
+    corpus: '',
+    persona: '',
+    history: [],
+    tools: '',
+  });
+  assert.ok(!prose[prose.length - 1].content.includes('Format, once more'));
+});
+
 check('parseDocument is parseFields against the post key set', () => {
   /* The journal editor reads a flat object rather than indexing a record, so
      the wrapper stays — and it has to keep agreeing with what it wraps. */
@@ -930,7 +1034,7 @@ check('every task belongs to a surface, and each surface has tasks', () => {
   const resume = ASSIST_MENU.filter(entry => entry.surface === 'resume').map(e => e.name);
   assert.ok(journal.includes('compose'), 'the journal lost its headline task');
   assert.ok(!journal.includes('project'), 'a project task is offered in the journal panel');
-  assert.deepEqual(project.sort(), ['casestudy', 'project']);
+  assert.deepEqual(project.sort(), ['casestudy', 'casestudybody', 'project']);
   assert.deepEqual(resume.sort(), [
     'resumeBullet',
     'resumeProjects',
@@ -958,7 +1062,7 @@ check('every live task names a target its own surface can write', () => {
      screen's target would write into fields that are not on the page. */
   const TARGETS = {
     journal: ['document', 'summary', 'body'],
-    project: ['project', 'caseStudy'],
+    project: ['project', 'caseStudy', 'caseStudyBody'],
     /* One. Everything else the resume assistant does is a proposal about a
        *selection*, and a selection rearranging itself mid-stream is not an edit
        anyone can watch. */
@@ -977,9 +1081,9 @@ check('every live task names a target its own surface can write', () => {
   assert.equal(compose.live, 'document');
   assert.equal(compose.needsTopic, true);
 
-  /* Both project tasks write live. There is no Insert on that screen, so one
+  /* Every project task writes live. There is no Insert on that screen, so one
      that did not would land in a panel with no way to apply it. */
-  for (const name of ['project', 'casestudy']) {
+  for (const name of ['project', 'casestudy', 'casestudybody']) {
     assert.ok(ASSIST_TASKS[name].live, `${name} has no live target and no Insert to fall back on`);
   }
 

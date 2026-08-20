@@ -1040,3 +1040,70 @@ It raised them to the model's *maximum*. On this router that is routinely 32,000
 The two head actions follow the tab — "Add provider" on the first, "Save settings" on the second. Hidden rather than disabled: a greyed-out button invites the question of what would un-grey it, and the answer here is "a tab", which the tab already says.
 
 The initially-selected tab is marked on the server, so the right panel is showing before the script runs. That is not new; it is the contract `wireTabs()` has always had, and it is the reason a panel must not also carry a page-scoped layout class — Astro's `data-astro-cid` would outrank `.tab-panel[hidden]`. The layout lives on `.ai-grid` inside each panel.
+
+---
+
+## 45. Markdown is rendered without a syntax highlighter, because the Worker cannot compile WebAssembly
+
+**Status:** accepted
+
+**Context.** `POST /api/content` renders a post's or a case study's markdown to HTML on the way into D1 — decision 18's arrangement, and the reason a saved body renders identically to how it did as a file. It did that through `createMarkdownProcessor({})`, Astro's own processor with Astro's own defaults.
+
+One of those defaults is Shiki. Shiki's default regex engine is Oniguruma, which is a WebAssembly module instantiated from bytes on first use, and `workerd` refuses to compile one:
+
+```
+Failed to parse Markdown file "undefined":
+WebAssembly.instantiate(): Wasm code generation disallowed by embedder
+```
+
+`rehypeShiki` builds that highlighter for **every tree it is handed**, whether or not the markdown contains a code block. So every save of a post or a case study with a body threw, and every save of one with an empty body worked — which is what made it look intermittent.
+
+It was invisible in every other environment. `astro dev` renders this in Node, where the instantiation is allowed. `astro build` never renders markdown at all now that content is in D1. There was no test between those two and production.
+
+**Decision.** `syntaxHighlight: false`. Code blocks are plain `<pre><code class="language-…">`, styled by `.prose pre` from the theme tokens.
+
+That is not a loss dressed up as a decision. No stylesheet in this repo has ever had a rule for Shiki's output, the seeded rows contain no highlighted markup for a new post to be inconsistent with, and Shiki's `github-dark` sets its background as an inline style — which outranks `.prose pre` and would have painted one block per theme regardless of which theme was on.
+
+**The alternatives, and why not.** Shiki has a pure-JavaScript regex engine (`shiki/engine/javascript`) that needs no wasm. Astro's `shikiConfig` has **no `engine` key** to pass it through — `createShikiHighlighter()` destructures four options and drops the rest — so using it means a hand-written rehype plugin, a grammar bundle chosen by hand, and a second markdown pipeline to keep in step with the one Astro uses everywhere else. Aliasing `shiki/wasm` to a module import that workerd *can* compile is the other rung, and it is a build-time alias that would apply to the whole graph to fix one call.
+
+Neither is worth a feature nothing here was using. If highlighting is ever wanted, the JavaScript engine is the rung to climb to, and the comment in `src/pages/api/content.ts` says so.
+
+**What stops it coming back.** `npm run check:content` fails the build if any route calls `createMarkdownProcessor` without `syntaxHighlight: false`. A production-only crash needs a gate that runs before production.
+
+---
+
+## 46. A case study has a body field, and the assistant can write it
+
+**Status:** accepted
+
+**Context.** `case_studies.body_md` has been writable since the move to D1. `createCaseStudy()` filled it with a placeholder — "Scaffolded from the admin so the project could link to it. Replace this section." — `setCaseStudyBody()` existed to replace that, and **nothing ever called it**. There was no body field on any admin screen and no assistant task that produced one.
+
+So every case study on the site was a structured header over one scaffolded paragraph. The reported symptom was that case studies "look empty", which reads as a styling problem and was not one: the page was rendering everything it had.
+
+**Decision, in three parts.**
+
+**A field.** The case-study tab on `/admin/projects/[slug]` gets the write-up as a markdown textarea, saved with the header in **one** write — `patchCaseStudy(slug, fields, body)`. `setCaseStudyBody` is gone: a save that took two round trips could leave the header saved and the prose not, and a function nothing calls is not an API, it is a comment that compiles.
+
+**A task.** `casestudybody` — `/write-case-study-body` — is the long half, separate from `casestudy` for the reason that task already gave: one ceiling large enough for both is a reasoning model spending the whole budget deliberating. It reads the header it sits under, which is what `problem` and `solution` were added to `AssistField` for. A write-up that contradicts the problem statement above it is worse than a short one.
+
+**A third live target.** `caseStudyBody` is the project screen's first *prose* target — the whole response is the value, with no shape to read it against. The screen branches on the absence of a `FieldShape` rather than on the target's name, and `applyLive` guards the empty case, because a run stopped in its opening moment would otherwise assign `''` over a write-up that was already there.
+
+**Why the assistant may write it at all.** It writes into the *field*. Save is still a button a person presses, and this changes nothing about that.
+
+---
+
+## 47. An import reads everything GitHub already sent, and may draft from it
+
+**Status:** accepted
+
+**Context.** The import modal listed a name and a description per repository, and the import form then started a project from those same two facts plus a language histogram. Everything else in one `GET /repos/…` response — topics, licence, homepage, stars, the two dates — was fetched and thrown away. The result was a project row whose summary was the repository description with a full stop added, which is exactly what the frontmatter task was written to stop, and which was one screen away on a page most imports never opened.
+
+**Decision.** `RepoSummary` and `RepoMeta` carry the same set of facts now, and `repoFacts()` turns either into the block the assistant reads. One function, so a project drafted in the import modal and the same project edited on its own page describe the repository to a model in identical words — two fact lists that drifted was the failure worth designing out.
+
+The import list shows the same facts it sends: primary language, stars, when it was last pushed, licence, and up to four of the author's own topics. Deciding between twenty repositories is what that dialog is for.
+
+**Draft with AI** in the import form runs the existing `project` task — the same endpoint, the same closed table entry, streaming into the same fields. This screen has no assistant panel and does not get one: what a panel adds is conversation, and there is nothing to discuss about a form that is about to be filled in once.
+
+**The case-study select gained a second create option.** `__new__` still scaffolds a header from the form and a placeholder body; `__ai__` writes the header and the write-up from the repository, two calls, on create. Both are offered because they cost differently and the author knows which one this repository deserves. A failure in either half falls back to the scaffold rather than abandoning the import: the project is the thing being created, and a case study that needs rewriting is recoverable from its own page.
+
+**What did not change.** Nothing here is stored that GitHub is the source of truth for. Stars and licence are facts about a repository, read when they are needed and never copied into a row that would then be stale — the same reason the project cards ask GitHub for a branch and a last-sync time rather than carrying a field nobody maintains.

@@ -11,7 +11,7 @@ export const prerender = false;
 const { DB } = Astro.locals.runtime.env;
 const project = Astro.params.slug ? await getProject(DB, Astro.params.slug) : undefined;
 if (!project) return new Response(null, { status: 404 });
-const { title, summary, category, tags, stack, status, year, highlights, repoUrl, demoUrl, caseStudySlug } = project.data;
+const { title, summary, category, tags, stack, status, year, highlights, repoUrl, demoUrl, caseStudySlug, heroImage } = project.data;
 
 const related = (await getProjects(DB))
   .filter(p => p.slug !== project.slug && p.data.tags.some(t => tags.includes(t)))
@@ -20,6 +20,14 @@ const related = (await getProjects(DB))
 <BaseLayout title={title} description={summary}>
   <div class="container detail">
     <a class="btn btn-ghost back-link" href="/projects">← Back to Projects</a>
+
+    {/* The card has shown this since there were cards; this page never did, so
+        an image the author uploaded and a field they filled in appeared
+        everywhere except on the project's own page. Same treatment as a case
+        study's hero — one block above the identifying chips. */}
+    {heroImage && (
+      <div class="grayscale detail-hero"><img src={heroImage} alt={title} /></div>
+    )}
 
     <header class="detail-head">
       <div class="detail-chips">
@@ -94,6 +102,9 @@ const related = (await getProjects(DB))
   .detail-grid { display: grid; grid-template-columns: 1fr 280px; gap: var(--space-8); }
   .detail-main { min-width: 0; }
 
+  .detail-hero { margin-bottom: var(--space-4); }
+  .detail-hero img { width: 100%; height: 320px; object-fit: cover; display: block; }
+
   .detail-head { margin-bottom: var(--space-4); }
   .detail-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-3); }
   h1 { margin-bottom: var(--space-2); }
@@ -120,5 +131,6 @@ const related = (await getProjects(DB))
   @media (max-width: 860px) {
     .detail-grid { grid-template-columns: 1fr; gap: var(--space-6); }
     .related-list { grid-template-columns: 1fr; }
+    .detail-hero img { height: 220px; }
   }
 </style>

@@ -380,10 +380,14 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
             <option value="">— none —</option>
             {caseStudies.map(entry => <option value={entry.slug}>{entry.data.title} ({entry.slug})</option>)}
             <option value="__new__">+ scaffold a new case study from this project</option>
+            <option value="__ai__">+ write a new case study from the repository (AI)</option>
           </select>
           <p class="text-muted admin-note">
             Scaffolding inserts <code>{caseStudyPath('<slug>')}</code> with the structured
             fields filled in from this project and a placeholder body, then links the two.
+            The AI option writes the same header and the write-up under it from the README —
+            two calls, so creating takes a little while — and it is editable afterwards on
+            the project's own page like anything else.
           </p>
         </div>
       </div>
@@ -393,6 +397,14 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
     <div class="modal-foot">
       <div class="modal-actions">
+        {/* Reads the repository — its metadata and its README — and writes the
+            summary, category, tags, stack and highlights. The same task the
+            project's own page runs as `/write-frontmatter`, on the same
+            endpoint: an import is where those fields are emptiest, and it is
+            the moment the README has actually been read by anybody. */}
+        <button type="button" class="btn btn-secondary pf-draft" id="pf-draft">
+          <Icon name="lucide:sparkles" class="admin-nav-icon" />Draft with AI
+        </button>
         <form method="dialog"><button class="btn btn-secondary" value="cancel">Cancel</button></form>
         <button type="button" class="btn btn-primary" id="pf-save">Create project</button>
       </div>
@@ -420,12 +432,17 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     canWriteContent,
     fetchRepoLanguages,
     fetchRepoMeta,
+    fetchRepoReadme,
     getToken,
     getUser,
     grantAccessUrl,
     listRepositories,
+    parseRepoUrl,
+    repoFacts,
     type RepoSummary,
   } from '../../lib/github';
+  import { runAssist } from '../../lib/ai-store';
+  import { CASE_STUDY_KEYS, PROJECT_KEYS, parseFields } from '../../lib/assist-tasks';
   import { attachImageUpload } from '../../lib/image-upload';
 
   /* The admin client-routes, so this runs on first paint and again every time
@@ -688,6 +705,17 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
     let target: ProjectFields | null = null;
 
+    /**
+     * The repository this form was opened on, and what has been read of it.
+     *
+     * The listing already answered everything but the README, so `facts` is
+     * built once on open and costs nothing; `readme` is fetched on the first
+     * press of Draft with AI, because it can be twenty kilobytes and most
+     * imports never ask for it. Cleared with the form, so a second import
+     * cannot be drafted from the first one's repository.
+     */
+    let source: { facts: string; readme: string | null } | null = null;
+
     const csv = (value: string) => value.split(',').map(part => part.trim()).filter(Boolean);
     const lines = (value: string) => value.split('\n').map(part => part.trim()).filter(Boolean);
 
@@ -698,8 +726,9 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
      * title is editable right up until the file is written and the filename is
      * where Astro gets the slug from.
      */
-    function openForm(slug: string, fields: ProjectFields) {
+    function openForm(slug: string, fields: ProjectFields, repo: RepoSummary, languages: string[]) {
       target = fields;
+      source = { facts: repoFacts(repo, languages), readme: null };
 
       formPath.textContent = projectPath(slug);
       say(formMessage, '');
@@ -755,16 +784,141 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       };
     }
 
+    /** That repository's README, read once per form. */
+    async function readme(): Promise<string> {
+      if (!source) return '';
+      if (source.readme === null) {
+        const url = inputs.repo.value.trim();
+        try {
+          const { owner, name } = parseRepoUrl(url);
+          source.readme = await fetchRepoReadme(owner, name);
+        } catch {
+          /* No README, or a repository this session cannot read. The facts from
+             the listing are still worth writing from, and saying so is better
+             than refusing — this is the same tolerance `repoContext()` on a
+             project's own page has. */
+          source.readme = '';
+        }
+      }
+      return source.readme;
+    }
+
     /**
-     * Resolve the case-study select into a slug, scaffolding the file first
-     * when that is what was asked for. Returns `undefined` for "none", which
+     * Write the frontmatter from the repository, into the fields as it arrives.
+     *
+     * The same task the project's own page runs as `/write-frontmatter`, on the
+     * same endpoint and against the same key set — this screen just has no
+     * assistant panel to host it, so the streaming answer goes straight into
+     * the form and the message line is the progress report. An import is where
+     * these fields are emptiest: GitHub answers seven of nine, and the two it
+     * cannot are the two that decide whether a card is worth clicking.
+     */
+    const draftButton = document.getElementById('pf-draft') as HTMLButtonElement;
+    if (!signedIn) {
+      draftButton.disabled = true;
+      draftButton.title = 'Sign in with GitHub to use the assistant.';
+    }
+
+    draftButton.addEventListener('click', async () => {
+      if (!signedIn || !source) return;
+
+      /* No stop button: `setBusy` disables this one for the length of the run,
+         the stages are reported in the message line under the fields, and what
+         arrives is editable the moment it lands. An import that takes twenty
+         seconds is not one worth interrupting. */
+      setBusy(draftButton, true, 'Drafting…');
+      say(formMessage, 'Reading the repository…');
+
+      let raw = '';
+      try {
+        const context = {
+          repo: source.facts,
+          readme: await readme(),
+          title: inputs.title.value,
+          summary: inputs.summary.value,
+        };
+        say(formMessage, 'Writing the frontmatter…');
+
+        const output = await runAssist('project', context, '', {
+          onDelta: chunk => {
+            raw += chunk;
+            fillDraft(raw);
+          },
+        });
+
+        if (!parseFields(output, PROJECT_KEYS).recognised) {
+          say(
+            formMessage,
+            'The model answered without using the field format, so nothing was written. Try again, or pick a different model on the AI screen.',
+            'error',
+          );
+          return;
+        }
+
+        fillDraft(output);
+        say(formMessage, 'Written from the repository. Edit anything, then create.');
+      } catch (error) {
+        /* Whatever arrived stays in the fields — that is what writing straight
+           into the form means, and the fields were empty a moment ago. */
+        say(formMessage, message(error), 'error');
+        toast(message(error), { tone: 'error' });
+      } finally {
+        setBusy(draftButton, false);
+      }
+    });
+
+    /**
+     * Write a partly-arrived frontmatter response into the form.
+     *
+     * Every branch is guarded on a parsed value, which is what makes a response
+     * that recognised nothing write nothing — the same rule the project page's
+     * `applyLive` follows, and the reason there is no half-applied state to
+     * unpick. Decision 29.
+     */
+    function fillDraft(raw: string) {
+      const { values, tailStarted } = parseFields(raw, PROJECT_KEYS);
+      if (values.title) inputs.title.value = values.title;
+      if (values.summary) inputs.summary.value = values.summary;
+      if (values.tags) inputs.tags.value = values.tags;
+      if (values.stack) inputs.stack.value = values.stack;
+
+      /* A model handed a closed list still answers outside it now and then, and
+         assigning an unknown value to a `<select>` clears the selection rather
+         than leaving the previous one. `select.ts` overrides the setter, so a
+         value that *is* in the list also repaints the custom dropdown. */
+      const category = values.category.trim().toLowerCase();
+      if (category && Array.from(inputs.category.options).some(o => o.value === category)) {
+        inputs.category.value = category;
+      }
+
+      /* The tail may legitimately be empty while it is arriving — it is written
+         from the moment its label lands, so the box fills line by line. */
+      if (tailStarted) {
+        inputs.highlights.value = values.highlights
+          .split('\n')
+          .map(line => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim())
+          .filter(Boolean)
+          .join('\n');
+      }
+    }
+
+    /**
+     * Resolve the case-study select into a slug, creating one first when that
+     * is what was asked for. Returns `undefined` for "none", which
      * `patchProject` reads as "remove the field".
+     *
+     * Two ways to create: `__new__` scaffolds the header from this form and a
+     * placeholder body, and `__ai__` writes both from the repository. The
+     * second is the one that produces something worth reading — a case study
+     * whose body is the scaffold paragraph is a page with a header and nothing
+     * under it, which is what every one of them was until the write-up had a
+     * task and a field of its own.
      */
     async function resolveCaseStudy(slug: string, fields: ProjectFields): Promise<string | undefined> {
       const choice = inputs.caseStudy.value;
-      if (choice !== '__new__') return choice || undefined;
+      if (choice !== '__new__' && choice !== '__ai__') return choice || undefined;
 
-      await createCaseStudy(slug, {
+      const seedFields = {
         title: fields.title,
         subtitle: fields.summary,
         problem: 'Describe the problem this project set out to solve.',
@@ -774,15 +928,81 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         repoUrl: fields.repoUrl,
         demoUrl: fields.demoUrl,
         date: new Date().toISOString().slice(0, 10),
-      });
+      };
+      let body: string | undefined;
 
-      /* The new case study exists on the branch but not in this page's build,
-         so add it to the select rather than leaving the next save unable to
-         find it. */
+      if (choice === '__ai__') {
+        /* Two calls, in order, because the second one reads the first: the
+           prose has to agree with the problem and solution above it. A failure
+           in either falls back to the scaffold rather than abandoning the
+           import — the project is the thing being created here, and a case
+           study that needs rewriting is recoverable from its own page. */
+        try {
+          say(formMessage, 'Writing the case study from the repository…');
+          const header = await runAssist(
+            'casestudy',
+            {
+              repo: source?.facts ?? '',
+              readme: await readme(),
+              title: fields.title,
+              summary: fields.summary,
+              stack: fields.stack.join(', '),
+              highlights: fields.highlights.join('\n'),
+            },
+            '',
+            { onDelta: () => {} },
+          );
+
+          const { values, recognised } = parseFields(header, CASE_STUDY_KEYS);
+          if (recognised) {
+            if (values.title.trim()) seedFields.title = values.title.trim();
+            if (values.subtitle.trim()) seedFields.subtitle = values.subtitle.trim();
+            if (values.problem.trim()) seedFields.problem = values.problem.trim();
+            if (values.solution.trim()) seedFields.solution = values.solution.trim();
+            const achievements = lines(values.achievements).map(line =>
+              line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim(),
+            );
+            if (achievements.length) seedFields.achievements = achievements;
+            if (values.stack.trim()) seedFields.stack = csv(values.stack);
+          }
+
+          say(formMessage, 'Writing the write-up under it…');
+          const prose = await runAssist(
+            'casestudybody',
+            {
+              repo: source?.facts ?? '',
+              readme: await readme(),
+              title: seedFields.title,
+              summary: seedFields.subtitle,
+              stack: seedFields.stack.join(', '),
+              highlights: seedFields.achievements.join('\n'),
+              problem: seedFields.problem,
+              solution: seedFields.solution,
+            },
+            '',
+            { onDelta: () => {} },
+          );
+          if (prose.trim()) body = prose.trim();
+        } catch (error) {
+          toast(`The case study was scaffolded rather than written: ${message(error)}`, {
+            tone: 'error',
+          });
+        } finally {
+          say(formMessage, 'Creating…');
+        }
+      }
+
+      await createCaseStudy(slug, seedFields, body);
+
+      /* The new case study exists in the database but not in this page's
+         render, so add it to the select rather than leaving the next save
+         unable to find it. */
       const option = document.createElement('option');
       option.value = slug;
-      option.textContent = `${fields.title} (${slug})`;
-      inputs.caseStudy.insertBefore(option, inputs.caseStudy.lastElementChild);
+      option.textContent = `${seedFields.title} (${slug})`;
+      /* Above the two "create one" entries at the bottom of the list, which is
+         where the existing case studies are. */
+      inputs.caseStudy.insertBefore(option, inputs.caseStudy.querySelector('option[value="__new__"]'));
       inputs.caseStudy.value = slug;
       return slug;
     }
@@ -954,6 +1174,35 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         identity.appendChild(description);
       }
 
+      /* What the listing already answered, and what deciding between twenty
+         repositories actually turns on. It costs no request — every field here
+         came back with the row — and the same facts are what the assistant is
+         handed when this one is imported, so what is on screen and what the
+         model is told are the same thing. */
+      const meta = document.createElement('div');
+      meta.className = 'repo-meta';
+
+      const facts = [
+        repo.language,
+        repo.stars ? `★ ${repo.stars}` : '',
+        repo.pushedAt ? `pushed ${relativeTime(repo.pushedAt)}` : '',
+        repo.license,
+        repo.homepage ? 'has a homepage' : '',
+      ].filter(Boolean);
+      if (facts.length) {
+        const line = document.createElement('span');
+        line.className = 'text-muted repo-facts';
+        line.textContent = facts.join(' · ');
+        meta.appendChild(line);
+      }
+
+      /* The author's own words for what the thing is. Four, because the row is
+         one line tall and a repository with fifteen topics would take the
+         dialog over. */
+      for (const topic of repo.topics.slice(0, 4)) meta.appendChild(chip(topic));
+
+      if (meta.childElementCount) identity.appendChild(meta);
+
       const line = document.createElement('p');
       line.className = 'text-muted admin-note repo-line';
       line.dataset.role = 'status';
@@ -1023,7 +1272,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         const languages = await fetchRepoLanguages(repo.owner, repo.name);
         setBusy(add, false);
         importModal.close();
-        openForm(slugify(repo.name), fieldsFromRepo(repo, languages));
+        openForm(slugify(repo.name), fieldsFromRepo(repo, languages), repo, languages);
       });
       host.appendChild(add);
       return host;
@@ -1180,6 +1429,14 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
   #import-list :global(.repo-name) { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
   #import-list :global(.repo-badges) { display: inline-flex; gap: 6px; margin-left: var(--space-2); flex-wrap: wrap; }
   #import-list :global(.repo-desc) { font-size: 12px; margin: 4px 0 0; }
+  #import-list :global(.repo-meta) {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  #import-list :global(.repo-facts) { font-size: 11px; letter-spacing: 0.02em; }
   #import-list :global(.repo-action) { display: flex; align-items: center; gap: var(--space-2); flex: none; }
   #import-list :global(.repo-line) { grid-column: 1 / -1; margin: 0; }
   #import-list :global(.repo-line:empty) { display: none; }

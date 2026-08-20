@@ -14,6 +14,25 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **A case study has a write-up, and the assistant can write it.** `case_studies`
+  has always had a body column and nothing on any screen ever wrote it, so every
+  case study on the site was a header over the one paragraph the scaffold
+  inserts — which is why they read as empty. The Case study tab now has the
+  markdown field, saved with the header in one write, and
+  `/write-case-study-body` drafts it from the repository and from the problem
+  and solution above it. Decision 46.
+
+- **The import modal shows what GitHub already told it.** Primary language,
+  stars, when it was last pushed, the licence and the author's own topics, per
+  row. None of it costs an extra request — it all arrived with the listing and
+  was being dropped on the floor. Decision 47.
+
+- **Draft with AI, in the import form.** The same `/write-frontmatter` task the
+  project page runs, on the repository's metadata and its README, streaming into
+  the fields before the project exists. The case-study picker gained a second
+  create option beside the scaffold: write the header *and* the write-up from
+  the repository.
+
 - **A resume is a master and any number of variants.** Your job history, skills,
   education and certifications are written *once*. A variant is a view of it —
   which roles, which skill groups, which certifications, which projects, in what
@@ -79,6 +98,37 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   switch it had been missing since `data-mode` became a second axis.
 
 ### Fixed
+
+- **Saving a post or a case study with a body failed in production.**
+  `Failed to parse Markdown file "undefined": WebAssembly.instantiate(): Wasm
+  code generation disallowed by embedder` — Astro's markdown processor
+  highlights code with Shiki, Shiki's default regex engine is a WebAssembly
+  module, and the Workers runtime refuses to compile one. It built that
+  highlighter for every body it rendered, code block or not, so every save with
+  text in it threw and every save without one worked. Invisible everywhere else:
+  `astro dev` renders in Node, and the build no longer renders markdown at all.
+  Highlighting is off, code blocks are styled from the theme tokens as they
+  always were, and `npm run check:content` fails the build if it ever comes
+  back. Decision 45.
+
+- **`/build-variant` came back "not in the expected format" and applied
+  nothing.** Two halves. The output contract is restated as the last thing the
+  model reads, which is the position it weights hardest; and a reply that writes
+  its labels as markdown headings — `**Summary**`, `## Experience` — now parses
+  instead of being thrown away. When a parsed reply matches no role, skill group
+  or project you actually have, the screen says so rather than reporting success
+  over a variant nothing changed in.
+
+- **A project's hero image never appeared on the project's own page.** The
+  cards have shown it since there were cards; the detail page destructured
+  every other field and not that one, so an uploaded image was visible
+  everywhere except where the project is actually read.
+
+- **A dropdown near the right edge opened off the screen.** The menu is aligned
+  to its trigger's left edge and can be several times wider, and nothing clamped
+  it to the window — a popover is in the top layer, so there is no scrollbar that
+  could bring it back. Dragging a long list's scrollbar also closed it, because a
+  press anywhere on the popup that was not a row moved focus off the button.
 
 - **Printing the resume produced a three-page sheet in a 52mm column.** A printed
   A4 page at 14mm margins is a 182mm measure — **688px** at CSS's 96dpi — so

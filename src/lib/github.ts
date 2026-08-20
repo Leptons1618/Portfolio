@@ -571,6 +571,21 @@ export interface RepoMeta {
   stars: number;
   archived: boolean;
   htmlUrl: string;
+  /* — the rest of what GitHub already sent —
+
+     One request answers all of this; reading five fields of it and dropping the
+     others meant the assistant wrote a project's frontmatter from a name, a
+     one-line description and a language histogram. The topics are the author's
+     own words for what the thing is, the licence and the homepage are facts a
+     summary should not have to guess at, and the two dates are the only
+     evidence of whether a project ran for a weekend or two years. */
+  homepage: string | null;
+  topics: string[];
+  language: string | null;
+  license: string | null;
+  createdAt: string;
+  forks: number;
+  openIssues: number;
 }
 
 /**
@@ -607,6 +622,13 @@ export async function fetchRepoMeta(owner: string, repo: string): Promise<RepoMe
     stars: Number(response.stargazers_count ?? 0),
     archived: Boolean(response.archived),
     htmlUrl: String(response.html_url ?? `https://github.com/${owner}/${repo}`),
+    homepage: (response.homepage as string | null) || null,
+    topics: Array.isArray(response.topics) ? (response.topics as string[]) : [],
+    language: (response.language as string | null) ?? null,
+    license: ((response.license as { spdx_id?: string } | null)?.spdx_id as string) || null,
+    createdAt: String(response.created_at ?? ''),
+    forks: Number(response.forks_count ?? 0),
+    openIssues: Number(response.open_issues_count ?? 0),
   };
 }
 
@@ -627,6 +649,74 @@ export interface RepoSummary {
   archived: boolean;
   /** True when the GitHub App was installed on this repository. */
   granted: boolean;
+  /* — what the row shows, and what the assistant is told —
+
+     All of it arrives in the same listing response, so none of it costs a
+     request. The import modal used to be a name and a description per row,
+     which is not enough to choose between twenty repositories, and the import
+     form then started the project from those same two facts. */
+  stars: number;
+  language: string | null;
+  license: string | null;
+}
+
+/**
+ * Everything both repository shapes carry, which is what a reader gets told.
+ *
+ * `RepoMeta` (one repository, read on demand) and `RepoSummary` (a row in the
+ * import list) come from two different endpoints and are now the same set of
+ * facts, so the thing that turns either into prose takes the overlap rather
+ * than one of them. That is what lets the import modal and a project's own page
+ * describe a repository to the assistant identically — the alternative was two
+ * fact lists that drifted, and a project imported with the assistant's help
+ * reading differently from the same project edited an hour later.
+ */
+export type RepoFacts = Pick<
+  RepoMeta,
+  | 'fullName'
+  | 'description'
+  | 'htmlUrl'
+  | 'homepage'
+  | 'topics'
+  | 'language'
+  | 'license'
+  | 'stars'
+  | 'createdAt'
+  | 'pushedAt'
+  | 'archived'
+>;
+
+/**
+ * A repository as a block of facts, for the writing assistant.
+ *
+ * Plain lines rather than JSON: this is reference material inside a prompt, and
+ * a model reads "Topics the author tagged it with: …" better than it reads a
+ * key. Empty fields are dropped instead of being sent as `null`, because a
+ * `null` is a fact about the payload and not about the project.
+ *
+ * `languages` is the separate `/languages` call, which is the only honest
+ * answer to what a project is built in — the repository's own `language` field
+ * is whichever one has the most bytes and is routinely wrong about a project
+ * with a large notebook or a vendored dependency in it.
+ */
+export function repoFacts(repo: RepoFacts, languages: string[]): string {
+  const year = (iso: string) => (iso ? iso.slice(0, 10) : '');
+  return [
+    `Repository: ${repo.fullName}`,
+    `URL: ${repo.htmlUrl}`,
+    repo.description ? `GitHub description: ${repo.description}` : '',
+    repo.topics.length ? `Topics the author tagged it with: ${repo.topics.join(', ')}` : '',
+    languages.length ? `Languages GitHub detected, largest first: ${languages.join(', ')}` : '',
+    !languages.length && repo.language ? `Primary language: ${repo.language}` : '',
+    repo.homepage ? `Homepage or live demo: ${repo.homepage}` : '',
+    repo.license ? `Licence: ${repo.license}` : '',
+    repo.stars ? `Stars: ${repo.stars}` : '',
+    repo.createdAt ? `First commit pushed: ${year(repo.createdAt)}` : '',
+    repo.pushedAt ? `Last pushed: ${year(repo.pushedAt)}` : '',
+    repo.archived ? 'The repository is archived on GitHub.' : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 /** The subset of GitHub's repository payload this module reads. */
@@ -642,6 +732,9 @@ interface RawRepo {
   pushed_at: string;
   private: boolean;
   archived: boolean;
+  stargazers_count?: number;
+  language?: string | null;
+  license?: { spdx_id?: string } | null;
 }
 
 const toSummary = (repo: RawRepo, granted: boolean): RepoSummary => ({
@@ -657,6 +750,9 @@ const toSummary = (repo: RawRepo, granted: boolean): RepoSummary => ({
   isPrivate: repo.private,
   archived: repo.archived,
   granted,
+  stars: repo.stargazers_count ?? 0,
+  language: repo.language ?? null,
+  license: repo.license?.spdx_id ?? null,
 });
 
 /**
