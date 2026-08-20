@@ -14,12 +14,20 @@
  * row rather than a flag plus a draft store somewhere else: `getPosts(db, true)`
  * already returns everything, so filtering is one predicate and moving a post
  * between states is one column patch.
+ *
+ * The list is on two shelves — Active for published and drafts, Archived for
+ * withdrawn posts — with one order control over both. That is arrangement, not
+ * a third filter: the status segments still reach either shelf, and a status
+ * change moves the row rather than leaving it under a heading that has stopped
+ * being true. Every row carries `updated_at` as well as its own date, because
+ * on a manifest of things being written the useful timestamp is the one that
+ * says where you left off.
  */
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import Illustration from '../../components/Illustration.astro';
 import { Icon } from 'astro-icon/components';
 import { getPosts } from '../../lib/content';
-import { formatShortDate } from '../../lib/format';
+import { formatShortDate, relativeTime } from '../../lib/format';
 import { POST_STATUSES } from '../../lib/content-store';
 
 /* Every status, including the two the public site never renders — managing
@@ -39,6 +47,35 @@ const counts = {
   published: existing.filter(entry => entry.data.status === 'published').length,
   unpublished: existing.filter(entry => entry.data.status === 'unpublished').length,
 };
+
+/* Two shelves rather than one list, because the third status is not a third
+   kind of post — it is a post that has been taken off the site. Drafts and
+   published entries are both things being worked on and both belong at the
+   top; a withdrawn one is a record. The status filter above still reaches
+   either, so this is arrangement and not another filter. */
+const sections = [
+  {
+    id: 'active',
+    title: 'Active',
+    note: 'Published and drafts — everything currently in play.',
+    rows: existing.filter(entry => entry.data.status !== 'unpublished'),
+  },
+  {
+    id: 'archived',
+    title: 'Archived',
+    note: 'Withdrawn. Their URLs 404 until they are published again.',
+    rows: existing.filter(entry => entry.data.status === 'unpublished'),
+  },
+];
+
+/* The four orders the list can be put in. The default is what the manifest
+   showed before there was a control: the post date, newest first. */
+const SORTS = [
+  ['newest', 'Newest first'],
+  ['oldest', 'Oldest first'],
+  ['edited', 'Recently edited'],
+  ['title', 'Title A–Z'],
+];
 ---
 <AdminLayout title="Journal">
   <div class="admin-main-wide" id="admin-journal">
@@ -99,6 +136,13 @@ const counts = {
               placeholder="Search titles…"
               aria-label="Search journal entries"
             />
+            {/* `select.input`, so `src/lib/select.ts` replaces it with the
+                dropdown this surface uses everywhere else. Ordering is a view
+                of the list, not a property of a post — nothing is written and
+                nothing persists past a reload. */}
+            <select class="input is-auto entry-sort" id="entry-sort" aria-label="Order entries">
+              {SORTS.map(([value, label]) => <option value={value}>{label}</option>)}
+            </select>
             <div class="seg" role="group" aria-label="Filter entries by status">
               <label class="seg-opt"><input type="radio" name="entry-filter" value="all" checked />All</label>
               {POST_STATUSES.map(([value, label]) => (
@@ -108,80 +152,104 @@ const counts = {
           </div>
         </div>
 
-        <div class="card elev-sm existing-card">
-          {existing.map(entry => (
-            <div
-              class="existing-row"
-              data-slug={entry.slug}
-              data-status={entry.data.status}
-              data-search={entry.data.title.toLowerCase()}
-            >
-              <div class="existing-id">
-                <a class="existing-title" href={`/admin/journal/${entry.slug}`}>{entry.data.title}</a>
-                {/* Colour comes from the row's `data-status` in this page's
-                    stylesheet, so the script only has to rewrite one attribute
-                    and one word when a status changes. */}
-                <span class="tag entry-flag" data-role="flag">{entry.data.status}</span>
-              </div>
-              <p class="text-muted existing-summary">{entry.data.summary}</p>
-              <span class="text-muted cell-mono existing-date">{formatShortDate(entry.data.date)}</span>
-
-              <a class="btn btn-secondary btn-sm" href={`/admin/journal/${entry.slug}`}>
-                <Icon name="lucide:pencil" class="admin-nav-icon" />Edit
-              </a>
-
-              {/* Everything else this row can do, behind one control. A `<details>`
-                  rather than a scripted popover: the open/close, the button
-                  semantics and the click-outside-to-close are all things the
-                  element does for free once the row closes its siblings. */}
-              <details class="menu entry-menu">
-                <summary
-                  class="btn btn-icon btn-sm"
-                  role="button"
-                  aria-haspopup="menu"
-                  aria-label={`More actions for ${entry.data.title}`}
-                  title="More actions"
-                >
-                  <Icon name="lucide:ellipsis-vertical" class="admin-nav-icon" />
-                </summary>
-                <div class="menu-panel" role="menu">
-                  <span class="menu-label">Status</span>
-                  {POST_STATUSES.map(([value, label]) => (
-                    <button
-                      type="button"
-                      class="menu-item"
-                      role="menuitemradio"
-                      data-status={value}
-                      aria-checked={value === entry.data.status ? 'true' : 'false'}
-                      aria-current={value === entry.data.status ? 'true' : undefined}
-                    >{label}</button>
-                  ))}
-                  <hr class="menu-sep" />
-                  {/* Unpublished posts leave `getStaticPaths`, so there is no page
-                      to open — a disabled row saying why beats a link that 404s. */}
-                  {entry.data.status === 'unpublished' ? (
-                    <button type="button" class="menu-item" role="menuitem" disabled>No public page</button>
-                  ) : (
-                    <a class="menu-item" role="menuitem" href={`/journal/${entry.slug}`} target="_blank" rel="noopener">
-                      <Icon name="lucide:external-link" class="admin-nav-icon" />Open the post
-                    </a>
-                  )}
-                  <button type="button" class="menu-item menu-item-danger" role="menuitem" data-action="delete">
-                    <Icon name="lucide:trash-2" class="admin-nav-icon" />Delete the post
-                  </button>
-                </div>
-              </details>
-
-              <p class="text-muted admin-note entry-line" data-role="status"></p>
+        {sections.map(section => (
+          <section class="entry-section" data-section={section.id} hidden={section.rows.length === 0}>
+            <div class="entry-section-head">
+              <h6 class="admin-eyebrow">{section.title} ({section.rows.length})</h6>
+              <p class="text-muted admin-note entry-section-note">{section.note}</p>
             </div>
-          ))}
+            <div class="card elev-sm existing-card">
+              {section.rows.map(entry => (
+                <div
+                  class="existing-row"
+                  data-slug={entry.slug}
+                  data-status={entry.data.status}
+                  data-search={entry.data.title.toLowerCase()}
+                  data-date={entry.data.date}
+                  data-updated={entry.data.updatedAt}
+                >
+                  <div class="existing-id">
+                    <a class="existing-title" href={`/admin/journal/${entry.slug}`}>{entry.data.title}</a>
+                    {/* Colour comes from the row's `data-status` in this page's
+                        stylesheet, so the script only has to rewrite one attribute
+                        and one word when a status changes. */}
+                    <span class="tag entry-flag" data-role="flag">{entry.data.status}</span>
+                  </div>
+                  <p class="text-muted existing-summary">{entry.data.summary}</p>
+                  {/* Two timestamps, because they answer different questions: the
+                      post's own date is what the site shows, and `updated_at` is
+                      when this row was last written — which is the one that says
+                      where you left off. The exact stamp is the tooltip. */}
+                  <span class="text-muted cell-mono existing-date">
+                    <span>{formatShortDate(entry.data.date)}</span>
+                    {entry.data.updatedAt && (
+                      <span class="existing-edited" title={entry.data.updatedAt}>
+                        edited {relativeTime(entry.data.updatedAt)}
+                      </span>
+                    )}
+                  </span>
 
-          {/* A filter that matched none of the posts there are is a different
-              nothing from having none, and it wants a different sentence. */}
-          <div class="admin-empty" id="entries-empty" hidden>
-            <div class="admin-empty-art admin-empty-art-sm"><Illustration name="empty-mailbox" /></div>
-            <p class="admin-empty-copy">No entry matches that search and filter.</p>
-          </div>
+                  <a class="btn btn-secondary btn-sm" href={`/admin/journal/${entry.slug}`}>
+                    <Icon name="lucide:pencil" class="admin-nav-icon" />Edit
+                  </a>
+
+                  {/* Everything else this row can do, behind one control. A `<details>`
+                      rather than a scripted popover: the open/close, the button
+                      semantics and the click-outside-to-close are all things the
+                      element does for free once the row closes its siblings. */}
+                  <details class="menu entry-menu">
+                    <summary
+                      class="btn btn-icon btn-sm"
+                      role="button"
+                      aria-haspopup="menu"
+                      aria-label={`More actions for ${entry.data.title}`}
+                      title="More actions"
+                    >
+                      <Icon name="lucide:ellipsis-vertical" class="admin-nav-icon" />
+                    </summary>
+                    <div class="menu-panel" role="menu">
+                      <span class="menu-label">Status</span>
+                      {POST_STATUSES.map(([value, label]) => (
+                        <button
+                          type="button"
+                          class="menu-item"
+                          role="menuitemradio"
+                          data-status={value}
+                          aria-checked={value === entry.data.status ? 'true' : 'false'}
+                          aria-current={value === entry.data.status ? 'true' : undefined}
+                        >{label}</button>
+                      ))}
+                    <hr class="menu-sep" />
+                    {/* Unpublished posts leave `getStaticPaths`, so there is no page
+                        to open — a disabled row saying why beats a link that 404s. */}
+                    {entry.data.status === 'unpublished' ? (
+                      <button type="button" class="menu-item" role="menuitem" disabled>No public page</button>
+                    ) : (
+                      <a class="menu-item" role="menuitem" href={`/journal/${entry.slug}`} target="_blank" rel="noopener">
+                        <Icon name="lucide:external-link" class="admin-nav-icon" />Open the post
+                      </a>
+                    )}
+                    <button type="button" class="menu-item menu-item-danger" role="menuitem" data-action="delete">
+                      <Icon name="lucide:trash-2" class="admin-nav-icon" />Delete the post
+                    </button>
+                  </div>
+                </details>
+
+                <p class="text-muted admin-note entry-line" data-role="status"></p>
+              </div>
+              ))}
+            </div>
+          </section>
+        ))}
+
+        {/* A filter that matched none of the posts there are is a different
+            nothing from having none, and it wants a different sentence. Outside
+            the cards now that there are two of them — and outside the rows the
+            sort control re-appends, which would otherwise leave it stranded
+            above them. */}
+        <div class="admin-empty" id="entries-empty" hidden>
+          <div class="admin-empty-art admin-empty-art-sm"><Illustration name="empty-mailbox" /></div>
+          <p class="admin-empty-copy">No entry matches that search and filter.</p>
         </div>
 
         <p class="text-muted admin-note jl-note">
@@ -206,8 +274,10 @@ const counts = {
     if (!rows.length) return;
 
     const entrySearch = document.getElementById('entry-search') as HTMLInputElement | null;
+    const entrySort = document.getElementById('entry-sort') as HTMLSelectElement | null;
     const entryFilters = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="entry-filter"]'));
     const entriesEmpty = document.getElementById('entries-empty')!;
+    const sections = Array.from(document.querySelectorAll<HTMLElement>('.entry-section'));
     const rowBySlug = new Map(rows.map(row => [row.dataset.slug!, row]));
 
     function applyEntryFilters() {
@@ -221,10 +291,38 @@ const counts = {
         row.hidden = hide;
         if (!hide) shown += 1;
       });
+      /* A shelf with nothing left on it is a heading over a rule. Asked of the
+         rows rather than counted alongside them, so this stays right after a
+         status change moves a post from one section to the other. */
+      sections.forEach(section => {
+        section.hidden = !section.querySelector('.existing-row:not([hidden])');
+      });
       entriesEmpty.hidden = shown > 0;
     }
 
+    /* Ordering is a comparator per option, read off the row's data attributes
+       rather than from the DOM text — both timestamps are ISO, so comparing
+       them as strings is comparing them as dates. */
+    const ORDERS: Record<string, (a: HTMLElement, b: HTMLElement) => number> = {
+      newest: (a, b) => (b.dataset.date ?? '').localeCompare(a.dataset.date ?? ''),
+      oldest: (a, b) => (a.dataset.date ?? '').localeCompare(b.dataset.date ?? ''),
+      edited: (a, b) => (b.dataset.updated ?? '').localeCompare(a.dataset.updated ?? ''),
+      title: (a, b) => (a.dataset.search ?? '').localeCompare(b.dataset.search ?? ''),
+    };
+
+    function applySort() {
+      const order = ORDERS[entrySort?.value ?? ''] ?? ORDERS.newest;
+      sections.forEach(section => {
+        const card = section.querySelector('.existing-card');
+        if (!card) return;
+        Array.from(card.querySelectorAll<HTMLElement>('.existing-row'))
+          .sort(order)
+          .forEach(row => card.appendChild(row));
+      });
+    }
+
     entrySearch?.addEventListener('input', applyEntryFilters);
+    entrySort?.addEventListener('change', applySort);
     entryFilters.forEach(input => input.addEventListener('change', applyEntryFilters));
 
     /** Move a row to a status without re-reading it from the database. */
@@ -232,6 +330,16 @@ const counts = {
       const row = rowBySlug.get(slug);
       if (!row) return;
       row.dataset.status = status;
+      /* Withdrawing a post is what "archived" means, so the row moves rather
+         than sitting under a heading that is now wrong. Re-sorted after the
+         move because it lands at the end of whichever card it went to. */
+      const shelf = document
+        .querySelector(`.entry-section[data-section="${status === 'unpublished' ? 'archived' : 'active'}"]`)
+        ?.querySelector('.existing-card');
+      if (shelf && row.parentElement !== shelf) {
+        shelf.appendChild(row);
+        applySort();
+      }
       row.querySelector<HTMLElement>('[data-role="flag"]')!.textContent = status;
       row.querySelectorAll<HTMLButtonElement>('[data-status]').forEach(item => {
         const on = item.dataset.status === status;
@@ -405,6 +513,20 @@ const counts = {
   .existing-filters { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
   .entry-search { width: 220px; font-size: 13px; padding: 6px 10px; }
 
+  /* Two shelves, each its own card, so the heading and its sentence sit on the
+     paper rather than inside the list. */
+  .entry-section { margin-bottom: var(--space-6); }
+  .entry-section:last-of-type { margin-bottom: 0; }
+  .entry-section-head {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-2);
+  }
+  .entry-section-head h6 { margin: 0; }
+  .entry-section-note { margin: 0; }
+
   .existing-card { gap: 0; }
   /* Title | date | edit | menu, with the summary tucked under the title and any
      status message spanning the whole row beneath — so a long sentence never
@@ -440,7 +562,16 @@ const counts = {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .existing-date { grid-column: 2; grid-row: 1 / span 2; white-space: nowrap; }
+  /* Two stamps stacked: the post's date, and when the row was last written. */
+  .existing-date {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    white-space: nowrap;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .existing-edited { font-size: 11px; opacity: 0.7; }
   .existing-row > .btn { grid-column: 3; grid-row: 1 / span 2; }
   .entry-menu { grid-column: 4; grid-row: 1 / span 2; }
 

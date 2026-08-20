@@ -85,6 +85,7 @@ const {
   isAssistTask,
   parseCommand,
   parseDocument,
+  parseEdit,
   parseFields,
   taskForCommand,
 } = await load('src/lib/assist-tasks.ts');
@@ -713,6 +714,54 @@ check('a response that ignores the format entirely writes nothing into the post'
 
 check('a well-formed document is recognised', () => {
   assert.equal(parseDocument(WHOLE_POST).recognised, true);
+});
+
+/* ---------- conversation that edits ---------- */
+
+/* `chat` answers a question in prose and answers a *request to change
+   something* with the change itself, in the labelled format. Which one a reply
+   is decides whether it reaches the author's fields, so the discriminator is
+   worth more than the parser it wraps: a false positive here writes a model's
+   prose over a title.
+
+   The rule is that an edit **opens** with a label. `parseFields` drops any
+   preamble before the first one — right for a task whose whole output is a
+   document, wrong for a conversation, where a paragraph that mentions a title
+   is still a paragraph. */
+
+check('a reply opening with a label is an edit', () => {
+  const edit = parseEdit('TITLE: Pinned skills, reproducible bootstraps', POST_KEYS);
+  assert.ok(edit);
+  assert.equal(edit.values.title, 'Pinned skills, reproducible bootstraps');
+  /* Only what was written. Everything else stays as the author left it, which
+     is what lets the editor apply this field by field. */
+  assert.equal(edit.values.summary, '');
+  assert.equal(edit.tailStarted, false);
+});
+
+check('prose is not an edit, however many labels it names', () => {
+  assert.equal(parseEdit('Your opening paragraph buries the point.', POST_KEYS), null);
+  /* The one that matters: a chatty answer that quotes a label mid-sentence. It
+     parses perfectly well as a document and must not be applied as one. */
+  assert.equal(
+    parseEdit('I would shorten it. TITLE: something like "Pinned skills" reads better.', POST_KEYS),
+    null,
+  );
+});
+
+check('an edit is read against the surface it came from', () => {
+  /* `HIGHLIGHTS:` is a field on a project and an ordinary line in a post — the
+     same rule `parseFields` runs on, asserted through the discriminator. */
+  const project = parseEdit('HIGHLIGHTS:\n- Pins every skill to a commit', PROJECT_KEYS);
+  assert.ok(project);
+  assert.equal(project.tailStarted, true);
+  assert.equal(parseEdit('HIGHLIGHTS:\n- Pins every skill to a commit', POST_KEYS), null);
+});
+
+check('a fenced edit is still an edit', () => {
+  const edit = parseEdit('```\nSUMMARY: One line, and a shorter one.\n```', POST_KEYS);
+  assert.ok(edit);
+  assert.equal(edit.values.summary, 'One line, and a shorter one.');
 });
 
 /* ---------- the per-task key sets ---------- */

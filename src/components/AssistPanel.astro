@@ -48,8 +48,10 @@ const { surface, sub } = Astro.props;
 {/* `show()` rather than `showModal()` — the editor behind this stays visible
     and usable, because watching the fields fill is the point. `data-surface` is
     what the script reads to know which commands to offer. */}
-<dialog class="asx" id="assist-dialog" aria-label="Writing assistant" data-surface={surface}>
-  <header class="asx-head">
+<dialog class="asx" id="assist-dialog" aria-label="Writing assistant" data-surface={surface} data-dock="right">
+  {/* `data-drag` marks the part of the header that moves the panel: the copy,
+      not the buttons beside it. */}
+  <header class="asx-head" data-drag>
     <div class="asx-head-copy">
       <h3 class="asx-title">
         <Icon name="lucide:sparkles" class="admin-nav-icon" />Writing assistant
@@ -57,6 +59,29 @@ const { surface, sub } = Astro.props;
       <p class="asx-sub">{sub}</p>
     </div>
     <div class="asx-head-actions">
+      {/* Where the panel sits. Two docks and a free position, because the
+          fields being written are on the left on one screen and on the right on
+          another — and dragging the header is what produces the third. */}
+      <button
+        type="button"
+        class="btn btn-icon asx-dock"
+        id="assist-dock-left"
+        aria-label="Dock left"
+        aria-pressed="false"
+        title="Dock left"
+      >
+        <Icon name="lucide:panel-left" class="admin-nav-icon" />
+      </button>
+      <button
+        type="button"
+        class="btn btn-icon asx-dock"
+        id="assist-dock-right"
+        aria-label="Dock right"
+        aria-pressed="false"
+        title="Dock right"
+      >
+        <Icon name="lucide:panel-right" class="admin-nav-icon" />
+      </button>
       <button
         type="button"
         class="btn btn-icon"

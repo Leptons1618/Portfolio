@@ -1,5 +1,6 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import AssistPanel from '../../components/AssistPanel.astro';
 import Illustration from '../../components/Illustration.astro';
 import { Icon } from 'astro-icon/components';
 import { getCaseStudies, getProjects } from '../../lib/content';
@@ -328,7 +329,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         </div>
         <div class="field pf-wide">
           <label for="pf-summary">Summary</label>
-          <textarea class="input pf-summary" id="pf-summary"></textarea>
+          <textarea class="input pf-summary" id="pf-summary" data-grow></textarea>
         </div>
         <div class="field">
           <label for="pf-category">Category</label>
@@ -372,7 +373,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         </div>
         <div class="field pf-wide">
           <label for="pf-highlights">Highlights (one per line)</label>
-          <textarea class="input pf-highlights" id="pf-highlights"></textarea>
+          <textarea class="input pf-highlights" id="pf-highlights" data-grow></textarea>
         </div>
         <div class="field pf-wide">
           <label for="pf-case">Case study</label>
@@ -411,6 +412,14 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     </div>
   </dialog>
 
+  {/* The same panel the project's own page and the journal editor mount. It is
+      here so an import's "Draft with AI" has somewhere to show its work — it
+      opens over the form, which is a modal `<dialog>`. */}
+  <AssistPanel
+    surface="project"
+    sub="Writes into the import form as it answers. Nothing is created until you press Create project."
+  />
+
   <script is:inline type="application/json" id="projects-seed" set:html={seedJson}></script>
 </AdminLayout>
 
@@ -442,7 +451,18 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     type RepoSummary,
   } from '../../lib/github';
   import { runAssist } from '../../lib/ai-store';
-  import { CASE_STUDY_KEYS, PROJECT_KEYS, parseFields } from '../../lib/assist-tasks';
+  import { mountAssistPanel } from '../../lib/assist-panel';
+  import {
+    ASSIST_MENU,
+    ASSIST_TASKS,
+    CASE_STUDY_KEYS,
+    PROJECT_KEYS,
+    parseEdit,
+    parseFields,
+    type AssistTask,
+    type AssistTaskName,
+  } from '../../lib/assist-tasks';
+  import { copyText } from '../../lib/clipboard';
   import { attachImageUpload } from '../../lib/image-upload';
 
   /* The admin client-routes, so this runs on first paint and again every time
@@ -807,11 +827,13 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
      * Write the frontmatter from the repository, into the fields as it arrives.
      *
      * The same task the project's own page runs as `/write-frontmatter`, on the
-     * same endpoint and against the same key set — this screen just has no
-     * assistant panel to host it, so the streaming answer goes straight into
-     * the form and the message line is the progress report. An import is where
-     * these fields are emptiest: GitHub answers seven of nine, and the two it
-     * cannot are the two that decide whether a card is worth clicking.
+     * same endpoint and against the same key set. It used to run *here*, behind
+     * a disabled button and a one-line status: twenty seconds whose only sign
+     * of life was the fields filling in, and none at all while the model
+     * deliberated first — which on a reasoning model is most of it. It goes
+     * through the panel now, so the thinking and the lookups show where they do
+     * on every other screen. The answer still streams into the form, which was
+     * never the part that was wrong.
      */
     const draftButton = document.getElementById('pf-draft') as HTMLButtonElement;
     if (!signedIn) {
@@ -819,52 +841,10 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       draftButton.title = 'Sign in with GitHub to use the assistant.';
     }
 
-    draftButton.addEventListener('click', async () => {
+    draftButton.addEventListener('click', () => {
       if (!signedIn || !source) return;
-
-      /* No stop button: `setBusy` disables this one for the length of the run,
-         the stages are reported in the message line under the fields, and what
-         arrives is editable the moment it lands. An import that takes twenty
-         seconds is not one worth interrupting. */
-      setBusy(draftButton, true, 'Drafting…');
-      say(formMessage, 'Reading the repository…');
-
-      let raw = '';
-      try {
-        const context = {
-          repo: source.facts,
-          readme: await readme(),
-          title: inputs.title.value,
-          summary: inputs.summary.value,
-        };
-        say(formMessage, 'Writing the frontmatter…');
-
-        const output = await runAssist('project', context, '', {
-          onDelta: chunk => {
-            raw += chunk;
-            fillDraft(raw);
-          },
-        });
-
-        if (!parseFields(output, PROJECT_KEYS).recognised) {
-          say(
-            formMessage,
-            'The model answered without using the field format, so nothing was written. Try again, or pick a different model on the AI screen.',
-            'error',
-          );
-          return;
-        }
-
-        fillDraft(output);
-        say(formMessage, 'Written from the repository. Edit anything, then create.');
-      } catch (error) {
-        /* Whatever arrived stays in the fields — that is what writing straight
-           into the form means, and the fields were empty a moment ago. */
-        say(formMessage, message(error), 'error');
-        toast(message(error), { tone: 'error' });
-      } finally {
-        setBusy(draftButton, false);
-      }
+      panel.open();
+      panel.send(`/${ASSIST_TASKS.project.command}`);
     });
 
     /**
@@ -902,6 +882,171 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       }
     }
 
+    // ------------------------------------------------------- the assistant
+
+    /**
+     * The panel both authoring screens mount, on the screen that had none.
+     *
+     * Every run this screen makes goes through it — the frontmatter draft and
+     * the two case-study writes an `__ai__` import makes on save — so the
+     * thinking, the lookups and the failures land where the author is already
+     * looking rather than in a one-line status under the fields.
+     *
+     * It opens *over* the import form, which is a modal `<dialog>`: `open()` in
+     * `assist-panel.ts` joins the top layer when it finds one, because no
+     * `z-index` reaches over it. The form behind it is inert while the panel is
+     * up, which is the trade — the fields still fill in as the answer streams,
+     * and closing the panel hands them back.
+     */
+    let assisting: AbortController | null = null;
+
+    /** The import form as one task's context, sliced to the fields it declares. */
+    async function assistContext(task: AssistTask): Promise<Record<string, string>> {
+      const available: Record<string, string> = {
+        repo: source?.facts ?? '',
+        readme: task.context.includes('readme') ? await readme() : '',
+        title: inputs.title.value,
+        summary: inputs.summary.value,
+        tags: inputs.tags.value,
+        stack: inputs.stack.value,
+        highlights: inputs.highlights.value,
+      };
+      const context: Record<string, string> = {};
+      for (const key of task.context) context[key] = available[key] ?? '';
+      return context;
+    }
+
+    /**
+     * One run, from wherever it started to the panel.
+     *
+     * `given` is for the two case-study tasks, whose context is the seed being
+     * assembled during a save rather than the form on screen. Everything else
+     * reads the form. It never throws: a failure is a note on the message and
+     * an empty string to the caller, because the callers are a save that has a
+     * scaffold to fall back on and a panel that has already shown the error.
+     */
+    async function runTurn(
+      name: AssistTaskName,
+      instruction: string,
+      given?: Record<string, string>,
+    ): Promise<string> {
+      const task: AssistTask = ASSIST_TASKS[name];
+      const item = ASSIST_MENU.find(entry => entry.name === name) ?? null;
+
+      panel.open();
+      const turn = panel.begin(task.label, item?.command ?? null);
+      panel.running(true);
+
+      assisting?.abort();
+      const controller = new AbortController();
+      assisting = controller;
+
+      const again = { label: 'Try again', run: () => void runTurn(name, instruction, given) };
+      const copy = (text: string) => ({
+        label: 'Copy',
+        run: () => void copyText(text).then(() => toast('Copied.', { tone: 'success' })),
+      });
+
+      /* `project` is the only task on this screen with a field to stream into.
+         A chat reply that *opens* with a labelled field is an edit of the form
+         rather than an answer about it — the same discriminator, and the same
+         reasoning, as the project's own page. Decision 48. */
+      const live = name === 'project';
+
+      let raw = '';
+      let thought = '';
+
+      try {
+        turn.status(live ? 'Reading the repository…' : 'Thinking…');
+        const context = given ?? (await assistContext(task));
+        turn.status('Writing…');
+
+        const answer = await runAssist(
+          name,
+          context,
+          instruction,
+          {
+            onDelta: chunk => {
+              raw += chunk;
+              if (live) fillDraft(raw);
+              else turn.answer(raw);
+            },
+            onThinking: chunk => {
+              thought += chunk;
+              turn.thinking(chunk);
+            },
+            onTool: frame => turn.tool(frame),
+          },
+          controller.signal,
+          name === 'chat' ? panel.history() : undefined,
+          panel.runOptions(),
+        );
+
+        if (!answer.trim()) {
+          throw new Error(
+            thought
+              ? 'The model spent the whole token budget thinking and never wrote an answer. Open Thinking above to read it, then lower the effort in the toolbar or pick a model that deliberates less.'
+              : 'The model finished without writing anything. Try again, or pick a different model on the AI screen.',
+          );
+        }
+
+        const applies = live || (name === 'chat' && Boolean(parseEdit(answer, PROJECT_KEYS)));
+
+        if (applies && !parseFields(answer, PROJECT_KEYS).recognised) {
+          turn.answer(answer);
+          turn.actions([copy(answer), again]);
+          turn.note('The model answered without using the field format, so nothing was written.', 'error');
+          turn.end(answer);
+          say(formMessage, 'The reply was not in the field format, so nothing was written.', 'error');
+          return answer;
+        }
+
+        if (applies) {
+          fillDraft(answer);
+          turn.status('It is in the form. Nothing is created until you press Create project.');
+          turn.actions([again]);
+          say(formMessage, 'Written from the repository. Edit anything, then create.');
+        } else {
+          turn.answer(answer);
+          turn.actions([copy(answer), again]);
+        }
+        turn.end(answer);
+        return answer;
+      } catch (error) {
+        /* Whatever arrived stays in the fields — that is what writing straight
+           into the form means, and the fields were empty a moment ago. */
+        const text =
+          error instanceof DOMException && error.name === 'AbortError'
+            ? 'Stopped.'
+            : message(error);
+        turn.note(text, 'error');
+        turn.actions([again]);
+        turn.end(raw);
+        return '';
+      } finally {
+        panel.running(false);
+        if (assisting === controller) assisting = null;
+      }
+    }
+
+    const panel = mountAssistPanel({
+      surface: 'project',
+      /* No row exists yet, so the conversation is filed under the slug the
+         title would produce. */
+      docSlug: () => slugify(inputs.title.value),
+      stop: () => assisting?.abort(),
+      run: (item, instruction) => void runTurn(item ? item.name : 'chat', instruction),
+      /* Two of this surface's three commands write case-study fields, and this
+         form has none of them — the case study is written on save, or on the
+         project's own page. Blocked here rather than filtered out of the menu,
+         because the menu is `task.surface` and that is data the screen which
+         *does* have those fields shares. */
+      blocked: item =>
+        item.name === 'project'
+          ? null
+          : 'That one writes case-study fields, and this form has none. Create the project, then open its page.',
+    });
+
     /**
      * Resolve the case-study select into a slug, creating one first when that
      * is what was asked for. Returns `undefined` for "none", which
@@ -933,63 +1078,51 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
       if (choice === '__ai__') {
         /* Two calls, in order, because the second one reads the first: the
-           prose has to agree with the problem and solution above it. A failure
-           in either falls back to the scaffold rather than abandoning the
-           import — the project is the thing being created here, and a case
-           study that needs rewriting is recoverable from its own page. */
-        try {
-          say(formMessage, 'Writing the case study from the repository…');
-          const header = await runAssist(
-            'casestudy',
-            {
-              repo: source?.facts ?? '',
-              readme: await readme(),
-              title: fields.title,
-              summary: fields.summary,
-              stack: fields.stack.join(', '),
-              highlights: fields.highlights.join('\n'),
-            },
-            '',
-            { onDelta: () => {} },
-          );
+           prose has to agree with the problem and solution above it. Neither
+           throws — `runTurn` reports a failure into the panel and answers with
+           an empty string — so a model that falls over leaves the scaffold
+           rather than abandoning the import. The project is the thing being
+           created here, and a case study that needs rewriting is recoverable
+           from its own page.
 
-          const { values, recognised } = parseFields(header, CASE_STUDY_KEYS);
-          if (recognised) {
-            if (values.title.trim()) seedFields.title = values.title.trim();
-            if (values.subtitle.trim()) seedFields.subtitle = values.subtitle.trim();
-            if (values.problem.trim()) seedFields.problem = values.problem.trim();
-            if (values.solution.trim()) seedFields.solution = values.solution.trim();
-            const achievements = lines(values.achievements).map(line =>
-              line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim(),
-            );
-            if (achievements.length) seedFields.achievements = achievements;
-            if (values.stack.trim()) seedFields.stack = csv(values.stack);
-          }
+           They go through the panel for the same reason the frontmatter does:
+           this is a minute of work with nothing on screen otherwise. */
+        say(formMessage, 'Writing the case study from the repository…');
+        const header = await runTurn('casestudy', '', {
+          repo: source?.facts ?? '',
+          readme: await readme(),
+          title: fields.title,
+          summary: fields.summary,
+          stack: fields.stack.join(', '),
+          highlights: fields.highlights.join('\n'),
+        });
 
-          say(formMessage, 'Writing the write-up under it…');
-          const prose = await runAssist(
-            'casestudybody',
-            {
-              repo: source?.facts ?? '',
-              readme: await readme(),
-              title: seedFields.title,
-              summary: seedFields.subtitle,
-              stack: seedFields.stack.join(', '),
-              highlights: seedFields.achievements.join('\n'),
-              problem: seedFields.problem,
-              solution: seedFields.solution,
-            },
-            '',
-            { onDelta: () => {} },
+        const { values, recognised } = parseFields(header, CASE_STUDY_KEYS);
+        if (recognised) {
+          if (values.title.trim()) seedFields.title = values.title.trim();
+          if (values.subtitle.trim()) seedFields.subtitle = values.subtitle.trim();
+          if (values.problem.trim()) seedFields.problem = values.problem.trim();
+          if (values.solution.trim()) seedFields.solution = values.solution.trim();
+          const achievements = lines(values.achievements).map(line =>
+            line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim(),
           );
-          if (prose.trim()) body = prose.trim();
-        } catch (error) {
-          toast(`The case study was scaffolded rather than written: ${message(error)}`, {
-            tone: 'error',
-          });
-        } finally {
-          say(formMessage, 'Creating…');
+          if (achievements.length) seedFields.achievements = achievements;
+          if (values.stack.trim()) seedFields.stack = csv(values.stack);
         }
+
+        say(formMessage, 'Writing the write-up under it…');
+        const prose = await runTurn('casestudybody', '', {
+          repo: source?.facts ?? '',
+          readme: await readme(),
+          title: seedFields.title,
+          summary: seedFields.subtitle,
+          stack: seedFields.stack.join(', '),
+          highlights: seedFields.achievements.join('\n'),
+          problem: seedFields.problem,
+          solution: seedFields.solution,
+        });
+        if (prose.trim()) body = prose.trim();
+        say(formMessage, 'Creating…');
       }
 
       await createCaseStudy(slug, seedFields, body);

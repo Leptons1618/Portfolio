@@ -145,7 +145,7 @@ const { title } = Astro.props;
     transition:persist
   ></div>
 
-  {/* Dropdowns, everywhere at once. A `<select>` cannot be styled past its
+  {/* Dropdowns and switches, everywhere at once. A `<select>` cannot be styled past its
       closed state — the list it opens belongs to the operating system — so the
       popup is replaced with one this design system owns. Mounted from the
       layout rather than per page because there is nothing page-specific about
@@ -153,8 +153,12 @@ const { title } = Astro.props;
       produces cost one `querySelectorAll`. Without JavaScript the native
       element is never hidden and every form still works. */}
   <script>
+    import { mountAutoGrow } from '../lib/admin';
     import { mountSelects } from '../lib/select';
+    import { mountSwitches } from '../lib/switch';
     mountSelects();
+    mountSwitches();
+    mountAutoGrow();
   </script>
 </body>
 </html>

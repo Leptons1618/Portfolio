@@ -8,7 +8,7 @@ import '@fontsource-variable/jetbrains-mono';
 import '../../styles/global.css';
 import Illustration from '../../components/Illustration.astro';
 import ThemeHead from '../../components/ThemeHead.astro';
-import { grantAccessUrl } from '../../lib/github';
+// import { grantAccessUrl } from '../../lib/github';
 import { site } from '../../lib/site';
 ---
 <!DOCTYPE html>
@@ -31,7 +31,8 @@ import { site } from '../../lib/site';
 
     <div>
       <h6 class="login-eyebrow">Admin Access</h6>
-      <p class="login-copy">Sign in with @{site.githubUser} to manage projects, the journal, and resume content.</p>
+      <!-- <p class="login-copy">Sign in with @{site.githubUser} to manage projects, the journal, and resume content.</p> -->
+       <p class="login-copy">Sign in with authenticated GitHub to manage projects, the journal, and resume content.</p>
     </div>
 
     <button type="button" class="btn btn-primary btn-block login-cta" id="gh-signin">
@@ -40,27 +41,27 @@ import { site } from '../../lib/site';
 
     <p class="login-status" id="gh-status" hidden></p>
 
-    <p class="text-muted login-disclaimer">
+    <!-- <p class="text-muted login-disclaimer">
       Signing in uses a GitHub App. The token is held in this browser tab only, never on
       disk, and expires after 8 hours. Content lives in this site's own database, and the
       token is what proves to the write endpoint who is asking — nothing here writes to a
       repository. <code>/admin</code> is public HTML, so this gate hides the editors
       rather than protecting them; what is protected is the endpoint, which asks GitHub
       whose token it is and admits one account.
-    </p>
+    </p> -->
 
     {/* Signing in and granting repository access are two different grants, and
         only the first one has a button on this page. Nothing here can tell
         whether the second has happened — that needs a token — so rather than
         guess, say where it lives and let it be a no-op for anyone already set
         up. Without it the first run dead-ends on a screen full of 403s. */}
-    <p class="text-muted login-disclaimer">
+    <!-- <p class="text-muted login-disclaimer">
       Repository access is separate, and it is only about the import screen: listing your
       repositories comes from <em>installing</em> the App, not from signing in. Pick which
       ones it can see — all of them, or a few — under
       <a href={grantAccessUrl()} target="_blank" rel="noopener">the App's installation ↗</a>.
       Read-only is enough; nothing on this site needs more.
-    </p>
+    </p> -->
 
     <a class="login-back" href="/">← Back to the public site</a>
   </div>

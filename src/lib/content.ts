@@ -73,6 +73,8 @@ export interface PostData {
   videoDuration?: string;
   heroImage?: string;
   status: PostStatus;
+  /** When the row was last written, ISO with a `Z`. Admin-only; see `stamp`. */
+  updatedAt: string;
 }
 
 /**
@@ -144,6 +146,17 @@ const list = (v: unknown): string[] => {
 /** NULL becomes absent rather than `null`, which is what an optional field expects. */
 const opt = <T>(v: T | null | undefined): T | undefined => (v === null ? undefined : v);
 
+/**
+ * `updated_at` as something `Date` can read.
+ *
+ * SQLite writes `datetime('now')` as `2026-08-20 09:14:33` — UTC, but with a
+ * space and no zone marker, which V8 parses as *local* time. Normalised once
+ * here rather than at each reader, because every reader would get it wrong the
+ * same way and only one of them would notice.
+ */
+const stamp = (v: unknown): string =>
+  typeof v === 'string' && v ? `${v.replace(' ', 'T')}Z` : '';
+
 type Row = Record<string, any>;
 
 const toProject = (r: Row): Project => ({
@@ -200,6 +213,7 @@ const toPost = (r: Row): Post => ({
     videoDuration: opt(r.video_duration),
     heroImage: opt(r.hero_image),
     status: r.status,
+    updatedAt: stamp(r.updated_at),
   },
 });
 

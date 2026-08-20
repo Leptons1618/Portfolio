@@ -176,7 +176,7 @@ const STATUS_VARIANT: Record<string, string> = {
           </div>
           <div class="field pf-wide">
             <label for="pf-summary">Summary</label>
-            <textarea class="input pf-summary" id="pf-summary"></textarea>
+            <textarea class="input pf-summary" id="pf-summary" data-grow></textarea>
           </div>
           <div class="field">
             <label for="pf-category">Category</label>
@@ -220,7 +220,7 @@ const STATUS_VARIANT: Record<string, string> = {
           </div>
           <div class="field pf-wide">
             <label for="pf-highlights">Highlights (one per line)</label>
-            <textarea class="input pf-highlights" id="pf-highlights"></textarea>
+            <textarea class="input pf-highlights" id="pf-highlights" data-grow></textarea>
           </div>
         </div>
 
@@ -314,15 +314,15 @@ const STATUS_VARIANT: Record<string, string> = {
           </div>
           <div class="field pf-wide">
             <label for="cs-problem">Problem</label>
-            <textarea class="input pf-summary" id="cs-problem"></textarea>
+            <textarea class="input pf-summary" id="cs-problem" data-grow></textarea>
           </div>
           <div class="field pf-wide">
             <label for="cs-solution">Solution</label>
-            <textarea class="input pf-summary" id="cs-solution"></textarea>
+            <textarea class="input pf-summary" id="cs-solution" data-grow></textarea>
           </div>
           <div class="field pf-wide">
             <label for="cs-achievements">Achievements (one per line)</label>
-            <textarea class="input pf-highlights" id="cs-achievements"></textarea>
+            <textarea class="input pf-highlights" id="cs-achievements" data-grow></textarea>
           </div>
           <div class="field pf-wide">
             <label for="cs-stack">Stack (comma separated)</label>
@@ -439,6 +439,7 @@ const STATUS_VARIANT: Record<string, string> = {
     CASE_STUDY_KEYS,
     PROJECT_KEYS,
     isAssistTask,
+    parseEdit,
     parseFields,
     type AssistTask,
     type AssistTaskName,
@@ -747,15 +748,22 @@ const STATUS_VARIANT: Record<string, string> = {
     const linkedSlug = document.getElementById('pd-case-study')!.dataset.slug;
 
     /* Both halves of this section write `caseStudySlug` on the *project*, and
-       this page renders from that row — so reloading is what shows the result.
-       It is a reload rather than a rebuild now, which is the whole point. */
+       this page renders from that row — the editor below the pointer is
+       server-rendered from `linked`, so nothing in the DOM can show a case
+       study that did not exist when the page was built. Reloading is what shows
+       the result, and it is a reload rather than a rebuild now, which is the
+       whole point.
+
+       Done here rather than asked of the reader: "scaffold, then press F5" is
+       an instruction nobody should have to follow, and the scaffold was
+       invisible until they did. The hash is what puts them back on this tab —
+       the tab strip reads it on mount — and it is set before the reload so the
+       new document opens with it. */
     async function relink(next: string | undefined, verb: string) {
-      const result = await patchProject(seed.slug, { caseStudySlug: next });
-      sayLink(csMessage, `Saved (${verb}). Reload to see this page catch up`, result.url);
-      toast(`Saved — ${verb}. Reload this screen to see it catch up.`, {
-        tone: 'success',
-        action: { label: 'view live ↗', href: result.url },
-      });
+      await patchProject(seed.slug, { caseStudySlug: next });
+      say(csMessage, `Saved (${verb}). Reloading…`);
+      window.location.hash = 'case-study';
+      window.location.reload();
     }
 
     if (linkedSlug) {
@@ -1341,6 +1349,41 @@ const STATUS_VARIANT: Record<string, string> = {
                 : 'The model finished without writing anything.',
             );
           }
+          /* A reply that opens with a labelled field is an *edit*, not an
+             answer: they asked for a shorter summary and this is the shorter
+             summary. It goes into the form with a snapshot behind it, exactly
+             as a command's output would — `turn.status` overwrites the
+             labelled text that streamed into the bubble, because what they
+             want to read now is which fields moved. Same rule, same reader, in
+             the journal editor's panel. */
+          const edit = parseEdit(answer, PROJECT_KEYS);
+          /* Labels with nothing under them are recognised and edit nothing —
+             `applyLive` would write none of them — so that reads as an answer
+             rather than as a run that emptied the form. */
+          const editing = edit
+            ? [...PROJECT_KEYS.head, PROJECT_KEYS.tail]
+                .filter(spec =>
+                  spec.key === PROJECT_KEYS.tail.key
+                    ? edit.tailStarted
+                    : Boolean(edit.values[spec.key]),
+                )
+                .map(spec => spec.key)
+            : [];
+
+          if (editing.length) {
+            takeSnapshot('project', 'Chat edit');
+            applyLive('project', answer);
+            /* Covers the model that "changed" a field to what it already said,
+               which would otherwise offer an Undo that does nothing. */
+            dropUnusedSnapshot();
+            const written = editing.join(', ');
+            turn.status(`Updated ${written} in the fields. Nothing is saved until you press Save changes.`);
+            turn.actions([...undoAction(), again]);
+            turn.end(answer);
+            toast(`Updated ${written}.`, { tone: 'success' });
+            return;
+          }
+
           turn.actions([copy(answer), again]);
           turn.end(answer);
         } catch (error) {
