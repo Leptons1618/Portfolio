@@ -59,7 +59,7 @@
 
 import { getCaseStudies, getPosts, getProjects, CATEGORY_LABELS } from './content';
 import { publicPosts, publicProjects } from './ai-corpus';
-import { getResume } from './resume';
+import { entryRange, getResume } from './resume';
 import { site } from './site';
 
 /* ---------- the table ---------- */
@@ -447,10 +447,11 @@ async function readResume(db: D1Database, section: string): Promise<ToolResult> 
   if (want('experience') && resume.experience.length) {
     out += '\n## Roles\n';
     for (const role of resume.experience) {
-      out += `\n- ${role.title}, ${role.company} — ${role.dates}`;
+      out += `\n- ${role.title}, ${role.company} — ${entryRange(role)}`;
       if (role.location) out += ` (${role.location})`;
       out += '\n';
       if (role.description) out += `  ${role.description}\n`;
+      for (const point of role.highlights) out += `  - ${point}\n`;
     }
   }
   if (want('skills') && resume.skills.length) {
@@ -459,7 +460,7 @@ async function readResume(db: D1Database, section: string): Promise<ToolResult> 
   }
   if (want('education') && resume.education.length) {
     out += '\n## Education\n';
-    for (const entry of resume.education) out += `- ${entry.degree}, ${entry.school} (${entry.dates})\n`;
+    for (const entry of resume.education) out += `- ${entry.degree}, ${entry.school} (${entryRange(entry)})\n`;
   }
   if (want('certifications') && resume.certifications.length) {
     out += `\n## Certifications\n- ${resume.certifications.join('\n- ')}\n`;

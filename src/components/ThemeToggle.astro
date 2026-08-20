@@ -1,46 +1,130 @@
 ---
 /**
- * Two-state theme switch. Server-rendered in the default (Modernist) state;
- * the inline head script in the layouts has already set `data-theme` before
- * paint, so this script only has to relabel the control and handle clicks.
+ * Two controls, because there are two independent choices — see `theme.ts`.
+ *
+ * The left one cycles the palette family and says where it *goes*, not where
+ * it is. The right one cycles light → dark → follow-the-OS, and says where it
+ * *is*, because "follow the OS" is a state you have to be able to see you are
+ * in. They are two buttons rather than a dropdown for the reason there are two
+ * themes: a `<select>` for a binary is a click to open, a click to choose, and
+ * a popover to get wrong.
+ *
+ * Server-rendered in the default state; the inline head script in the layouts
+ * has already set both attributes before paint, so this script only relabels.
  */
 import { DEFAULT_THEME, THEMES } from '../lib/theme';
 
-const next = THEMES.find(t => t.id !== DEFAULT_THEME)!;
+const next = THEMES.find(theme => theme.id !== DEFAULT_THEME)!;
 ---
-<button
-  type="button"
-  class="btn theme-toggle"
-  id="theme-toggle"
-  aria-label={`Switch to the ${next.label} theme`}
->
-  <span class="theme-toggle-swatch" aria-hidden="true"></span>
-  <span id="theme-toggle-label">{next.label}</span>
-</button>
+<div class="theme-controls">
+  <button
+    type="button"
+    class="btn theme-toggle"
+    id="theme-toggle"
+    aria-label={`Switch to the ${next.label} theme`}
+  >
+    <span class="theme-toggle-swatch" aria-hidden="true"></span>
+    <span id="theme-toggle-label">{next.label}</span>
+  </button>
+
+  <button type="button" class="btn btn-icon mode-toggle" id="mode-toggle" aria-label="Colour mode">
+    {/* All three glyphs are rendered and two are hidden, rather than one being
+        swapped in by script. Swapping `textContent` on a button is what
+        `setBusy` exists to avoid elsewhere, and an SVG built at runtime is a
+        flash of nothing on the first paint. */}
+    <span class="mode-icon" data-mode-icon="light" aria-hidden="true">☀</span>
+    <span class="mode-icon" data-mode-icon="dark" aria-hidden="true" hidden>☾</span>
+    <span class="mode-icon" data-mode-icon="system" aria-hidden="true" hidden>◐</span>
+  </button>
+</div>
 
 <script>
-  import { THEMES, THEME_EVENT, applyTheme, currentTheme, selectTheme } from '../lib/theme';
+  import {
+    MODES,
+    THEMES,
+    THEME_EVENT,
+    currentMode,
+    currentTheme,
+    selectMode,
+    selectTheme,
+    syncTheme,
+    type ModeChoice,
+  } from '../lib/theme';
 
-  const button = document.getElementById('theme-toggle')!;
-  const label = document.getElementById('theme-toggle-label')!;
+  const themeBtn = document.getElementById('theme-toggle')!;
+  const themeLabel = document.getElementById('theme-toggle-label')!;
+  const modeBtn = document.getElementById('mode-toggle')!;
 
-  /* The control says where it *goes*, not where it is, so the label is the
-     other theme's name. Re-read on the theme event because the identity modal
-     can change the theme while this button is on screen. */
+  const MODE_TITLES: Record<ModeChoice, string> = {
+    light: 'Light. Click for dark.',
+    dark: 'Dark. Click to follow your system.',
+    system: 'Following your system. Click for light.',
+  };
+
+  /* Re-read on the theme event because the identity modal can change either
+     choice while these buttons are on screen. */
   function relabel() {
-    const target = THEMES.find(t => t.id !== currentTheme())!;
-    label.textContent = target.label;
-    button.setAttribute('aria-label', `Switch to the ${target.label} theme`);
+    const target = THEMES.find(theme => theme.id !== currentTheme())!;
+    themeLabel.textContent = target.label;
+    themeBtn.setAttribute('aria-label', `Switch to the ${target.label} theme`);
+
+    const mode = currentMode();
+    modeBtn.querySelectorAll<HTMLElement>('.mode-icon').forEach(icon => {
+      icon.hidden = icon.dataset.modeIcon !== mode;
+    });
+    modeBtn.setAttribute('aria-label', MODE_TITLES[mode]);
+    modeBtn.title = MODE_TITLES[mode];
   }
 
   document.addEventListener(THEME_EVENT, relabel);
 
-  /* The pre-paint script has already set `data-theme` from storage, but the
-     `<meta>` is still rendered with the default theme's colour — applying the
-     current theme once here is what corrects it, and relabels on the way. */
-  applyTheme(currentTheme());
+  /* The pre-paint script set both attributes from storage, but the `<meta>` is
+     still rendered with the default — `syncTheme` is what corrects it, and
+     relabels on the way. */
+  syncTheme();
 
-  button.addEventListener('click', () => {
-    selectTheme(THEMES.find(t => t.id !== currentTheme())!.id);
+  themeBtn.addEventListener('click', () => {
+    selectTheme(THEMES.find(theme => theme.id !== currentTheme())!.id);
   });
+
+  modeBtn.addEventListener('click', () => {
+    /* light → dark → system → light. Cycling rather than toggling, because
+       "give the decision back to my OS" has to be reachable once it has been
+       taken away. */
+    selectMode(MODES[(MODES.indexOf(currentMode()) + 1) % MODES.length]);
+  });
+
+  /* Following the OS means following it *while the page is open*, which is a
+     thing a laptop does at sunset. Only repaints the `<meta>`; the CSS media
+     query has already handled the palette. */
+  window
+    .matchMedia('(prefers-color-scheme: dark)')
+    .addEventListener('change', () => currentMode() === 'system' && syncTheme());
 </script>
+
+<style>
+  .theme-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  /* Matched to `.theme-toggle`'s height beside it, which is set by its 11px
+     label and 5px padding rather than by `.btn-icon`'s 36px square. */
+  .mode-toggle {
+    width: 28px;
+    height: 28px;
+    color: var(--color-text-muted);
+    border-color: var(--color-divider);
+  }
+
+  .mode-toggle:hover {
+    color: var(--color-accent);
+    border-color: var(--color-accent);
+  }
+
+  .mode-icon {
+    font-size: 14px;
+    line-height: 1;
+  }
+</style>

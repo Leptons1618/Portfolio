@@ -1,7 +1,7 @@
 ---
-import '@fontsource/archivo/400.css';
-import '@fontsource/archivo/600.css';
-import '@fontsource/archivo/800.css';
+import '@fontsource/instrument-serif/400.css';
+import '@fontsource/instrument-serif/400-italic.css';
+import '@fontsource-variable/inter';
 import '@fontsource-variable/space-grotesk';
 import '@fontsource-variable/manrope';
 import '@fontsource-variable/jetbrains-mono';
@@ -10,9 +10,9 @@ import '../styles/admin.css';
 import { ClientRouter } from 'astro:transitions';
 import AdminErrorBoundary from '../components/AdminErrorBoundary.astro';
 import AdminSidebar from '../components/AdminSidebar.astro';
+import ThemeHead from '../components/ThemeHead.astro';
 import { SIDEBAR_KEY, TOAST_HOST_ID } from '../lib/admin';
 import { EXPIRY_KEY, TOKEN_KEY, isConfigured } from '../lib/github';
-import { DEFAULT_THEME, THEME_KEY, THEMES } from '../lib/theme';
 
 /* Only gate when the build actually has a GitHub App wired up. An
    unconfigured build (a local checkout, a fork) keeps the screens reachable
@@ -32,12 +32,12 @@ const { title } = Astro.props;
   <title>{title} | Admin</title>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="icon" type="image/png" href="/favicon.png" />
-  <meta name="theme-color" content={THEMES.find(t => t.id === DEFAULT_THEME)!.themeColor} />
+  <ThemeHead />
   {/* Client-side routing between admin screens, so the sidebar can persist
       rather than being rebuilt on every navigation. Public pages stay plain
       MPA — this is the only layout that mounts it. */}
   <ClientRouter />
-  <script is:inline define:vars={{ SIDEBAR_KEY, THEME_KEY, TOKEN_KEY, EXPIRY_KEY, GATE, DEFAULT_THEME, THEME_IDS: THEMES.map(t => t.id) }}>
+  <script is:inline define:vars={{ SIDEBAR_KEY, TOKEN_KEY, EXPIRY_KEY, GATE }}>
     // Runs before first paint: bounce an unauthenticated visitor before any
     // editor chrome renders, and restore the sidebar and theme so neither
     // flashes the wrong way.
@@ -58,10 +58,10 @@ const { title } = Astro.props;
         if (localStorage.getItem(SIDEBAR_KEY) === '1') {
           document.documentElement.dataset.adminCollapsed = '1';
         }
-        var stored = localStorage.getItem(THEME_KEY);
-        if (stored && stored !== DEFAULT_THEME && THEME_IDS.indexOf(stored) !== -1) {
-          document.documentElement.dataset.theme = stored;
-        }
+        // `ThemeHead` above published this and already ran it once. Calling it
+        // again here is what survives a view transition, which replaces every
+        // attribute on `<html>` with the incoming document's.
+        window.__omRestoreTheme();
       }
 
       restore();

@@ -1,6 +1,7 @@
 ---
 /**
- * Site identity — the name, role, links and theme every public page reads.
+ * Site identity — the name, role, contact details, links and theme every
+ * public page reads.
  *
  * This was a dialog rendered inside the persisted rail, which was the right
  * shape while it was six inputs on top of whichever screen you happened to be
@@ -13,23 +14,93 @@
  * `src/lib/site.ts`, a TypeScript module, not a row. `content-store.ts` cannot
  * patch a module, and regenerating one would drop the comments that explain why
  * `url` is written down three times. The page says so next to the buttons.
+ *
+ * ## The form is the module, field for field
+ *
+ * It used to be six inputs against a module holding sixteen values — so the
+ * ten it did not show (the short role, the tagline, the phone, the address,
+ * the repository, the origin, the OG image, the portrait…) were editable only
+ * by opening the file, and "Export JSON" produced an object that could not be
+ * merged into `site.ts` without hand-adding the rest. Every key `site` exports
+ * is a field here now, in the order the module declares them, and the export
+ * is the whole object. `GROUPS` below is the single list both the markup and
+ * the script are built from, so a value added to `site.ts` is added here in one
+ * place or not at all.
  */
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import Illustration from '../../components/Illustration.astro';
 import { Icon } from 'astro-icon/components';
 import { site } from '../../lib/site';
-import { THEMES } from '../../lib/theme';
+import { MODES, THEMES } from '../../lib/theme';
+
+/**
+ * Every field, grouped the way the module reads.
+ *
+ * `key` is typed `keyof typeof site` — which is what makes the exported JSON
+ * mergeable by eye, and what turns a renamed key in that module into a
+ * typecheck failure here rather than an input that silently renders empty. The
+ * input's id is derived from it rather than typed, so the two cannot drift.
+ * `wide` is layout; `long` is a textarea.
+ */
+interface IdentityField {
+  key: keyof typeof site;
+  label: string;
+  wide?: boolean;
+  long?: boolean;
+  hint?: string;
+}
+
+const GROUPS: { title: string; note: string; fields: IdentityField[] }[] = [
+  {
+    title: 'Who',
+    note: 'The name and the two roles. The short one is a byline — it sits under headings and in the resume masthead. The long one is the sentence the about page and the meta description use.',
+    fields: [
+      { key: 'name', label: 'Name', wide: true },
+      { key: 'role', label: 'Role (short)' },
+      { key: 'roleLong', label: 'Role (long)' },
+      { key: 'tagline', label: 'Tagline', wide: true, hint: 'One line. The site description search engines show.' },
+      { key: 'bio', label: 'Bio', wide: true, long: true },
+    ],
+  },
+  {
+    title: 'Contact',
+    note: 'The resume renders the location, the email and the phone. The address is not rendered on any public page — it is here because the resume document deliberately does not hold it, so this module is the one place it is written down.',
+    fields: [
+      { key: 'email', label: 'Email', wide: true },
+      { key: 'phone', label: 'Phone' },
+      { key: 'location', label: 'Location', hint: 'City and country. What the resume prints.' },
+      { key: 'address', label: 'Postal address', wide: true },
+    ],
+  },
+  {
+    title: 'Elsewhere',
+    note: 'The GitHub username is not decoration: src/lib/authorize.ts compares it against whoever is signed in, and it is the whole of who may write to this site.',
+    fields: [
+      { key: 'githubUser', label: 'GitHub username', hint: 'Who may sign in and save.' },
+      { key: 'github', label: 'GitHub profile' },
+      { key: 'linkedin', label: 'LinkedIn', wide: true },
+      { key: 'repo', label: 'This repository', wide: true },
+    ],
+  },
+  {
+    title: 'The site itself',
+    note: 'The origin is written down in three places that must agree — this module, public/CNAME, and the site fallback in astro.config.mjs. scripts/check-content.mjs fails the build when they diverge, so change this one and change the other two in the same commit.',
+    fields: [
+      { key: 'url', label: 'Origin', wide: true, hint: 'No trailing slash. Also in public/CNAME and astro.config.mjs.' },
+      { key: 'ogImage', label: 'Default share image', hint: 'Site-relative. check-content.mjs asserts the file exists.' },
+      { key: 'photo', label: 'Portrait', hint: 'Site-relative. Served from this origin on purpose.' },
+    ],
+  },
+];
 
 /* Seeded from `src/lib/site.ts` — the module these values are exported back
-   into by hand. */
-const defaults = {
-  name: site.name,
-  role: site.roleLong,
-  bio: site.bio,
-  github: site.github,
-  linkedin: site.linkedin,
-  email: site.email,
-};
+   into by hand. Read through the same list the markup is built from, so a key
+   that is not in `site` is a typecheck failure rather than an empty input. */
+const seed: Record<string, string> = Object.fromEntries(
+  GROUPS.flatMap(group => group.fields).map(field => [field.key, String(site[field.key])]),
+);
+
+const idFor = (key: string) => `s-${key}`;
 ---
 <AdminLayout title="Site Identity">
   <div class="admin-main-wide" id="admin-settings">
@@ -53,47 +124,39 @@ const defaults = {
     <p class="admin-note st-message" id="settings-message"></p>
 
     <div class="st-grid">
-      <section class="card elev-sm">
-        <h6 class="admin-eyebrow">Identity</h6>
-        <p class="text-muted admin-note">
-          The name, role and links the header, footer, about page, resume and
-          <code>robots.txt</code> all read from.
-        </p>
-        <hr class="rule st-rule" />
+      <div class="st-main">
+        {GROUPS.map(group => (
+          <section class="card elev-sm">
+            <h6 class="admin-eyebrow">{group.title}</h6>
+            <p class="text-muted admin-note">{group.note}</p>
+            <hr class="rule st-rule" />
 
-        <div class="pf-grid">
-          <div class="field pf-wide">
-            <label for="s-name">Name</label>
-            <input class="input" id="s-name" value={defaults.name} />
-          </div>
-          <div class="field pf-wide">
-            <label for="s-role">Role</label>
-            <input class="input" id="s-role" value={defaults.role} />
-          </div>
-          <div class="field pf-wide">
-            <label for="s-bio">Bio</label>
-            <textarea class="input st-bio" id="s-bio">{defaults.bio}</textarea>
-          </div>
-          <div class="field">
-            <label for="s-github">GitHub</label>
-            <input class="input" id="s-github" value={defaults.github} />
-          </div>
-          <div class="field">
-            <label for="s-linkedin">LinkedIn</label>
-            <input class="input" id="s-linkedin" value={defaults.linkedin} />
-          </div>
-          <div class="field pf-wide">
-            <label for="s-email">Email</label>
-            <input class="input" id="s-email" value={defaults.email} />
-          </div>
-        </div>
+            <div class="pf-grid">
+              {group.fields.map(field => (
+                <div class:list={['field', field.wide && 'pf-wide']}>
+                  <label for={idFor(field.key)}>{field.label}</label>
+                  {field.long ? (
+                    <textarea class="input st-bio" id={idFor(field.key)}>{seed[field.key]}</textarea>
+                  ) : (
+                    <input class="input" id={idFor(field.key)} value={seed[field.key]} />
+                  )}
+                  {field.hint && <p class="text-muted admin-note st-hint">{field.hint}</p>}
+                </div>
+              ))}
+            </div>
+          </section>
+        ))}
 
-        <div class="modal-actions">
+        <div class="modal-actions st-actions">
           <button type="button" class="btn btn-secondary" id="reset-settings">Revert</button>
         </div>
-      </section>
+      </div>
 
       <aside class="st-side">
+        {/* Two controls, because `theme.ts` keeps two independent choices — the
+            palette family and light-or-dark within it. This screen offered only
+            the first, which meant the one page on the surface titled "theme"
+            could not reach half of the theme. */}
         <section class="card elev-sm">
           <h6 class="admin-eyebrow">Theme</h6>
           <div class="seg" role="group" aria-label="Theme">
@@ -101,9 +164,18 @@ const defaults = {
               <label class="seg-opt"><input type="radio" name="settings-theme" value={theme.id} />{theme.label}</label>
             ))}
           </div>
+          <div class="seg st-seg-mode" role="group" aria-label="Colour mode">
+            {MODES.map(mode => (
+              <label class="seg-opt">
+                <input type="radio" name="settings-mode" value={mode} />
+                {mode === 'system' ? 'System' : mode === 'light' ? 'Light' : 'Dark'}
+              </label>
+            ))}
+          </div>
           <p class="text-muted admin-note">
             Stored in this browser and applied everywhere, public pages included. The same
-            switch as the one in the rail.
+            two switches as the ones in the rail. <strong>System</strong> hands the second
+            choice back to your OS rather than pinning it.
           </p>
         </section>
 
@@ -115,10 +187,25 @@ const defaults = {
           <div class="st-art"><Illustration name="personal-settings" /></div>
           <p class="text-muted admin-note">
             <strong>Save</strong> keeps a copy in this browser so the fields survive a
-            reload. <strong>Export</strong> downloads <code>site-identity.json</code>.
-            Neither reaches the site: the target is <code>src/lib/site.ts</code>, a
-            TypeScript module read at build time, so the values are merged in by hand
-            and deployed.
+            reload. <strong>Export</strong> downloads <code>site-identity.json</code>,
+            whose keys are the keys of the <code>site</code> object. Neither reaches the
+            site: the target is <code>src/lib/site.ts</code>, a TypeScript module read at
+            build time, so the values are merged in by hand and deployed.
+          </p>
+        </section>
+
+        <section class="card elev-sm">
+          <h6 class="admin-eyebrow">Who reads what</h6>
+          <ul class="st-reads">
+            <li><code>githubUser</code> — who may write. <code>authorize.ts</code>.</li>
+            <li><code>url</code> — canonicals, OG tags, sitemap, <code>robots.txt</code>.</li>
+            <li><code>email</code>, <code>phone</code>, <code>location</code> — the resume sheet.</li>
+            <li><code>name</code>, <code>role</code> — the header, the resume masthead, the assistant.</li>
+            <li><code>photo</code> — the home hero, the about page, the rail.</li>
+          </ul>
+          <p class="text-muted admin-note">
+            None of them are secrets — this whole surface is public HTML, and the module
+            is in a public repository. They are written down once so they cannot disagree.
           </p>
         </section>
       </aside>
@@ -128,24 +215,36 @@ const defaults = {
 
 <script>
   import { ADMIN_KEYS, onAdminPage, toast } from '../../lib/admin';
-  import { THEME_EVENT, currentTheme, isThemeId, selectTheme } from '../../lib/theme';
+  import {
+    THEME_EVENT,
+    currentMode,
+    currentTheme,
+    isMode,
+    isThemeId,
+    selectMode,
+    selectTheme,
+  } from '../../lib/theme';
 
   onAdminPage('#admin-settings', () => {
     const KEY = ADMIN_KEYS.settings;
     const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
-    const ids = ['s-name', 's-role', 's-bio', 's-github', 's-linkedin', 's-email'] as const;
-    const fields = Object.fromEntries(
-      ids.map(id => [id, $<HTMLInputElement>(id)])
-    ) as Record<(typeof ids)[number], HTMLInputElement | HTMLTextAreaElement>;
+    /* Read off the DOM rather than repeated from the frontmatter. The markup is
+       generated from `GROUPS`, so the fields that exist are the fields that
+       were rendered — and a list typed a second time here is the list that goes
+       stale the next time one is added. */
+    const fields = new Map(
+      Array.from(
+        document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+          '#admin-settings .pf-grid [id^="s-"]',
+        ),
+      ).map(input => [input.id.slice(2), input]),
+    );
 
     /* What the server rendered, which is what `src/lib/site.ts` currently says —
        captured before a stored draft is laid over it, so Revert has somewhere
        to go back to. */
-    const published = Object.fromEntries(ids.map(id => [id, fields[id].value])) as Record<
-      (typeof ids)[number],
-      string
-    >;
+    const published = new Map([...fields].map(([key, input]) => [key, input.value]));
 
     const message = $('settings-message');
 
@@ -154,42 +253,43 @@ const defaults = {
       message.textContent = text;
     }
 
-    function snapshot() {
-      return {
-        name: fields['s-name'].value,
-        role: fields['s-role'].value,
-        bio: fields['s-bio'].value,
-        github: fields['s-github'].value,
-        linkedin: fields['s-linkedin'].value,
-        email: fields['s-email'].value,
-      };
-    }
+    const snapshot = () => Object.fromEntries([...fields].map(([key, input]) => [key, input.value]));
 
     try {
       const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (saved) {
-        for (const id of ids) {
-          const key = id.slice(2) as keyof ReturnType<typeof snapshot>;
-          if (saved[key]) fields[id].value = saved[key];
+      if (saved && typeof saved === 'object') {
+        let restored = 0;
+        for (const [key, input] of fields) {
+          if (typeof saved[key] === 'string') {
+            input.value = saved[key];
+            restored += 1;
+          }
         }
-        say('Restored the copy held in this browser. Revert goes back to src/lib/site.ts.');
+        if (restored) {
+          say('Restored the copy held in this browser. Revert goes back to src/lib/site.ts.');
+        }
       }
     } catch {
       /* ignore corrupt settings */
     }
 
-    /* The theme is not part of the identity snapshot — it is a browser
-       preference the public site reads too, so it goes through `theme.ts`
-       rather than this screen's storage key. The rail's toggle can change it
-       while this page is open, hence following the event as well as marking on
-       load. */
+    /* Neither switch is part of the identity snapshot — they are browser
+       preferences the public site reads too, so they go through `theme.ts`
+       rather than this screen's storage key. The rail's toggles can change
+       either while this page is open, hence following the event as well as
+       marking on load. */
     const themeInputs = Array.from(
-      document.querySelectorAll<HTMLInputElement>('input[name="settings-theme"]')
+      document.querySelectorAll<HTMLInputElement>('input[name="settings-theme"]'),
+    );
+    const modeInputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[name="settings-mode"]'),
     );
 
     function markTheme() {
-      const active = currentTheme();
-      themeInputs.forEach(input => { input.checked = input.value === active; });
+      const theme = currentTheme();
+      themeInputs.forEach(input => { input.checked = input.value === theme; });
+      const mode = currentMode();
+      modeInputs.forEach(input => { input.checked = input.value === mode; });
     }
 
     markTheme();
@@ -198,6 +298,12 @@ const defaults = {
     themeInputs.forEach(input => {
       input.addEventListener('change', () => {
         if (isThemeId(input.value)) selectTheme(input.value);
+      });
+    });
+
+    modeInputs.forEach(input => {
+      input.addEventListener('change', () => {
+        if (isMode(input.value)) selectMode(input.value);
       });
     });
 
@@ -213,7 +319,7 @@ const defaults = {
 
     $<HTMLButtonElement>('reset-settings').addEventListener('click', () => {
       localStorage.removeItem(KEY);
-      for (const id of ids) fields[id].value = published[id];
+      for (const [key, input] of fields) input.value = published.get(key) ?? '';
       say('Reverted to what src/lib/site.ts says, and cleared the browser copy.');
       toast('Reverted to what the site currently reads.', { tone: 'info' });
     });
@@ -226,7 +332,7 @@ const defaults = {
       a.download = 'site-identity.json';
       a.click();
       URL.revokeObjectURL(url);
-      say('Exported site-identity.json.');
+      say('Exported site-identity.json — its keys are the keys of the site object.');
       toast('Downloaded site-identity.json. Merge it into src/lib/site.ts.', {
         tone: 'success',
       });
@@ -239,10 +345,28 @@ const defaults = {
   .st-message[data-tone='error'] { color: var(--color-accent-700); }
 
   .st-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-4); align-items: start; }
+  .st-main { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
   .st-side { display: flex; flex-direction: column; gap: var(--space-4); }
   .st-rule { margin: var(--space-3) 0; }
   .st-bio { min-height: 88px; }
+  .st-hint { margin: 4px 0 0; font-size: 11px; }
+  .st-actions { margin: 0; }
   .st-art { width: 140px; align-self: center; color: var(--color-accent-400); }
+
+  /* The second row of the theme control. `.seg` is the shared segmented group;
+     two of them stacked is what two independent choices look like, and it is
+     the same arrangement as the pair of buttons in the rail. */
+  .st-seg-mode { margin-top: var(--space-2); }
+
+  .st-reads {
+    list-style: none;
+    margin: 0 0 var(--space-3);
+    padding: 0;
+    font-size: 12px;
+    color: var(--color-text-muted);
+    display: grid;
+    gap: 4px;
+  }
 
   code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
 

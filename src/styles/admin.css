@@ -2276,3 +2276,185 @@
   .asx-toolbar { gap: 4px var(--space-2); }
   .asx-toolbar .select { max-width: 140px; }
 }
+
+/* ==========================================================================
+   The resume editor.
+
+   Every row below this line is built by the page's client script, so none of
+   it carries a `data-astro-cid` and a scoped selector in `resume.astro` would
+   never reach it — the same door `#import-list` and the media library go
+   through. What stays in the page's own `<style>` is the markup the server
+   rendered: the wrapper, the variant bar's shell, the tab panels.
+   ========================================================================== */
+
+/* — which resume is open — */
+
+.rv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  background: none;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.rv-chip:hover { color: var(--color-accent); border-color: var(--color-accent); }
+
+.rv-chip[aria-selected='true'] {
+  color: var(--color-accent-100);
+  background: var(--color-accent-600);
+  border-color: var(--color-accent-600);
+}
+
+/* Which one strangers actually get. It is the single most consequential fact
+   on this screen and the easiest to lose track of once there are five. */
+.rv-live {
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-2-600);
+  color: var(--color-neutral-100);
+}
+
+.rv-chip[aria-selected='true'] .rv-live {
+  background: var(--color-accent-100);
+  color: var(--color-accent-800);
+}
+
+/* A destructive action, in the accent's deep step. Named for the surface
+   rather than for a screen, because three of them want it. */
+.admin-danger { color: var(--color-accent-700); }
+
+/* — the master panel's generated rows — */
+
+/* Two columns on a wide screen, one on a narrow one. `auto-fit` rather than a
+   breakpoint: this grid sits inside a card inside a capped column, so the
+   thing it has to respond to is its own width and not the window's. */
+.entry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+
+.entry-description-field textarea { min-height: 60px; }
+
+.points { display: flex; flex-direction: column; gap: 6px; }
+.point-row { display: flex; align-items: flex-start; gap: 6px; }
+.point-row .input { flex: 1; min-height: 48px; font-size: 13px; }
+
+.skill-group { display: flex; flex-direction: column; gap: 6px; }
+.skill-head { display: flex; gap: 6px; align-items: center; }
+.skill-name { flex: 1; font-weight: 600; }
+.skill-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.skill-add { display: flex; gap: 8px; align-items: flex-start; }
+
+.cert-row { display: flex; gap: 6px; align-items: center; }
+
+.entry-controls { display: flex; gap: 6px; flex-wrap: wrap; }
+.entry-action { font-size: 12px; padding: 4px 8px; }
+
+/* — the tailor panel — */
+
+.pick-list { display: flex; flex-direction: column; gap: var(--space-2); }
+
+.pick-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-200);
+}
+
+/* An unticked row is still readable — it is a thing you might tick — but it
+   should not compete with the six that are on the resume. */
+.pick-row:not(:has(input[type='checkbox']:checked)) {
+  opacity: 0.62;
+  background: none;
+}
+
+.pick-head { display: flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+.pick-label { flex: 1; min-width: 0; font-size: 13px; font-weight: 500; }
+.pick-meta { flex: none; font-family: var(--font-mono); font-size: 11px; color: var(--color-text-faint); }
+
+.pick-chips { padding-left: 22px; }
+.pick-chips .tag { cursor: pointer; }
+
+.pick-override { padding-left: 22px; font-size: 12px; }
+.pick-override > summary { cursor: pointer; color: var(--color-accent-700); }
+.pick-override-body { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+.pick-override-body textarea { font-size: 13px; }
+
+.pick-row .entry-controls { padding-left: 22px; }
+
+/* — the preview sheet — */
+
+/* A4 at its real width, with the real margin drawn as padding, so what is on
+   screen is the page — including where it runs out. The scroller around it
+   lives in the page's own styles; this is the sheet. */
+.rs-paper {
+  width: 210mm;
+  min-height: 297mm;
+  margin-inline: auto;
+  padding: 14mm;
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ==========================================================================
+   Printing the admin screen prints the sheet and nothing else.
+
+   Set for one frame around `window.print()` by the resume editor. Everything
+   on this surface except `#rs-preview` is chrome — a sidebar, a tab bar, an
+   assistant panel — and none of it belongs on paper. Hiding by `display: none`
+   on the shell rather than by positioning the sheet, because a print layout
+   that relies on stacking contexts is one browser away from a blank page.
+   ========================================================================== */
+
+@media print {
+  body.is-printing .admin-sidebar,
+  body.is-printing .admin-head,
+  body.is-printing .rv-bar,
+  body.is-printing .tab-bar,
+  body.is-printing .pv-bar,
+  body.is-printing .admin-note,
+  body.is-printing #route-progress,
+  body.is-printing .asx,
+  body.is-printing .toast-host {
+    display: none !important;
+  }
+
+  body.is-printing .admin-shell,
+  body.is-printing .admin-main,
+  body.is-printing .re-wrap,
+  body.is-printing .pv-scroll {
+    display: block;
+    max-width: none;
+    width: auto;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+  }
+
+  /* The sheet is the page now: the `@page` margin is the margin, so the
+     preview's own paper padding and its shadow would double it. */
+  body.is-printing .rs-paper {
+    width: auto;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+    background: none;
+  }
+}

@@ -2,6 +2,11 @@
 /* Alternate themes. Each file is inert until `<html>` carries its
    `data-theme`, and each wins on specificity rather than on source order. */
 @import './themes/blueprint.css';
+/* The resume sheet. Global rather than page-scoped because three surfaces
+   render the same markup — the public page, the admin preview and the printed
+   PDF — and a stylesheet only one of them could see is how the preview drifted
+   away from the page it was previewing. */
+@import './resume.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -33,9 +38,9 @@
 }
 
 /* ==========================================================================
-   Modernist component layer.
+   The shared component layer.
 
-   Ported from the design system's `styles.css`. Plain CSS on plain HTML —
+   Plain CSS on plain HTML, reading only tokens —
    no per-page restyling of these classes. Hovers and pressed states come
    from the accent ramp, keyboard focus is the 2px accent :focus-visible
    ring, ::selection is an accent tint, disabled controls drop to 45%.
@@ -86,15 +91,23 @@ h6 {
   margin: 0 0 var(--space-2);
 }
 
-h1 { font-size: 42px; }
-h2 { font-size: 32px; }
+/* A display serif carries less optical weight than a heavy grotesk at the
+   same size, so the top two steps are larger than they were under the
+   previous theme. Everything below h2 is unchanged. */
+h1 { font-size: 48px; }
+h2 { font-size: 36px; }
 h3 { font-size: 25px; }
 h4 { font-size: 20px; }
 h5 { font-size: 16px; }
 
+/* The eyebrow. Not the display face: 13px uppercase letterspaced is a label,
+   and a serif set that way reads as a mistake rather than as a voice. Mono is
+   what both themes already use for metadata. */
 h6 {
-  font-size: 13px;
-  letter-spacing: 0.08em;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: 12px;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
@@ -209,8 +222,11 @@ pre {
   gap: 6px;
   cursor: pointer;
   text-decoration: none;
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
+  /* The body face, not the heading one. They were the same family under the
+     previous theme; under a display serif a button label set in it reads as a
+     pull-quote with a border. */
+  font-family: var(--font-body);
+  font-weight: 500;
   font-size: 14px;
   line-height: 1.2;
   color: var(--color-text);
@@ -232,14 +248,21 @@ pre {
 }
 
 /* The primary action is an angled panel: an ink ground with an accent
-   parallelogram that sweeps in from the left on hover, plus a tick in the
-   top-left and bottom-right corners.
+   parallelogram that sweeps in from the left on hover, plus a registration
+   tick in the top-left and bottom-right corners.
+
+   Ink first, accent second. Filling the whole button with the accent was the
+   other way to do it, and it is what this was for one release: a solid
+   terracotta slab that shouted on a page whose whole argument is restraint,
+   and that lost the sweep entirely — a darker red arriving over a lighter one
+   reads as a hover state nobody notices. The two-tone diagonal is the shape
+   this button *is*: at rest it is ink, and the accent is a wedge crossing it.
 
    The slanted edge is a hard-stop `linear-gradient` rather than the SVG
-   data-URI the pattern is usually written with, because a data-URI cannot
-   read `var(--color-accent)` — this way the sweep re-colors with the theme.
-   120deg puts the stop boundary 30° off vertical, matching the source shape.
-   The gradient is 220% wide and parked off the right edge, so animating
+   data-URI the pattern is usually written with, because a data-URI cannot read
+   `var(--color-accent)` — this way the sweep re-colours with the theme. 120deg
+   puts the stop boundary 30° off vertical, matching the source shape. The
+   gradient is 220% wide and parked off the right edge, so animating
    `background-position-x` alone drives the sweep. */
 .btn-primary {
   position: relative;
@@ -257,8 +280,15 @@ pre {
   transition: background-position 0.3s ease-in-out, border-color 0.3s ease-in-out;
 }
 
-/* Corner ticks. They read as ink against the resting ground and flip to the
-   page ground once the accent has swept underneath them. */
+/* The ticks. They read as ink against the resting ground — so the top-left one
+   is invisible until the sweep passes under it — and the bottom-right one is
+   the accent, which is the single fine detail on the button at rest.
+
+   Inset by 4px rather than hung on the corner at `-1px`, which is where they
+   were before this theme had a corner radius. A square pinned to the corner of
+   a rounded rectangle sits *outside* the curve as a loose speck; 4px in from
+   each edge puts a 4px square wholly inside an 8px radius, so it reads as a
+   registration mark on the panel instead of dirt beside it. */
 .btn-primary::before,
 .btn-primary::after {
   content: '';
@@ -267,18 +297,18 @@ pre {
 }
 
 .btn-primary::before {
-  top: -1px;
-  left: -1px;
-  width: 0.2rem;
-  height: 0.2rem;
+  top: 4px;
+  left: 4px;
+  width: 4px;
+  height: 4px;
   background-color: var(--color-text);
 }
 
 .btn-primary::after {
-  right: -1px;
-  bottom: -1px;
-  width: 0.3rem;
-  height: 0.3rem;
+  right: 4px;
+  bottom: 4px;
+  width: 5px;
+  height: 5px;
   background-color: var(--color-accent);
 }
 
@@ -295,36 +325,6 @@ pre {
 
 .btn-primary:active {
   background-position: 28% 0;
-}
-
-/* Optional bracket frame around a primary action — two half-height rules
-   that leave a gap at the vertical midpoint, so the button reads as a target
-   in a reticle. Wrap the button in `<span class="button-borders">`. */
-.button-borders {
-  position: relative;
-  width: fit-content;
-  height: fit-content;
-}
-
-.button-borders::before,
-.button-borders::after {
-  content: '';
-  position: absolute;
-  left: -0.3em;
-  width: calc(100% + 0.5em);
-  height: 50%;
-  border: 1px solid var(--color-text);
-  pointer-events: none;
-}
-
-.button-borders::before {
-  top: -0.3em;
-  border-bottom: 0;
-}
-
-.button-borders::after {
-  bottom: -0.3em;
-  border-top: 0;
 }
 
 /* A secondary action is a sheet on the ground, not an outline drawn on it: the
@@ -407,6 +407,7 @@ pre {
   width: 8px;
   height: 8px;
   flex: none;
+  border-radius: var(--radius-sm);
   background: var(--color-accent);
 }
 
@@ -425,8 +426,14 @@ pre {
   padding: 5px 12px;
 }
 
-/* — forms — */
-.field > label {
+/* — forms —
+
+   Two shapes, one rule. `<div class="field"><label for=…>` is what a page
+   writes when the control has an id; `<label class="field"><span>` is what a
+   script builds when it does not, and asking generated rows to mint ids only
+   so a caption can point at them is ceremony. */
+.field > label,
+.field > span {
   display: block;
   font-size: 12px;
   margin-bottom: 5px;
@@ -803,5 +810,107 @@ select.input.is-auto {
 
   html {
     scroll-behavior: auto;
+  }
+}
+
+/* ==========================================================================
+   Motion and affordance — the two things Classic brought with it that are
+   behaviour rather than palette.
+   ========================================================================== */
+
+/* — a link that goes somewhere says so on hover —
+
+   The arrow is a pseudo-element rather than an inlined SVG so it costs no
+   markup and inherits `currentColor` for free, which is the same reason
+   `select.input`'s caret is a gradient and not a data URI. */
+.link-arrow::after,
+.btn-arrow::after {
+  content: '→';
+  display: inline-block;
+  margin-left: 0.4em;
+  transition: transform 0.2s var(--ease-out);
+}
+
+.link-arrow:hover::after,
+.btn-arrow:hover::after {
+  transform: translateX(3px);
+}
+
+/* An underline that is drawn on hover rather than removed on it. A
+   background gradient, not `text-decoration`, because only the former can be
+   animated from zero width. */
+.link-underline {
+  text-decoration: none;
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 0 1px;
+  transition: background-size 0.25s var(--ease-out);
+}
+
+.link-underline:hover,
+.link-underline:focus-visible {
+  background-size: 100% 1px;
+}
+
+/* — scroll reveal —
+
+   Armed by an inline head script in `BaseLayout` and released by the module
+   script there. The class on `<html>` is what makes this safe: without
+   JavaScript, without an `IntersectionObserver`, or under reduced motion, the
+   class is never added and every rule below is inert — so content can never be
+   stranded invisible by a script that failed to load.
+
+   The stagger is a custom property the observer sets per element, because the
+   only alternative is n rules or an inline `transition-delay`, and an inline
+   style on a reveal target is a style the page author cannot override. */
+html.reveal-ready [data-reveal] {
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity 0.66s var(--ease-out),
+    transform 0.66s var(--ease-out);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+html.reveal-ready [data-reveal].is-revealed {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.reveal-ready [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+@media print {
+  /* A sheet is printed in whatever state the observer happened to leave the
+     page in, and an unrevealed section prints blank. */
+  html.reveal-ready [data-reveal] {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* The ground is the paper.
+
+     `--color-bg` is ivory: right on a screen, and on paper it is a page
+     somebody's printer fills with ink to reproduce a colour the sheet already
+     is. Declared on `html` as well as `body` because the *canvas* background —
+     everything outside the body box, including whole trailing pages —
+     propagates from `html`, so a body-only reset leaves the last page of a
+     two-page document tinted while the first is white.
+
+     It lives here rather than in `theme.css`, which owns the ground and is the
+     obvious home, because `html`/`body` get their background from this file 800
+     lines up and `theme.css` is `@import`ed above that — an element selector
+     there loses to an element selector here. It also used to live in
+     `resume.astro`, where it covered the public page and not the admin's Print
+     button, which renders the same sheet through the same stylesheet. */
+  html,
+  body {
+    background: #fff;
   }
 }

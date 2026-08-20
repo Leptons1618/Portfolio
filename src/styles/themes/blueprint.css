@@ -5,7 +5,7 @@
    `DESIGN.md` at the repo root. Selected at runtime by `data-theme="blueprint"`
    on `<html>` (see `src/lib/theme.ts`), which is why every rule here is scoped
    to that attribute — with no attribute the file contributes nothing and
-   Modernist renders untouched.
+   Classic renders untouched.
 
    Two parts, in this order:
 
@@ -31,7 +31,7 @@
   --color-divider: #c4c6cf;
 
   /* Neutral ramp — the system's surface tiers and outlines, in the same
-     100 (lightest) → 900 (ink) order the Modernist ramps use. */
+     100 (lightest) → 900 (ink) order the Classic ramps use. */
   --color-neutral-100: #ffffff;
   --color-neutral-200: #f0f3ff;
   --color-neutral-300: #e7eeff;
@@ -87,6 +87,130 @@
      background rule below and any future motif stay in step. */
   --grid-step: 24px;
   --grid-ink: color-mix(in srgb, var(--color-text) 5%, transparent);
+}
+
+/* --------------------------------------------------------------------------
+   Blueprint, dark — the drafting table at night. Cyanotype rather than
+   pencil-on-white: a navy ground, a paler rust that still clears 4.5:1, and a
+   grid drawn in light instead of graphite.
+
+   Written twice for the reason `theme.css` explains at length and does not
+   need repeating: `data-mode` is absent until someone presses the switch, so
+   the media query has to carry the dark-OS default while the attribute
+   overrides it in both directions. Only the tokens are restated — every
+   signature rule below this block reads them and needs no dark variant.
+
+   Both are inside `@media screen`, for the reason the Classic ramp is: paper
+   has no dark mode, and a sheet printed from a dark page is pale grey text on
+   white — or solid ink with background graphics on. See `theme.css`.
+   -------------------------------------------------------------------------- */
+
+@media screen {
+
+:root[data-theme='blueprint'][data-mode='dark'] {
+  color-scheme: dark;
+
+  --color-bg: #0a111e;
+  --color-surface: #131d2e;
+  --color-text: #e4ebf7;
+  --color-accent: #f08a86;
+  --color-accent-2: #8aa4cf;
+  --color-divider: #2b384c;
+
+  --color-neutral-100: #101a29;
+  --color-neutral-200: #162133;
+  --color-neutral-300: #1d2a3e;
+  --color-neutral-400: #2b384c;
+  --color-neutral-500: #3d4c63;
+  --color-neutral-600: #6b7891;
+  --color-neutral-700: #96a2b8;
+  --color-neutral-800: #c3ccdd;
+  --color-neutral-900: #e4ebf7;
+
+  --color-accent-100: #2a1210;
+  --color-accent-200: #3d1a17;
+  --color-accent-300: #5c2723;
+  --color-accent-400: #8a3a35;
+  --color-accent-500: #c04f49;
+  --color-accent-600: #dd6d67;
+  --color-accent-700: #f08a86;
+  --color-accent-800: #ffb3ad;
+  --color-accent-900: #ffdad6;
+
+  --color-accent-2-100: #101d2f;
+  --color-accent-2-200: #16273d;
+  --color-accent-2-300: #1e3a5f;
+  --color-accent-2-400: #2d486d;
+  --color-accent-2-500: #455f87;
+  --color-accent-2-600: #6d87b0;
+  --color-accent-2-700: #8aa4cf;
+  --color-accent-2-800: #adc8f5;
+  --color-accent-2-900: #d5e3ff;
+
+  /* Hard offsets need a colour that is visible *against* the ground, so they
+     cast in the ramp's dark end rather than its light one. */
+  --shadow-sm: 2px 2px 0 0 var(--color-neutral-500);
+  --shadow-md: 2px 2px 0 0 var(--color-neutral-600);
+  --shadow-lg: 4px 4px 0 0 var(--color-accent-2-500);
+
+  --grid-ink: color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+} /* @media screen — the dark ramp is a screen palette. See above. */
+
+@media screen and (prefers-color-scheme: dark) {
+  :root[data-theme='blueprint']:not([data-mode='light']) {
+    color-scheme: dark;
+
+    --color-bg: #0a111e;
+    --color-surface: #131d2e;
+    --color-text: #e4ebf7;
+    --color-accent: #f08a86;
+    --color-accent-2: #8aa4cf;
+    --color-divider: #2b384c;
+
+    --color-neutral-100: #101a29;
+    --color-neutral-200: #162133;
+    --color-neutral-300: #1d2a3e;
+    --color-neutral-400: #2b384c;
+    --color-neutral-500: #3d4c63;
+    --color-neutral-600: #6b7891;
+    --color-neutral-700: #96a2b8;
+    --color-neutral-800: #c3ccdd;
+    --color-neutral-900: #e4ebf7;
+
+    --color-accent-100: #2a1210;
+    --color-accent-200: #3d1a17;
+    --color-accent-300: #5c2723;
+    --color-accent-400: #8a3a35;
+    --color-accent-500: #c04f49;
+    --color-accent-600: #dd6d67;
+    --color-accent-700: #f08a86;
+    --color-accent-800: #ffb3ad;
+    --color-accent-900: #ffdad6;
+
+    --color-accent-2-100: #101d2f;
+    --color-accent-2-200: #16273d;
+    --color-accent-2-300: #1e3a5f;
+    --color-accent-2-400: #2d486d;
+    --color-accent-2-500: #455f87;
+    --color-accent-2-600: #6d87b0;
+    --color-accent-2-700: #8aa4cf;
+    --color-accent-2-800: #adc8f5;
+    --color-accent-2-900: #d5e3ff;
+
+    --shadow-sm: 2px 2px 0 0 var(--color-neutral-500);
+    --shadow-md: 2px 2px 0 0 var(--color-neutral-600);
+    --shadow-lg: 4px 4px 0 0 var(--color-accent-2-500);
+
+    --grid-ink: color-mix(in srgb, var(--color-text) 8%, transparent);
+  }
+}
+
+/* Blueprint draws its own ground, so the grain belongs to Classic alone —
+   noise over a ruled grid is two textures arguing. */
+[data-theme='blueprint'] body::before {
+  display: none;
 }
 
 /* — the pencil grid ————————————————————————————————————————————————————
@@ -212,7 +336,7 @@
    fill stays white and only steps one tier. Stated rather than left to the
    cascade: the generic hover is `.btn-secondary:hover:not(:disabled)`, which
    already outranks the rule above, so without this the button would pick up
-   the Modernist wash. */
+   the shared tint from `global.css`. */
 [data-theme='blueprint'] .btn-secondary:hover:not(:disabled) {
   background: var(--color-neutral-200);
   border-color: var(--color-neutral-800);
@@ -222,13 +346,6 @@
 [data-theme='blueprint'] .btn-secondary:active {
   box-shadow: none;
   transform: translate(2px, 2px);
-}
-
-/* — the bracket frame is a Modernist device; Blueprint frames with the
-     shadow instead, so it would double up — */
-[data-theme='blueprint'] .button-borders::before,
-[data-theme='blueprint'] .button-borders::after {
-  content: none;
 }
 
 /* — the theme switch itself ————————————————————————————————————————————

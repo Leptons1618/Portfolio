@@ -2,19 +2,19 @@
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import AskWidget from '../components/AskWidget.astro';
-import '@fontsource/archivo/400.css';
-import '@fontsource/archivo/600.css';
-import '@fontsource/archivo/800.css';
-/* Blueprint's faces. Declaring the @font-face rules costs nothing until a
-   rendered element actually resolves to one of these families, which only
-   happens under `data-theme="blueprint"` — so Modernist visitors never
-   download them. */
+import ThemeHead from '../components/ThemeHead.astro';
+/* Classic's faces: a display serif, a UI sans, and a mono for metadata. */
+import '@fontsource/instrument-serif/400.css';
+import '@fontsource/instrument-serif/400-italic.css';
+import '@fontsource-variable/inter';
+/* Blueprint's. Declaring the @font-face rules costs nothing until a rendered
+   element actually resolves to one of these families, which only happens under
+   `data-theme="blueprint"` — so Classic visitors never download them. */
 import '@fontsource-variable/space-grotesk';
 import '@fontsource-variable/manrope';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles/global.css';
 import { site, absoluteUrl } from '../lib/site';
-import { DEFAULT_THEME, THEME_KEY, THEMES } from '../lib/theme';
 
 interface Props { title?: string; description?: string; image?: string; }
 const siteTitle = `${site.name} Portfolio`;
@@ -48,15 +48,21 @@ const imageURL = absoluteUrl(image, origin);
       monogram that means nothing to anyone who has not been here before. */}
   <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/favicon.png" />
-  <meta name="theme-color" content={THEMES.find(t => t.id === DEFAULT_THEME)!.themeColor} />
-  <script is:inline define:vars={{ THEME_KEY, DEFAULT_THEME, THEME_IDS: THEMES.map(t => t.id) }}>
-    // Restore the stored theme before first paint, so the page never renders
-    // in the default theme and then flips.
+  <ThemeHead />
+  <script is:inline>
+    // Arm the scroll reveal before paint, not in the module script below:
+    // adding the class after parse would fade already-painted content out and
+    // back in. The timer un-arms it if the module never loads, so a failed
+    // bundle can never strand the page invisible.
     (function () {
-      var stored = localStorage.getItem(THEME_KEY);
-      if (stored && stored !== DEFAULT_THEME && THEME_IDS.indexOf(stored) !== -1) {
-        document.documentElement.dataset.theme = stored;
-      }
+      if (
+        !('IntersectionObserver' in window) ||
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      ) return;
+      document.documentElement.classList.add('reveal-ready');
+      window.__omRevealFallback = setTimeout(function () {
+        document.documentElement.classList.remove('reveal-ready');
+      }, 3000);
     })();
   </script>
 </head>
@@ -69,5 +75,45 @@ const imageURL = absoluteUrl(image, origin);
       asks once per session. See `src/pages/api/ai/status.ts`. Costs nothing
       when the feature is off, and nothing at all without JavaScript. */}
   <AskWidget />
+
+  <script>
+    /* Reveal sections as they arrive. One observer for the page, elements
+       staggered by their position in the batch that crossed together — which
+       is what makes a grid of cards land in sequence rather than as a block.
+
+       Public pages are plain MPA (decision 11), so this runs once per
+       document and needs no view-transition handling. */
+    const STAGGER = 70;
+
+    /* The head script armed the reveal; this module is the proof it loaded. */
+    const fallback = (window as unknown as { __omRevealFallback?: number }).__omRevealFallback;
+    if (fallback) {
+      clearTimeout(fallback);
+      (window as unknown as { __omRevealFallback?: number }).__omRevealFallback = undefined;
+    }
+
+    const targets = document.querySelectorAll<HTMLElement>('[data-reveal]');
+
+    if (!document.documentElement.classList.contains('reveal-ready')) {
+      /* Never armed — no observer, or reduced motion. The CSS is inert, so
+         there is nothing to do and nothing is hidden. */
+    } else {
+      const observer = new IntersectionObserver(
+        (entries, self) => {
+          entries
+            .filter(entry => entry.isIntersecting)
+            .forEach((entry, index) => {
+              const node = entry.target as HTMLElement;
+              node.style.setProperty('--reveal-delay', `${index * STAGGER}ms`);
+              node.classList.add('is-revealed');
+              self.unobserve(node);
+            });
+        },
+        { rootMargin: '0px 0px -8% 0px', threshold: 0.05 },
+      );
+
+      targets.forEach(target => observer.observe(target));
+    }
+  </script>
 </body>
 </html>
