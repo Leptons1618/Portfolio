@@ -1107,3 +1107,21 @@ The import list shows the same facts it sends: primary language, stars, when it 
 **The case-study select gained a second create option.** `__new__` still scaffolds a header from the form and a placeholder body; `__ai__` writes the header and the write-up from the repository, two calls, on create. Both are offered because they cost differently and the author knows which one this repository deserves. A failure in either half falls back to the scaffold rather than abandoning the import: the project is the thing being created, and a case study that needs rewriting is recoverable from its own page.
 
 **What did not change.** Nothing here is stored that GitHub is the source of truth for. Stars and licence are facts about a repository, read when they are needed and never copied into a row that would then be stale — the same reason the project cards ask GitHub for a branch and a last-sync time rather than carrying a field nobody maintains.
+
+---
+
+## 48. A conversation may make the edit it was asked for
+
+**Status:** accepted
+
+**Context.** `chat` was the one task with no output contract: whatever the model said landed in the panel as prose, with a Copy button and no Insert. That was right for a question and wrong for the other half of what people type into a panel that sits beside a form. Asked to shorten a title, the assistant answered with a shorter title — in a bubble, four inches from the field the title lives in, with the old instruction telling it to name the command that would have done the job. The author's next move was to select the text, copy it, click the field, select the old title and paste. The feature worked and the interaction was homework.
+
+**Decision.** A chat reply that **opens with a labelled field** is an edit, and the editor applies it exactly as a command's output is applied: a snapshot into the same three-deep ring, the fields written, Undo on the message. Anything else is an answer and behaves as it always did.
+
+`parseEdit(text, shape)` in `assist-tasks.ts` is the discriminator and it is deliberately stricter than `parseFields`. That parser drops any preamble before the first label, which is right for a task whose entire output is a document and wrong here — a paragraph of prose that mentions `Title: something` would otherwise be applied to the post. Opening with the label is a thing a model does on purpose and prose does not.
+
+**Why this does not reopen decision 24.** Nothing new is reachable. `chat` is still one entry in the closed task table, its context is still the same allowlist of editor fields, and the reply still goes into a **form** — `save()` is the only thing that writes a row, and it is still a button a person presses. What changed is where a string is put after it arrives, which is decision 28's question, and the answer here is the answer that decision already gives: output that can only mean one thing goes where it belongs, and output that is a choice waits.
+
+**Why the shape is per surface.** The journal panel reads a reply against `POST_KEYS` and the project panel against `PROJECT_KEYS`, because `HIGHLIGHTS:` is a field on a project and an ordinary line in a post. That is the same rule `parseFields` has always run on, and it is why there is no global label table. The resume screen is left out on purpose: every task there is a proposal about a *selection* — which roles, which projects — and a selection rearranging itself under the author is not an edit they can watch. Decision 35's reasoning, unchanged.
+
+**What the prompt had to say.** The task instructions now describe both jobs and, for an edit, insist on the finished value rather than a suggestion — "TITLE: Pinned skills" and never "TITLE: how about Pinned skills?" — and on writing only the fields that change, because a field repeated back unchanged is a field overwritten with a model's copy of it. `check:ai` pins the discriminator rather than the prompt: what a model does with an instruction is a property of a third party's weights, and what the editor does with the reply is ours.

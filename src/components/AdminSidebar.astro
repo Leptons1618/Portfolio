@@ -84,11 +84,19 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
     </a>
     <span class="collapsible admin-foot-actions">
       <ThemeToggle />
-      <button type="button" class="btn btn-ghost admin-signout" id="admin-signout" hidden>Sign out</button>
     </span>
-    <a class="collapsible admin-public-link" href="/">
-      <Icon name="lucide:external-link" class="admin-nav-icon" />public site
-    </a>
+    {/* Leaving the surface, twice: the site as a reader sees it, and the
+        session. Both are buttons of the same weight because they are the same
+        kind of thing — a ghost link under a pair of theme controls read as a
+        stray line of text rather than as a way out. */}
+    <span class="collapsible admin-foot-links">
+      <a class="btn btn-secondary btn-sm" href="/" title="Public site">
+        <Icon name="lucide:external-link" class="admin-nav-icon" />Public site
+      </a>
+      <button type="button" class="btn btn-secondary btn-sm" id="admin-signout" hidden>
+        <Icon name="lucide:log-out" class="admin-nav-icon" />Sign out
+      </button>
+    </span>
   </div>
 </aside>
 

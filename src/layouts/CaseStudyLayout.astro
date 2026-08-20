@@ -127,7 +127,14 @@ const {
     margin-bottom: var(--space-8);
   }
   .cs-split-head { margin: 0; }
-  .cs-split-body { min-width: 0; }
+  /* Every child, not just `.cs-split-body` — the write-up sits in a bare
+     `.prose` div, and a grid item's automatic minimum is its *content's*
+     min-content width. A `<pre>` of `npx skills add …` is one unbreakable line
+     several hundred characters long, so the 8fr track grew to fit it, took the
+     whole grid past the container with it, and every paragraph on the page ran
+     off the right edge. `overflow-x: auto` on the block does nothing until the
+     track it is in is allowed to be narrower than its contents. */
+  .cs-split > * { min-width: 0; }
   .cs-split-body.card { gap: var(--space-3); }
 
   .cs-copy { opacity: 0.85; margin: 0; }

@@ -14,6 +14,39 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **The assistant panel docks, and moves.** Two buttons in its header put it
+  against the left or the right edge; dragging the header puts it wherever you
+  drop it. Both survive a reload, alongside the size the grip already
+  remembered. The default is unchanged — bottom-right, at the size it always
+  opened at.
+
+- **An import drafts with its work on screen.** "Draft with AI" on the import
+  form used to run behind a disabled button and a one-line status: twenty
+  seconds whose only sign of life was the fields filling in, and nothing at all
+  while the model deliberated first. `/admin/projects` mounts the same assistant
+  panel both authoring screens do now, so the thinking, the lookups and any
+  failure land where they do everywhere else. The two case-study writes an
+  AI import makes on save go through it too. The answer still streams straight
+  into the form.
+
+- **Ask the assistant for a change and it makes the change.** A reply to the
+  panel that opens with a labelled field — `TITLE: …`, `SUMMARY: …` — is applied
+  to the editor's fields with a snapshot behind it, instead of landing in the
+  bubble as text to copy across by hand. A question still gets prose. Both
+  authoring screens, `parseEdit()` is what tells the two apart, and Undo is
+  three runs deep as it is everywhere else. Decision 48.
+
+- **The journal manifest arranges itself.** Entries are on two shelves — Active
+  for published and drafts, Archived for withdrawn posts — and an order control
+  offers newest, oldest, recently edited and title. Every row now carries when
+  it was last written as well as its own date, which is the timestamp that says
+  where you left off; a status change moves the row to the other shelf rather
+  than leaving it under a heading that has stopped being true.
+
+- **Fields grow with what is in them.** The summary, highlights and case-study
+  fields the assistant writes into now grow as text arrives rather than becoming
+  a two-row window onto their own contents, capped at 60% of the screen.
+
 - **A case study has a write-up, and the assistant can write it.** `case_studies`
   has always had a body column and nothing on any screen ever wrote it, so every
   case study on the site was a header over the one paragraph the scaffold
@@ -97,7 +130,34 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   object now, keyed the way the module is. The theme card gained the light/dark
   switch it had been missing since `data-mode` became a second axis.
 
+- **One switch on this surface, not two controls meaning the same thing.** The
+  AI screen's four checkboxes are the same `role="switch"` toggle the projects
+  screens have always used. `src/lib/switch.ts` replaces them the way `select.ts`
+  replaces a dropdown — the checkbox stays, hidden, and stays the value — so no
+  screen's `.checked` reads or writes changed.
+
 ### Fixed
+
+- **Scaffolding a case study shows the case study.** The button wrote the row
+  and the link and then asked the author to reload — the editor under it is
+  rendered from the project row, so nothing in the page could show a case study
+  that did not exist when it was served. It reloads itself now, back onto the
+  Case study tab.
+
+- **A case study with a code block ran off the right of the page.** The write-up
+  sits in a 4fr/8fr grid, and a grid item's automatic minimum is the min-content
+  width of what is in it — so one unbreakable `npx skills add …` line several
+  hundred characters long widened the track, took the whole grid past the
+  container, and every paragraph on the page overflowed with it. `overflow-x:
+  auto` on the block could not help until the track was allowed to be narrower
+  than its contents. Long inline code wraps now too.
+
+- **The projects filter used the operating system's dropdown.** `select.ts` was
+  mounted only from `AdminLayout`, so the one public `select.input` on the site
+  opened a system popup in system fonts beside a design that owns every other
+  control. The dropdown's rules moved to `global.css` — the shared component
+  layer, which is what makes it one control rather than two — and `/projects`
+  mounts it.
 
 - **Saving a post or a case study with a body failed in production.**
   `Failed to parse Markdown file "undefined": WebAssembly.instantiate(): Wasm
@@ -204,6 +264,17 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   last four characters of whatever they are given.
 
 ### Changed
+
+- **A journal post is as wide as a case study.** The post page was
+  `container-prose`, which is a 720px *page* rather than a 720px column, so its
+  hero, title and footer were squeezed into the measure meant for its
+  paragraphs. It is the full container now with the write-up in the same 4fr/8fr
+  split `CaseStudyLayout` uses, and the two long-form pages read at one width.
+
+- **The admin rail's footer is three controls rather than a stray link.** Sign
+  out and the public site are both secondary buttons on one row under the theme
+  controls; the ghost link under them read as a line of text that had come
+  loose.
 
 - **Modernist is gone; Classic is the default theme.** Ivory paper and near-black
   ink, terracotta accent, Instrument Serif over Inter, a faint grain, soft corners

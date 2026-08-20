@@ -19,28 +19,38 @@ const meta = metaLine(post.data);
 const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
 ---
 <BaseLayout title={title} description={summary}>
-  <article class="container container-prose journal-post">
+  {/* The full container, and the write-up in a 4fr/8fr split — the same shape
+      and therefore the same measure as `CaseStudyLayout`. It used to be
+      `container-prose`, which is a 720px page rather than a 720px column: the
+      hero, the title and the footer were all squeezed into it, and the two
+      long-form pages on this site read at visibly different widths. */}
+  <article class="container journal-post">
     <a class="btn btn-ghost back-link" href="/journal">← Back to Journal</a>
 
-    <div class="tag-row">
-      {tags.map((tag, i) => (
-        <span class={`tag ${i % 2 === 0 ? 'tag-accent' : 'tag-accent-2'}`}>{formatTag(tag)}</span>
-      ))}
-    </div>
+    <header class="post-head">
+      {heroImage && (
+        <div class="post-figure">
+          <div class="grayscale"><img src={heroImage} alt={title} /></div>
+          {videoDuration && <span class="tag tag-neutral post-duration">{videoDuration}</span>}
+        </div>
+      )}
 
-    <h1 class="post-title">{title}</h1>
-    <p class="text-muted post-meta">{meta}</p>
-
-    {heroImage && (
-      <div class="post-figure">
-        <div class="grayscale"><img src={heroImage} alt={title} /></div>
-        {videoDuration && <span class="tag tag-neutral post-duration">{videoDuration}</span>}
+      <div class="tag-row">
+        {tags.map((tag, i) => (
+          <span class={`tag ${i % 2 === 0 ? 'tag-accent' : 'tag-accent-2'}`}>{formatTag(tag)}</span>
+        ))}
       </div>
-    )}
 
-    <p class="post-summary">{summary}</p>
+      <h1 class="post-title">{title}</h1>
+      <p class="text-muted post-meta">{meta}</p>
+      <p class="post-summary">{summary}</p>
+    </header>
+    <hr class="rule post-head-rule" />
 
-    <div class="prose"><Fragment set:html={post.html} /></div>
+    <div class="post-split">
+      <div></div>
+      <div class="prose"><Fragment set:html={post.html} /></div>
+    </div>
 
     <hr class="rule post-footer-rule" />
     <div class="post-footer">
@@ -72,15 +82,31 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
 <style>
   .journal-post { padding-top: var(--space-6); padding-bottom: var(--space-8); }
   .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
+
+  /* Hero, tags, title and lead as one cover block over the full width, closed
+     with a rule — a case study's `.cs-head` by another name. */
+  .post-head { margin-bottom: var(--space-4); }
   .tag-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-3); }
   .post-title { margin-bottom: var(--space-2); }
-  .post-meta { font-size: 13px; margin-bottom: var(--space-4); }
+  .post-meta { font-size: 13px; margin-bottom: var(--space-3); }
+  .post-head-rule { margin-bottom: var(--space-8); }
 
-  .post-figure { position: relative; margin-bottom: var(--space-6); }
-  .post-figure img { width: 100%; height: 340px; object-fit: cover; }
+  .post-figure { position: relative; margin-bottom: var(--space-4); }
+  .post-figure img { width: 100%; height: 360px; object-fit: cover; }
   .post-duration { position: absolute; bottom: 12px; left: 12px; font-family: var(--font-mono); }
 
-  .post-summary { opacity: 0.85; margin-bottom: var(--space-6); }
+  /* Capped rather than full-bleed: the block above runs to 1120px and a lead
+     paragraph set across all of it is 130 characters a line. */
+  .post-summary { font-size: 18px; line-height: 1.6; opacity: 0.85; max-width: 62ch; margin: 0; }
+
+  /* The write-up, in the same track a case study's is. The left cell is empty
+     — a post has no section headings to put there — and `min-width: 0` is
+     load-bearing for the same reason it is in `CaseStudyLayout`: a grid item's
+     automatic minimum is its content's min-content width, and one unbreakable
+     line in a `<pre>` would otherwise widen the track past the container and
+     take every paragraph on the page with it. */
+  .post-split { display: grid; grid-template-columns: 4fr 8fr; gap: var(--space-6); }
+  .post-split > * { min-width: 0; }
 
   .post-footer-rule { margin-top: var(--space-8); }
   .post-footer {
@@ -93,6 +119,11 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
   }
   .share-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
   .share-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+  @media (max-width: 860px) {
+    .post-split { grid-template-columns: 1fr; gap: 0; }
+    .post-split > div:empty { display: none; }
+  }
 
   @media (max-width: 640px) {
     .post-figure img { height: 220px; }
