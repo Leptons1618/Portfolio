@@ -69,7 +69,7 @@ const STATUS_VARIANT: Record<string, string> = {
 ---
 <AdminLayout title={`Project · ${fields.title}`}>
   <div class="admin-main-wide" id="admin-project-detail">
-    <a class="pd-back" href="/admin/projects">
+    <a class="btn btn-ghost btn-sm pd-back" href="/admin/projects">
       <Icon name="lucide:arrow-left" class="admin-nav-icon" />All projects
     </a>
 
@@ -1633,11 +1633,10 @@ const STATUS_VARIANT: Record<string, string> = {
 </script>
 
 <style>
+  /* `.btn.btn-ghost` gives this the same hover/pressed treatment every other
+     control on the surface has — it used to be a bare twelve-pixel mono line
+     with no affordance beyond its own arrow icon. */
   .pd-back {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
     font-family: var(--font-mono);
     margin-bottom: var(--space-3);
   }

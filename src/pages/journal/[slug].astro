@@ -47,10 +47,7 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
     </header>
     <hr class="rule post-head-rule" />
 
-    <div class="post-split">
-      <div></div>
-      <div class="prose"><Fragment set:html={post.html} /></div>
-    </div>
+    <div class="prose post-prose"><Fragment set:html={post.html} /></div>
 
     <hr class="rule post-footer-rule" />
     <div class="post-footer">
@@ -99,14 +96,14 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
      paragraph set across all of it is 130 characters a line. */
   .post-summary { font-size: 18px; line-height: 1.6; opacity: 0.85; max-width: 62ch; margin: 0; }
 
-  /* The write-up, in the same track a case study's is. The left cell is empty
-     — a post has no section headings to put there — and `min-width: 0` is
-     load-bearing for the same reason it is in `CaseStudyLayout`: a grid item's
-     automatic minimum is its content's min-content width, and one unbreakable
-     line in a `<pre>` would otherwise widen the track past the container and
-     take every paragraph on the page with it. */
-  .post-split { display: grid; grid-template-columns: 4fr 8fr; gap: var(--space-6); }
-  .post-split > * { min-width: 0; }
+  /* Capped for a readable line length, but left-aligned with the title and
+     hero above it. This used to follow `CaseStudyLayout`'s 4fr/8fr split with
+     an empty left cell — which makes sense there, where other sections put
+     real content in that column, but a journal post never does. The empty
+     column just shifted the body a third of the way across the page while the
+     title, hero and tags above it stayed flush left, so the post visibly
+     stopped lining up with itself partway down. */
+  .post-prose { max-width: var(--wrap-prose); }
 
   .post-footer-rule { margin-top: var(--space-8); }
   .post-footer {
@@ -119,11 +116,6 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
   }
   .share-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
   .share-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-
-  @media (max-width: 860px) {
-    .post-split { grid-template-columns: 1fr; gap: 0; }
-    .post-split > div:empty { display: none; }
-  }
 
   @media (max-width: 640px) {
     .post-figure img { height: 220px; }

@@ -61,10 +61,6 @@
   margin: 0 0 var(--space-3);
 }
 
-.rs-variant {
-  color: var(--color-accent);
-}
-
 .rs-contact {
   display: flex;
   flex-wrap: wrap;
@@ -432,8 +428,11 @@
 }
 
 /* The current role, marked. The sheet is in reverse chronological order, so
-   "first" is "now". */
-.rs[data-layout='timeline'] .rs-role:first-child::before {
+   "first" is "now". `:first-of-type`, not `:first-child` — the section's own
+   `<h2 class="rs-h">` is the actual first child of `.rs-section`, so a
+   `:first-child` selector here never matched anything at all and the "current
+   role" dot was never once accent-coloured. */
+.rs[data-layout='timeline'] .rs-role:first-of-type::before {
   background: var(--color-accent);
 }
 

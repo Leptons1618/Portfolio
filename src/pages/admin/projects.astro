@@ -116,6 +116,32 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       <hr class="rule" />
     </div>
 
+    {/* Search and filter, client-side against the cards already on the page —
+        there is no pagination here, so there is nothing to ask the server
+        for. */}
+    {rows.length > 0 && (
+      <div class="pm-filter-bar">
+        <input
+          type="search"
+          id="pm-search"
+          class="input pm-search"
+          placeholder="Search projects…"
+          aria-label="Search projects"
+          autocomplete="off"
+        />
+        <select class="input is-auto" id="pm-status-filter" aria-label="Filter by visibility">
+          <option value="all">All visibility</option>
+          <option value="visible">Visible</option>
+          <option value="hidden">Hidden</option>
+        </select>
+        <select class="input is-auto" id="pm-category-filter" aria-label="Filter by category">
+          <option value="all">All categories</option>
+          {PROJECT_CATEGORIES.map(([value, label]) => <option value={value}>{label}</option>)}
+        </select>
+        <p class="text-muted pm-results-count" id="pm-results-count" aria-live="polite"></p>
+      </div>
+    )}
+
     {/* Nothing tracked is a real state — a fresh checkout, or a portfolio
         emptied out — and it is the one moment the screen can say exactly what
         to do next instead of showing an empty grid and a rule. */}
@@ -146,6 +172,9 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
           data-path={row.path}
           data-owner={row.owner}
           data-repo={row.repoName}
+          data-title={row.data.title.toLowerCase()}
+          data-category={row.data.category}
+          data-hidden={row.data.hidden ? '1' : '0'}
         >
           <div class="pm-card-head">
             <div class="pm-card-id">
@@ -216,6 +245,11 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
           </div>
         </article>
       ))}
+    </div>
+
+    <div class="admin-empty" id="pm-no-results" hidden>
+      <div class="admin-empty-art admin-empty-art-sm"><Illustration name="no-data" /></div>
+      <p class="admin-empty-copy">No tracked project matches that search and filter.</p>
     </div>
 
     <p class="text-muted admin-note visibility-note" id="write-note">
@@ -564,6 +598,43 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
     const cards = Array.from(document.querySelectorAll<HTMLElement>('.pm-card'));
     const statusOf = (card: HTMLElement) => card.querySelector<HTMLElement>('[data-role="status"]')!;
+
+    // ------------------------------------------------------ search & filter
+
+    /* Client-side against the cards already on the page — this screen has no
+       pagination, so there is nothing further to ask the server for. */
+    const pmSearch = document.getElementById('pm-search') as HTMLInputElement | null;
+    const pmStatusFilter = document.getElementById('pm-status-filter') as HTMLSelectElement | null;
+    const pmCategoryFilter = document.getElementById('pm-category-filter') as HTMLSelectElement | null;
+    const pmResultsCount = document.getElementById('pm-results-count');
+    const pmNoResults = document.getElementById('pm-no-results') as HTMLElement | null;
+
+    function applyPmFilters() {
+      const term = (pmSearch?.value ?? '').trim().toLowerCase();
+      const status = pmStatusFilter?.value ?? 'all';
+      const category = pmCategoryFilter?.value ?? 'all';
+      let visible = 0;
+
+      for (const card of cards) {
+        const matchesTerm = !term || (card.dataset.title ?? '').includes(term);
+        const matchesStatus =
+          status === 'all' || (status === 'hidden' ? card.dataset.hidden === '1' : card.dataset.hidden === '0');
+        const matchesCategory = category === 'all' || card.dataset.category === category;
+        const shown = matchesTerm && matchesStatus && matchesCategory;
+        card.style.display = shown ? '' : 'none';
+        if (shown) visible += 1;
+      }
+
+      if (pmResultsCount) {
+        pmResultsCount.textContent = `Showing ${visible} of ${cards.length} project${cards.length === 1 ? '' : 's'}`;
+      }
+      if (pmNoResults) pmNoResults.hidden = visible > 0 || cards.length === 0;
+    }
+
+    pmSearch?.addEventListener('input', applyPmFilters);
+    pmStatusFilter?.addEventListener('change', applyPmFilters);
+    pmCategoryFilter?.addEventListener('change', applyPmFilters);
+    applyPmFilters();
 
     /* Visibility. The row is the only truth; signed out there is nowhere to
        write, so the switch is disabled rather than recording an intention in
@@ -1507,6 +1578,30 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
   .pm-grid-head { margin-bottom: var(--space-3); }
   .pm-grid-head h6 { margin: 0; }
+
+  .pm-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+  .pm-search { max-width: 320px; flex: 1 1 200px; }
+  .pm-filter-bar :global(.select) { width: auto; }
+  .pm-filter-bar :global(.select-button) { font-family: var(--font-mono); font-size: 12px; }
+  .pm-results-count {
+    margin: 0 0 0 auto;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    white-space: nowrap;
+  }
+
+  @media (max-width: 640px) {
+    .pm-filter-bar { align-items: stretch; }
+    .pm-search { max-width: none; flex-basis: auto; }
+    .pm-filter-bar :global(.select) { width: 100%; }
+    .pm-results-count { margin-left: 0; }
+  }
 
   /* Track count comes from the available width rather than from a breakpoint:
      each card holds a 2×2 field grid whose longest value is a full `owner/name`

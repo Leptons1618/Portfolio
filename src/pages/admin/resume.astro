@@ -118,6 +118,10 @@ const seed = {
             </h6>
           </summary>
           <div class="ed-body">
+            <label class="field">
+              <span>Role <em class="text-muted">— the masthead's job title. Empty uses the site's own.</em></span>
+              <input class="input" id="headline" data-rs-line placeholder={seed.person.role} />
+            </label>
             <textarea class="input summary-input" id="summary" data-grow data-rs-line placeholder="The default professional statement. A variant may override it."></textarea>
           </div>
         </details>
@@ -182,6 +186,10 @@ const seed = {
             <h6 class="admin-eyebrow ed-legend">This variant</h6>
           </summary>
           <div class="ed-body">
+            <label class="field">
+              <span>Role for this variant <em class="text-muted">— empty falls back to the master's</em></span>
+              <input class="input" id="tv-headline" data-rs-line />
+            </label>
             <label class="field">
               <span>Summary for this role <em class="text-muted">— empty falls back to the master's</em></span>
               <textarea class="input summary-input" id="tv-summary" data-grow data-rs-line></textarea>
@@ -820,6 +828,8 @@ const seed = {
       $<HTMLButtonElement>('re-tab-tailor').disabled = false;
       if (!variant) return;
 
+      $<HTMLInputElement>('tv-headline').value = variant.headline ?? '';
+      $<HTMLInputElement>('tv-headline').placeholder = state.headline || person.role;
       $<HTMLTextAreaElement>('tv-summary').value = variant.summary ?? '';
       $<HTMLTextAreaElement>('tv-summary').placeholder = state.summary;
       $<HTMLTextAreaElement>('tv-jd').value = variant.jobDescription ?? '';
@@ -1074,6 +1084,7 @@ const seed = {
     }
 
     function renderAll() {
+      $<HTMLInputElement>('headline').value = state.headline;
       $<HTMLTextAreaElement>('summary').value = state.summary;
       renderVariantBar();
       renderExperience();
@@ -1086,9 +1097,24 @@ const seed = {
 
     /* ---------- wiring ---------- */
 
+    const headlineInput = $<HTMLInputElement>('headline');
+    headlineInput.addEventListener('input', () => {
+      state.headline = headlineInput.value;
+      persist();
+      renderPreview();
+    });
+
     const summaryInput = $<HTMLTextAreaElement>('summary');
     summaryInput.addEventListener('input', () => {
       state.summary = summaryInput.value;
+      persist();
+      renderPreview();
+    });
+
+    $<HTMLInputElement>('tv-headline').addEventListener('input', function () {
+      const variant = openVariant();
+      if (!variant) return;
+      variant.headline = this.value;
       persist();
       renderPreview();
     });

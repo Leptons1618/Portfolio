@@ -59,28 +59,24 @@ const { surface, sub } = Astro.props;
       <p class="asx-sub">{sub}</p>
     </div>
     <div class="asx-head-actions">
-      {/* Where the panel sits. Two docks and a free position, because the
-          fields being written are on the left on one screen and on the right on
-          another — and dragging the header is what produces the third. */}
+      {/* Where the panel sits. One toggle between the two docks — dragging the
+          header is what produces the third, floating position. The icon is
+          the current side, filled: `panel-left`'s left half is the solid one
+          and `panel-right`'s right half is, so swapping between them shows
+          which edge the panel is actually pinned to rather than just naming
+          an action. Both are in the markup and CSS shows one at a time off
+          the dialog's own `data-dock`, the same trick the public widget's
+          send/stop button uses for its two inlined icons. */}
       <button
         type="button"
         class="btn btn-icon asx-dock"
-        id="assist-dock-left"
-        aria-label="Dock left"
+        id="assist-dock-toggle"
+        aria-label="Dock the panel to the other side"
         aria-pressed="false"
-        title="Dock left"
+        title="Dock to the other side"
       >
-        <Icon name="lucide:panel-left" class="admin-nav-icon" />
-      </button>
-      <button
-        type="button"
-        class="btn btn-icon asx-dock"
-        id="assist-dock-right"
-        aria-label="Dock right"
-        aria-pressed="false"
-        title="Dock right"
-      >
-        <Icon name="lucide:panel-right" class="admin-nav-icon" />
+        <Icon name="lucide:panel-left" class="admin-nav-icon asx-dock-icon-left" />
+        <Icon name="lucide:panel-right" class="admin-nav-icon asx-dock-icon-right" />
       </button>
       <button
         type="button"
