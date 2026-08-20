@@ -18,15 +18,13 @@ const { title, slug, summary, tags, status, year, repoUrl, demoUrl, caseStudySlu
   <div class="card-tags">
     {tags.slice(0, 4).map(tag => <Tag text={tag} variant="neutral" />)}
   </div>
-  <div class="card-meta card-links">
-    <span class="link-group">
-      <a href={`/projects/${slug}`}>Details</a>
-      {caseStudySlug && <a href={`/case-studies/${caseStudySlug}`}>Case Study</a>}
-    </span>
-    <span class="link-group">
-      {demoUrl && <a href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
-      <a href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>
-    </span>
+  <div class="card-actions">
+    <a class="btn btn-primary btn-sm" href={caseStudySlug ? `/case-studies/${caseStudySlug}` : `/projects/${slug}`}>
+      {caseStudySlug ? 'Case Study' : 'Details'}
+    </a>
+    {caseStudySlug && <a class="btn btn-secondary btn-sm" href={`/projects/${slug}`}>Details</a>}
+    {demoUrl && <a class="btn btn-secondary btn-sm" href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
+    <a class="btn btn-secondary btn-sm" href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>
   </div>
 </article>
 <style>
@@ -34,6 +32,5 @@ const { title, slug, summary, tags, status, year, repoUrl, demoUrl, caseStudySlu
   .card-title a { color: inherit; text-decoration: none; }
   .card-title a:hover { color: var(--color-accent); }
   .card-tags { display: flex; flex-wrap: wrap; gap: 6px; }
-  .card-links { justify-content: space-between; margin-top: var(--space-2); }
-  .link-group { display: inline-flex; gap: var(--space-3); }
+  .card-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); }
 </style>

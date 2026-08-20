@@ -1091,13 +1091,13 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
   type Dock = 'left' | 'right' | 'float';
 
   const head = dialog.querySelector<HTMLElement>('[data-drag]')!;
-  const dockLeft = $<HTMLButtonElement>('assist-dock-left');
-  const dockRight = $<HTMLButtonElement>('assist-dock-right');
+  const dockToggle = $<HTMLButtonElement>('assist-dock-toggle');
 
   function markDock(dock: Dock) {
     dialog.dataset.dock = dock;
-    dockLeft.setAttribute('aria-pressed', String(dock === 'left'));
-    dockRight.setAttribute('aria-pressed', String(dock === 'right'));
+    /* `aria-pressed` names which side is current — the icon itself is what
+       CSS swaps off `data-dock`, keyed to the same attribute. */
+    dockToggle.setAttribute('aria-pressed', String(dock === 'left'));
   }
 
   /** Offsets from the right and bottom edges, clamped to leave the panel on screen. */
@@ -1133,12 +1133,13 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     }
   }
 
-  const dockTo = (dock: Dock) => () => {
-    markDock(dock);
+  /* Floating counts as "right" for the purpose of the toggle — the two docks
+     are the only two states a click can choose between, and a panel dragged
+     free has to resolve to one of them on the first press. */
+  dockToggle.addEventListener('click', () => {
+    markDock(dialog.dataset.dock === 'left' ? 'right' : 'left');
     rememberPlace();
-  };
-  dockLeft.addEventListener('click', dockTo('left'));
-  dockRight.addEventListener('click', dockTo('right'));
+  });
 
   /* Dragging the header is what produces the third placement. There is no
      "float" button because the only useful free position is the one the pointer
