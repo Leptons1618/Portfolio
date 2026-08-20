@@ -1456,7 +1456,13 @@ textarea[data-grow] { max-height: 60vh; }
      hang off the side of a laptop. A custom property is only an *input* to a
      declaration, so a later declaration overrides it. */
   width: var(--asx-w, min(560px, calc(100vw - var(--space-8))));
-  height: var(--asx-h, auto);
+  /* A fixed default, not `auto`. `auto` sizes the dialog to whatever is in
+     it — one greeting note is a panel a few lines tall, and it then jumps
+     awkwardly taller every time a run adds a message, since the flex column
+     inside has no stable box to hand `.asx-log` a scroll region until the
+     content happens to reach `max-height`. The public widget's panel never
+     had this problem because it never used `auto` in the first place. */
+  height: var(--asx-h, min(600px, calc(100dvh - var(--space-8))));
   max-width: calc(100vw - var(--space-8));
   max-height: min(84dvh, 900px);
   padding: 0;
@@ -1506,6 +1512,14 @@ textarea[data-grow] { max-height: 60vh; }
 }
 
 .asx-dock[aria-pressed='true'] { color: var(--color-accent); }
+
+/* One button, two inlined icons — only one shown at a time, off the dialog's
+   own `data-dock` rather than a class the script has to toggle separately.
+   Default markup ships `data-dock="right"`, so the right-filled icon is the
+   one visible until the panel is actually docked left. */
+.asx-dock-icon-left { display: none; }
+.asx[data-dock='left'] .asx-dock-icon-left { display: block; }
+.asx[data-dock='left'] .asx-dock-icon-right { display: none; }
 
 /* The header is the drag surface; the buttons sitting in it are not. */
 .asx-head[data-drag] { cursor: grab; }
@@ -2134,7 +2148,10 @@ textarea[data-grow] { max-height: 60vh; }
        An inline `width` would not lose, which is the whole reason the handle
        writes custom properties. */
     width: 100%;
-    height: auto;
+    /* Same reasoning as the desktop default above: a fixed height rather than
+       `auto` so the panel fills a predictable share of a small screen from
+       the first message instead of starting a couple of lines tall. */
+    height: var(--asx-h, min(72dvh, 640px));
     max-height: 82dvh;
     border-radius: 0;
     border-left: 0;

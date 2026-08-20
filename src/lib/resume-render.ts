@@ -170,9 +170,7 @@ export function renderSheet(sheet: ResumeSheet): string {
 
   const head = `<header class="rs-head">
     <h1 class="rs-name">${esc(person.name)}</h1>
-    <p class="rs-headline">${esc(person.role)}${
-      sheet.variantLabel ? `<span class="rs-variant"> · ${esc(sheet.variantLabel)}</span>` : ''
-    }</p>
+    <p class="rs-headline">${esc(person.role)}</p>
     ${contact(sheet)}
   </header>`;
 

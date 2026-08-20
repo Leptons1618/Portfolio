@@ -154,6 +154,18 @@ export interface ResumeVariant {
   summary?: string;
   layout: ResumeLayout;
   /**
+   * Overrides the masthead's job title for this variant. Empty falls back to
+   * the master's own `headline`, which itself falls back to `site.role`.
+   *
+   * The variant's `label` ("ML / CV Engineer") already reads like a job title,
+   * and the renderer used to tack it onto `site.role` in the masthead —
+   * "Software Engineer · ML / CV Engineer" — rather than let it replace
+   * anything, because there was nowhere else for a tailored title to go. This
+   * is that somewhere: an explicit override, editable, that *replaces* the
+   * headline instead of appending a second one after it.
+   */
+  headline?: string;
+  /**
    * The advert this variant was tailored to, as pasted.
    *
    * Stored rather than held in the editor for two reasons: re-running "tailor
@@ -180,6 +192,17 @@ export interface ResumeVariant {
  */
 export interface ResumeDocument {
   summary: string;
+  /**
+   * Overrides `site.role` in every sheet's masthead. Empty falls back to it.
+   *
+   * The one identity field that is editable here despite decision 3, because
+   * unlike a name or an email a job title is routinely reworded per
+   * application — "Software Engineer" for one resume, "ML / CV Engineer" for
+   * another — and `site.role` can only ever hold one of them. Not a second
+   * place the owner's name or contact details live; it is a resume-specific
+   * override of a single word choice, the same shape `summary` already is.
+   */
+  headline: string;
   /**
    * Which sheet the master prints as.
    *
@@ -337,6 +360,7 @@ export function normaliseResume(raw: Partial<ResumeDocument> | null | undefined)
         label,
         summary: typeof variant.summary === 'string' ? variant.summary : '',
         layout: isResumeLayout(variant.layout) ? variant.layout : 'ats',
+        headline: typeof variant.headline === 'string' ? variant.headline : '',
         jobDescription: typeof variant.jobDescription === 'string' ? variant.jobDescription : '',
         experience: (Array.isArray(variant.experience) ? variant.experience : []).map(item => {
           const pick = item as Partial<VariantEntry>;
@@ -370,6 +394,7 @@ export function normaliseResume(raw: Partial<ResumeDocument> | null | undefined)
 
   return {
     summary: String(input.summary ?? ''),
+    headline: String(input.headline ?? ''),
     /* `sidebar` rather than `ats`, because that is what `resolveVariant`
        hard-coded before this field existed: a stored document written under the
        old shape has to keep rendering as the sheet it was rendering as. */
@@ -430,6 +455,7 @@ export async function getResume(db: D1Database): Promise<Resume> {
 export function documentOf(resume: Resume): ResumeDocument {
   return {
     summary: resume.summary,
+    headline: resume.headline,
     layout: resume.layout,
     experience: resume.experience,
     skills: resume.skills,
@@ -589,9 +615,13 @@ export function resolveVariant(
     .filter((project): project is SheetProject => project !== null);
 
   const summary = variant?.summary?.trim() || resume.summary;
+  /* Variant, then master, then `site.role` — the same fallback chain
+     `summary` uses. Replaces the masthead's job title rather than appending
+     to it; see the comment on `ResumeVariant.headline`. */
+  const role = variant?.headline?.trim() || resume.headline.trim() || resume.person.role;
 
   return {
-    person: { ...resume.person, summary },
+    person: { ...resume.person, summary, role },
     variantId: variant?.id ?? '',
     variantLabel: variant?.label ?? '',
     layout: variant?.layout ?? resume.layout,
@@ -619,6 +649,7 @@ export function newVariant(resume: ResumeDocument, label: string): ResumeVariant
     label,
     summary: '',
     layout: 'ats',
+    headline: '',
     jobDescription: '',
     experience: resume.experience.map(entry => ({ id: entry.id })),
     skills: resume.skills.map(group => ({ category: group.category })),

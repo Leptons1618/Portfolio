@@ -46,7 +46,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 ---
 <div class="admin-head" id="journal-editor">
   <div class="je-id">
-    <a class="je-back" href="/admin/journal">
+    <a class="btn btn-ghost btn-sm je-back" href="/admin/journal">
       <Icon name="lucide:arrow-left" class="admin-nav-icon" />All entries
     </a>
     <h6 class="admin-eyebrow-mono">{editing ? 'MODULE: EDIT_ENTRY' : 'MODULE: NEW_ENTRY'}</h6>
@@ -1803,11 +1803,11 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
 <style>
   .je-id { min-width: 0; }
+  /* `.btn.btn-ghost` for the polished treatment — the border-radius, the hover
+     tint, the pressed state — that a bare link never had; this and `.pd-back`
+     on the project screen used to be a plain twelve-pixel line of mono text
+     with no affordance at all beyond the arrow icon in front of it. */
   .je-back {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
     font-family: var(--font-mono);
     margin-bottom: var(--space-2);
   }
