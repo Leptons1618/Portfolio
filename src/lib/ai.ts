@@ -104,6 +104,21 @@ export interface AiSettings {
   maxOutputTokens: number;
   perIpPerHour: number;
   perDayTotal: number;
+  /**
+   * How hard the public assistant is asked to think, or `null` for "send no
+   * field and let the provider row decide".
+   *
+   * The one lever on this screen that acts on *thinking* rather than on the
+   * total. `maxOutputTokens` bounds reasoning plus answer together, so it can
+   * only ever say how much of the two there may be — never how the model
+   * divides them, and a model set to deliberate hard will spend the whole
+   * allowance on deliberation and truncate mid-sentence. Effort is the field
+   * that moves the split. It ships `low` because this endpoint answers a
+   * stranger's question out of an index and one or two pages: there is nothing
+   * here to think hard about, and every token of thinking is billed and then
+   * shown in a disclosure nobody opens.
+   */
+  reasoningEffort: ReasoningEffort | null;
 }
 
 /**
@@ -154,6 +169,10 @@ export const DEFAULTS: AiSettings = {
   maxOutputTokens: 2000,
   perIpPerHour: 15,
   perDayTotal: 300,
+  /* See the field's own comment. `low` rather than absent: absent means "send
+     nothing", which hands the decision to whatever the vendor defaults to, and
+     the vendors that default to anything default to more. */
+  reasoningEffort: 'low',
 };
 
 const clampNumber = (value: unknown, fallback: number, max: number): number => {
@@ -193,6 +212,10 @@ export function clampSettings(raw: unknown): AiSettings {
     maxOutputTokens: clampNumber(source.maxOutputTokens, DEFAULTS.maxOutputTokens, CEILINGS.maxOutputTokens),
     perIpPerHour: clampNumber(source.perIpPerHour, DEFAULTS.perIpPerHour, CEILINGS.perIpPerHour),
     perDayTotal: clampNumber(source.perDayTotal, DEFAULTS.perDayTotal, CEILINGS.perDayTotal),
+    /* `clampEffort` answers `null` for anything that is not one of the three
+       levels — which is also how the form says "leave it to the provider row",
+       so an empty select and a garbage column land in the same, safe place. */
+    reasoningEffort: clampEffort(source.reasoningEffort),
   };
 }
 
@@ -526,21 +549,50 @@ const CHAT_TIMEOUT_MS = 30_000;
 export const asciiHeader = (value: string) => value.replace(/[^ -~]+/g, ' ').trim();
 
 /**
+ * What a model may be given for thinking *and* answering, over and above what
+ * the caller asked for.
+ *
+ * A reasoning model spends `max_tokens` before it writes anything, so a ceiling
+ * sized to the answer is a task that streams nothing — that is the failure
+ * `ai_providers.max_output_tokens` was added to end, and this is how much
+ * headroom ending it actually takes. Roughly a thousand tokens of deliberation
+ * and three thousand of prose: enough for a model that narrates its way into a
+ * long answer, and nowhere near a model's own maximum.
+ *
+ * The number matters because the raise used to go all the way to whatever the
+ * vendor's listing reported. That made the Answer length field on the AI screen
+ * decorative — a row filled in from a 32k model lifted every call to 32k
+ * whatever the owner had typed, on the endpoint the owner cannot see being
+ * used. "Nothing is billed for a ceiling that is not reached" is true, and it
+ * is beside the point: a model told it has 32,000 tokens and asked to think
+ * hard will use them, and *that* is billed.
+ */
+export const THINKING_HEADROOM = 4000;
+
+/**
  * The ceiling one call actually gets.
  *
- * The task asked for a number sized to its *answer*; the provider row may name
- * what the model can really be given. Where it does, the row wins — and it wins
- * *upwards*, which is the whole point: a reasoning model spends the ceiling
- * before it writes anything, so a task ceiling sized to a 900-word post is a
- * task that streams nothing at all. Raising it costs nothing, because a vendor
- * bills tokens generated and not tokens permitted.
+ * Three rules, in this order:
  *
- * Never above `MAX_OUTPUT_CEILING`, and never below what the caller asked for:
- * a row holding 512 must not quietly shrink a task that needs 2,000, since the
- * failure that produces is the silent truncation this function exists to end.
+ *   1. **The caller's number wins when it is larger.** A row holding 512 must
+ *      not quietly shrink a task that needs 2,000 — that is the silent
+ *      truncation this whole mechanism exists to end, reintroduced from the
+ *      other direction.
+ *   2. **A provider row raises a ceiling that is too small to work**, up to
+ *      `THINKING_HEADROOM` and no further. The row says the model *accepts*
+ *      more; it has never said the owner wants to pay for more.
+ *   3. **Never past `MAX_OUTPUT_CEILING`**, whatever anything says.
+ *
+ * A task that genuinely needs a long answer says so in its own `maxTokens` and
+ * gets it — `/write-whole-post` still asks for what it asks for. What no longer
+ * happens is a two-line answer to a visitor being given a novel's worth of
+ * budget to think in.
  */
 export const effectiveMaxTokens = (provider: Provider, requested: number): number =>
-  Math.min(Math.max(requested, provider.maxOutputTokens ?? 0), MAX_OUTPUT_CEILING);
+  Math.min(
+    Math.max(requested, Math.min(provider.maxOutputTokens ?? 0, THINKING_HEADROOM)),
+    MAX_OUTPUT_CEILING,
+  );
 
 /**
  * The messages, in the shape this particular provider wants them.

@@ -1,0 +1,43 @@
+---
+/**
+ * The `<head>` half of the theme system: the `theme-color` meta and the
+ * pre-paint restore.
+ *
+ * It is a component because there are three heads on this site — `BaseLayout`,
+ * `AdminLayout` and the ungated sign-in page, which builds its own document —
+ * and this block was copied into all three. A theme id added to the list, or a
+ * second attribute (which is exactly what `data-mode` was), then had to be
+ * remembered in three places, and the sign-in page is the one nobody opens
+ * while developing.
+ *
+ * The script has to be `is:inline` and it has to be in the head: a bundled
+ * module runs after first paint, which is a page that renders light and then
+ * flips. That is also why the restore is published as a function on `window`
+ * rather than just run — `AdminLayout` client-routes, and a view transition
+ * replaces every attribute on `<html>` with the ones the incoming document was
+ * built with. It calls this again on `astro:after-swap`, before paint.
+ */
+import { DEFAULT_THEME, MODE_KEY, THEME_KEY, THEMES } from '../lib/theme';
+---
+{/* The default theme's light value, corrected by `syncTheme()` once a control
+    mounts and the stored choice is known. */}
+<meta name="theme-color" content={THEMES.find(theme => theme.id === DEFAULT_THEME)!.themeColor.light} />
+<script is:inline define:vars={{ THEME_KEY, MODE_KEY, DEFAULT_THEME, THEME_IDS: THEMES.map(theme => theme.id) }}>
+  (function () {
+    // A stored mode of "system" writes no attribute: that is the state the
+    // stylesheets resolve with `prefers-color-scheme`, and an attribute saying
+    // so would be an attribute no rule matches.
+    window.__omRestoreTheme = function () {
+      var root = document.documentElement;
+      var theme = localStorage.getItem(THEME_KEY);
+      if (theme && theme !== DEFAULT_THEME && THEME_IDS.indexOf(theme) !== -1) root.dataset.theme = theme;
+      else delete root.dataset.theme;
+
+      var mode = localStorage.getItem(MODE_KEY);
+      if (mode === 'light' || mode === 'dark') root.dataset.mode = mode;
+      else delete root.dataset.mode;
+    };
+
+    window.__omRestoreTheme();
+  })();
+</script>

@@ -2,13 +2,13 @@
 /**
  * The writing assistant, as a conversation.
  *
- * One component for both authoring surfaces. The journal editor and the project
- * screen used to carry a near-identical three-hundred-line panel each, which is
- * how the two of them drifted: the same buttons in a different order, the same
+ * One component for all three authoring surfaces — journal, project, resume.
+ * The journal editor and the project screen used to carry a near-identical
+ * three-hundred-line panel each, which is how the two of them drifted: the same buttons in a different order, the same
  * copy with different wording, and a fix to one of them landing in the other a
  * week later or never. Decision 31 said "the assistant is the same table on two
- * screens"; this is the same *panel* on two screens, and the only thing either
- * page still supplies is what a result does to its own fields.
+ * screens"; this is the same *panel* on every screen, and the only thing a page
+ * still supplies is what a result does to its own fields.
  *
  * ## Why a chat replaced the shelves
  *
@@ -37,7 +37,7 @@ import { Icon } from 'astro-icon/components';
 
 interface Props {
   /** Which command set this panel offers. Nothing else differs between them. */
-  surface: 'journal' | 'project';
+  surface: 'journal' | 'project' | 'resume';
   /** The line under the title. Each screen says what its own fields are. */
   sub: string;
 }

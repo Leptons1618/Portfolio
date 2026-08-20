@@ -1,58 +1,49 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import ResumeAside from '../components/ResumeAside.astro';
-import { getResume } from '../lib/resume';
+import { getProjects } from '../lib/content';
+import { getResume, resolveVariant } from '../lib/resume';
+import { renderSheet } from '../lib/resume-render';
 
 /* The resume is a row in `documents` now, not a module, so this page reads it
    per request like every other content route — editing it in the admin changes
    this page immediately rather than at the next deploy. */
 export const prerender = false;
 
-const { person, experience, skills, certifications, education } = await getResume(
-  Astro.locals.runtime.env.DB,
-);
+const { DB } = Astro.locals.runtime.env;
+
+const resume = await getResume(DB);
+/* Only the variants that name projects need these, but reading them
+   unconditionally is one query against a table this page would otherwise be
+   the only route not to touch — and `resolveVariant` drops the hidden ones. */
+const projects = await getProjects(DB);
+
+/* Whichever variant the author marked public, or the whole master if none is.
+   The page never chooses: which resume strangers see is an editorial decision
+   and it is stored, not derived. */
+const sheet = resolveVariant(resume, resume.publicVariant, projects);
+const html = renderSheet(sheet);
 ---
-<BaseLayout title="Resume" description={`Resume — ${person.name}, ML/CV Engineer and full-stack developer.`}>
+<BaseLayout
+  title="Resume"
+  description={`Resume — ${sheet.person.name}, ${sheet.person.role}.`}
+>
+  {/* An eyebrow, not a heading. The sheet's own `<h1>` is the person's name,
+      which is what this document is called — a second `<h1>` reading "Resume"
+      above it was both a duplicate landmark and a line repeating the three
+      facts printed underneath it. */}
   <header class="container container-resume resume-header no-print">
-    <div>
-      <h1 class="resume-title">Resume</h1>
-      <p class="text-muted resume-note">{person.name} — {person.role}, {person.location}</p>
-    </div>
+    <p class="resume-eyebrow">Resume</p>
     <div class="resume-actions">
       <button type="button" class="btn btn-secondary" id="resume-share">Share</button>
-      <button type="button" class="btn btn-primary" id="resume-export">Export PDF</button>
+      <button type="button" class="btn btn-primary" id="resume-export">Download PDF</button>
     </div>
   </header>
 
-  <div class="container container-resume resume-grid">
-    <ResumeAside person={person} skills={skills} certifications={certifications} education={education} />
-
-    <main class="resume-main">
-      <section class="resume-section">
-        <h6 class="section-heading">Summary</h6>
-        <hr class="rule section-rule" />
-        <p class="summary-copy">{person.summary}</p>
-      </section>
-
-      <section>
-        <h6 class="section-heading">Experience</h6>
-        <hr class="rule section-rule" />
-        <div class="timeline">
-          {experience.map(item => (
-            <div class="experience-item">
-              <div class="experience-top">
-                <h4 class="experience-title">{item.title}</h4>
-                <span class="text-muted experience-dates">{item.dates}</span>
-              </div>
-              <p class="experience-company">{item.company}</p>
-              {item.location && <p class="text-muted experience-location">{item.location}</p>}
-              {item.description && <p class="experience-description">{item.description}</p>}
-            </div>
-          ))}
-        </div>
-      </section>
-    </main>
-  </div>
+  {/* The same string the admin preview assigns to `innerHTML` and the same one
+      that prints. `set:html` rather than a component tree because there is one
+      renderer — see the header of `src/lib/resume-render.ts`; everything in it
+      is escaped at every interpolation. */}
+  <div class="container container-resume resume-sheet" set:html={html} />
 </BaseLayout>
 
 <script>
@@ -61,6 +52,10 @@ const { person, experience, skills, certifications, education } = await getResum
   const shareBtn = document.getElementById('resume-share');
   const exportBtn = document.getElementById('resume-export');
 
+  /* The browser's own print dialogue, which saves a PDF on every platform.
+     Nothing renders a PDF server-side: that is a headless browser in the
+     request path for a document one person downloads a few times a month, and
+     the print stylesheet has to be right either way. */
   exportBtn?.addEventListener('click', () => window.print());
 
   shareBtn?.addEventListener('click', async () => {
@@ -80,74 +75,34 @@ const { person, experience, skills, certifications, education } = await getResum
     padding-top: var(--space-6);
     padding-bottom: var(--space-4);
   }
-  .resume-title { margin-bottom: 2px; }
-  .resume-note { font-size: 13px; margin: 0; }
+  .resume-eyebrow {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-text-faint);
+  }
   .resume-actions { display: flex; gap: var(--space-2); }
 
-  .resume-grid {
-    display: grid;
-    grid-template-columns: 1fr 2fr;
-    gap: var(--space-8);
-    padding-bottom: var(--space-8);
-  }
-  .resume-main { min-width: 0; }
-  .resume-section { margin-bottom: var(--space-6); }
-  .section-heading { color: var(--color-accent-700); margin-bottom: var(--space-1); }
-  .section-rule { margin-bottom: var(--space-3); }
-  .summary-copy { font-size: 14px; line-height: 1.7; opacity: 0.85; margin: 0; }
-
-  /* Roles hang off a single rail, each pinned by a dot — the mockup's
-     chronology, and cheaper to read than a stack of separators. */
-  .experience-item {
-    position: relative;
-    padding-left: var(--space-4);
-    padding-bottom: var(--space-6);
-    border-left: 1px solid var(--color-divider);
-  }
-  .experience-item::before {
-    content: '';
-    position: absolute;
-    left: -4px;
-    top: 7px;
-    width: 7px;
-    height: 7px;
-    background: var(--color-divider);
-  }
-  .experience-item:first-child::before { background: var(--color-accent); }
-  .experience-item:last-child { padding-bottom: 0; }
-  .experience-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-  .experience-title { margin: 0; }
-  .experience-dates { font-size: 12px; }
-  .experience-company { font-size: 13px; font-weight: 600; color: var(--color-accent-700); margin: 2px 0 6px; }
-  .experience-location { font-size: 12px; margin: 0 0 6px; }
-  .experience-description { font-size: 13px; line-height: 1.65; opacity: 0.85; margin: 0; }
-
-  @media (max-width: 720px) {
-    .resume-grid { grid-template-columns: 1fr; gap: var(--space-6); }
-  }
+  .resume-sheet { padding-bottom: var(--space-8); }
 </style>
 
 <style is:global>
+  /* The sheet itself is styled by `src/styles/resume.css`, which every surface
+     that renders it shares. What is left here is the page *around* it. */
   @media print {
     .no-print,
     .nav,
     .site-footer { display: none !important; }
 
-    body { background: #fff; }
+    /* The white page ground is in `theme.css`'s print block, not here — the
+       admin renders this same sheet and a rule scoped to this route never
+       reached it. */
 
     .container,
     .container-resume { max-width: 100%; padding-left: 0; padding-right: 0; }
 
-    .resume-grid { padding-bottom: 0; }
-
-    .experience-item { break-inside: avoid; }
-
-    @page { size: letter; margin: 0.6in; }
+    .resume-sheet { padding-bottom: 0; }
   }
 </style>

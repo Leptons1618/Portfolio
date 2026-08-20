@@ -316,9 +316,18 @@ export function normaliseModels(payload: unknown): ModelInfo[] {
        at the top level, under one of three names. */
     const top = (row.top_provider ?? {}) as Record<string, unknown>;
 
+    /* Per-token to per-million, which is the unit every vendor quotes in prose
+       and none of them quote in JSON.
+
+       A negative number is not a price and is refused rather than multiplied:
+       OpenRouter's `openrouter/auto` rows carry `-1` to mean "depends which
+       model this routes to", and passed through it renders in the picker as
+       `-$1000000.00 / M` — a number that is wrong, alarming, and sorts to the
+       front of anything ordered by cost. Unknown is the honest reading, and
+       `null` is how this file already spells it. */
     const perToken = (value: unknown): number | null => {
       const n = num(value);
-      return n === null ? null : n * 1_000_000;
+      return n === null || n < 0 ? null : n * 1_000_000;
     };
 
     const promptPrice = perToken(pricing.prompt);

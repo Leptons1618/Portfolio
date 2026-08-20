@@ -62,6 +62,7 @@ const {
   callChat,
   agentStream,
   effectiveMaxTokens,
+  THINKING_HEADROOM,
   ProviderError,
   DEFAULTS,
   SETTINGS_CEILINGS,
@@ -128,7 +129,13 @@ async function checkAsync(name, run) {
 }
 
 /* ---------- 1. the key must not leave ---------- */
-const SECRET = process.env.OPENROUTER_API_KEY;
+/* A literal, and it has to stay one. It was briefly `process.env.OPENROUTER_API_KEY`,
+   which made two of the checks below pass only on a machine that had a real key
+   exported — CI has none, so `hasKey` was false, `maskKey` returned null, and
+   `npm run check` failed for everyone. It is also the wrong shape of test: the
+   assertions print the first four and last four characters of whatever they are
+   given, and those should never be a real credential's. */
+const SECRET = 'sk-or-v1-0123456789abcdef0123456789abcdef';
 
 const provider = {
   slug: 'openrouter',
@@ -896,12 +903,12 @@ check('every task belongs to a surface, and each surface has tasks', () => {
   const surfaces = new Set();
   for (const [name, task] of Object.entries(ASSIST_TASKS)) {
     assert.ok(
-      ['journal', 'project', 'both'].includes(task.surface),
+      ['journal', 'project', 'resume', 'both'].includes(task.surface),
       `${name} belongs to no known surface: ${task.surface}`,
     );
     surfaces.add(task.surface);
   }
-  assert.deepEqual([...surfaces].sort(), ['both', 'journal', 'project']);
+  assert.deepEqual([...surfaces].sort(), ['both', 'journal', 'project', 'resume']);
 
   /* `both` is for a task that is on no menu and reachable everywhere, which is
      the opposite of every other entry. Exactly one task may be like that; a
@@ -920,9 +927,29 @@ check('every task belongs to a surface, and each surface has tasks', () => {
 
   const journal = ASSIST_MENU.filter(entry => entry.surface === 'journal').map(e => e.name);
   const project = ASSIST_MENU.filter(entry => entry.surface === 'project').map(e => e.name);
+  const resume = ASSIST_MENU.filter(entry => entry.surface === 'resume').map(e => e.name);
   assert.ok(journal.includes('compose'), 'the journal lost its headline task');
   assert.ok(!journal.includes('project'), 'a project task is offered in the journal panel');
   assert.deepEqual(project.sort(), ['casestudy', 'project']);
+  assert.deepEqual(resume.sort(), [
+    'resumeBullet',
+    'resumeProjects',
+    'resumeSummary',
+    'resumeVariant',
+  ]);
+  /* The resume tasks read the sheet and the advert, and nothing from a post or
+     a repository. A task that reached for `body` here would be sending a
+     journal draft on a resume screen, where the field does not exist — which
+     arrives as an empty string rather than as an error, so nothing but this
+     would catch it. */
+  for (const name of resume) {
+    for (const field of ASSIST_TASKS[name].context) {
+      assert.ok(
+        ['resume', 'jobDescription', 'entry'].includes(field),
+        `${name} asks for ${field}, which the resume screen does not have`,
+      );
+    }
+  }
 });
 
 check('every live task names a target its own surface can write', () => {
@@ -932,6 +959,10 @@ check('every live task names a target its own surface can write', () => {
   const TARGETS = {
     journal: ['document', 'summary', 'body'],
     project: ['project', 'caseStudy'],
+    /* One. Everything else the resume assistant does is a proposal about a
+       *selection*, and a selection rearranging itself mid-stream is not an edit
+       anyone can watch. */
+    resume: ['resumeSummary'],
   };
   for (const [name, task] of Object.entries(ASSIST_TASKS)) {
     if (!task.live) continue;
@@ -950,6 +981,14 @@ check('every live task names a target its own surface can write', () => {
      that did not would land in a panel with no way to apply it. */
   for (const name of ['project', 'casestudy']) {
     assert.ok(ASSIST_TASKS[name].live, `${name} has no live target and no Insert to fall back on`);
+  }
+
+  /* And the three that must *not* be live, because each one changes a
+     selection rather than a field. Asserted by name: making one of them live
+     would typecheck, and the failure would be a form redrawing itself under
+     the author for thirty seconds. */
+  for (const name of ['resumeProjects', 'resumeVariant', 'resumeBullet']) {
+    assert.equal(ASSIST_TASKS[name].live, undefined, `${name} must not stream into a field`);
   }
 });
 
@@ -1625,6 +1664,21 @@ check('a listing that carries nothing but ids still produces models', () => {
   assert.equal(models[0].free, false);
 });
 
+check('a price that is not a price is unknown, not a negative number', () => {
+  /* `openrouter/auto` really does come back with `-1`, meaning "depends which
+     model this routes to". Multiplied out it renders in the picker as
+     `-$1000000.00 / M`, which is wrong, alarming, and sorts to the front of
+     anything ordered by cost. Found by `npm run probe:ai` against the live
+     listing, which is the only place a row like this exists. */
+  const [auto] = normaliseModels({
+    data: [{ id: 'openrouter/auto', pricing: { prompt: '-1', completion: '-1' } }],
+  });
+  assert.equal(auto.promptPrice, null);
+  assert.equal(auto.completionPrice, null);
+  /* And it is not thereby *free* — free is a zero, and unknown is not zero. */
+  assert.equal(auto.free, false);
+});
+
 check('free is a zero price or the suffix that means one', () => {
   const models = normaliseModels({
     data: [
@@ -1721,7 +1775,7 @@ check('the composer line splits into a command and a steer', () => {
 check('each command appears on exactly one surface', () => {
   for (const item of ASSIST_MENU) {
     assert.ok(
-      item.surface === 'journal' || item.surface === 'project',
+      ['journal', 'project', 'resume'].includes(item.surface),
       `${item.command} is offered on ${item.surface}`,
     );
   }
@@ -1880,20 +1934,56 @@ check('a stored output ceiling is clamped, and blank means unset', () => {
   assert.equal(clampOutputCeiling(1e9), MAX_OUTPUT_CEILING);
 });
 
-check('a provider ceiling raises a task ceiling and never lowers it', () => {
+check('a provider ceiling raises a task ceiling to the headroom and no further', () => {
   const at = n => effectiveMaxTokens(row({ maxOutputTokens: n }), 1200);
   /* Unset: the task's own number, exactly as before this field existed. */
   assert.equal(effectiveMaxTokens(row({ maxOutputTokens: null }), 1200), 1200);
-  /* Set higher: the model's maximum, which is the whole feature — a reasoning
-     model spends the ceiling before it writes, so a ceiling sized to the answer
-     is a task that streams nothing. */
-  assert.equal(at(8000), 8000);
-  /* Set lower: the task still gets what it asked for. A row holding 512 must
-     not silently truncate a task that needs 1,200 — that is the failure this
-     whole change exists to end, reintroduced from the other direction. */
+  /* Set higher: the raise happens, because a reasoning model spends the ceiling
+     before it writes and a ceiling sized to the answer is a task that streams
+     nothing. But it stops at the headroom rather than going all the way to the
+     model's maximum — the row says what the model *accepts*, and a 32k model
+     lifting a visitor's two-line answer to 32k made the settings screen's
+     Answer length field decorative on the one endpoint strangers can reach. */
+  assert.equal(at(8000), THINKING_HEADROOM);
+  assert.equal(at(THINKING_HEADROOM + 1), THINKING_HEADROOM);
+  /* A row *below* the headroom raises only as far as it says it can take. */
+  assert.equal(effectiveMaxTokens(row({ maxOutputTokens: 3000 }), 900), 3000);
+  /* Set lower than the task: the task still gets what it asked for. A row
+     holding 512 must not silently truncate a task that needs 1,200 — that is
+     the failure this whole mechanism exists to end, from the other direction. */
   assert.equal(at(512), 1200);
-  /* And never past the hard cap, whatever the row says. */
-  assert.equal(effectiveMaxTokens(row({ maxOutputTokens: MAX_OUTPUT_CEILING }), 99), MAX_OUTPUT_CEILING);
+  /* A task that genuinely wants a long answer says so and is never trimmed to
+     the headroom: `/write-whole-post` asks for what it asks for. */
+  assert.equal(effectiveMaxTokens(row({ maxOutputTokens: MAX_OUTPUT_CEILING }), 12_000), 12_000);
+  /* And never past the hard cap, whatever anything says. */
+  assert.equal(
+    effectiveMaxTokens(row({ maxOutputTokens: MAX_OUTPUT_CEILING }), MAX_OUTPUT_CEILING * 2),
+    MAX_OUTPUT_CEILING,
+  );
+  /* The headroom is a real ceiling and not an accidental no-op. */
+  assert.ok(THINKING_HEADROOM > 1200 && THINKING_HEADROOM < MAX_OUTPUT_CEILING);
+});
+
+check('the public assistant ships asking for as little thinking as it can', () => {
+  /* `max_tokens` bounds reasoning *and* answer together, so it can say how much
+     of the two there may be and never how the model divides them — which is how
+     a whole allowance ended up spent on deliberation with the answer truncated
+     mid-sentence. `reasoningEffort` is the field that moves the split, and this
+     endpoint answers out of an index: there is nothing here to think hard
+     about. */
+  assert.equal(DEFAULTS.reasoningEffort, 'low');
+
+  /* Stored, clamped and round-tripped like every other setting — and the three
+     levels are the only things that survive, with everything else meaning
+     "send no field". */
+  assert.equal(clampSettings({ reasoningEffort: 'high' }).reasoningEffort, 'high');
+  assert.equal(clampSettings({ reasoningEffort: '' }).reasoningEffort, null);
+  assert.equal(clampSettings({ reasoningEffort: 'extreme' }).reasoningEffort, null);
+  assert.equal(clampSettings({ reasoningEffort: { effort: 'high' } }).reasoningEffort, null);
+  /* Absent is not the default here, and that is deliberate: an unset column
+     means the row predates the field, and `null` — send nothing — is the
+     honest reading of it. */
+  assert.equal(clampSettings({}).reasoningEffort, null);
 });
 
 check('the settings ceiling and the provider ceiling are the same number', () => {
@@ -1961,9 +2051,13 @@ const sent = async (providerRow, options, which = 'chat') => {
   return body;
 };
 
-await checkAsync('the provider ceiling is what reaches max_tokens', async () => {
-  assert.equal((await sent(row({ maxOutputTokens: 9000 }), {})).max_tokens, 9000);
+await checkAsync('the ceiling that reaches max_tokens is the effective one', async () => {
+  /* Not the row's number and not the task's — what `effectiveMaxTokens` makes
+     of the pair. Asserted against the *body*, because that is the only place
+     the rule can be wrong in a way that costs money. */
+  assert.equal((await sent(row({ maxOutputTokens: 9000 }), {})).max_tokens, THINKING_HEADROOM);
   assert.equal((await sent(row({ maxOutputTokens: null }), {})).max_tokens, 1000);
+  assert.equal((await sent(row({ maxOutputTokens: 2500 }), {})).max_tokens, 2500);
 });
 
 await checkAsync('tools are sent only when there are some', async () => {

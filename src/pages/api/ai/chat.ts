@@ -179,6 +179,14 @@ export const POST: APIRoute = async ({ request, locals }) => {
        section; the useful failure mode is "I do not have that detail", and
        temperature is the dial that trades that for invention. */
     temperature: 0.2,
+    /* Configurable, and it is the field that decides how much of the ceiling
+       above goes on thinking rather than on the answer. `settings.reasoningEffort`
+       ships `low`; `null` is a real value here and means "send no field", which
+       hands the choice back to the provider row. Passing it explicitly rather
+       than leaving it undefined is what makes the settings screen outrank the
+       row for the public assistant — the owner's per-visitor budget is set on
+       that screen, so the knob that spends it belongs there too. */
+    effort: settings.reasoningEffort,
     stream: true,
     ...(tools.length ? { tools } : {}),
   };

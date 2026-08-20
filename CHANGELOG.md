@@ -14,6 +14,196 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **A resume is a master and any number of variants.** Your job history, skills,
+  education and certifications are written *once*. A variant is a view of it —
+  which roles, which skill groups, which certifications, which projects, in what
+  order, with an optional per-role rewrite for the ones that need role-specific
+  framing. Fix a date in the master and it is fixed on every resume. One of them
+  is flagged as what `/resume` shows strangers; the rest are for sending. It is
+  all one row in `documents`, for the reason that row exists at all — decision 39.
+
+- **Projects on the resume come from the projects table.** A variant holds a slug
+  and the one line that project gets on *this* resume; the title, the URL and the
+  fallback description are read live, so a renamed project is renamed on every
+  resume and a hidden one is never cited.
+
+- **Export is a real A4 sheet, in any of three layouts.** `ats` is a single
+  column with no grid and no positioned elements, because an applicant tracking
+  system reads the PDF as a stream of text and a two-column page interleaves the
+  columns into gibberish. `sidebar` is the designed one, for applications a
+  person reads. `timeline` is the sheet this site had before the renderer existed
+  — rail on the left, accented section headings, roles hanging off one
+  chronological spine — brought back because it is the one that looks like the
+  rest of the portfolio. A4 at 14mm, 10.5pt, no entry ever split across a page
+  break. The layout is a field on the variant **and on the master**.
+
+- **Four assistant tasks on the resume screen** — tailor the summary to a pasted
+  advert, suggest which projects belong on it, rewrite one line, and build a whole
+  variant from a job description. Same closed table, same panel, same endpoint;
+  the variant builder returns *identifiers the author already has* rather than
+  prose, and every one of them is checked against what exists before anything is
+  applied. Decision 41.
+
+- **Dark mode, on every theme.** `data-mode` is a separate axis from `data-theme`:
+  light, dark, or unset — where unset follows the operating system, which is what
+  a first-time visitor gets. Switching palette family keeps you in whichever mode
+  you were reading in. Decision 38.
+
+- **`npm run check:resume`** — the month parser, the variant resolver and the
+  renderer's escaping, as assertions. Wired into `npm run check`.
+
+- **The AI screen is two tabs.** **Providers** is the endpoint list, plus a rail
+  explaining how one gets picked and reminding you these rows answer the writing
+  assistant too. **Public assistant** is the switch that bills the account, the
+  voice, the limits and what it knows. They were one column and one rail, so the
+  switch sat beside a list of model ids. The head's two actions follow the tab.
+  Decision 44.
+
+- **A thinking setting on the public assistant, defaulting to Low.** Answer length
+  bounds reasoning *and* prose together and can never say how a model divides
+  them; this is the field that can. Decision 43.
+
+- **`npm run probe:ai`** — the AI pipeline against a real provider, using the key
+  in `.env`. Not part of `npm run check` and never will be: it needs a credential
+  CI does not have. It checks that the model listing still parses, that the
+  request body is one a vendor accepts, and that a streamed answer with tools
+  drives the loop end to end — and it prints the thinking-vs-answer split, which
+  is the number the limits screen is actually about.
+
+- **Every field `site.ts` owns is on the Identity screen.** It edited six of
+  sixteen; the short role, the tagline, the phone, the postal address, the GitHub
+  username, the repository, the origin, the OG image and the portrait were
+  reachable only by opening the file, and Export JSON produced an object that
+  could not be merged back without hand-adding the rest. The export is the whole
+  object now, keyed the way the module is. The theme card gained the light/dark
+  switch it had been missing since `data-mode` became a second axis.
+
+### Fixed
+
+- **Printing the resume produced a three-page sheet in a 52mm column.** A printed
+  A4 page at 14mm margins is a 182mm measure — **688px** at CSS's 96dpi — so
+  `resume.css`'s `max-width: 760px` breakpoint was firing on every printed page.
+  It stacked the sheet and placed both halves of `.rs-body` into explicit grid
+  cells; the print block below re-declared the *columns* and not the
+  *placements*, so everything landed in track one with two thirds of the page
+  blank beside it. Both breakpoints are `@media screen and (…)` now. One page,
+  correctly laid out, in all three layouts.
+
+- **Printing from dark mode printed a washed-out sheet.** The dark ramp applied
+  to paper, so `--color-text-muted` and `--color-text-faint` resolved to *light*
+  neutrals — the summary, the dates, the skill values and every section heading
+  printed pale grey on white, and with "Background graphics" ticked the page was
+  solid ink. Both dark blocks in `theme.css` and `blueprint.css` are inside
+  `@media screen` now: paper has no dark mode. The four hard-coded hexes the
+  print block used to carry to paper over the top of this are tokens again.
+
+- **The page ground printed ivory.** `--color-bg` is right on a screen and is a
+  page a printer fills with ink to reproduce a colour the paper already is. The
+  reset is on `html` as well as `body` — the canvas background, including whole
+  trailing pages, propagates from `html` — and it moved from the resume route
+  into `global.css`, because the admin's Print button renders the same sheet and
+  a rule scoped to one route never reached it.
+
+- **`npm run check` now refuses a breakpoint that can reach paper.** Both bugs
+  above were invisible: green typecheck, green build, correct on screen.
+  `check-content.mjs` computes the printed page width and fails any `max-width`
+  query at or above it that is not scoped to `screen`, and fails a stylesheet
+  that declares a dark palette without scoping one to `screen`.
+
+- **The primary button is two-tone again.** It had become a solid terracotta slab
+  with a darker red sweeping over it on hover — which shouted on a page whose
+  whole argument is restraint, and lost the sweep, because a darker red arriving
+  over a lighter one is a hover state nobody notices. It is ink again, with the
+  accent wedge crossing it at 120° on hover and a registration tick in two
+  corners. The ticks are inset 4px rather than hung on the corner at `-1px`,
+  which is where they were before this theme had a corner radius and why they had
+  been dropped: a square pinned to the corner of a rounded rectangle sits outside
+  the curve as a loose speck.
+
+- **The master resume can choose its sheet.** The Sheet picker was populated from
+  `RESUME_LAYOUTS` and hidden whenever the master was open, because there was
+  nowhere for the choice to go — `resolveVariant()` hard-coded `sidebar`. It is a
+  field on the document now, and the "Shown on /resume" picker came back with it:
+  choosing which variant is public required opening a variant first, which is the
+  wrong way round. Decision 42.
+
+- **The resume masthead's job line was being styled as a job.** It and every entry
+  in Experience were both `class="rs-role"`, so two declarations meant for a
+  one-line tagline — 0.95em, muted — were landing on every role on the sheet.
+  Nothing looked obviously wrong until the `timeline` layout hung a spine and a
+  node off the same class. It is `rs-headline` now, and `check:resume` pins it.
+
+- **A provider row no longer lifts every call to the model's maximum.** It raised
+  a task ceiling to whatever the vendor's listing reported, routinely 32,000 — so
+  the Answer length limit on the AI screen was decorative on the one endpoint an
+  unauthenticated stranger can reach, and a model told it has 32,000 tokens and
+  asked to think hard used them. It raises to a working ceiling now and no
+  further; a task that needs a long answer still asks for one and still gets it.
+  Decision 43.
+
+- **`openrouter/auto` no longer shows a negative price.** The row really does come
+  back priced `-1`, meaning "depends what this routes to"; multiplied out it
+  rendered in the model picker as `-$1000000.00 / M`. Unknown is the honest
+  reading. Found by `npm run probe:ai` against the live listing, which is the only
+  place a row like that exists.
+
+- **`npm run check` passes again.** Two assertions in `check:ai` read the secret
+  they test masking on from `process.env.OPENROUTER_API_KEY`, so they passed on a
+  machine with a key exported and failed for everyone else — CI included. It is a
+  literal, which is also the right shape: those assertions print the first and
+  last four characters of whatever they are given.
+
+### Changed
+
+- **Modernist is gone; Classic is the default theme.** Ivory paper and near-black
+  ink, terracotta accent, Instrument Serif over Inter, a faint grain, soft corners
+  and blurred elevation — ported from the `design/classic-theme-old-repo` branch,
+  which had a complete dark palette that neither shipping theme did. Not one
+  component in `global.css` was rewritten for it: the tokens were rebound, which
+  is the whole point of decision 25's arrangement. Three things did change, all
+  because the display face is now a serif rather than the body face — buttons and
+  the `h6` eyebrow moved off it, and `.btn-primary`'s corner ticks (and
+  `.button-borders` with them) were deleted, because a square drawn at the corner
+  of a rounded rectangle sits outside it.
+
+- **The resume editor is a different screen.** A variant bar, a *Master content*
+  tab for the history, a *Tailor* tab for one variant's selections and rewrites,
+  and a *Preview* tab showing a real A4 sheet. Roles carry `start`/`end` months
+  and a list of highlight bullets rather than one typed date string and one
+  paragraph; the duration is computed, so it can never be stale again.
+
+- **The admin preview is the live page.** `renderSheet()` is one function
+  returning one HTML string, and the public page, the editor's preview and the
+  printed PDF all use it under one stylesheet. The preview used to be a
+  hand-built approximation in the editor's script sitting beside an `.astro`
+  component rendering the real thing — "the preview does not match" was the
+  arrangement, not a bug. `ResumeAside.astro` is deleted. Decision 40.
+
+- **Scroll reveal and hover affordances**, from the same branch: sections fade in
+  as they arrive, links and buttons grow an arrow, underlines draw on hover. The
+  reveal is armed before paint and disarmed by a three-second timer, so a page can
+  never be stranded invisible by a script that failed to load.
+
+- The pre-paint theme script was in three `<head>`s and is now one
+  `ThemeHead.astro`.
+
+### Fixed
+
+- **`npm run check` was red on `main`.** `scripts/test-ai.mjs` had its fake API
+  key fixture replaced with `process.env.OPENROUTER_API_KEY`, so two assertions
+  passed only on a machine with a real key exported and CI has none. Restored the
+  literal — and those assertions print the first and last four characters of
+  whatever they are given, which should never be a real credential's.
+
+- In the one-column sheet, the Skills heading collided with the last project: the
+  main column's `:last-child` margin reset fired against the *aside* that follows
+  it. Sections are spaced by their container's `gap` now, and a gap has no last
+  child.
+
+### Previously unreleased
+
+#### Added
+
 - **The assistant looks things up instead of being handed the whole site.**
   Every question used to carry the entire corpus — identity, résumé, every
   project, every case-study excerpt, every post excerpt — in the system prompt.
