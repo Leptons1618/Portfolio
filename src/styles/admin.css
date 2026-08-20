@@ -370,6 +370,16 @@
 .pf-grid label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }
 .pf-summary { min-height: 60px; }
 .pf-highlights { min-height: 110px; font-family: var(--font-mono); font-size: 13px; }
+/* The case study's write-up. Tall, monospaced and resizable, because it is the
+   longest thing written anywhere on this surface and the only field here that
+   is a document rather than a line. */
+.pd-cs-body {
+  min-height: 340px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
 .pf-message { min-height: 18px; font-size: 12px; margin: var(--space-3) 0 0; }
 .pf-message[data-tone='error'] { color: var(--color-accent-700); }
 
@@ -826,6 +836,12 @@
    and the foot band cancels it. */
 .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
 .modal-foot .modal-actions { margin-top: 0; margin-left: auto; }
+/* The import form's assistant button sits at the left of the band, away from
+   Cancel and Create: it is the only control there that neither commits nor
+   abandons the form, and beside Create it reads like a second one. The row has
+   to span the band for the margin to have anything to push against. */
+.modal-foot .modal-actions:has(.pf-draft) { width: 100%; }
+.modal-foot .modal-actions .pf-draft { margin-right: auto; }
 /* Grows to fill a `.modal-fixed` body, so the band the rows land in is already
    the height it will be and the empty state sits in the same box a full list
    would have. */

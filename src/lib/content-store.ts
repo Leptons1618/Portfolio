@@ -290,35 +290,56 @@ export interface CaseStudySeed {
   date: string;
 }
 
+/** The one paragraph a case study starts with when nobody wrote one. */
+const SCAFFOLD_BODY = [
+  '## Background',
+  '',
+  'Scaffolded from the admin so the project could link to it. Replace this',
+  'section.',
+  '',
+].join('\n');
+
 /**
- * Scaffold a case study with a placeholder body and link-ready fields.
+ * Create a case study, with prose if there is any and a placeholder if not.
  *
  * The body is markdown now rather than MDX, and the endpoint renders it on the
  * way in — so unlike the file version, this one is immediately readable rather
  * than a stub waiting for someone to open an editor in git.
+ *
+ * `body` is optional because the two ways to get here are different: the
+ * scaffold button on a project's page has nothing to write yet, and the import
+ * form's "write it with AI" has a whole write-up in hand and would otherwise
+ * have to save the placeholder first and immediately overwrite it.
  */
-export function createCaseStudy(slug: string, seed: CaseStudySeed): Promise<WriteResult> {
-  const body = [
-    '## Background',
-    '',
-    'Scaffolded from the admin so the project could link to it. Replace this',
-    'section.',
-    '',
-  ].join('\n');
+export function createCaseStudy(
+  slug: string,
+  seed: CaseStudySeed,
+  body = SCAFFOLD_BODY,
+): Promise<WriteResult> {
   return write('case_studies', slug, 'create', { fields: { ...seed }, body });
 }
 
-/** Change some of a case study's structured fields. */
+/**
+ * Change some of a case study's structured fields, and its prose with them.
+ *
+ * One write rather than two. The body used to have a function of its own
+ * (`setCaseStudyBody`) which nothing ever called — there was no body field on
+ * any screen — so every case study on the site was a header over the scaffold
+ * paragraph above. The editor writes both halves now, and a save that took two
+ * round trips could leave the header saved and the prose not.
+ *
+ * `undefined` leaves the body alone, which is what the pointer-only writes on
+ * the projects screen want; `''` would clear it.
+ */
 export function patchCaseStudy(
   slug: string,
   changes: Partial<CaseStudyFields>,
+  body?: string,
 ): Promise<WriteResult> {
-  return write('case_studies', slug, 'patch', { fields: { ...changes } });
-}
-
-/** Replace a case study's prose. */
-export function setCaseStudyBody(slug: string, body: string): Promise<WriteResult> {
-  return write('case_studies', slug, 'patch', { body });
+  return write('case_studies', slug, 'patch', {
+    fields: { ...changes },
+    ...(body === undefined ? {} : { body }),
+  });
 }
 
 /* ---------- singleton documents ---------- */

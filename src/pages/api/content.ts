@@ -43,7 +43,29 @@ export const prerender = false;
 let processor: ReturnType<typeof createMarkdownProcessor> | null = null;
 const render = async (markdown: string): Promise<string> => {
   if (!markdown.trim()) return '';
-  processor ??= createMarkdownProcessor({});
+  /* `syntaxHighlight: false` is not a preference, it is what makes this run on
+     Workers at all. Astro's default highlighter is Shiki, Shiki's default regex
+     engine is Oniguruma, and Oniguruma is a WebAssembly module instantiated
+     from bytes at runtime — which the Workers runtime refuses outright:
+
+       Failed to parse Markdown file "undefined":
+       WebAssembly.instantiate(): Wasm code generation disallowed by embedder
+
+     `rehypeShiki` builds that highlighter on the first tree it is handed
+     whether or not the markdown contains a code block, so *every* save of a
+     post or a case study with a body threw — in production only, because
+     `astro dev` renders this in Node where the instantiation is allowed.
+
+     Nothing is lost that this site was using: no stylesheet here has ever had
+     a rule for Shiki's output, `.prose pre` in `global.css` styles code blocks
+     from the theme tokens, and the seeded rows contain no highlighted markup
+     to be inconsistent with.
+
+     ponytail: plain `<pre><code class="language-…">`. If highlighting is
+     wanted later it is Shiki's JavaScript regex engine
+     (`shiki/engine/javascript`), which needs its own rehype plugin — Astro's
+     `shikiConfig` has no `engine` key to pass it through. */
+  processor ??= createMarkdownProcessor({ syntaxHighlight: false });
   return (await (await processor).render(markdown)).code;
 };
 

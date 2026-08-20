@@ -1415,10 +1415,20 @@ const seed = {
       return added;
     }
 
-    /** Apply a `build-variant` answer. Every identifier is checked first. */
-    function applyVariant(text: string): boolean {
+    /**
+     * Apply a `build-variant` answer. Every identifier is checked first.
+     *
+     * Returns what actually landed, section by section, rather than a boolean.
+     * Everything but the label and the summary is a *selection from what the
+     * author already has*, so an answer written in prose parses but matches
+     * nothing — and "Variant applied" over a variant whose roles and projects
+     * are exactly as they were is the report that sends someone looking for a
+     * bug in the preview. `null` is the one honest failure: no label parsed at
+     * all, so there was nothing to read.
+     */
+    function applyVariant(text: string): string[] | null {
       const { values, recognised } = parseFields(text, VARIANT_KEYS);
-      if (!recognised) return false;
+      if (!recognised) return null;
 
       /* Applied to the open variant, or to a new one when the master is open —
          which is what makes this task reachable from a blank slate. */
@@ -1426,20 +1436,25 @@ const seed = {
       if (!variant) {
         createVariant(values.label.trim() || newLabel());
         variant = openVariant();
-        if (!variant) return false;
+        if (!variant) return null;
       } else if (values.label.trim()) {
         variant.label = values.label.trim();
       }
 
       const csv = (value: string) => value.split(',').map(item => item.trim()).filter(Boolean);
+      const applied: string[] = [];
 
-      if (values.summary.trim()) variant.summary = values.summary.trim();
+      if (values.summary.trim()) {
+        variant.summary = values.summary.trim();
+        applied.push('the summary');
+      }
 
       const roles = new Set(state.experience.map(entry => entry.id));
       const wantedRoles = csv(values.experience).filter(id => roles.has(id));
       if (wantedRoles.length) {
         const kept = new Map(variant.experience.map(pick => [pick.id, pick]));
         variant.experience = wantedRoles.map(id => kept.get(id) ?? { id });
+        applied.push(`${wantedRoles.length} role${wantedRoles.length === 1 ? '' : 's'}`);
       }
 
       const groups = new Set(state.skills.map(group => group.category));
@@ -1447,24 +1462,37 @@ const seed = {
       if (wantedSkills.length) {
         const kept = new Map(variant.skills.map(pick => [pick.category, pick]));
         variant.skills = wantedSkills.map(category => kept.get(category) ?? { category });
+        applied.push(`${wantedSkills.length} skill group${wantedSkills.length === 1 ? '' : 's'}`);
       }
 
       const schools = new Set(state.education.map(entry => entry.id));
       const wantedEdu = csv(values.education).filter(id => schools.has(id));
-      if (wantedEdu.length) variant.education = wantedEdu;
+      if (wantedEdu.length) {
+        variant.education = wantedEdu;
+        applied.push('education');
+      }
 
       const certs = new Set(state.certifications);
       const wantedCerts = csv(values.certifications).filter(item => certs.has(item));
-      if (wantedCerts.length) variant.certifications = wantedCerts;
+      if (wantedCerts.length) {
+        variant.certifications = wantedCerts;
+        applied.push('certifications');
+      }
 
       if (values.projects.trim()) {
+        const before = variant.projects;
         variant.projects = [];
-        applyProjects(values.projects);
+        const added = applyProjects(values.projects);
+        if (added) applied.push(`${added} project${added === 1 ? '' : 's'}`);
+        /* No slug matched, so this was prose about projects rather than a
+           shortlist of them. Putting the old list back is the difference
+           between "nothing was selected" and "the selection was deleted". */
+        else variant.projects = before;
       }
 
       persist();
       renderAll();
-      return true;
+      return applied;
     }
 
     async function runTask(name: string, instruction: string) {
@@ -1565,8 +1593,20 @@ const seed = {
               primary: true,
               run: () => {
                 takeSnapshot('the generated variant');
-                if (applyVariant(output)) toast('Variant applied. Check it in Preview.', { tone: 'success' });
-                else toast('The reply was not in the expected format, so nothing changed.', { tone: 'error' });
+                const applied = applyVariant(output);
+                if (applied === null) {
+                  toast('The reply was not in the expected format, so nothing changed.', { tone: 'error' });
+                } else if (applied.length) {
+                  toast(`Applied ${applied.join(', ')}. Check it in Preview.`, { tone: 'success' });
+                } else {
+                  /* Parsed, matched nothing. Almost always a model that wrote a
+                     resume instead of choosing from this one — the ids and
+                     slugs it needed were in front of it and it wrote prose. */
+                  toast(
+                    'None of that matched a role, skill group or project you have. Try again, or run it on a stronger model.',
+                    { tone: 'error' },
+                  );
+                }
               },
             },
             copy(output),
