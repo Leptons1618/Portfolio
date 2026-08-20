@@ -232,17 +232,24 @@
   flex: none;
 }
 
-.admin-signout {
-  font-size: 11px;
+/* The two ways out, side by side and the same weight. `flex: 1 1 0` rather than
+   `auto` so they stay equal halves whatever their labels say — and so the row
+   is one full-width button on a signed-out screen, where the second is
+   `hidden`. */
+.admin-foot-links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-/* The public-site link sits back from the actions it shares a row with. */
-.admin-public-link {
+.admin-foot-links .btn {
+  flex: 1 1 0;
+  min-width: 0;
+  justify-content: center;
+  gap: 5px;
   font-size: 11px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  opacity: 0.7;
+  padding-inline: var(--space-2);
+  white-space: nowrap;
 }
 
 /* — main —
@@ -307,7 +314,7 @@
   gap: 6px;
 }
 
-/* — the visibility switch on the project table — */
+/* — the switch, on the project table and everywhere `switch.ts` puts one — */
 .toggle {
   position: relative;
   width: 36px;
@@ -331,6 +338,17 @@
 
 .toggle[aria-checked='true'] { background: var(--color-accent); }
 .toggle[aria-checked='true'] span { left: 18px; }
+.toggle:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* The checkbox `src/lib/switch.ts` replaced. Hidden rather than removed — it is
+   still the value, and a `display: none` checkbox still takes the clicks its
+   label forwards, which is what keeps the caption clickable. */
+.switch-native { display: none; }
+
+/* Fields that grow with what is in them — `mountAutoGrow()` in `admin.ts` sets
+   the height, and this is the ceiling: past it the field scrolls rather than
+   pushing everything below it off the screen. */
+textarea[data-grow] { max-height: 60vh; }
 
 /* — the project screens —
 
@@ -1302,198 +1320,6 @@
    be told to take the whole width rather than sit in the first cell. */
 .media-empty { grid-column: 1 / -1; }
 
-/* — dropdowns —
-
-   Built by `src/lib/select.ts`, so global rules for the usual reason: none of
-   these nodes carries a page's `data-astro-cid` and the control belongs to no
-   page. The native `<select>` is still in the DOM and still the value; it is
-   hidden once the script has replaced it, which is also why there is no flash
-   and no no-JS regression — until `mountSelects()` runs, `select.input` in
-   `global.css` is what is on screen.
-
-   The closed button borrows `.input`, deliberately: the border, ground, radius
-   and focus ring are the field's, not a second set of tokens that would drift
-   from it the first time one of them changed. */
-.select { position: relative; width: 100%; }
-
-.select-native { display: none; }
-
-.select-button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  cursor: pointer;
-  text-align: left;
-  /* `.input` sets a min-height and a padding; this only has to stop the flex
-     children from stretching the row. */
-  line-height: 1.2;
-}
-
-.select-button:hover:not(:disabled) { background: var(--color-bg); }
-
-/* Open is a state worth showing on the field, not only in the popup — it is
-   what connects the two while the list is covering everything else. */
-.select-button[aria-expanded='true'] {
-  border-color: var(--color-accent);
-}
-
-.select-button:disabled { cursor: not-allowed; opacity: 0.55; }
-
-.select-value {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* A placeholder choice — "— none —" — is not a value and should not read like
-   one. */
-.select-button[data-empty='true'] .select-value { color: var(--color-text-faint); }
-
-/* The caret is a triangle in `currentColor` rather than an SVG data URI, for
-   the same reason `.btn-primary`'s sweep is a gradient: a data URI cannot read
-   a custom property, so an icon written that way is a hex code that survives
-   every theme switch unchanged. Being an element rather than a background is
-   what lets it turn. */
-.select-caret {
-  width: 0;
-  height: 0;
-  flex: none;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid currentColor;
-  transition: transform 0.18s cubic-bezier(0.2, 0, 0.2, 1);
-}
-
-.select-button[aria-expanded='true'] .select-caret { transform: rotate(180deg); }
-
-/* — the popup —
-
-   In the top layer, because it has to escape two things that would clip it:
-   `.modal-body`, which scrolls, and `<dialog>`, which renders above every
-   `z-index` there is. Position comes from script — a popover is anchored to
-   nothing by itself — so everything here is appearance only. */
-.select-menu {
-  /* Closed is the default, and it is stated here rather than left to the UA's
-     `[popover]:not(:popover-open)` rule for the reason `.modal[open]` gives a
-     few hundred lines up: an author `display` outranks a UA one whatever the
-     specificity, and Tailwind's preflight ships `[hidden] { display: none }`.
-     This used to open with the `hidden` attribute still on the element —
-     `showPopover()` promotes to the top layer, it does not remove an attribute
-     — so every dropdown on this surface opened into the top layer painting
-     absolutely nothing. `.is-shown` is added and removed by `select.ts`. */
-  display: none;
-  position: fixed;
-  z-index: 90;
-  margin: 0;
-  padding: var(--space-1);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  border: 1px solid var(--color-text);
-  border-radius: var(--radius-md);
-  background: var(--color-bg);
-  color: var(--color-text);
-  box-shadow: var(--shadow-lg);
-  /* Entry state. `.is-open` is added a frame later and `.is-closing` on the way
-     out, so both directions run the same transition. */
-  opacity: 0;
-  transform: translateY(-4px) scale(0.98);
-  transform-origin: top center;
-  transition:
-    opacity 0.14s ease-out,
-    transform 0.14s cubic-bezier(0.2, 0, 0.2, 1);
-}
-
-/* Opening upward should grow from the bottom edge, or the animation reads as
-   the list sliding out of the button it is covering. */
-.select-menu[data-placement='above'] {
-  transform-origin: bottom center;
-  transform: translateY(4px) scale(0.98);
-}
-
-.select-menu.is-open { opacity: 1; transform: none; }
-.select-menu.is-closing { opacity: 0; transform: translateY(-2px) scale(0.99); }
-.select-menu[data-placement='above'].is-closing { transform: translateY(2px) scale(0.99); }
-
-/* The one rule that shows it, in both the promoted and the unsupported path.
-   Author-level, so nothing in the UA sheet can take it back. */
-.select-menu.is-shown { display: block; }
-
-/* A popover's UA rules set `inset: 0; margin: auto` and a border — all three
-   are overridden above, but `inset` has to be neutralised explicitly or the
-   computed `left`/`top` fight a `right`/`bottom` of 0. */
-.select-menu:popover-open {
-  inset: auto;
-  width: max-content;
-  max-width: min(92vw, 420px);
-}
-
-/* The same sizing, stated for the class rather than for `:popover-open`, so the
-   promoted and unpromoted paths agree. Without it a browser with no `popover`
-   support never enters the top layer and never matches the rule above, and the
-   menu is sized by its containing block instead of its content. Harmless
-   duplication where both apply — `min-width` is set from the button's width in
-   script either way, so this only decides how far a long option may grow. */
-.select-menu.is-shown {
-  width: max-content;
-  max-width: min(92vw, 420px);
-}
-
-.select-option {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 7px 10px;
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1.3;
-  border-radius: var(--radius-md);
-  /* Long case-study titles are the reason the menu has a max-width at all. */
-  overflow-wrap: anywhere;
-}
-
-/* One highlight, driven by the keyboard *and* the pointer — `mousemove` moves
-   the active row — so there is never a hover ring and a keyboard ring in two
-   different places arguing about which one Enter will take. */
-.select-option[data-active] {
-  background: var(--color-accent);
-  color: var(--color-bg);
-}
-
-.select-option[aria-selected='true'] { font-weight: 600; }
-.select-option[aria-disabled='true'] { opacity: 0.4; cursor: not-allowed; }
-
-/* Reserved whether or not it is showing, so rows do not shift by a tick's
-   width as the selection moves down the list. */
-.select-tick {
-  width: 12px;
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--color-accent);
-}
-
-.select-option[data-active] .select-tick { color: var(--color-bg); }
-
-.select-option-text { min-width: 0; }
-
-/* Motion is the affordance, not the information: reduced motion keeps the
-   state change and drops the travel. */
-@media (prefers-reduced-motion: reduce) {
-  .select-caret,
-  .select-menu {
-    transition-duration: 0.01ms;
-  }
-  .select-menu,
-  .select-menu[data-placement='above'] { transform: none; }
-}
-
-/* Sized by its content rather than by the column — mirrored from `.is-auto` on
-   the native element, which is hidden by the time it would have applied. */
-.select-auto { width: auto; }
-.select-auto .select-button { width: auto; }
-
 /* — the AI screen's provider rows —
 
    Built with `createElement` in `src/pages/admin/ai.astro`, so these nodes
@@ -1651,8 +1477,41 @@
 .asx[open] { display: flex; }
 
 /* A non-modal dialog has no backdrop, which is the point; this stops a UA that
-   renders one anyway from dimming the editor. */
+   renders one anyway from dimming the editor. It also covers the one screen
+   that has to open this *modally* — the import form on `/admin/projects` is
+   itself a modal dialog, and the top layer is not something a `z-index`
+   reaches over.  */
 .asx::backdrop { background: none; }
+
+/* — where it sits —
+
+   The block above is the right dock. Every placement here is anchored to the
+   same two edges except the left one, which is what lets the resize handle keep
+   a single meaning: the float writes offsets from *right* and *bottom* rather
+   than a top-left position. */
+.asx[data-dock='left'] { inset: auto auto var(--space-4) var(--space-4); }
+
+.asx[data-dock='float'] {
+  inset: auto var(--asx-right, var(--space-4)) var(--asx-bottom, var(--space-4)) auto;
+}
+
+/* Docked left, the fixed edge is the left one, so the handle moves to the other
+   corner. `scaleX(-1)` rather than a second pair of gradients — the grip is two
+   hairlines and a mirror of it is the shape that corner wants. */
+.asx[data-dock='left'] .asx-grip {
+  left: auto;
+  right: 0;
+  transform: scaleX(-1);
+  cursor: nesw-resize;
+}
+
+.asx-dock[aria-pressed='true'] { color: var(--color-accent); }
+
+/* The header is the drag surface; the buttons sitting in it are not. */
+.asx-head[data-drag] { cursor: grab; }
+.asx-head[data-drag] .btn { cursor: pointer; }
+.asx[data-dragging] { user-select: none; }
+.asx[data-dragging] .asx-head[data-drag] { cursor: grabbing; }
 
 .asx-head {
   display: flex;
@@ -2283,8 +2142,13 @@
     border-bottom: 0;
   }
 
-  /* Nothing to resize when the panel is the full width of the screen. */
+  /* Nothing to resize, and nowhere to dock, when the panel is the full width of
+     the screen. The `[data-dock]` selector is what keeps the three placements
+     above from outranking the full-width one — same specificity, later rule. */
   .asx-grip { display: none; }
+  .asx-dock { display: none; }
+  .asx-head[data-drag] { cursor: default; }
+  .asx[data-dock] { inset: auto 0 0 0; }
 
   /* The three run controls stack rather than scroll: at 360px two of them do
      not fit on one row, and a horizontally scrolling toolbar is a control

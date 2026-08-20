@@ -48,6 +48,12 @@ const { categories, topTags } = Astro.props;
   .filter-controls { display: flex; gap: var(--space-3); align-items: center; }
   .filter-search { max-width: 360px; }
   .filter-sort { width: auto; margin-left: auto; font-family: var(--font-mono); font-size: 12px; }
+  /* `select.ts` replaces the field above with a button and a popup it can
+     actually style, and neither node carries this page's `data-astro-cid` —
+     so the layout the native select had has to be restated through `:global`,
+     the same door `#import-list` and the resume editor's generated fields use. */
+  .filter-controls :global(.select) { width: auto; margin-left: auto; }
+  .filter-controls :global(.select-button) { font-family: var(--font-mono); font-size: 12px; }
   .filter-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .results-count { font-size: 12px; margin: 0; font-family: var(--font-mono); }
 
@@ -55,5 +61,6 @@ const { categories, topTags } = Astro.props;
     .filter-controls { flex-direction: column; align-items: stretch; }
     .filter-search { max-width: none; }
     .filter-sort { width: 100%; margin-left: 0; }
+    .filter-controls :global(.select) { width: 100%; margin-left: 0; }
   }
 </style>

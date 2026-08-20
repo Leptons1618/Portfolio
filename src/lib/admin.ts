@@ -610,3 +610,68 @@ export function undoRing(depth = 3): UndoRing {
     },
   };
 }
+
+/* ---------- fields that grow with what is in them ---------- */
+
+/**
+ * Keep a `textarea[data-grow]` as tall as its content.
+ *
+ * A summary field is two rows because a summary is one sentence. The assistant
+ * writes into those same fields, and a rewrite that lands four sentences turns
+ * the field into a two-row window onto its own text — which is exactly when the
+ * author is trying to read what arrived.
+ *
+ * Opt-in by attribute rather than applied to every textarea: the journal body
+ * and the case-study write-up are panes with a height of their own, one of them
+ * resizable by hand, and growing those would fight the layout instead of
+ * helping it. A ceiling comes from `max-height` in `admin.css`, so a long value
+ * scrolls rather than pushing the Save button off the bottom of the page.
+ *
+ * The `value` setter is overridden for the same reason `select.ts` and
+ * `image-upload.ts` override theirs: the assistant assigns `.value` on every
+ * frame while it streams, and a property assignment fires no `input` event.
+ */
+export function mountAutoGrow(): void {
+  const grow = (field: HTMLTextAreaElement) => {
+    /* Measured from nothing each time — `scrollHeight` on an element already
+       tall enough only ever reports the height it was given, so a field that
+       grew could never shrink again. */
+    field.style.height = 'auto';
+    /* A field inside a hidden tab panel measures zero, and writing `0px` onto
+       it is a field that opens flat when its tab is next selected. Leaving the
+       height unset is what the stylesheet's `min-height` is for, and the next
+       keystroke or streamed token measures it properly. */
+    field.style.height = field.scrollHeight ? `${field.scrollHeight}px` : '';
+  };
+
+  const native = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+
+  const attach = (field: HTMLTextAreaElement) => {
+    if (field.dataset.growing) return;
+    field.dataset.growing = 'on';
+    field.addEventListener('input', () => grow(field));
+
+    if (native?.get && native.set) {
+      Object.defineProperty(field, 'value', {
+        configurable: true,
+        get: () => native.get!.call(field),
+        set: (value: string) => {
+          native.set!.call(field, value);
+          grow(field);
+        },
+      });
+    }
+  };
+
+  const run = () => {
+    document.querySelectorAll<HTMLTextAreaElement>('textarea[data-grow]').forEach(field => {
+      attach(field);
+      /* Also on every navigation: a screen that client-routed back arrives with
+         its fields filled from the server and no event to react to. */
+      grow(field);
+    });
+  };
+
+  run();
+  document.addEventListener('astro:page-load', run);
+}

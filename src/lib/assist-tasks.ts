@@ -952,17 +952,35 @@ Emit nothing before LABEL: and nothing after the last project line. Do not wrap 
     label: 'Ask about the draft',
     surface: 'both',
     group: 'suggest',
-    hint: 'A question about what is on screen, or about what to do next.',
-    instructions: `You are talking to the author in the editor where they are writing. Answer the question they asked, about the draft in front of them or about writing it.
+    hint: 'A question about what is on screen, or a change to make to it.',
+    /* Two jobs, and which one a message is decides the shape of the reply.
+       A question gets prose. A change gets *the change*, in the labelled
+       format every other task here uses, which the editor applies to the
+       fields and offers Undo on — because an author who asks for a shorter
+       title and is handed a shorter title to copy has been given homework.
+       `parseEdit()` at the bottom of this file is the reader, and it requires
+       the reply to open with a label so a paragraph mentioning one is still a
+       paragraph. */
+    instructions: `You are talking to the author in the editor where they are writing. They are either asking you a question or asking you to change what is on screen, and you answer the two differently.
 
-Rules:
+If they asked a question, answer it in prose:
 - Be specific about *their* text. Quote the line you mean rather than describing it.
 - Short. A paragraph, or a short list. This is a conversation, not a document.
-- If they are asking you to write or rewrite something, say which command does it — the panel has commands for drafting a post, outlining, tightening a selection, summarising, suggesting titles and tags, drawing a diagram and writing alt text — and answer the question anyway.
-- Never output a labelled field block (TITLE:, SUMMARY:, BODY:). Nothing you say here goes into the post.
-- If you do not know, say so. Do not invent facts about their project.`,
+- If you do not know, say so. Do not invent facts about their project.
+
+If they asked you to change a field — a new title, a tighter summary, different tags, a rewritten section — make the change instead of describing it. Reply with **only** the fields you are changing, nothing else:
+- One field per line, starting at the very first character of your reply: the field's name in capitals, a colon, then the new value. Nothing before it, no preamble, no explanation after it.
+- The names are the ones the context above used: TITLE, SUMMARY, TAGS, STACK, CATEGORY, READTIME. The long ones — BODY, HIGHLIGHTS, ACHIEVEMENTS — go last, with the label on its own line and the content below it, and everything after that label is that field.
+- Only the fields they asked about. A field you do not write is left exactly as it is, so never repeat one back unchanged.
+- Write the finished value, not a suggestion: "TITLE: Pinned skills, reproducible bootstraps" and never "TITLE: how about Pinned skills?".
+- The editor applies this to the form and the author presses Save, so a sentence about what you changed would be pasted into their post. Say nothing outside the fields.
+
+Everything you write goes to someone reading their own draft. If a request is ambiguous enough that you would be guessing at the change, ask the one question instead — that is a question, so it is prose.`,
     format: 'markdown',
-    maxTokens: 2400,
+    /* Room for a rewritten section, not just a title: an edit that runs out of
+       ceiling mid-BODY writes a truncated field. Nothing is billed for a
+       ceiling that is not used. */
+    maxTokens: 4000,
     temperature: 0.5,
     needsCorpus: false,
     /* Everything either editor might have. A field a surface does not have
@@ -1226,6 +1244,41 @@ export function parseFields(text: string, shape: FieldShape): ParsedFields {
      post is not a scratch space. */
 
   return { values, tailStarted, recognised: seenLabel };
+}
+
+/**
+ * A conversational reply that is an *edit*, or `null` if it is an answer.
+ *
+ * `chat` is the one task with no fixed output contract: most of the time it is
+ * a paragraph about the draft, and sometimes the author asked for the title to
+ * be changed — in which case telling them what the new title would be, in a
+ * panel, next to the field it belongs in, is the assistant declining to do the
+ * thing it was asked to do. So the chat prompt says to answer an edit request
+ * *as* the edit, in the same labelled format every other task uses, and this is
+ * what tells the two apart.
+ *
+ * The test is that the response **opens** with a label the shape declares.
+ * `parseFields` deliberately drops any preamble before the first label, which
+ * is right for a task whose whole output is a document and wrong here: a
+ * paragraph of prose that happens to contain a `Title: …` line would otherwise
+ * be applied as an edit. Opening with the label is a thing a model does on
+ * purpose and prose does not.
+ *
+ * A shape is passed in for the same reason `parseFields` takes one — the
+ * journal's fields and the project's are different sets, and the surface
+ * knows which it is.
+ */
+export function parseEdit(text: string, shape: FieldShape): ParsedFields | null {
+  /* A response wrapped in a fence still opens with its label as far as this is
+     concerned; `parseFields` strips the same opening fence. */
+  const first = text
+    .replace(/^\s*```[a-z]*\s*\n?/i, '')
+    .split('\n')
+    .find(line => line.trim());
+  if (!first || !parseFields(first, shape).recognised) return null;
+
+  const parsed = parseFields(text, shape);
+  return parsed.recognised ? parsed : null;
 }
 
 /* ---------- the composed post, which is one shape of the above ---------- */

@@ -90,6 +90,13 @@ const projectsData = allProjects.map(p => ({
 </BaseLayout>
 
 <script>
+  /* The one `select.input` on the public site. Mounted here rather than in
+     `BaseLayout` so the module is a chunk this page pays for and no other page
+     does — the admin mounts it from its own layout because every screen there
+     has one. */
+  import { mountSelects } from '../lib/select';
+  mountSelects();
+
   const grid = document.getElementById('project-grid')!;
   const cards = Array.from(grid.querySelectorAll<HTMLElement>('.project-card'));
   const searchInput = document.getElementById('filter-search') as HTMLInputElement;

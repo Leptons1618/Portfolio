@@ -193,7 +193,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
             <Icon name="lucide:sparkles" class="admin-nav-icon" />Write it
           </button>
         </div>
-        <textarea class="input summary-input" id="f-summary" placeholder="One line for the card and the meta description."></textarea>
+        <textarea class="input summary-input" id="f-summary" data-grow placeholder="One line for the card and the meta description."></textarea>
       </div>
       <div class="field">
         <label for="f-date">Publish Date</label>
@@ -346,6 +346,8 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     isAssistTask,
     type AssistMenuItem,
     parseDocument,
+    parseEdit,
+    POST_KEYS,
     type JournalTarget,
     type AssistTask,
     type AssistTaskName,
@@ -1354,11 +1356,47 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         const cutOff = () =>
           truncated ? ' It hit this task’s token ceiling, so the end may be cut off.' : '';
 
-        /* A conversation is an answer, not a draft. There is deliberately no
-           Insert: nothing said here belongs in the post unless the author
-           copies it there, and a button that appended it would make asking a
-           question indistinguishable from running a command. */
+        /* A conversation is an answer *or* an edit, and the reply's own shape
+           says which — `parseEdit` recognises one that opens with a labelled
+           field and nothing else does. "Make the title shorter" answered with a
+           shorter title in a panel is the assistant declining the job, so a
+           reply in that shape is applied to the fields exactly as a command's
+           would be, with the same snapshot behind it.
+
+           An answer is still an answer: prose, no Insert. Nothing said in
+           conversation belongs in the post unless the author copies it there,
+           and a button that appended it would make asking a question
+           indistinguishable from running a command. */
         if (name === 'chat') {
+          const edit = parseEdit(output, POST_KEYS);
+          /* Labels with nothing under them: recognised, and an edit of nothing.
+             It reads as an answer rather than as a run that changed five fields
+             to empty — `applyLive` would write none of them anyway. */
+          const editing = edit
+            ? [...POST_KEYS.head, POST_KEYS.tail]
+                .filter(spec =>
+                  spec.key === POST_KEYS.tail.key
+                    ? edit.tailStarted
+                    : Boolean(edit.values[spec.key]),
+                )
+                .map(spec => spec.key.replace(/([A-Z])/g, ' $1').toLowerCase())
+            : [];
+
+          if (editing.length) {
+            takeSnapshot('document', 'Chat edit');
+            applyLive('document', output, true);
+            /* Named from the parse rather than from the response, so this says
+               what actually reached a field. `dropUnusedSnapshot` covers the
+               model that "changed" a field to what it already said. */
+            const written = editing.join(', ');
+            dropUnusedSnapshot();
+            turn.status(`Updated ${written} in the editor. Nothing is saved until you press Save.${cutOff()}`);
+            turn.actions([...undoAction(), again]);
+            turn.end(output);
+            toast(`Updated ${written}.`, { tone: 'success' });
+            return;
+          }
+
           turn.answer(output);
           turn.actions([copy(output), again]);
           if (truncated) turn.note('It ran into this task’s token ceiling.', 'info');

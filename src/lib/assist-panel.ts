@@ -1011,6 +1011,11 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     }
   }
 
+  /* Docked left, the panel's *left* edge is the fixed one, so the handle sits on
+     the other corner and the horizontal delta runs the other way. Every other
+     placement is anchored bottom-right, floating included. */
+  const growX = (delta: number) => (dialog.dataset.dock === 'left' ? -delta : delta);
+
   grip.addEventListener('pointerdown', event => {
     event.preventDefault();
     const startX = event.clientX;
@@ -1022,7 +1027,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     /* Anchored bottom-right, so dragging the top-left corner *up and left* is
        what makes it bigger — hence start minus current. */
     const move = (e: PointerEvent) =>
-      applySize(box.width + (startX - e.clientX), box.height + (startY - e.clientY));
+      applySize(box.width + growX(startX - e.clientX), box.height + (startY - e.clientY));
 
     const stop = () => {
       delete dialog.dataset.resizing;
@@ -1051,7 +1056,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
        would move a caret that is not where the author is looking. */
     event.stopPropagation();
     const box = dialog.getBoundingClientRect();
-    applySize(box.width + by[0], box.height + by[1]);
+    applySize(box.width + growX(by[0]), box.height + by[1]);
     rememberSize();
   });
 
@@ -1068,6 +1073,133 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
 
   restoreSize();
 
+  /* ---------- where it sits ---------- */
+
+  /**
+   * Docked right, docked left, or wherever it was dragged to.
+   *
+   * The panel writes into fields it also has to sit beside, and which side that
+   * is differs by screen. Two docks and a free position cover it without a
+   * layout mode of their own: every placement is anchored *bottom-right* except
+   * the left dock, so the size handle keeps one meaning and a drag only ever
+   * writes two offsets.
+   *
+   * Same storage reasoning as the size above — `localStorage`, written on
+   * pointer-up rather than once per frame.
+   */
+  const PLACE_KEY = 'om-assist-place';
+  type Dock = 'left' | 'right' | 'float';
+
+  const head = dialog.querySelector<HTMLElement>('[data-drag]')!;
+  const dockLeft = $<HTMLButtonElement>('assist-dock-left');
+  const dockRight = $<HTMLButtonElement>('assist-dock-right');
+
+  function markDock(dock: Dock) {
+    dialog.dataset.dock = dock;
+    dockLeft.setAttribute('aria-pressed', String(dock === 'left'));
+    dockRight.setAttribute('aria-pressed', String(dock === 'right'));
+  }
+
+  /** Offsets from the right and bottom edges, clamped to leave the panel on screen. */
+  function applyFloat(right: number, bottom: number) {
+    const box = dialog.getBoundingClientRect();
+    const x = Math.round(Math.min(Math.max(right, 0), Math.max(0, window.innerWidth - box.width)));
+    const y = Math.round(Math.min(Math.max(bottom, 0), Math.max(0, window.innerHeight - box.height)));
+    dialog.style.setProperty('--asx-right', x + 'px');
+    dialog.style.setProperty('--asx-bottom', y + 'px');
+  }
+
+  function rememberPlace() {
+    try {
+      const box = dialog.getBoundingClientRect();
+      const right = Math.round(window.innerWidth - box.right);
+      const bottom = Math.round(window.innerHeight - box.bottom);
+      localStorage.setItem(PLACE_KEY, (dialog.dataset.dock ?? 'right') + ',' + right + ',' + bottom);
+    } catch {
+      /* As above: a browser with storage denied still gets a working panel. */
+    }
+  }
+
+  function restorePlace() {
+    try {
+      const [dock, right, bottom] = (localStorage.getItem(PLACE_KEY) ?? '').split(',');
+      if (dock !== 'left' && dock !== 'right' && dock !== 'float') return;
+      markDock(dock);
+      if (dock === 'float' && Number.isFinite(Number(right)) && Number.isFinite(Number(bottom))) {
+        applyFloat(Number(right), Number(bottom));
+      }
+    } catch {
+      /* As above. */
+    }
+  }
+
+  const dockTo = (dock: Dock) => () => {
+    markDock(dock);
+    rememberPlace();
+  };
+  dockLeft.addEventListener('click', dockTo('left'));
+  dockRight.addEventListener('click', dockTo('right'));
+
+  /* Dragging the header is what produces the third placement. There is no
+     "float" button because the only useful free position is the one the pointer
+     chose; the buttons in the header keep their own click. */
+  head.addEventListener('pointerdown', event => {
+    if ((event.target as HTMLElement).closest('button, .asx-head-actions')) return;
+    event.preventDefault();
+    const box = dialog.getBoundingClientRect();
+    const startRight = window.innerWidth - box.right;
+    const startBottom = window.innerHeight - box.bottom;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    head.setPointerCapture(event.pointerId);
+    dialog.dataset.dragging = '1';
+
+    /* Undocked on the first *movement*, not on the press: a stray click on the
+       title would otherwise send a left-docked panel across the window, since
+       the float's stored offsets are measured from the other two edges. */
+    let moved = false;
+    const move = (e: PointerEvent) => {
+      if (!moved) {
+        moved = true;
+        markDock('float');
+      }
+      applyFloat(startRight - (e.clientX - startX), startBottom - (e.clientY - startY));
+    };
+
+    const stop = () => {
+      delete dialog.dataset.dragging;
+      if (moved) rememberPlace();
+      head.removeEventListener('pointermove', move);
+      head.removeEventListener('pointerup', stop);
+      head.removeEventListener('pointercancel', stop);
+    };
+
+    head.addEventListener('pointermove', move);
+    head.addEventListener('pointerup', stop);
+    head.addEventListener('pointercancel', stop);
+  });
+
+  /* A window narrowed after the fact must not leave a floating panel off the
+     side of it — the same rule, and the same "only if it was moved" guard, as
+     the size handler above. */
+  window.addEventListener('resize', () => {
+    if (!dialog.open || dialog.dataset.dock !== 'float') return;
+    const box = dialog.getBoundingClientRect();
+    applyFloat(window.innerWidth - box.right, window.innerHeight - box.bottom);
+  });
+
+  /* A position is stored in window coordinates and restored into whatever
+     window it is next opened in, which may be a smaller one. The clamp in
+     `applyFloat` cannot run at mount — a closed `<dialog>` measures zero — so
+     it runs once the panel is actually on screen. */
+  function settleFloat() {
+    if (dialog.dataset.dock !== 'float') return;
+    const box = dialog.getBoundingClientRect();
+    applyFloat(window.innerWidth - box.right, window.innerHeight - box.bottom);
+  }
+
+  restorePlace();
+
   /* ---------- opening and closing ---------- */
 
   /* The model list costs a request, and an editor session that never opens the
@@ -1081,7 +1213,17 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
       modelsFilled = true;
       void fillModels();
     }
-    if (!dialog.open) dialog.show();
+    if (!dialog.open) {
+      /* `show()` normally: the editor behind the panel stays visible and
+         usable, because watching the fields fill is the point. The exception is
+         a screen that raises the assistant from inside a modal `<dialog>` — the
+         import form on `/admin/projects` — where the modal is in the top layer
+         and no `z-index` reaches over it. Joining it there is the only way up,
+         and the panel's transparent `::backdrop` means nothing dims. */
+      if (document.querySelector('dialog[open]:modal')) dialog.showModal();
+      else dialog.show();
+      settleFloat();
+    }
     if (command) {
       input.value = `/${command} `;
       closeMenu();
