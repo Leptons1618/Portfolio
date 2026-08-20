@@ -95,7 +95,6 @@ function place(instance: Enhanced) {
   const gap = 4;
 
   menu.style.minWidth = `${rect.width}px`;
-  menu.style.left = `${rect.left}px`;
 
   /* Clear the cap left by the last open before measuring, or the second open
      measures the first one's clamp and never grows back. */
@@ -104,6 +103,18 @@ function place(instance: Enhanced) {
   /* Measure before deciding: the menu is already shown but transparent, so it
      has a height and nothing has been painted with it in the wrong place. */
   const height = menu.offsetHeight;
+
+  /* Aligned to the button's left edge, but never past the right edge of the
+     window. The menu is `width: max-content` up to 420px, so a narrow trigger
+     near the right — the assistant toolbar's three, the case-study picker in a
+     row of buttons — opens a list several times its own width and everything
+     past the viewport is unreachable: a popover is in the top layer, so there
+     is no scrollbar that could bring it back. Clamped rather than flipped to
+     right-alignment, which would make the same menu jump sides between two
+     screens that differ by a few pixels of scrollbar. */
+  const width = menu.offsetWidth;
+  const left = Math.min(rect.left, window.innerWidth - width - gap);
+  menu.style.left = `${Math.max(gap, left)}px`;
   const below = window.innerHeight - rect.bottom - gap;
   const above = rect.top - gap;
   const flip = height > below && above > below;
@@ -401,6 +412,15 @@ export function enhanceSelect(select: HTMLSelectElement): void {
   menu.id = id;
   menu.setAttribute('role', 'listbox');
   menu.setAttribute('popover', 'manual');
+
+  /* Focus never leaves the button, and this is what keeps that true for the
+     parts of the popup that are not a row: its padding, and — the one that is
+     actually felt — its scrollbar. A `<div>` takes no focus, so a press on one
+     moves focus to the body, which fires the button's `blur` and closes the
+     menu; dragging the scrollbar of a long list therefore dismissed it on
+     mousedown. The rows already do this for themselves; this covers the rest
+     of the surface. */
+  menu.addEventListener('mousedown', event => event.preventDefault());
 
   wrap.append(select, button);
   document.body.appendChild(menu);

@@ -82,14 +82,19 @@ export type AssistFormat = 'markdown' | 'lines' | 'mermaid' | 'document';
 export type JournalTarget = 'document' | 'summary' | 'body';
 
 /**
- * The project screen's live targets: the frontmatter form, and the case study's
- * structured half.
+ * The project screen's live targets: the frontmatter form, the case study's
+ * structured half, and its prose.
  *
- * Two targets rather than one for the same reason the journal has three — Undo
- * has to put back exactly what a run overwrote. Generating a project's fields
- * must not revert the case-study paragraph that was being edited beside it.
+ * Three targets rather than one for the same reason the journal has three —
+ * Undo has to put back exactly what a run overwrote. Generating a project's
+ * fields must not revert the case-study paragraph being edited beside it, and
+ * rewriting eleven hundred words of write-up must not revert either of them.
+ *
+ * `caseStudyBody` is the only one here that is *prose*: the whole response is
+ * the value, with no shape to read it against. The screen branches on the
+ * absence of a `FieldShape` rather than on the target's name.
  */
-export type ProjectTarget = 'project' | 'caseStudy';
+export type ProjectTarget = 'project' | 'caseStudy' | 'caseStudyBody';
 
 /**
  * The resume screen's one live target: the open variant's summary.
@@ -173,6 +178,9 @@ export type AssistField =
   | 'readme'
   | 'stack'
   | 'highlights'
+  /** A case study's framing, for the prose that has to agree with it. */
+  | 'problem'
+  | 'solution'
   /** The resume as it currently reads, rendered flat. */
   | 'resume'
   /** The advert this variant is being tailored to, pasted by the author. */
@@ -303,7 +311,7 @@ export const PROJECT_KEYS: FieldShape = {
 /**
  * What `casestudy` returns: the structured half of a write-up.
  *
- * No body. `setCaseStudyBody` is a separate write and the long-form prose is a
+ * No body. `casestudybody` is a task of its own and the long-form prose is a
  * different job from filling in the header — and a task that produced both
  * would need a token ceiling large enough for the prose, which is exactly the
  * ceiling that makes a reasoning model spend the whole budget thinking.
@@ -645,9 +653,9 @@ Emit nothing before TITLE: and nothing after the last highlight. Do not wrap the
    * described, and generating it from the README again would produce a second
    * independent account that contradicts the first in small ways.
    *
-   * It writes the header and stops. The body is `setCaseStudyBody`, a separate
-   * write behind a separate button, and keeping them apart is what stops one
-   * press replacing prose the author wrote by hand.
+   * It writes the header and stops. The body is `casestudybody` below, a
+   * separate command behind a separate button, and keeping them apart is what
+   * stops one press replacing prose the author wrote by hand.
    */
   casestudy: {
     label: 'Write the case study fields',
@@ -681,6 +689,54 @@ Emit nothing before TITLE: and nothing after the last achievement. Do not wrap t
     needsCorpus: true,
     context: ['repo', 'readme', 'title', 'summary', 'stack', 'highlights'],
     live: 'caseStudy',
+  },
+
+  /**
+   * The write-up itself — the half that was missing.
+   *
+   * `createCaseStudy` has always written a placeholder body ("Scaffolded from
+   * the admin so the project could link to it"), a write that could replace it
+   * has existed since the move to D1, and **nothing ever called it**: there
+   * was no body field on any screen and no task that produced one. So every
+   * case study on the site was a header over one scaffolded paragraph, which is
+   * what "the case study looks empty" was — not a styling problem, a missing
+   * editor and a missing task.
+   *
+   * It is separate from `casestudy` for the reason that task's comment gives
+   * and which has not changed: the header and the prose are different jobs, and
+   * one ceiling large enough for both is a reasoning model spending the whole
+   * budget deliberating. This one is the expensive half — `maxTokens` matches
+   * `compose`, because a case study is the same length as a post.
+   *
+   * It reads the header rather than the repository alone. A write-up that
+   * contradicts the problem statement above it in small ways is worse than a
+   * short one, and `problem`/`solution` exist in `AssistField` for this.
+   */
+  casestudybody: {
+    label: 'Write the case study prose',
+    command: 'write-case-study-body',
+    surface: 'project',
+    group: 'write',
+    hint: 'The long-form write-up under the header — background, approach, what it cost.',
+    instructions: `Write the body of this case study: the long-form account under the structured header the author already has.
+
+Rules:
+- Start at the first heading. There is **no title line** — the title is a field on the page, and repeating it here prints it twice.
+- Use level-2 headings for sections. Four to six of them. Sensible shapes are: what this is, why it was hard, how it works, what it cost, what is next — but follow the actual work rather than that list.
+- 700 to 1200 words.
+- Do not restate the problem and solution paragraphs from the header. They are above this on the page. Continue from them: what was tried, what failed, what the trade-off was, what the numbers were.
+- Concrete over general. Name the actual library, the actual constraint, the actual failure. A sentence that would be true of any project is a sentence to cut.
+- Work only from the material you were given — the README, the repository facts and the header. **Invent nothing**: no benchmark that is not in the material, no user count, no client, no date. If something important is missing, write around it rather than filling it in.
+- Code fences where a snippet is genuinely the clearest way to say it, and never longer than a dozen lines.
+- Markdown only. No preamble, no closing summary paragraph, and do not wrap the response in a code fence.`,
+    format: 'markdown',
+    maxTokens: 4000,
+    temperature: 0.6,
+    /* The author's other write-ups, for the voice — this is the longest thing
+       the assistant writes and the one that reads most like them or least. */
+    needsCorpus: true,
+    context: ['repo', 'readme', 'title', 'summary', 'stack', 'highlights', 'problem', 'solution'],
+    live: 'caseStudyBody',
   },
   /**
    * The selection, rewritten to an instruction typed beside it.
@@ -1076,6 +1132,20 @@ export function parseFields(text: string, shape: FieldShape): ParsedFields {
      post with a stray `**`. */
   const clean = (value: string) => value.replace(/^\*\*\s*/, '').replace(/\s*\*\*$/, '').trim();
 
+  /**
+   * Which head field the *next* unlabelled line belongs to, or `null`.
+   *
+   * Set when a label arrives on a line of its own — `**Summary**`, `## Summary`,
+   * `SUMMARY:` with nothing after it — which is how a model that has decided to
+   * answer in markdown writes the same contract. Without this, every one of
+   * those responses parsed as a run of empty fields or as nothing at all, and
+   * the whole answer was thrown back at the author with "the reply was not in
+   * the expected format". It stays off for the ordinary `LABEL: value` line, so
+   * the rule below it — an unrecognised head line is dropped rather than
+   * treated as content — is unchanged for responses that follow the contract.
+   */
+  let block: string | null = null;
+
   for (const line of source.split('\n')) {
     if (tailStarted) {
       tailLines.push(line);
@@ -1086,24 +1156,56 @@ export function parseFields(text: string, shape: FieldShape): ParsedFields {
        Three to sixteen characters spans `TAGS` and `ACHIEVEMENTS`; anything
        matching that is still only a label if the shape declares it. */
     const match = line.match(/^\s*(?:\*\*)?\s*([A-Za-z][A-Za-z ]{2,15})\s*(?:\*\*)?\s*:\s*(.*)$/);
-    const key = match ? labels.get(match[1].trim().toUpperCase()) : undefined;
+    const inline = match ? labels.get(match[1].trim().toUpperCase()) : undefined;
 
-    /* Before any label, this is preamble. After one, it is a head line the
-       model invented; neither belongs in the result. */
-    if (!match || !key) continue;
+    /* The same label written as a heading or as bold text: no colon, nothing
+       else on the line. `#{1,6}` for `## Summary`, `**`/`__` for `**Summary**`,
+       and a bare `SUMMARY` for a model that has decided labels are shouty
+       words. Still only a label if the shape declares it. */
+    const alone = match
+      ? null
+      : line.match(/^\s*#{0,6}\s*(?:\*\*|__)?\s*([A-Za-z][A-Za-z ]{2,15}?)\s*(?:\*\*|__)?\s*:?\s*$/);
+    const key = inline ?? (alone ? labels.get(alone[1].trim().toUpperCase()) : undefined);
 
-    seenLabel = true;
+    if (key) {
+      seenLabel = true;
 
-    if (key === shape.tail.key) {
-      tailStarted = true;
-      /* `BODY: first sentence` — the contract says the value starts on the next
-         line, but a model that puts it on the same one has still answered. */
-      const trailing = clean(match[2]);
-      if (trailing) tailLines.push(trailing);
+      if (key === shape.tail.key) {
+        tailStarted = true;
+        block = null;
+        /* `BODY: first sentence` — the contract says the value starts on the
+           next line, but a model that puts it on the same one has still
+           answered. */
+        const trailing = match ? clean(match[2]) : '';
+        if (trailing) tailLines.push(trailing);
+        continue;
+      }
+
+      const value = match ? clean(match[2]) : '';
+      /* An empty value is a label with its content on the lines below, whether
+         it was written `SUMMARY:` or `**Summary**`. It never *clears* a field
+         that has already been read — a model that repeats a label mid-answer
+         would otherwise take back what it wrote under the first one, and the
+         live fills depend on a value never going backwards. */
+      if (value) {
+        values[key] = value;
+        block = null;
+      } else {
+        block = key;
+      }
       continue;
     }
 
-    values[key] = clean(match[2]);
+    /* Before any label, this is preamble. After one, it is a head line the
+       model invented — unless a label on its own line said the next ones are
+       its value, which is what `block` is. */
+    if (!block) continue;
+
+    const text = clean(line.trim());
+    /* Blank lines and the `---` rules a markdown-shaped answer separates its
+       sections with are punctuation, not content. */
+    if (!text || /^([-*_])\1{2,}$/.test(text)) continue;
+    values[block] = values[block] ? `${values[block]} ${text}` : text;
   }
 
   values[shape.tail.key] = tailLines.join('\n').replace(/^\n+/, '');
@@ -1219,6 +1321,10 @@ const CONTEXT_LIMITS: Record<AssistField, number> = {
   readme: 8000,
   stack: 300,
   highlights: 1500,
+  /* One paragraph each on the case study — they are what the prose has to
+     agree with, not a second place to write it. */
+  problem: 2000,
+  solution: 2000,
   /* The whole sheet, flattened. Larger than `body` would need to be for a post
      because a resume is dense — three roles with bullets, six skill groups and
      five projects is most of this before a word of prose. */
@@ -1240,6 +1346,8 @@ const CONTEXT_LABELS: Record<AssistField, string> = {
   readme: 'That repository’s README',
   stack: 'Current stack',
   highlights: 'Current highlights',
+  problem: 'The problem this case study states',
+  solution: 'The solution this case study states',
   resume: 'The resume as it currently reads',
   jobDescription: 'The role being applied for',
   entry: 'The line being rewritten',
@@ -1315,6 +1423,31 @@ ${task.instructions}`;
   }
 
   if (!parts.length) parts.push('The draft is empty. Work from the task description alone.');
+
+  /* The output contract, restated last.
+   *
+   * It is already in the task message above, in full and with a rule per field.
+   * This is the same contract in one line, at the end of the conversation,
+   * because that is the position a model weights hardest — and the failure it
+   * addresses is a real one: `/build-variant` on a mid-sized model came back as
+   * a beautifully written markdown resume with `**Summary**` headings, which is
+   * an answer to the question and not an answer this screen can apply to
+   * anything. `parseFields` reads a heading-shaped label now, but a reply in
+   * the labelled shape is worth much more than a salvaged one — the fields that
+   * matter on a variant are lists of ids, and a model writing prose writes
+   * prose in place of them.
+   *
+   * Built from the shape rather than written per task, so a key set cannot
+   * drift from the sentence describing it. */
+  if (task.keys) {
+    const head = task.keys.head.map(spec => `${spec.label}:`).join(', ');
+    parts.push(
+      `Format, once more: reply with ${head} each at the start of its own line, then ` +
+        `${task.keys.tail.label}: on a line of its own with its content below it. ` +
+        'No headings, no bold labels, no bullet list in place of a labelled line, ' +
+        'no preamble and nothing after the last line.',
+    );
+  }
 
   /* The last few turns, trimmed at both ends: the most recent `turns` of them,
      each capped at `chars`. Oldest first, and always ending on the author's

@@ -88,6 +88,18 @@ export function isDynamic(source) {
 }
 
 /**
+ * Is markdown rendered with the syntax highlighter switched off?
+ *
+ * The Worker cannot compile WebAssembly from bytes, and Shiki — Astro's default
+ * highlighter — instantiates an Oniguruma module the first time it renders
+ * anything. `false` is the only value that keeps the plugin out of the pipeline
+ * entirely; naming a highlighter explicitly is the same crash spelled longer.
+ */
+export function hasHighlightingOff(source) {
+  return /syntaxHighlight\s*:\s*false/.test(source);
+}
+
+/**
  * How wide a printed page actually is, in CSS pixels.
  *
  * A4 is 210mm; `resume.css`'s `@page` margin is 14mm a side, leaving a 182mm
@@ -332,6 +344,35 @@ function check() {
     }
   }
 
+  /* 9. Nothing asks the Worker to compile WebAssembly at runtime.
+
+     `workerd` refuses `WebAssembly.instantiate()` on bytes — "Wasm code
+     generation disallowed by embedder" — and Astro's markdown processor walks
+     into it by default: its highlighter is Shiki, Shiki's default regex engine
+     is Oniguruma, and Oniguruma is a wasm module instantiated on first use.
+     `rehypeShiki` builds it for every tree whether or not there is a code block
+     in it, so every save of a post or a case study with a body threw with the
+     markdown file named as "undefined".
+
+     Invisible everywhere but production: `astro dev` renders this in Node,
+     where the instantiation is allowed, and `astro build` never renders
+     markdown at all now that content lives in D1.
+
+     A text match on the one module that renders markdown at request time. If a
+     second one ever appears, it is caught here on the same rule. */
+  for (const file of pages) {
+    const source = readFileSync(p(file), 'utf8');
+    if (!source.includes('createMarkdownProcessor')) continue;
+    if (!hasHighlightingOff(source)) {
+      fail(
+        file,
+        'calls createMarkdownProcessor() without `syntaxHighlight: false` — Shiki instantiates ' +
+          'a WebAssembly module on first render and workerd refuses to compile one, so every ' +
+          'save of a body would throw in production and nowhere else',
+      );
+    }
+  }
+
   return { errors, counts: { dynamicRoutes: dynamic, pages: pages.length, migrations } };
 }
 
@@ -352,6 +393,22 @@ function selfTest() {
   assert(readsDatabase('const { DB } = Astro.locals.runtime.env;'), 'detects a page binding');
   assert(readsDatabase('export const GET = async ({ locals }) => locals.runtime.env.DB;'), 'detects an endpoint binding');
   assert(!readsDatabase('const x = 1;'), 'does not match an unrelated file');
+
+  assert(
+    hasHighlightingOff('createMarkdownProcessor({ syntaxHighlight: false })'),
+    'accepts the highlighter being off',
+  );
+  assert(
+    hasHighlightingOff(`createMarkdownProcessor({
+      syntaxHighlight: false,
+    })`),
+    'tolerates the option on its own line',
+  );
+  assert(!hasHighlightingOff('createMarkdownProcessor({})'), 'rejects the default processor');
+  assert(
+    !hasHighlightingOff("createMarkdownProcessor({ syntaxHighlight: 'shiki' })"),
+    'rejects an explicit highlighter',
+  );
 
   assert(isDynamic('export const prerender = false;'), 'detects the opt-out');
   assert(isDynamic('export  const   prerender=false'), 'tolerates spacing');

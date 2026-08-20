@@ -53,7 +53,9 @@ const linked = caseStudies.find(entry => entry.slug === fields.caseStudySlug);
 const seed = {
   slug,
   project: fields as ProjectFields,
-  caseStudy: linked ? { slug: linked.slug, data: linked.data as CaseStudyFields } : null,
+  caseStudy: linked
+    ? { slug: linked.slug, data: linked.data as CaseStudyFields, body: linked.body }
+    : null,
 };
 const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
 
@@ -292,6 +294,9 @@ const STATUS_VARIANT: Record<string, string> = {
             <button type="button" class="btn btn-secondary btn-sm" data-assist-task="casestudy">
               <Icon name="lucide:sparkles" class="admin-nav-icon" />Write the fields
             </button>
+            <button type="button" class="btn btn-secondary btn-sm" data-assist-task="casestudybody">
+              <Icon name="lucide:sparkles" class="admin-nav-icon" />Write the prose
+            </button>
             <button type="button" class="btn btn-secondary btn-sm" id="cs-unlink">Unlink</button>
           </div>
         </div>
@@ -346,6 +351,19 @@ const STATUS_VARIANT: Record<string, string> = {
           <div class="field">
             <label for="cs-arch">Architecture image (optional)</label>
             <input class="input" id="cs-arch" placeholder="/images/arch.svg" />
+          </div>
+          {/* The write-up itself. It had no field until now, which is why every
+              case study on the site was a header over the one paragraph
+              `createCaseStudy` scaffolds — the body column was writable and
+              nothing on any screen wrote it. Markdown in, HTML derived on the
+              way into D1, same as a post. */}
+          <div class="field pf-wide">
+            <label for="cs-body">The write-up (markdown)</label>
+            <textarea class="input pd-cs-body" id="cs-body" spellcheck="true"></textarea>
+            <p class="text-muted admin-note">
+              Rendered under the header on <code>/case-studies/{linked.slug}</code>. No title
+              line — the title is the field above, and repeating it prints it twice.
+            </p>
           </div>
         </div>
 
@@ -444,6 +462,7 @@ const STATUS_VARIANT: Record<string, string> = {
     getToken,
     getUser,
     parseRepoUrl,
+    repoFacts,
   } from '../../../lib/github';
   import { attachImageUpload } from '../../../lib/image-upload';
 
@@ -451,7 +470,7 @@ const STATUS_VARIANT: Record<string, string> = {
     interface Seed {
       slug: string;
       project: ProjectFields;
-      caseStudy: { slug: string; data: CaseStudyFields } | null;
+      caseStudy: { slug: string; data: CaseStudyFields; body: string } | null;
     }
 
     const seed: Seed = JSON.parse(document.getElementById('project-detail-seed')!.textContent || '{}');
@@ -753,9 +772,11 @@ const STATUS_VARIANT: Record<string, string> = {
         demo: $<HTMLInputElement>('cs-demo'),
         hero: $<HTMLInputElement>('cs-hero'),
         architecture: $<HTMLInputElement>('cs-arch'),
+        body: $<HTMLTextAreaElement>('cs-body'),
       };
 
-      function fillCaseStudy(data: CaseStudyFields) {
+      function fillCaseStudy(data: CaseStudyFields, body: string) {
+        study.body.value = body;
         study.title.value = data.title ?? '';
         study.subtitle.value = data.subtitle ?? '';
         study.problem.value = data.problem ?? '';
@@ -779,9 +800,9 @@ const STATUS_VARIANT: Record<string, string> = {
         name: () => `${linkedSlug}-architecture`,
       });
 
-      fillCaseStudy(seed.caseStudy!.data);
+      fillCaseStudy(seed.caseStudy!.data, seed.caseStudy!.body);
       $<HTMLButtonElement>('cs-reset').addEventListener('click', () => {
-        fillCaseStudy(seed.caseStudy!.data);
+        fillCaseStudy(seed.caseStudy!.data, seed.caseStudy!.body);
         say(csMessage, 'Reverted to what is saved.');
       });
 
@@ -841,13 +862,17 @@ const STATUS_VARIANT: Record<string, string> = {
             architectureImage: study.architecture.value.trim() || undefined,
           };
 
-          const result = await patchCaseStudy(linkedSlug, changes);
+          /* Fields and prose in one write. The endpoint renders the markdown to
+             HTML on the way in, so what the public page shows is a function of
+             this textarea and never of anything the browser rendered. */
+          const body = study.body.value;
+          const result = await patchCaseStudy(linkedSlug, changes, body);
           sayLink(csMessage, 'Saved. Live now', result.url);
           pending.update('Case study saved and live.', {
             tone: 'success',
             action: { label: 'view live ↗', href: result.url },
           });
-          seed.caseStudy = { slug: linkedSlug, data: { ...seed.caseStudy!.data, ...changes } };
+          seed.caseStudy = { slug: linkedSlug, data: { ...seed.caseStudy!.data, ...changes }, body };
         } catch (error) {
           say(csMessage, message(error), 'error');
           pending.update(message(error), { tone: 'error' });
@@ -947,10 +972,17 @@ const STATUS_VARIANT: Record<string, string> = {
 
     const assistOpen = $<HTMLButtonElement>('assist-open');
 
-    /** Which shape each live target's response is read against. */
-    const TARGET_SHAPES: Record<ProjectTarget, FieldShape> = {
+    /**
+     * Which shape each live target's response is read against.
+     *
+     * `null` is prose: the whole answer is the field's value. The write-up is
+     * the one target here like that, and every function below branches on this
+     * being absent rather than on the target's name.
+     */
+    const TARGET_SHAPES: Record<ProjectTarget, FieldShape | null> = {
       project: PROJECT_KEYS,
       caseStudy: CASE_STUDY_KEYS,
+      caseStudyBody: null,
     };
 
     type AnyField = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
@@ -980,6 +1012,12 @@ const STATUS_VARIANT: Record<string, string> = {
       }
 
       if (!linkedSlug) return null;
+
+      if (target === 'caseStudyBody') {
+        const body = document.getElementById('cs-body');
+        return body ? { body: body as AnyField } : null;
+      }
+
       const byId = {
         title: document.getElementById('cs-title'),
         subtitle: document.getElementById('cs-subtitle'),
@@ -1016,6 +1054,16 @@ const STATUS_VARIANT: Record<string, string> = {
       if (!inputs) return;
 
       const shape = TARGET_SHAPES[target];
+
+      /* Prose: the answer *is* the value. Guarded on it being non-empty, and
+         that guard is not a tidiness: this runs on every frame including the
+         first, and a run stopped in its opening moment would otherwise assign
+         `''` over the write-up that was already there. */
+      if (!shape) {
+        if (raw) inputs.body.value = raw;
+        return;
+      }
+
       const { values, tailStarted } = parseFields(raw, shape);
 
       for (const [key, input] of Object.entries(inputs)) {
@@ -1052,6 +1100,13 @@ const STATUS_VARIANT: Record<string, string> = {
     /** A short, honest description of how far a run has got, from the shape. */
     function liveProgress(target: ProjectTarget, raw: string): string {
       const shape = TARGET_SHAPES[target];
+      /* A word count, because the one prose target here is the longest thing
+         the assistant writes and "Writing…" for ninety seconds reads as stuck. */
+      if (!shape) {
+        const words = raw.trim() ? raw.trim().split(/\s+/).length : 0;
+        return words ? `Writing… ${words} words.` : 'Writing…';
+      }
+
       const { values, tailStarted } = parseFields(raw, shape);
       const landed = shape.head.filter(spec => values[spec.key]).map(spec => spec.key);
       if (tailStarted) landed.push(shape.tail.key);
@@ -1144,15 +1199,22 @@ const STATUS_VARIANT: Record<string, string> = {
         fetchRepoReadme(owner, name),
       ]);
 
-      const facts = [
-        `Repository: ${owner}/${name}`,
-        `URL: ${url}`,
-        meta?.description ? `GitHub description: ${meta.description}` : '',
-        languages.length ? `Languages GitHub detected, largest first: ${languages.join(', ')}` : '',
-        meta?.archived ? 'The repository is archived on GitHub.' : '',
-      ].filter(Boolean);
+      /* Everything the one metadata call already answered — topics, licence,
+         homepage, the two dates — rather than the four fields this used to
+         pick out of it. `repoFacts` is shared with the import modal so a
+         project drafted there and the same project edited here describe the
+         repository to the model in exactly the same words. */
+      const facts = meta
+        ? repoFacts(meta, languages)
+        : [
+            `Repository: ${owner}/${name}`,
+            `URL: ${url}`,
+            languages.length ? `Languages GitHub detected, largest first: ${languages.join(', ')}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n');
 
-      repoCache = { url, repo: facts.join('\n'), readme };
+      repoCache = { url, repo: facts, readme };
       return repoCache;
     }
 
@@ -1185,8 +1247,14 @@ const STATUS_VARIANT: Record<string, string> = {
       } catch {
         return 'This project needs a valid repository URL before the assistant can read it.';
       }
-      if (name === 'casestudy' && !linkedSlug) {
+      if ((name === 'casestudy' || name === 'casestudybody') && !linkedSlug) {
         return 'There is no case study linked yet — scaffold or link one on the Case study tab, then run this.';
+      }
+      if (name === 'casestudybody') {
+        const problem = (document.getElementById('cs-problem') as HTMLTextAreaElement | null)?.value.trim();
+        if (!problem) {
+          return 'Write the case study’s fields first — the prose continues from the problem and solution above it, and would otherwise write its own.';
+        }
       }
       return null;
     }
@@ -1333,13 +1401,25 @@ const STATUS_VARIANT: Record<string, string> = {
         /* Only the fields this task declares. `context` on the task is an
            allowlist, and the endpoint's copy of it is what actually enforces
            the cap — this just avoids sending what will be dropped. */
+        const value = (id: string) =>
+          (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null)?.value ?? '';
+
+        /* The write-up is written *about the case study*, so its title and
+           subtitle are the ones that matter — a body introduced by the
+           project's one-line summary reads as a second, shorter case study on
+           top of the one it is inside. Every other task on this screen starts
+           from the project. */
+        const aboutBody = live === 'caseStudyBody';
+
         const source: Record<string, string> = {
           repo,
           readme,
-          title: project.title.value,
-          summary: project.summary.value,
-          stack: project.stack.value,
-          highlights: project.highlights.value,
+          title: aboutBody ? value('cs-title') : project.title.value,
+          summary: aboutBody ? value('cs-subtitle') : project.summary.value,
+          stack: aboutBody ? value('cs-stack') : project.stack.value,
+          highlights: aboutBody ? value('cs-achievements') : project.highlights.value,
+          problem: value('cs-problem'),
+          solution: value('cs-solution'),
         };
         const context: Record<string, string> = {};
         for (const key of task.context) context[key] = source[key] ?? '';
@@ -1397,7 +1477,7 @@ const STATUS_VARIANT: Record<string, string> = {
            loud. Nothing was written — every branch of `applyLive` is guarded on
            a parsed value — so it stays in the message with Copy and Try again
            rather than reaching a field. Decision 29. */
-        if (!parseFields(output, shape).recognised) {
+        if (shape && !parseFields(output, shape).recognised) {
           dropUnusedSnapshot();
           turn.answer(output);
           turn.actions([copy(output), again]);
@@ -1419,7 +1499,11 @@ const STATUS_VARIANT: Record<string, string> = {
         turn.actions([...undoAction(), again]);
         turn.end(output);
         toast(
-          live === 'project' ? 'Frontmatter written into the fields.' : 'Case study fields written.',
+          live === 'project'
+            ? 'Frontmatter written into the fields.'
+            : live === 'caseStudy'
+              ? 'Case study fields written.'
+              : 'Write-up written into the case study.',
           { tone: 'success' },
         );
       } catch (error) {
