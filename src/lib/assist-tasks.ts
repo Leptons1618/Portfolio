@@ -1,11 +1,11 @@
 /**
- * The twelve things the authoring assistant can be asked to do.
+ * The eighteen things the authoring assistant can be asked to do.
  *
- * Ten of them belong to the journal editor and two to the project screen; each
- * task says which by its `surface`, and each screen renders the menu filtered
- * to its own. One table rather than one per screen, because the property below
- * is a property of the *table* — a second table is a second thing to keep
- * closed, and the first one to be forgotten.
+ * Ten belong to the journal editor, two to the project screen and four to the
+ * resume; each task says which by its `surface`, and each screen renders the
+ * menu filtered to its own. One table rather than one per screen, because the
+ * property below is a property of the *table* — a second table is a second
+ * thing to keep closed, and the first one to be forgotten.
  *
  * A closed table, and that is the security property of the whole authoring
  * agent. `/api/ai/assist` is behind `requireOwner()`, so the obvious design is
@@ -14,7 +14,7 @@
  * token in a browser tab, and an endpoint that forwards arbitrary prompts on
  * the owner's API key is a general-purpose model with a billing account
  * attached, one stolen session away from being someone else's. A table of tasks
- * bounds what a stolen session is worth: twelve prompts about writing up
+ * bounds what a stolen session is worth: eighteen prompts about writing up
  * this person's own work.
  *
  * It also makes the assistant *better*. Each task carries its own temperature,
@@ -91,7 +91,19 @@ export type JournalTarget = 'document' | 'summary' | 'body';
  */
 export type ProjectTarget = 'project' | 'caseStudy';
 
-export type AssistTarget = JournalTarget | ProjectTarget;
+/**
+ * The resume screen's one live target: the open variant's summary.
+ *
+ * One rather than several, and that is a property of the screen rather than an
+ * omission. Everything else the assistant does here — which projects to
+ * include, how to reword a bullet, what a whole variant should be — is a
+ * *proposal about a selection*, and a selection changing under the author while
+ * a model streams is not an edit they can watch, it is a form rearranging
+ * itself. Those land in the panel and wait for Apply.
+ */
+export type ResumeTarget = 'resumeSummary';
+
+export type AssistTarget = JournalTarget | ProjectTarget | ResumeTarget;
 
 /**
  * Which editor a task belongs to.
@@ -111,7 +123,10 @@ export type AssistTarget = JournalTarget | ProjectTarget;
  * reachable everywhere, which is the opposite of every other entry here and is
  * why it says so rather than lying about being a journal task.
  */
-export type AssistSurface = 'journal' | 'project' | 'both';
+export type AssistSurface = 'journal' | 'project' | 'resume' | 'both';
+
+/** The surfaces that render a panel. `both` is a wildcard, not a place. */
+export type AssistScreen = Exclude<AssistSurface, 'both'>;
 
 /**
  * What a task does to the post, which is the only sorting that helps.
@@ -157,7 +172,13 @@ export type AssistField =
   | 'repo'
   | 'readme'
   | 'stack'
-  | 'highlights';
+  | 'highlights'
+  /** The resume as it currently reads, rendered flat. */
+  | 'resume'
+  /** The advert this variant is being tailored to, pasted by the author. */
+  | 'jobDescription'
+  /** One bullet or one line, for the tasks that rewrite exactly that. */
+  | 'entry';
 
 export interface AssistTask {
   /** Shown on the button in the editor. */
@@ -308,6 +329,33 @@ export const CASE_STUDY_KEYS: FieldShape = {
     { key: 'readTime', label: 'READTIME', also: ['READ TIME'] },
   ],
   tail: { key: 'achievements', label: 'ACHIEVEMENTS' },
+};
+
+/**
+ * What `resumeVariant` returns: a whole tailored resume, as choices.
+ *
+ * Every head field but `LABEL` and `SUMMARY` is a *list of identifiers the
+ * author already has* — role ids, skill group names, certification strings —
+ * rather than content. That is the design: this task decides what goes on the
+ * resume, and the resume's own words are the master's. A model asked to write
+ * the roles would write three plausible jobs.
+ *
+ * The editor validates every one of them against what exists and silently drops
+ * the rest, so the worst a hallucinated id can do is not be selected.
+ *
+ * `PROJECTS` is the tail because it is the only field carrying prose — one line
+ * per project, and the line is the whole point of listing it under a role.
+ */
+export const VARIANT_KEYS: FieldShape = {
+  head: [
+    { key: 'label', label: 'LABEL' },
+    { key: 'summary', label: 'SUMMARY' },
+    { key: 'experience', label: 'EXPERIENCE', also: ['ROLES'] },
+    { key: 'skills', label: 'SKILLS' },
+    { key: 'education', label: 'EDUCATION' },
+    { key: 'certifications', label: 'CERTIFICATIONS', also: ['CERTS'] },
+  ],
+  tail: { key: 'projects', label: 'PROJECTS' },
 };
 
 /**
@@ -670,6 +718,159 @@ Rules:
     needsTopic: true,
   },
 
+  /* ---------- the resume screen ---------- */
+
+  /**
+   * The summary, rewritten for one advert.
+   *
+   * The first thing anyone changes between two applications and the last thing
+   * anyone remembers to. It is `live` for the same reason the journal's
+   * `summary` is: there is one field, one answer, and no decision to make once
+   * the text exists — so making the author press Insert to watch a paragraph
+   * move four inches is ceremony.
+   *
+   * It reads the whole sheet rather than only the current summary, because a
+   * professional statement that contradicts the roles underneath it is worse
+   * than a generic one.
+   */
+  resumeSummary: {
+    label: 'Tailor the summary',
+    command: 'tailor-summary',
+    surface: 'resume',
+    group: 'refine',
+    hint: 'Rewrites this variant’s summary against the role you pasted.',
+    instructions: `Write the professional summary at the top of this resume, aimed at the specific role the author is applying for.
+
+Rules:
+- Three sentences at most, one paragraph, no bullet points, no heading.
+- It must be true of the experience below it. Do not claim a technology, a domain or a seniority the resume does not support.
+- Lead with what they *are* and what they have shipped, not with what they are looking for. No "seeking a challenging position".
+- Use the role's own vocabulary where it honestly matches the author's work — that is what makes a summary read as written for this application — but never adopt a requirement they do not meet.
+- No first person pronouns, no name. A resume summary is written in the implied first person.
+
+Return the paragraph and nothing else.`,
+    format: 'markdown',
+    maxTokens: 1600,
+    temperature: 0.5,
+    needsCorpus: false,
+    context: ['resume', 'jobDescription'],
+    live: 'resumeSummary',
+  },
+
+  /**
+   * Which of the author's real projects belong on this resume.
+   *
+   * The one task here that needs the index: it is choosing among rows that
+   * exist, so it is given the list with the slugs and may read any of them.
+   * The slug is what makes the answer *applicable* rather than advisory — the
+   * editor looks each one up and refuses anything that is not a project.
+   *
+   * Not live, and not even close: this proposes a selection, and a selection
+   * rearranging itself while a model streams is a form the author cannot read.
+   */
+  resumeProjects: {
+    label: 'Suggest projects',
+    command: 'suggest-projects',
+    surface: 'resume',
+    group: 'suggest',
+    hint: 'Ranks your real projects against the role, with a one-line framing each.',
+    instructions: `Choose which of the author's projects belong on this resume for the role they are applying to, and write the single line each one gets.
+
+Return three to five of them, one per line, in the order they should appear — strongest fit first — in exactly this shape:
+
+slug — one sentence saying what it is and why it matters for this role
+
+Rules:
+- The slug must be one from the index you were given. Never invent one, and never return a project that is not in it.
+- Read the project before writing its line if the index summary is not enough. Do not guess at what it does.
+- The line is under 160 characters, is a fact rather than a claim, and is framed for *this* role — the same project is described differently for an ML job and a platform job.
+- No numbering, no bullets, no quotes, nothing before the first slug or after the last line.
+- If fewer than three genuinely fit, return fewer. A weak project on a resume costs more than an empty section.`,
+    format: 'lines',
+    maxTokens: 2400,
+    temperature: 0.4,
+    /* The index, so the slugs it returns are real ones. */
+    needsCorpus: true,
+    context: ['resume', 'jobDescription'],
+  },
+
+  /**
+   * One line, rewritten to an instruction.
+   *
+   * The counterpart to the journal's `selection`, and not live for the same
+   * reason: it replaces text the author has already written, in a place they
+   * chose, and "it is written, press Undo" is the wrong offer for that. The
+   * editor remembers which field was focused and Insert writes there.
+   */
+  resumeBullet: {
+    label: 'Rewrite this line',
+    command: 'rewrite-bullet',
+    surface: 'resume',
+    group: 'refine',
+    hint: 'Shorter, sharper, or pushed toward numbers. Nothing changes until you accept it.',
+    instructions: `Rewrite one line of this resume according to the author's instruction. It is a role bullet, a role description or a project line.
+
+Rules:
+- Return **only** the rewritten line. No label, no bullet character, no quotes, no explanation.
+- One sentence. Under 200 characters unless the author asked for more.
+- Lead with the verb and the outcome, not with "Responsible for" or "Worked on".
+- Keep every fact exactly as stated. If the author asks for numbers and the line has none, ask for the number in a single short clause rather than inventing one — a fabricated metric on a resume is the worst thing you can produce here.
+- If the instruction cannot be applied, return the line unchanged.`,
+    format: 'markdown',
+    maxTokens: 1200,
+    temperature: 0.4,
+    needsCorpus: false,
+    context: ['entry', 'resume', 'jobDescription'],
+    needsTopic: true,
+  },
+
+  /**
+   * A whole variant, from an advert.
+   *
+   * The most useful thing on this screen and the one with the most ways to be
+   * wrong, which is why every field it returns but two is a list of identifiers
+   * the author already has. It selects; it does not write a resume.
+   *
+   * It lands in the panel with an Apply button rather than streaming, because
+   * what it produces is not text — it is six selections, and applying them one
+   * token at a time would be a form redrawing itself for thirty seconds.
+   */
+  resumeVariant: {
+    label: 'Build a variant for a role',
+    command: 'build-variant',
+    surface: 'resume',
+    group: 'write',
+    hint: 'From a job description: summary, which roles and skills, and a project shortlist.',
+    instructions: `Tailor this author's resume to the role they pasted. You are choosing *from what they already have* — you are not writing their history.
+
+Return it in exactly this shape, with each label at the start of its own line:
+
+LABEL: a short name for this version of the resume, like "ML / CV Engineer" or "Backend, fintech"
+SUMMARY: the professional summary, one paragraph on a single line, three sentences at most
+EXPERIENCE: comma-separated role ids from the list you were given, in the order they should appear
+SKILLS: comma-separated skill group names from the list you were given, most relevant first
+EDUCATION: comma-separated education ids from the list you were given
+CERTIFICATIONS: comma-separated certification names, copied exactly from the list you were given
+PROJECTS:
+slug — one sentence framing this project for this role
+
+Rules:
+- Every id, group name and certification must appear verbatim in the material you were given. Anything else is dropped, so inventing one only loses you the slot.
+- Project slugs come from the index. Read a project before writing its line rather than inferring from its summary.
+- Include every role. A resume with a gap in it raises the question the gap does not answer — reorder and reframe instead of omitting, unless the author asked otherwise.
+- Drop skill groups that are irrelevant to the role. That is the section where less is genuinely more.
+- Three to five projects, strongest fit first.
+- Claim nothing the author's material does not support.
+
+Emit nothing before LABEL: and nothing after the last project line. Do not wrap the response in a code fence.`,
+    format: 'document',
+    keys: VARIANT_KEYS,
+    maxTokens: 3000,
+    temperature: 0.45,
+    needsCorpus: true,
+    context: ['resume', 'jobDescription'],
+  },
+
   /**
    * Plain conversation, which is what the panel does when no command is typed.
    *
@@ -711,7 +912,10 @@ Rules:
     /* Everything either editor might have. A field a surface does not have
        arrives empty, which is what `source[key] ?? ''` in both panels already
        does — and every one of these is capped by `CONTEXT_LIMITS`. */
-    context: ['title', 'summary', 'tags', 'body', 'selection', 'stack', 'highlights'],
+    context: [
+      'title', 'summary', 'tags', 'body', 'selection', 'stack', 'highlights',
+      'resume', 'jobDescription',
+    ],
     needsTopic: true,
   },
 } as const satisfies Record<string, AssistTask>;
@@ -1015,6 +1219,15 @@ const CONTEXT_LIMITS: Record<AssistField, number> = {
   readme: 8000,
   stack: 300,
   highlights: 1500,
+  /* The whole sheet, flattened. Larger than `body` would need to be for a post
+     because a resume is dense — three roles with bullets, six skill groups and
+     five projects is most of this before a word of prose. */
+  resume: 10_000,
+  /* Job adverts are padded — the company boilerplate, the benefits, the equal
+     opportunity paragraph — and the part that matters is the requirements
+     list, which is never past the first few thousand characters. */
+  jobDescription: 8000,
+  entry: 2000,
 };
 
 const CONTEXT_LABELS: Record<AssistField, string> = {
@@ -1027,6 +1240,9 @@ const CONTEXT_LABELS: Record<AssistField, string> = {
   readme: 'That repository’s README',
   stack: 'Current stack',
   highlights: 'Current highlights',
+  resume: 'The resume as it currently reads',
+  jobDescription: 'The role being applied for',
+  entry: 'The line being rewritten',
 };
 
 /**

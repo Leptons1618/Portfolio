@@ -1,15 +1,15 @@
 ---
-import '@fontsource/archivo/400.css';
-import '@fontsource/archivo/600.css';
-import '@fontsource/archivo/800.css';
+import '@fontsource/instrument-serif/400.css';
+import '@fontsource/instrument-serif/400-italic.css';
+import '@fontsource-variable/inter';
 import '@fontsource-variable/space-grotesk';
 import '@fontsource-variable/manrope';
 import '@fontsource-variable/jetbrains-mono';
 import '../../styles/global.css';
 import Illustration from '../../components/Illustration.astro';
+import ThemeHead from '../../components/ThemeHead.astro';
 import { grantAccessUrl } from '../../lib/github';
 import { site } from '../../lib/site';
-import { DEFAULT_THEME, THEME_KEY, THEMES } from '../../lib/theme';
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -19,15 +19,7 @@ import { DEFAULT_THEME, THEME_KEY, THEMES } from '../../lib/theme';
   <title>Admin Access</title>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="icon" type="image/png" href="/favicon.png" />
-  <meta name="theme-color" content={THEMES.find(t => t.id === DEFAULT_THEME)!.themeColor} />
-  <script is:inline define:vars={{ THEME_KEY, DEFAULT_THEME, THEME_IDS: THEMES.map(t => t.id) }}>
-    (function () {
-      var stored = localStorage.getItem(THEME_KEY);
-      if (stored && stored !== DEFAULT_THEME && THEME_IDS.indexOf(stored) !== -1) {
-        document.documentElement.dataset.theme = stored;
-      }
-    })();
-  </script>
+  <ThemeHead />
 </head>
 <body class="login-body">
   <div class="login-panel">

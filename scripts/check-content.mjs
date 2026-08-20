@@ -87,6 +87,16 @@ export function isDynamic(source) {
   return /export\s+const\s+prerender\s*=\s*false/.test(source);
 }
 
+/**
+ * How wide a printed page actually is, in CSS pixels.
+ *
+ * A4 is 210mm; `resume.css`'s `@page` margin is 14mm a side, leaving a 182mm
+ * measure. CSS defines 1in as 96px and 1in as 25.4mm, so 182mm is 688px. Any
+ * `max-width` breakpoint at or above this number can never match while
+ * printing; any below it always can.
+ */
+const PRINT_WIDTH_PX = Math.round((210 - 28) * (96 / 25.4));
+
 function check() {
   const errors = [];
   const fail = (file, message) => errors.push(`${file}: ${message}`);
@@ -265,6 +275,63 @@ function check() {
     );
   }
 
+  /* 8. Nothing lays out paper by accident.
+
+     A printed A4 page at 14mm margins is a 182mm measure, which is **688px**
+     at CSS's 96dpi. So every `max-width` breakpoint below roughly 690px is
+     also a print rule, whether or not anybody meant it to be — and a
+     breakpoint that fires alongside the print block is a second, invisible
+     author of the printed layout.
+
+     It happened. `resume.css`'s `max-width: 760px` block stacked the sheet and
+     placed both children of `.rs-body` into explicit grid cells; the print
+     block below it re-declared `grid-template-columns` and not the placements,
+     so a resume printed into a 52mm rail with two thirds of the page blank
+     beside it. Three pages, and nothing on screen was wrong.
+
+     The same argument covers the dark ramp. Paper has no dark mode, so the
+     `[data-mode='dark']` and `prefers-color-scheme` blocks are wrapped in
+     `@media screen`; without that, printing from a dark page resolves
+     `--color-text-muted` to a *light* neutral and half the sheet prints pale
+     grey on white.
+
+     A text match on the stylesheets rather than a rendering test, deliberately:
+     the failure is a media query that forgot to say `screen`, which is
+     something you can read. Whether the sheet then *looks* right is CSS and a
+     printer, and `scripts/test-resume.mjs` says why that is not tested. */
+  const SHEET_STYLES = ['src/styles/resume.css', 'src/styles/theme.css', 'src/styles/themes/blueprint.css'];
+  for (const file of SHEET_STYLES) {
+    const source = readFileSync(p(file), 'utf8');
+
+    for (const [, condition, px] of source.matchAll(/@media([^{]*?)\(max-width:\s*(\d+)px\)/g)) {
+      /* `max-width: N` matches when the viewport is *at most* N, so it can
+         reach a printed page exactly when N is at least the page's width. A
+         breakpoint below that can never fire on paper and needs no qualifier. */
+      if (Number(px) < PRINT_WIDTH_PX) continue;
+      if (!/\bscreen\b/.test(condition)) {
+        fail(
+          file,
+          `@media (max-width: ${px}px) is not scoped to \`screen\`, so it also matches when ` +
+            `printing — a printed page is only ${PRINT_WIDTH_PX}px wide. Write ` +
+            '`@media screen and (max-width: ' + px + 'px)`',
+        );
+      }
+    }
+
+    /* The dark ramp, wherever it is declared. Both spellings, because the
+       attribute has to win over a light OS and the media query has to carry the
+       dark-OS default — see the header of `theme.css`. */
+    if (/(?:\[data-mode=['"]dark['"]\]|prefers-color-scheme:\s*dark)/.test(source)) {
+      if (!/@media\s+screen\s*\{/.test(source) && !/@media\s+screen\s+and\s*\(prefers-color-scheme/.test(source)) {
+        fail(
+          file,
+          'declares a dark palette but never scopes one to `screen` — paper has no dark mode, ' +
+            'and a sheet printed from a dark page is pale grey text on white',
+        );
+      }
+    }
+  }
+
   return { errors, counts: { dynamicRoutes: dynamic, pages: pages.length, migrations } };
 }
 
@@ -304,6 +371,22 @@ function selfTest() {
   assert(!absolute('anishgiri.dev'), 'rejects a bare host');
   assert(!absolute('//anishgiri.dev'), 'rejects a scheme-relative host');
   assert(!absolute('https://'), 'rejects a scheme with no host');
+
+  /* The printed-page width, and the comparison that hangs off it. The whole
+     check turns on which side of 688px a breakpoint falls, so an arithmetic
+     slip here is a guard that silently passes — which is what it did on the
+     first attempt, with the comparison the wrong way round. */
+  assert(PRINT_WIDTH_PX === 688, 'A4 at 14mm margins is 688px');
+  const reaches = px => px >= PRINT_WIDTH_PX;
+  assert(reaches(760), 'a 760px breakpoint matches on paper');
+  assert(reaches(688), 'a breakpoint exactly the page width matches');
+  assert(!reaches(640), 'a 640px breakpoint cannot match on paper');
+
+  /* The matcher, against the shapes that actually appear in these files. */
+  const scoped = condition => /\bscreen\b/.test(condition);
+  assert(scoped(' screen and '), 'accepts a screen-qualified query');
+  assert(!scoped(' '), 'rejects a bare query');
+  assert(!scoped(' print, '), 'does not accept `print` as a scope');
 
   console.log('check-content self-test: ok');
 }

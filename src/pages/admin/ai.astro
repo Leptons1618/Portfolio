@@ -24,8 +24,9 @@
  */
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import { Icon } from 'astro-icon/components';
-import { SETTINGS_CEILINGS } from '../../lib/ai';
+import { SETTINGS_CEILINGS, THINKING_HEADROOM } from '../../lib/ai';
 import {
+  EFFORT_LEVELS,
   MAX_OUTPUT_CEILING,
   MIN_OUTPUT_CEILING,
   PARAM_SPECS,
@@ -50,7 +51,27 @@ import {
 
     <p class="admin-note ai-message" id="ai-message"></p>
 
-    <div class="ai-grid">
+    {/* Two halves, and they are two different jobs done at two different times.
+        Configuring an endpoint is a thing you do once, with a key in the
+        clipboard; deciding whether strangers may spend it — and how much — is a
+        thing you come back to. They were one column and one rail, so the switch
+        that bills the account sat beside a provider dialog and the limits sat
+        under a list of models, and neither read as the decision it is.
+
+        The initially-selected tab is marked on the server, so the right panel
+        shows before `wireTabs` runs — the same contract every other tablist on
+        this surface has. */}
+    <div class="tab-bar" role="tablist" aria-label="Assistant settings" id="ai-tabs">
+      <button type="button" class="tab" role="tab" id="ai-tab-providers" aria-controls="ai-panel-providers" aria-selected="true">
+        <Icon name="lucide:plug" class="admin-nav-icon" />Providers
+      </button>
+      <button type="button" class="tab" role="tab" id="ai-tab-public" aria-controls="ai-panel-public" aria-selected="false">
+        <Icon name="lucide:globe" class="admin-nav-icon" />Public assistant
+      </button>
+    </div>
+
+    <div class="tab-panel" id="ai-panel-providers" role="tabpanel" aria-labelledby="ai-tab-providers">
+      <div class="ai-grid">
       <div class="ai-col">
         <section class="card elev-sm">
           <h6 class="admin-eyebrow">Providers</h6>
@@ -67,6 +88,57 @@ import {
             <div class="ai-skeleton" aria-hidden="true"></div>
             <div class="ai-skeleton" aria-hidden="true"></div>
           </div>
+        </section>
+      </div>
+
+      <aside class="ai-side">
+        <section class="card elev-sm">
+          <h6 class="admin-eyebrow">How one gets picked</h6>
+          <ol class="ai-steps">
+            <li>The <strong>active</strong> rows are tried in priority order, lowest first.</li>
+            <li>Within a row, the model is tried and then each fallback in turn — a retired model id or a 429 falls through on the same key.</li>
+            <li>The first row that answers wins. Everything after it is never called, so a second provider costs nothing until the first one breaks.</li>
+          </ol>
+          <hr class="rule ai-rule" />
+          <p class="text-muted admin-note">
+            The key is stored once and never sent back — this screen only ever sees a
+            fingerprint of it. Leaving the field empty on an edit keeps the stored key;
+            removing one is its own button.
+          </p>
+        </section>
+
+        <section class="card elev-sm">
+          <h6 class="admin-eyebrow">Both assistants, one key</h6>
+          <p class="text-muted admin-note">
+            These rows answer the public assistant <em>and</em> the writing assistant in
+            the editors. The switch on the next tab governs only the first — turning
+            visitors off never takes your own tools away.
+          </p>
+        </section>
+      </aside>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="ai-panel-public" role="tabpanel" aria-labelledby="ai-tab-public" hidden>
+      <div class="ai-grid">
+      <div class="ai-col">
+        {/* The switch, and the sentence about what it means, first — every other
+            toggle on this surface changes what a reader sees; this one changes
+            what the owner is billed, so it is the first thing on the panel
+            rather than the top of a rail beside something else. */}
+        <section class="card elev-sm ai-switch-card">
+          <h6 class="admin-eyebrow">Public assistant</h6>
+          <label class="ai-switch">
+            <input type="checkbox" id="ai-enabled" />
+            <span>Answer questions from visitors</span>
+          </label>
+          <p class="text-muted admin-note">
+            While this is on, anyone on the public site can ask questions and each
+            answer is billed to the provider's account. Off, the chat launcher does
+            not appear at all and <code>/api/ai/chat</code> refuses. The writing
+            assistant in the journal editor is unaffected either way — it is behind
+            your sign-in.
+          </p>
         </section>
 
         <section class="card elev-sm">
@@ -96,24 +168,6 @@ import {
       </div>
 
       <aside class="ai-side">
-        {/* The switch, and the sentence about what it means, in the same box.
-            Every other toggle on this surface changes what a reader sees; this
-            one changes what the owner is billed. */}
-        <section class="card elev-sm ai-switch-card">
-          <h6 class="admin-eyebrow">Public assistant</h6>
-          <label class="ai-switch">
-            <input type="checkbox" id="ai-enabled" />
-            <span>Answer questions from visitors</span>
-          </label>
-          <p class="text-muted admin-note">
-            While this is on, anyone on the public site can ask questions and each
-            answer is billed to the provider's account. Off, the chat launcher does
-            not appear at all and <code>/api/ai/chat</code> refuses. The writing
-            assistant in the journal editor is unaffected either way — it is behind
-            your sign-in.
-          </p>
-        </section>
-
         <section class="card elev-sm">
           <h6 class="admin-eyebrow">Limits</h6>
           <p class="text-muted admin-note">
@@ -147,8 +201,25 @@ import {
               <input class="input" type="number" id="ai-maxout" min="1" max={SETTINGS_CEILINGS.maxOutputTokens} />
               <span class="text-muted ai-cap">
                 tokens, max {SETTINGS_CEILINGS.maxOutputTokens.toLocaleString()}. A model that thinks
-                before it writes spends this on both, so it has to clear the thinking — the provider's
-                own output ceiling raises it further where one is set.
+                before it writes spends this on <em>both</em>, so it has to clear the thinking. A
+                provider row naming a larger ceiling raises this to {THINKING_HEADROOM.toLocaleString()}
+                and no further — it says what the model accepts, not what you want to pay for.
+              </span>
+            </div>
+            <div class="field">
+              <label for="ai-effort">Thinking</label>
+              <select class="input" id="ai-effort">
+                <option value="">Leave it to the provider</option>
+                {EFFORT_LEVELS.map(level => (
+                  <option value={level}>{level[0].toUpperCase() + level.slice(1)}</option>
+                ))}
+              </select>
+              <span class="text-muted ai-cap">
+                The only setting here that acts on thinking rather than on the total. Answer
+                length bounds reasoning and prose together and cannot say how the model splits
+                them; this can. <strong>Low</strong> is the default and the right one for a
+                question answered out of an index — anything more is billed deliberation that
+                ends up in a disclosure nobody opens.
               </span>
             </div>
           </div>
@@ -168,6 +239,7 @@ import {
           <p class="text-muted admin-note" id="ai-usage">—</p>
         </section>
       </aside>
+      </div>
     </div>
   </div>
 
@@ -425,7 +497,7 @@ import {
 </AdminLayout>
 
 <script>
-  import { onAdminPage, setBusy, setLabel, toast } from '../../lib/admin';
+  import { onAdminPage, setBusy, setLabel, toast, wireTabs } from '../../lib/admin';
   import {
     clearKey,
     createProvider,
@@ -443,6 +515,7 @@ import {
   import {
     PARAM_SPECS,
     PROVIDER_PRESETS,
+    clampEffort,
     clampOutputCeiling,
     clampParams,
     presetFor,
@@ -458,6 +531,20 @@ import {
     const stamp = $('ai-stamp');
     const list = $('ai-providers');
     const dialog = $<HTMLDialogElement>('ai-dialog');
+
+    /* The two head actions belong to one panel each — "Add provider" to the
+       first, "Save settings" to the second — and showing both on both is how a
+       screen ends up with a Save that saves something you cannot see. Hiding
+       rather than disabling: a greyed-out button invites the question of what
+       would un-grey it, and the answer here is "a tab", which the tab already
+       says. */
+    const addBtn = $<HTMLButtonElement>('ai-add');
+    const saveBtn = $<HTMLButtonElement>('ai-save-settings');
+
+    wireTabs($('ai-tabs'), id => {
+      addBtn.hidden = id !== 'ai-panel-providers';
+      saveBtn.hidden = id !== 'ai-panel-public';
+    });
 
     const say = (text: string, tone: 'info' | 'error' = 'info') => {
       message.dataset.tone = tone;
@@ -477,6 +564,7 @@ import {
       maxQuestionChars: $<HTMLInputElement>('ai-maxchars'),
       maxTurns: $<HTMLInputElement>('ai-maxturns'),
       maxOutputTokens: $<HTMLInputElement>('ai-maxout'),
+      reasoningEffort: $<HTMLSelectElement>('ai-effort'),
     };
 
     /* — settings —
@@ -506,6 +594,11 @@ import {
         maxQuestionChars: number(settingsFields.maxQuestionChars, DEFAULTS.maxQuestionChars),
         maxTurns: number(settingsFields.maxTurns, DEFAULTS.maxTurns),
         maxOutputTokens: number(settingsFields.maxOutputTokens, DEFAULTS.maxOutputTokens),
+        /* Empty is a real choice — "send no effort field" — and not a missing
+           one, so it is passed through rather than falling back to the default
+           the way the numbers above do. `clampSettings` turns anything that is
+           not one of the three levels into `null`, which is the same thing. */
+        reasoningEffort: clampEffort(settingsFields.reasoningEffort.value),
       };
     }
 
@@ -519,6 +612,10 @@ import {
       settingsFields.maxQuestionChars.value = String(settings.maxQuestionChars);
       settingsFields.maxTurns.value = String(settings.maxTurns);
       settingsFields.maxOutputTokens.value = String(settings.maxOutputTokens);
+      /* `null` is the empty option, which is what "leave it to the provider"
+         is stored as. `?? ''` rather than a branch, because `select.value = ''`
+         on a select that has an empty option selects it. */
+      settingsFields.reasoningEffort.value = settings.reasoningEffort ?? '';
     }
 
     /* — the provider rows —
@@ -1274,6 +1371,20 @@ import {
 </script>
 
 <style>
+  /* The three-step explanation in the providers rail. A real `<ol>`, because
+     the order is the whole content — a list of bullets would say the same
+     words and none of the meaning. */
+  .ai-steps {
+    margin: 0;
+    padding-left: 1.2em;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--color-text-muted);
+    display: grid;
+    gap: var(--space-2);
+    list-style: decimal;
+  }
+
   .ai-message { min-height: 18px; font-size: 12px; margin: 0 0 var(--space-4); }
   .ai-message[data-tone='error'] { color: var(--color-accent-700); }
 

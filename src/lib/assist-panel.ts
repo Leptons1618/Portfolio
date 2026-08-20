@@ -52,7 +52,7 @@ import {
   type ChatSummary,
   type ToolFrame,
 } from './ai-store';
-import { ASSIST_MENU, parseCommand, type AssistMenuItem } from './assist-tasks';
+import { ASSIST_MENU, parseCommand, type AssistMenuItem, type AssistScreen } from './assist-tasks';
 
 /* ---------- what a page drives ---------- */
 
@@ -92,7 +92,7 @@ export interface AssistTurn {
 }
 
 export interface AssistPanelConfig {
-  surface: 'journal' | 'project';
+  surface: AssistScreen;
   /** Which post or project this conversation is about. May be empty. */
   docSlug: () => string;
   /** Run a command, or plain conversation when `item` is null. */
@@ -184,7 +184,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
   const sessionList = $('assist-session-list');
 
   /* The commands this surface offers. `both` is `chat`, which has no command
-     and is therefore not in `ASSIST_MENU` at all — this is the twelve. */
+     and is therefore not in `ASSIST_MENU` at all. */
   const commands = ASSIST_MENU.filter(item => item.surface === config.surface);
 
   /* ---------- the log ---------- */

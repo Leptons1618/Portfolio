@@ -45,7 +45,7 @@
 
 import type { CaseStudy, Post, Project } from './content';
 import { CATEGORY_LABELS } from './content';
-import type { Resume } from './resume';
+import { entryRange, type Resume } from './resume';
 import { site } from './site';
 
 /** What the corpus is built from. Every field is optional to fetch, not to filter. */
@@ -172,10 +172,11 @@ function resumeSection(resume: Resume | null): string {
   if (resume.experience.length) {
     out += '\n### Roles\n';
     for (const role of resume.experience) {
-      out += `\n- **${role.title}**, ${role.company} — ${role.dates}`;
+      out += `\n- **${role.title}**, ${role.company} — ${entryRange(role)}`;
       if (role.location) out += ` (${role.location})`;
       out += '\n';
       if (role.description) out += `  ${excerpt(role.description, 600)}\n`;
+      for (const point of role.highlights) out += `  - ${excerpt(point, 300)}\n`;
     }
   }
 
@@ -187,7 +188,7 @@ function resumeSection(resume: Resume | null): string {
   if (resume.education.length) {
     out += '\n### Education\n';
     for (const entry of resume.education) {
-      out += `- ${entry.degree}, ${entry.school} (${entry.dates})\n`;
+      out += `- ${entry.degree}, ${entry.school} (${entryRange(entry)})\n`;
     }
   }
 
@@ -279,7 +280,7 @@ export function buildIndex(input: CorpusInput): string {
     if (input.resume.experience.length) {
       out += '\nRoles: ';
       out += input.resume.experience
-        .map(role => `${role.title} at ${role.company} (${role.dates})`)
+        .map(role => `${role.title} at ${role.company} (${entryRange(role)})`)
         .join('; ');
       out += '\n';
     }

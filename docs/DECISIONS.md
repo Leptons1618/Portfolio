@@ -815,6 +815,10 @@ It does not go through the conversation panel. A conversation entry for every "c
 
 ## 37. The assistant looks content up instead of being handed all of it, and the model's own maximum is the ceiling
 
+> **Amended by decision 43.** The ceiling half of this decision was too strong: a
+> provider row now raises a task ceiling only as far as `THINKING_HEADROOM`, not
+> all the way to what the vendor reports. The lookup half is unchanged.
+
 **Status:** accepted
 
 **Supersedes part of decision 31.**
@@ -869,3 +873,170 @@ On the panel, not on the settings screen. All three are things an author changes
 **What is deliberately not offered:** none of these controls appear on the public widget. A visitor picking a model is a visitor picking a price, on somebody else's account.
 
 **When this would change.** If a tool ever needed to *write* — publish a post, upload a file, call an external API — decision 31's refusal applies again in full, and the answer is a task in `ASSIST_TASKS`, not an entry in `TOOL_SPECS`.
+
+## 38. There is one theme family and one light/dark axis, and Modernist is gone
+
+**Status:** accepted
+
+**Supersedes decision 25's "second theme is token overrides" only in which themes exist; the mechanism is unchanged.**
+
+**Context.** The site shipped with two themes and no dark mode. Modernist was the default — a flat `#f3f2f2` ground, near-mono red, everything set in Archivo at weight 800, zero corner radius. It was competent and it was the wrong register for a portfolio whose main artefact is a document somebody reads: a heavy grotesk at 800 shouts at a paragraph.
+
+The `design/classic-theme-old-repo` branch had the alternative already written, from an earlier incarnation of this site: ivory paper, near-black ink, terracotta, Instrument Serif over Inter, a faint grain, soft corners, and — the part that mattered — **a complete dark palette**, which neither shipping theme had.
+
+**Decision.** Modernist is deleted. Classic is the default; Blueprint stays as the second family. Dark is a separate axis.
+
+```
+data-theme   which palette family      absent = classic
+data-mode    light or dark within it   absent = follow the OS
+```
+
+**Two attributes rather than four theme ids.** The collapsed alternative — Classic, Classic Dark, Blueprint, Blueprint Dark in one list — fails on the obvious gesture: somebody reading in dark who switches family expects to still be in dark. Two attributes make that free. One list makes it a lookup table nobody maintains, and it doubles again with the third theme.
+
+**Three states for the mode, and the third is the absence of an attribute.** `light`, `dark`, and unset — where unset means `prefers-color-scheme` decides, which is what a first-time visitor gets. It is an *absent* attribute rather than `data-mode="system"` because the stylesheets resolve it with a media query, and a rule cannot match the absence of a value it was given.
+
+**That is why every dark ramp is written twice.** Once under `@media (prefers-color-scheme: dark)` guarded by `:not([data-mode='light'])`, so the OS carries the default and a deliberate light choice still wins; once under `[data-mode='dark']`, so a deliberate dark choice wins on a light OS. Neither block alone expresses both directions. The duplication is mechanical and the files say so.
+
+**Token names did not change.** Classic rebinds `--color-*`, `--font-*`, `--radius-*` and `--shadow-*` to new values; not one component in `global.css` was rewritten to suit it. That is the property decision 25 bought and it paid for itself here — a whole change of visual language, and the component layer needed three edits, all of them consequences of the display face being a serif rather than the body face:
+
+- **`.btn` moved to `--font-body`.** They were the same family before. A button label set in a display serif reads as a pull-quote with a border.
+- **`h6` moved to `--font-mono`.** It is the site's eyebrow — 12px, uppercase, letterspaced — and a serif set that way reads as a mistake. Blueprint already monospaced its metadata, so this went with the grain of both.
+- **`.btn-primary` lost its corner ticks, and `.button-borders` was deleted outright.** Both drew squares at the corners of a rectangle. On a theme with a corner radius they sit *outside* it, as loose specks — which is exactly how they rendered. The primary action is the accent, filled, with a darker step sweeping across on hover.
+
+**What came across from the old branch, and what did not.** The palette, the type, the grain, the soft corners and shadows, the scroll reveal and the arrow affordances came. The old branch's component layer did not: it is a parallel implementation of the same set of things, and adopting it would have meant rewriting every page rather than rebinding twenty tokens.
+
+**The grain is a data URI, and that is the one place this repository allows one.** The rule elsewhere is that a data URI cannot read a custom property, so an icon written as one is a hex code that survives every theme switch. This SVG has no colour of its own — it is greyscale `feTurbulence`, and `--grain-opacity` is what makes it show — so there is nothing in it for a theme switch to get wrong. It is `display: none` in print and under Blueprint, which draws its own ground.
+
+**Scroll reveal is armed before paint and disarmed by a timer.** The `reveal-ready` class on `<html>` is added by an inline head script and every reveal rule is scoped to it, so without JavaScript, without an `IntersectionObserver`, or under `prefers-reduced-motion`, the class never appears and the whole feature is inert. A three-second timer removes it if the module never loads. The failure being designed out is a page permanently at `opacity: 0`, which is the failure every scroll-reveal implementation ships with at least once.
+
+**When this would change.** A third family is a file in `src/styles/themes/` and an entry in `THEMES` — the same cost as the second, now with a dark ramp expected rather than optional. If the theme picker ever needs to be a dropdown, that is the point at which two buttons stop scaling, not before.
+
+## 39. One resume, many variants — and a variant is a view, not a copy
+
+**Status:** accepted
+
+**Context.** Applying for an ML role and a platform role wants two different resumes: a different summary, a different order, different projects, the same job described in different words. The site had one.
+
+The obvious way to have several is to have several documents. It is also the way that guarantees they disagree: a job title corrected in one, a date fixed in another, and six months later no way to tell which is right. The resume is the one artefact here that goes to strangers who make decisions from it, so "which copy is correct" is the failure mode worth designing out.
+
+**Decision.** The history is written **once**, in a master. A variant is a *view* of it: which roles, which skill groups, which certifications, which projects, in what order — plus an optional per-item rewrite for the ones that need role-specific framing.
+
+```
+MASTER      experience[]  skills[]  education[]  certifications[]
+VARIANT     label, summary, layout, jobDescription
+            experience: [{ id, description?, highlights? }]   ← selection + order + override
+            skills:     [{ category, items? }]
+            education:  [id]      certifications: [name]
+            projects:   [{ slug, line? }]                     ← rows in the projects table
+```
+
+Selection, order and override are **one array**, not an include-list plus a rewrites map: they are the same decision about the same item, and two structures is two places for an id to go missing. An absent override means "use the master's"; an empty array means "no bullets on this resume", which is a real thing to want and is why the field is optional rather than defaulted.
+
+**Projects are referenced, never copied.** A variant holds a slug and a line. The title, the URL and the fallback description come from the `projects` table at render time, so a renamed project is renamed on every resume — and `resolveVariant()` drops a hidden one whatever the variant says, on the same argument `ai-corpus.ts` makes about its own filters: the caller having filtered is a convention, filtering here is a function with a test.
+
+**It is all one row in `documents`.** Not a `resume_variants` table. `migrations/0003_documents.sql` justified the row on the grounds that this is one document, read by two pages, written whole by one editor — and variants do not change any of the three. A table would buy per-row integrity nothing queries, and cost a second write path through an endpoint whose single trust boundary is the thing decision 24 is about.
+
+**Which variant is public is a field on the document, not a flag on each variant.** "Exactly one is public" is an invariant a per-row boolean cannot express: two rows with `public: true` is representable and meaningless, and the code that picks a winner from it is code nobody wants to read. A `publicVariant` naming something that no longer exists resolves to the master rather than 404ing a resume.
+
+**Ids are derived, not random.** `normaliseResume()` mints a slug from each row's own content, so normalising the same document twice produces the same ids and a variant stored in one session still resolves in the next. The counter suffix is load-bearing rather than decorative: this author has two roles at the same company, and an id derived from the company alone would silently merge them in every variant.
+
+**Dates became months.** The stored row said `"July 2024 - Present (1 year 10 months)"` — a sentence that stopped being true a month after it was typed, on a document sent to employers. `start`/`end` are `YYYY-MM` now and the duration is computed. `parseLegacyDates()` reads what was already stored and is deliberately conservative: anything it cannot parse comes back `null` and the author's own words are rendered instead, because a confident wrong date is worse than an imperfect string. It is a ratchet — the first save writes the structured fields — not a second permanent format.
+
+**No migration file.** The upgrade happens in `normaliseResume()`, on read. A migration doing JSON surgery would have to be written against the row as it stood on the day it was written, and would overwrite whatever had been edited since. Normalising on read handles every state including the ones nobody predicted, and is a pure function with a test.
+
+## 40. One renderer, three surfaces — the preview stopped being a second implementation
+
+**Status:** accepted
+
+**Context.** The admin resume screen had a preview pane that did not look like the live page, and it never would have: it was a hand-built approximation in the editor's client script — different markup, different class names, a subset of the fields — sitting beside an `.astro` component that rendered the real thing. "The preview does not match" was not a bug to fix. It was the arrangement.
+
+The same split would have been repeated by the print sheet, which is a third rendering of the same document.
+
+**Decision.** `renderSheet()` in `src/lib/resume-render.ts` returns the sheet as an **HTML string**, and all three surfaces use it. The public page takes it through `set:html`, the editor assigns it to `innerHTML`, and printing is the same DOM under `src/styles/resume.css`'s print block.
+
+**A string rather than a component**, because that is the one shape both callers can use. An Astro component cannot re-render in the browser without a framework, and adding one in order to draw a resume is a larger dependency than the whole feature. `ResumeAside.astro` was deleted.
+
+**Everything interpolated is escaped, without exception.** The content is the owner's own and arrives through an endpoint only the owner can write to — but it lands in `innerHTML`, and "the only person who can put a `<script>` here is the person whose site it is" is an argument that stops being true the moment anything else can write the row. There is deliberately no trusted-HTML escape hatch: nothing in a resume is markup. `check:resume` asserts it.
+
+**`resolveVariant()` is the single composition point.** Master plus variant plus the live project rows in; one flat `ResumeSheet` out. Nothing downstream knows what a variant is. That is what makes the editor's preview correct by construction rather than by diligence, and it is why the whole thing is testable without a DOM.
+
+**The two layouts differ by one attribute.** `data-layout` is `ats` or `sidebar`; no branch in the renderer emits different markup for them. `ats` is one column with no grid, no float and no positioned elements, because an applicant tracking system extracts the PDF as a stream of text and a two-column page interleaves the columns into gibberish. `sidebar` is the designed one, for the public page and for applications read by a person. A section absent from one layout would be a section to remember when adding a field, so there is not one.
+
+**The PDF is `window.print()`.** No headless browser in the request path, no rendering service, no dependency. A4 at 14mm, 10.5pt, `break-inside: avoid` on every entry and `break-after: avoid` on every heading. Colour is kept, because a resume PDF is read on a screen far more often than it is printed and a sheet with one accent reads as designed rather than as a fax. The old repository's print stylesheet is where the specifics came from; it was better than what was here, which is what the comparison was for.
+
+**Printing the admin screen prints the sheet and nothing else**, via `body.is-printing` set for one frame around the call. Everything on that surface except `#rs-preview` is chrome.
+
+## 41. The resume assistant selects; it does not write a history
+
+**Status:** accepted
+
+**Extends decision 24 to a third surface. Nothing in that decision is reopened.**
+
+**Context.** Tailoring a resume to an advert is four jobs: rewrite the summary for the role, choose which projects belong on it, sharpen one line, and — the whole of it at once — turn a job description into a variant.
+
+**Decision.** Four tasks in `ASSIST_TASKS` with `surface: 'resume'`, one new context field triple (`resume`, `jobDescription`, `entry`), and one new live target. The same closed table, the same panel, the same endpoint. No new route.
+
+**Only one of the four is live.** `tailor-summary` streams into the variant's summary, because there is one field and one answer. The other three propose a *selection* — which projects, which roles, which skill groups — and a selection rearranging itself while a model streams is not an edit anybody can watch; it is a form redrawing itself for thirty seconds. They land in the panel behind Apply. `check:ai` asserts each of the three has no live target, by name, because making one live would typecheck.
+
+**`build-variant` returns identifiers, not prose.** Role ids, skill group names, certification strings — all of them things the author already has, listed in the prompt by `resumeContext()`. The editor validates every one against what exists and drops the rest, so the worst a hallucinated id can do is not be selected. It writes two pieces of text and no more: the variant's label and its summary. A model asked to return the roles would return three plausible jobs.
+
+**The assistant is never given contact details**, for the same reason `buildCorpus()` is not: a tailored summary does not need a phone number, and a prompt carrying one is a prompt that can be made to repeat it. `check:resume` asserts it against `resumeContext()`'s output.
+
+**`jobDescription` is stored on the variant.** Not held in the editor. Re-running a task three weeks later should not mean finding the advert again, and six months on it is the only record of *why* a variant selects what it selects. It is never rendered — it is not part of the resume, it is the brief for one.
+
+---
+
+## 42. The master owns a sheet, and there is a third one
+
+**Status:** accepted
+
+**Extends decision 40. Nothing in it is reopened — this is still one renderer and one attribute.**
+
+**Context.** `ResumeVariant` carried a `layout`; `ResumeDocument` did not. `resolveVariant()` filled the gap with a hard-coded `'sidebar'` for the master, and the editor — reasonably, given that — hid the whole variant settings row when the master was open. So the Sheet picker existed, was populated from `RESUME_LAYOUTS`, and could not be reached on the one resume that exists before anybody has made a variant. The control was not broken. It had nowhere to write.
+
+**Decision.** `layout` is a field on the document. `resolveVariant()` reads `variant?.layout ?? resume.layout`, the editor shows the Sheet picker for the master and writes `state.layout`, and only the *name* field and the Duplicate/Delete pair hide — those are the three things that genuinely belong to a variant. `normaliseResume()` defaults it to `'sidebar'`, which is exactly what the hard-coded value was, so a document written under the old shape renders identically.
+
+The "Shown on `/resume`" picker came back with it, and for the same reason: it is a property of the *document* — which of its variants is public — and it was hidden alongside everything else. Choosing it required opening a variant first, which is the wrong way round.
+
+**And a third layout: `timeline`.** The sheet this site had before `resume-render.ts` existed — a narrow rail on the left, accented section headings, the roles hanging off one chronological spine with a square node each. It was not removed on purpose; the move to a single renderer re-drew two layouts and this was not one of them. It is the layout that looks like the rest of the portfolio rather than like a document, which makes it the right thing for the public page and the wrong thing to send to a parser.
+
+It is **a `data-layout` value and a block of CSS**, and that is the whole of it. No branch in `renderSheet()`, no section emitted for one sheet and not another. `check:resume` now renders every entry in `RESUME_LAYOUTS` and asserts the strings are byte-identical apart from the attribute, so a fourth sheet is held to the same rule without the test being edited — and the moment somebody adds a branch, that assertion is what says so.
+
+**What it cost to add.** One real bug, and it had been there since the renderer shipped: the masthead's job line and every Experience entry were both `class="rs-role"`. The two declarations meant for a one-line tagline — `0.95em`, muted — were landing on every job on the sheet, and nothing looked obviously wrong, so nothing was. Giving `timeline` a border and a node on `.rs-role` hung a spine off the tagline, which is when it became visible. The masthead is `rs-headline` now and `check:resume` pins the split. A layout that only reads tokens cannot surface a collision like that; one that draws something can, which is a small argument for having more than two.
+
+---
+
+## 43. A provider row raises a ceiling to a working one, not to the model's maximum
+
+**Status:** accepted
+
+**Amends decision 37, which said the row raises a task ceiling to whatever the vendor reports and "never lowers it". The first half was right and is kept. The second half was too strong.**
+
+**Context.** `max_tokens` bounds thinking *plus* answer. A task ceiling sized to the answer is therefore a reasoning model that streams nothing at all, which is what decision 37 fixed by letting `ai_providers.max_output_tokens` — filled in from the vendor's own `/models` listing — raise every task ceiling to it.
+
+It raised them to the model's *maximum*. On this router that is routinely 32,000, so:
+
+- The **Answer length** field on the AI screen was decorative. Whatever the owner typed, every call went out at 32,000, on the one endpoint an unauthenticated stranger can reach.
+- "Nothing is billed for a ceiling that is not reached" is true and was beside the point. A model told it has 32,000 tokens and asked to think hard *will* use them, and that is billed. The reported symptom — the whole allowance spent deliberating, the answer truncated mid-sentence — is what a large ceiling and an unset effort produce together.
+
+**Decision, in two halves.**
+
+**`THINKING_HEADROOM = 4000`.** A provider row raises a ceiling that is too small to work, up to the headroom and no further. Roughly a thousand tokens of deliberation and three thousand of prose: enough for a model that narrates its way into a long answer, nowhere near a model's own maximum. The caller's own number still wins when it is larger, so `/write-whole-post` asking for 8,000 gets 8,000 — a task that genuinely needs a long answer says so in its own row, and that has always been the honest place to say it. `MAX_OUTPUT_CEILING` is still the hard cap above everything.
+
+**`AiSettings.reasoningEffort`, defaulting to `low`.** `max_tokens` can only say how much of thinking-and-answer there may be; it can never say how the model divides them. `reasoning_effort` is the field that moves the split, and it was reachable only from a provider row — a per-endpoint setting, when the thing being decided is per-*surface*. The public assistant answers a stranger's question out of an index and one or two looked-up pages. There is nothing there to think hard about, and every token of it is billed and then shown in a disclosure nobody opens. The chat route passes it explicitly, so the settings screen outranks the provider row for the public assistant; empty means "send no field", which is not the same as sending a vendor's default and is why it is a real stored value rather than an absence.
+
+**What this does not change.** Nothing is sent to *suppress* reasoning — decision 29 stands, `thinkStripper()` is still what keeps deliberation out of the answer channel, and the disclosure still shows what was generated. This is about how much gets generated, not about where it goes.
+
+---
+
+## 44. The AI screen is two tabs, because it is two decisions
+
+**Status:** accepted
+
+**Context.** One column and one rail held: the provider list, the provider dialog, the house-style notes, the public switch, five rate limits, the corpus size and the day's usage. Configuring an endpoint and deciding whether strangers may spend it are different jobs, done at different times, by a person in different frames of mind — and the switch that bills the account sat in a rail beside a list of model ids.
+
+**Decision.** `wireTabs()`, the same tablist every other screen on this surface uses. **Providers** is the endpoint list plus, in its rail, the three-line explanation of how one gets picked and the reminder that these rows answer *both* assistants. **Public assistant** is the switch, the voice, the limits and what it knows.
+
+The two head actions follow the tab — "Add provider" on the first, "Save settings" on the second. Hidden rather than disabled: a greyed-out button invites the question of what would un-grey it, and the answer here is "a tab", which the tab already says.
+
+The initially-selected tab is marked on the server, so the right panel is showing before the script runs. That is not new; it is the contract `wireTabs()` has always had, and it is the reason a panel must not also carry a page-scoped layout class — Astro's `data-astro-cid` would outrank `.tab-panel[hidden]`. The layout lives on `.ai-grid` inside each panel.
