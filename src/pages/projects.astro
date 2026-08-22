@@ -41,16 +41,16 @@ const projectsData = allProjects.map(p => ({
 }));
 ---
 <BaseLayout title="Projects" description="All projects — filterable by category, tag, and stack.">
-  <header class="container page-header">
-    <h1>Project Library</h1>
-    <p class="page-desc">A comprehensive index of engineering works, experiments, and production systems.</p>
+  <header class="container page-header" data-reveal>
+    <h1>Projects</h1>
+    <p class="page-desc">The work — production systems, experiments, and everything in between, filterable by category, tag, and stack.</p>
   </header>
 
-  <div class="container">
+  <div class="container" data-reveal style="--reveal-delay: 80ms">
     <FilterBar categories={categories} topTags={topTags(allProjects)} />
   </div>
 
-  <section class="container results">
+  <section class="container results" data-reveal style="--reveal-delay: 140ms">
     <div class="project-grid" id="project-grid">
       {projectsData.map(project => (
         <article
@@ -67,7 +67,7 @@ const projectsData = allProjects.map(p => ({
             <span class="card-year">{project.year}</span>
             <span class="tag tag-accent-2">{project.categoryLabel}</span>
           </div>
-          <h3 class="card-title"><a href={`/projects/${project.slug}`}>{project.title}</a></h3>
+          <h2 class="card-title"><a href={`/projects/${project.slug}`}>{project.title}</a></h2>
           <p class="card-body">{project.summary}</p>
           <hr class="rule" />
           <div class="card-stack">
@@ -75,16 +75,16 @@ const projectsData = allProjects.map(p => ({
           </div>
           <div class="card-actions">
             <a class="btn btn-primary btn-sm" href={project.caseStudySlug ? `/case-studies/${project.caseStudySlug}` : `/projects/${project.slug}`}>
-              {project.caseStudySlug ? 'Case Study' : 'Details'}
+              {project.caseStudySlug ? 'Case study' : 'Details'}
             </a>
             <a class="btn btn-secondary btn-sm" href={project.repoUrl} target="_blank" rel="noopener">Repo ↗</a>
           </div>
         </article>
       ))}
     </div>
-    <div id="no-results" class="no-results hidden">
-      <div class="no-results-art"><Illustration name="no-data" /></div>
-      <p class="no-results-copy">No projects match your filters.</p>
+    <div id="no-results" class="empty-state hidden">
+      <div class="empty-state-art"><Illustration name="no-data" /></div>
+      <p class="empty-state-copy">No projects match your filters.</p>
     </div>
   </section>
 </BaseLayout>
@@ -143,6 +143,7 @@ const projectsData = allProjects.map(p => ({
 
   function applyFilters() {
     const visible: HTMLElement[] = [];
+    const returning: HTMLElement[] = [];
     const q = query.trim().toLowerCase();
     for (const card of cards) {
       const title = card.dataset.title || '';
@@ -158,9 +159,15 @@ const projectsData = allProjects.map(p => ({
         (activeCategory === 'featured' ? isFeatured : category === activeCategory);
       const matchesTags = activeTags.length === 0 || activeTags.every(t => tags.includes(t));
 
+      /* A card coming back from `display: none` is the one thing here worth
+         animating: the change has to read as "these match now", not as a
+         spreadsheet quietly repopulating. First paint skips this — the page
+         reveal already owns arrival. */
+      const wasHidden = card.style.display === 'none';
       if (matchesQ && matchesCat && matchesTags) {
         card.style.display = '';
         visible.push(card);
+        if (wasHidden && initialised) returning.push(card);
       } else {
         card.style.display = 'none';
       }
@@ -179,13 +186,25 @@ const projectsData = allProjects.map(p => ({
     });
     visible.forEach(card => grid.appendChild(card));
 
+    /* Staggered by rank in the visible set, capped so a large result set
+       never makes the last card wait out a long queue. */
+    returning.forEach((card, i) => {
+      card.style.setProperty('--enter-delay', `${Math.min(i * 30, 240)}ms`);
+      card.classList.remove('is-entering');
+      void card.offsetWidth;
+      card.classList.add('is-entering');
+    });
+
     noResults.classList.toggle('hidden', visible.length > 0);
     resultsCount.textContent = `Showing ${visible.length} project${visible.length === 1 ? '' : 's'}`;
     categoryChips.forEach(chip => setChipState(chip, chip.dataset.value === activeCategory, 'tag-accent'));
     tagChips.forEach(chip => setChipState(chip, activeTags.includes(chip.dataset.value || ''), 'tag-accent-2'));
   }
 
+  let initialised = false;
   syncFromURL();
+  applyFilters();
+  initialised = true;
   searchInput?.addEventListener('input', e => { query = (e.target as HTMLInputElement).value; updateURL(); applyFilters(); });
   sortSelect?.addEventListener('change', e => { sort = (e.target as HTMLSelectElement).value as Sort; updateURL(); applyFilters(); });
   categoryChips.forEach(chip => chip.addEventListener('click', () => {
@@ -208,20 +227,34 @@ const projectsData = allProjects.map(p => ({
   .card-top { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
   .card-year { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-muted); }
   .card-title a { color: inherit; text-decoration: none; }
-  .card-title a:hover { color: var(--color-accent); }
+  .card-title a:hover,
+  .card-title a:focus-visible { color: var(--color-accent); }
   .card-stack { display: flex; flex-wrap: wrap; gap: 6px; }
   .card-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-1); }
-  .no-results {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-4);
-    padding: var(--space-8) 0;
-    color: var(--color-text-muted);
-  }
-  .no-results-art { width: min(280px, 60vw); }
-  .no-results-copy { margin: 0; }
   .hidden { display: none; }
+
+  /* A card that filters back in re-enters with a short rise — the same
+     grammar as the page reveal (opacity + translate), at interaction speed
+     rather than arrival speed, staggered by `--enter-delay` from script.
+     Keyframe on the `translate` channel, so it never argues with the hover
+     lift living on `transform`. Reduced motion gets the plain reappear. */
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes card-enter {
+      from {
+        opacity: 0;
+        translate: 0 8px;
+      }
+    }
+    .project-card.is-entering {
+      animation: card-enter var(--dur-base) var(--ease-out) backwards;
+      animation-delay: var(--enter-delay, 0ms);
+    }
+
+    @keyframes empty-in {
+      from { opacity: 0; }
+    }
+    .empty-state:not(.hidden) { animation: empty-in var(--dur-base) var(--ease-out) backwards; }
+  }
 
   @media (max-width: 900px) {
     .project-grid { grid-template-columns: repeat(2, 1fr); }

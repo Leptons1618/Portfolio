@@ -11,7 +11,7 @@ const { categories, topTags } = Astro.props;
       type="search"
       id="filter-search"
       class="input filter-search"
-      placeholder="Search projects..."
+      placeholder="Search projects…"
       aria-label="Search projects"
       autocomplete="off"
     />
@@ -26,13 +26,13 @@ const { categories, topTags } = Astro.props;
 
   <div class="filter-row">
     {categories.map(cat => (
-      <button type="button" class="tag tag-button tag-neutral" data-filter="category" data-value={cat.key}>{cat.label}</button>
+      <button type="button" class="tag tag-button tag-neutral tap-target" data-filter="category" data-value={cat.key}>{cat.label}</button>
     ))}
   </div>
 
   <div class="filter-row" id="tag-chips">
     {topTags.map(tag => (
-      <button type="button" class="tag tag-button tag-neutral" data-filter="tag" data-value={tag}>{tag}</button>
+      <button type="button" class="tag tag-button tag-neutral tap-target" data-filter="tag" data-value={tag}>{tag}</button>
     ))}
   </div>
 

@@ -102,13 +102,26 @@ h5 { font-size: 16px; }
 
 /* The eyebrow. Not the display face: 13px uppercase letterspaced is a label,
    and a serif set that way reads as a mistake rather than as a voice. Mono is
-   what both themes already use for metadata. */
-h6 {
+   what both themes already use for metadata.
+
+   A class alongside the `h6` rule because eyebrows are labels, not headings:
+   an `<h6>` before the section's real heading scrambles the document outline
+   screen readers navigate by. Pages mark them `<p class="eyebrow">` and get
+   the identical rendering from this rule instead of from heading semantics. */
+h6,
+.eyebrow {
   font-family: var(--font-mono);
   font-weight: 500;
   font-size: 12px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
+}
+
+/* Every public eyebrow reads in the deep accent step — the one colour the
+   label voice wears. Spacing stays contextual: a page decides whether the
+   label sits above a heading or inline in a ruled head. */
+.eyebrow {
+  color: var(--color-accent-700);
 }
 
 p {
@@ -122,6 +135,18 @@ a {
   color: var(--color-accent-700);
   text-underline-offset: 3px;
   transition: color 0.15s ease;
+}
+
+/* Taps answer at once: without this, iOS waits out a double-tap-to-zoom
+   window before the navigation fires. */
+@media (pointer: coarse) {
+  a,
+  button {
+    touch-action: manipulation;
+  }
+  /* The platform's grey flash is a foreign object on this surface; the
+     theme's own tint answers the tap instead. */
+  -webkit-tap-highlight-color: color-mix(in srgb, var(--color-accent) 20%, transparent);
 }
 
 a:hover {
@@ -159,6 +184,14 @@ pre {
 :focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 2px;
+}
+
+/* Skip-link landings and script-thrown focus. These elements are not in the
+   tab order (`tabindex="-1"`), so the ring has no keyboard wayfinder job
+   here — and around an entire `<main>` it reads as a rendering glitch.
+   Verified replacement: nothing can Tab onto these elements. */
+[tabindex='-1']:focus {
+  outline: none;
 }
 
 ::selection {
@@ -240,6 +273,17 @@ pre {
   display: block;
 }
 
+/* Press feedback is shared rather than per-variant: every control here falls
+   a little under the finger, which is what makes the family read as one
+   family. The transition lives in each variant's own list — a `transition`
+   on `.btn` alone would be overwritten by `.btn-primary`'s sweep list two
+   rules down, leaving the press an instant snap. Guarded by `no-preference`
+   so the static sheet stays the default, and scoped off Blueprint, whose
+   press is a conserved 2px offset translate that added scale would deepen. */
+@media (prefers-reduced-motion: no-preference) {
+  html:not([data-theme='blueprint']) .btn:not(:disabled):active { scale: 0.98; }
+}
+
 .btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
@@ -277,7 +321,10 @@ pre {
   font-size: 13px;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  transition: background-position 0.3s ease-in-out, border-color 0.3s ease-in-out;
+  transition:
+    background-position 0.3s ease-in-out,
+    border-color 0.3s ease-in-out,
+    scale var(--dur-fast) var(--ease-out);
 }
 
 /* The ticks. They read as ink against the resting ground — so the top-left one
@@ -345,7 +392,11 @@ pre {
   background: var(--color-surface);
   border-color: var(--color-divider);
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  transition:
+    box-shadow 0.15s ease,
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    scale var(--dur-fast) var(--ease-out);
 }
 
 .btn-secondary:hover:not(:disabled) {
@@ -363,6 +414,11 @@ pre {
 .btn-ghost {
   color: var(--color-accent);
   padding-inline: var(--space-1);
+  /* Its own list, not `.btn`'s: `.btn-primary` and `.btn-secondary` each
+     declare transitions in their own variant, because a list on `.btn`
+     alone would be overwritten by the variant that follows it. Colour
+     answers at press speed. */
+  transition: color var(--dur-fast) ease, background-color var(--dur-fast) ease;
 }
 
 .btn-ghost:hover {
@@ -392,7 +448,7 @@ pre {
   color: var(--color-text-muted);
   border-color: var(--color-divider);
   padding: 5px 10px;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition: color 0.15s ease, border-color 0.15s ease, scale var(--dur-fast) var(--ease-out);
 }
 
 .theme-toggle:hover {
@@ -465,6 +521,15 @@ pre {
 textarea.input {
   min-height: 90px;
   resize: vertical;
+}
+
+/* iOS Safari auto-zooms the viewport when a field under 16px takes focus,
+   throwing every layout that assumed the visual viewport off. The desktop
+   density keeps its 14px; phones and tablets get the floor. */
+@media (max-width: 640px) {
+  .input {
+    font-size: 16px;
+  }
 }
 
 /* — selects —
@@ -583,7 +648,7 @@ select.input.is-auto {
 }
 
 .card-kicker {
-  font-size: 10px;
+  font-size: 11px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--color-accent);
@@ -594,6 +659,9 @@ select.input.is-auto {
   font-weight: var(--font-heading-weight);
   font-size: 17px;
   line-height: 1.2;
+  /* A long project title has no break opportunities and a card column is
+     narrow; without this it overflows instead of wrapping. */
+  overflow-wrap: anywhere;
 }
 
 .card-body {
@@ -615,6 +683,86 @@ select.input.is-auto {
 .elev-md { box-shadow: var(--shadow-md); }
 .elev-lg { box-shadow: var(--shadow-lg); }
 
+/* — empty states —
+
+   One composition for every "nothing here" moment: art, the fact, the way
+   out. The projects grid and the journal archive render the same grammar,
+   so the system carries it once. Colour is quiet by default — an empty
+   state explains, it does not alarm. */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-8) 0;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.empty-state-art { width: min(280px, 60vw); }
+
+.empty-state-copy {
+  margin: 0;
+  font-size: 16px;
+}
+
+.empty-state-hint {
+  margin: 0;
+  max-width: 44ch;
+  font-size: 13px;
+}
+
+/* — tap targets —
+
+   A control whose visible box is smaller than the touch floor grows an
+   invisible hit area instead of growing visually. The expansion distance is
+   the component's own decision — neighbours decide how far is safe — set
+   through `--tap-expand` and consumed here. Two expanded targets must never
+   overlap; size the inset against the real gaps around each control. */
+.tap-target {
+  position: relative;
+}
+
+.tap-target::after {
+  content: '';
+  position: absolute;
+  inset: var(--tap-expand, -11px -4px);
+}
+
+/* A clickable card lifts to meet the pointer: one step of elevation plus a
+   2px rise, so the shadow deepens as the surface climbs — the same physical
+   story Blueprint tells with its hard offset. Written on `a.card` only,
+   because a card that is not itself the link has nothing to answer a hover
+   *for*. Scoped off Blueprint, which runs its own idiom at higher
+   specificity; opt-in media query, so reduced motion gets an instant state
+   change instead of a float. */
+@media (prefers-reduced-motion: no-preference) {
+  /* Focus rides the same lift as hover: the whole card is the link on the
+     surfaces that use `a.card`, so the ring lands on the card itself and
+     the keyboard gets the same arrival the pointer does. The pointer half
+     also asks for `hover: hover` — on touch, a tap-and-hold would otherwise
+     leave the card floating until something else took focus. */
+  html:not([data-theme='blueprint']) a.card {
+    transition:
+      box-shadow var(--dur-base) var(--ease-out),
+      transform var(--dur-base) var(--ease-out);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) and (hover: hover) {
+  html:not([data-theme='blueprint']) a.card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html:not([data-theme='blueprint']) a.card:focus-visible {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
+}
+
 /* — tags — */
 .tag {
   display: inline-flex;
@@ -625,13 +773,32 @@ select.input.is-auto {
   border-radius: calc(var(--radius-md) * 0.75);
 }
 
-/* A tag rendered as a filter control — same chip, no button chrome. */
+/* A tag rendered as a filter control — same chip, no button chrome. Hit
+   area comes from the shared `.tap-target` utility, whose default
+   expansion matches this chip's row spacing (4px sideways, ~11px up and
+   down against an 8px row gap). */
 .tag-button {
   border: none;
   cursor: pointer;
   font: inherit;
   font-size: 11px;
   letter-spacing: 0.02em;
+}
+
+/* A chip is a control, so it answers like one: colour first, then a small
+   press. Opt-in media query keeps the static sheet the default. */
+@media (prefers-reduced-motion: no-preference) {
+  .tag-button,
+  .tag-button.tag-neutral,
+  .tag-button.tag-accent,
+  .tag-button.tag-accent-2 {
+    transition:
+      background-color var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out),
+      scale var(--dur-fast) var(--ease-out);
+  }
+
+  .tag-button:not(:disabled):active { scale: 0.96; }
 }
 
 .tag-accent {
@@ -684,6 +851,16 @@ select.input.is-auto {
 .nav a:hover,
 .nav a[aria-current='page'] {
   color: var(--color-accent);
+}
+
+/* Where you are is a shape, not only a hue: the current page keeps a
+   persistent underline while hover stays a colour change, so the two states
+   survive each other and colour-blind visitors can still find the page
+   they are on. */
+.nav a[aria-current='page'] {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 6px;
 }
 
 .nav a.btn-primary,
@@ -780,8 +957,15 @@ select.input.is-auto {
   margin-bottom: var(--space-4);
 }
 
+/* A wide table — dependency matrices, benchmark numbers — is genuinely
+   two-dimensional content: it scrolls inside its own box rather than
+   dragging the whole page sideways. `display: block` is what allows the
+   overflow; `max-width` keeps narrow tables at their natural width. */
 .prose table {
-  width: 100%;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
   border-collapse: collapse;
   font-size: 14px;
   margin-bottom: var(--space-4);
@@ -1060,37 +1244,50 @@ select.input.is-auto {
    class is never added and every rule below is inert — so content can never be
    stranded invisible by a script that failed to load.
 
+   A keyframe rather than a transition pair, and on the `translate` channel
+   rather than `transform`: the old version parked a 0.66s `transform`
+   transition (plus stagger delay) on every revealed card, so the first hover
+   lift played at reveal speed on reveal delay. With the entrance living on
+   `translate`, a card's own `transform`-based hover stays on its own clock,
+   and the animation's `both` fill replaces the transition's two-state dance —
+   holding the hidden frame through the stagger delay and the settled frame
+   afterwards.
+
    The stagger is a custom property the observer sets per element, because the
-   only alternative is n rules or an inline `transition-delay`, and an inline
+   only alternative is n rules or an inline `animation-delay`, and an inline
    style on a reveal target is a style the page author cannot override. */
-html.reveal-ready [data-reveal] {
-  opacity: 0;
-  transform: translateY(12px);
-  transition:
-    opacity 0.66s var(--ease-out),
-    transform 0.66s var(--ease-out);
-  transition-delay: var(--reveal-delay, 0ms);
-}
-
-html.reveal-ready [data-reveal].is-revealed {
-  opacity: 1;
-  transform: none;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html.reveal-ready [data-reveal] {
+@keyframes reveal-in {
+  from {
+    opacity: 0;
+    translate: 0 12px;
+  }
+  to {
     opacity: 1;
-    transform: none;
-    transition: none;
+    translate: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html.reveal-ready [data-reveal] {
+    opacity: 0;
+    translate: 0 12px;
+  }
+
+  html.reveal-ready [data-reveal].is-revealed {
+    animation: reveal-in var(--dur-reveal) var(--ease-out) both;
+    animation-delay: var(--reveal-delay, 0ms);
   }
 }
 
 @media print {
   /* A sheet is printed in whatever state the observer happened to leave the
-     page in, and an unrevealed section prints blank. */
+     page in, and a section still waiting on its stagger delay would print
+     blank. Dropping both the animation and the pre-reveal state puts every
+     element back at its natural, painted values. */
   html.reveal-ready [data-reveal] {
+    animation: none;
     opacity: 1;
-    transform: none;
+    translate: none;
   }
 
   /* The ground is the paper.
