@@ -29,7 +29,7 @@ const related = (await getProjects(DB))
       <div class="grayscale detail-hero"><img src={heroImage} alt={title} /></div>
     )}
 
-    <header class="detail-head">
+    <header class="detail-head" data-reveal>
       <div class="detail-chips">
         <span class="tag tag-neutral">{categoryLabel(category)}</span>
         <span class="tag tag-neutral">{year}</span>
@@ -45,7 +45,7 @@ const related = (await getProjects(DB))
         {highlights.length > 0 && (
           <section class="detail-section">
             <div class="section-head-rule detail-section-head">
-              <h3>Highlights</h3>
+              <h2>Highlights</h2>
               <hr class="rule" />
             </div>
             <div class="card elev-sm">
@@ -59,14 +59,14 @@ const related = (await getProjects(DB))
         {related.length > 0 && (
           <section class="detail-section">
             <div class="section-head-rule detail-section-head">
-              <h3>Related Projects</h3>
+              <h2>Related Projects</h2>
               <hr class="rule" />
             </div>
             <div class="related-list">
               {related.map(r => (
                 <a href={`/projects/${r.slug}`} class="card elev-sm related-card">
                   <span class="card-kicker">{r.data.year}</span>
-                  <h4 class="card-title">{r.data.title}</h4>
+                  <h3 class="card-title">{r.data.title}</h3>
                   <p class="card-body">{r.data.summary}</p>
                 </a>
               ))}
@@ -77,19 +77,19 @@ const related = (await getProjects(DB))
 
       <aside class="detail-sidebar">
         <div class="card sidebar-card">
-          <h6>Links</h6>
+          <p class="eyebrow sidebar-label">Links</p>
           <div class="link-list">
             <a href={repoUrl} class="btn btn-secondary btn-block" target="_blank" rel="noopener">Repository ↗</a>
             {demoUrl && <a href={demoUrl} class="btn btn-primary btn-block" target="_blank" rel="noopener">Live Demo ↗</a>}
-            {caseStudySlug && <a href={`/case-studies/${caseStudySlug}`} class="btn btn-primary btn-block">Read Case Study →</a>}
+            {caseStudySlug && <a href={`/case-studies/${caseStudySlug}`} class="btn btn-primary btn-block">Read case study →</a>}
           </div>
         </div>
         <div class="card sidebar-card">
-          <h6>Tags</h6>
+          <p class="eyebrow sidebar-label">Tags</p>
           <div class="tag-list">{tags.map(tag => <Tag text={tag} variant="neutral" />)}</div>
         </div>
         <div class="card sidebar-card">
-          <h6>Stack</h6>
+          <p class="eyebrow sidebar-label">Stack</p>
           <div class="tag-list">{stack.map(s => <Tag text={s} variant="outline" />)}</div>
         </div>
       </aside>
@@ -120,11 +120,16 @@ const related = (await getProjects(DB))
 
   .related-list { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
   .related-card { text-decoration: none; color: inherit; }
-  .related-card:hover { color: inherit; }
-  .related-card:hover .card-title { color: var(--color-accent); }
+  .related-card:hover,
+  .related-card:focus-visible { color: inherit; }
+  .related-card:hover .card-title,
+  .related-card:focus-visible .card-title { color: var(--color-accent); }
 
   .detail-sidebar { display: flex; flex-direction: column; gap: var(--space-3); }
-  .sidebar-card h6 { color: var(--color-accent-700); margin-bottom: var(--space-1); }
+  /* `.eyebrow` carries the mono label treatment and its accent colour from
+     the shared layer; this scope adds only the tighter margin a card
+     sidebar wants. */
+  .sidebar-label { margin-bottom: var(--space-1); }
   .link-list { display: flex; flex-direction: column; gap: var(--space-2); }
   .tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
 

@@ -15,7 +15,7 @@ const posts = await getPosts(DB);
 const [featured, ...archive] = posts;
 ---
 <BaseLayout title="Journal" description="Field notes from building things — write-ups and the occasional video log.">
-  <header class="container page-header">
+  <header class="container page-header" data-reveal>
     <div>
       <h1>Journal</h1>
       <p class="page-desc">Field notes from building things — write-ups and the occasional video log.</p>
@@ -24,7 +24,7 @@ const [featured, ...archive] = posts;
   </header>
 
   {featured && (
-    <section class="container featured-section">
+    <section class="container featured-section" data-reveal>
       <a href={`/journal/${featured.slug}`} class="card elev-md featured-card">
         {featured.data.heroImage && (
           <div class="post-media featured-media">
@@ -45,9 +45,9 @@ const [featured, ...archive] = posts;
   )}
 
   {archive.length > 0 && (
-    <section class="container archive-section">
+    <section class="container archive-section" data-reveal>
       <div class="section-head-rule archive-head">
-        <h6 class="eyebrow">Archive</h6>
+        <p class="eyebrow">Archive</p>
         <hr class="rule" />
       </div>
       <div class="archive-grid">
@@ -70,8 +70,17 @@ const [featured, ...archive] = posts;
   )}
 
   {posts.length === 0 && (
-    <section class="container archive-section">
-      <p class="text-muted">No entries published yet.</p>
+    <section class="container archive-section" data-reveal>
+      {/* An empty state teaches the space: what belongs here, and what fills
+          it — not just the fact that it is empty. `data-reveal` puts it on
+          the page's own arrival choreography instead of a private fade, so
+          it lands with everything else on the page. */}
+      <div class="empty-state">
+        <div class="empty-state-art"><Illustration name="no-data" /></div>
+        <p class="empty-state-copy">Nothing published yet.</p>
+        <p class="empty-state-hint">Field notes land here as they are written. The projects page has the work that exists today.</p>
+        <a class="btn btn-secondary" href="/projects">Browse projects</a>
+      </div>
     </section>
   )}
 </BaseLayout>
@@ -88,8 +97,10 @@ const [featured, ...archive] = posts;
 
   .featured-section { padding-bottom: var(--space-6); }
   .featured-card { gap: var(--space-3); text-decoration: none; color: inherit; }
-  .featured-card:hover { color: inherit; }
-  .featured-card:hover .featured-title { color: var(--color-accent); }
+  .featured-card:hover,
+  .featured-card:focus-visible { color: inherit; }
+  .featured-card:hover .featured-title,
+  .featured-card:focus-visible .featured-title { color: var(--color-accent); }
   .featured-title { font-size: 26px; }
   .tag-row { display: flex; flex-wrap: wrap; gap: 8px; }
 
@@ -102,18 +113,29 @@ const [featured, ...archive] = posts;
   .media-duration { position: absolute; bottom: 8px; right: 8px; font-family: var(--font-mono); }
   .featured-media { margin-bottom: var(--space-2); }
 
-  a.card:hover .grayscale { filter: none; }
+  /* Same parity as ProjectCard: keyboard focus wakes the photograph, the
+     pointer reveal only where hover actually exists. */
+  @media (hover: hover) {
+    a.card:hover .grayscale { filter: none; }
+  }
+  a.card:focus-within .grayscale { filter: none; }
   @media (prefers-reduced-motion: no-preference) {
     .media-frame img { transition: filter 0.4s ease; }
   }
 
   .archive-section { padding-bottom: var(--space-8); }
-  .eyebrow { color: var(--color-accent-700); margin: 0; }
+
+  /* — the empty state —
+     Composition comes from the shared `.empty-state` layer; this page adds
+     nothing. It only renders when the archive is genuinely empty. */
+  .eyebrow { margin: 0; }
   .archive-head { margin-bottom: var(--space-4); }
   .archive-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
   .archive-card { text-decoration: none; color: inherit; }
-  .archive-card:hover { color: inherit; }
-  .archive-card:hover .archive-title { color: var(--color-accent); }
+  .archive-card:hover,
+  .archive-card:focus-visible { color: inherit; }
+  .archive-card:hover .archive-title,
+  .archive-card:focus-visible .archive-title { color: var(--color-accent); }
   .archive-date { font-size: 12px; font-family: var(--font-mono); }
   .archive-title { font-size: 16px; }
 
