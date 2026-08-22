@@ -27,9 +27,9 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
 ---
 <BaseLayout title="Home" description={site.tagline}>
   <header class="hero container">
-    <div class="hero-copy">
+    <div class="hero-copy" data-reveal>
       <span class="tag tag-accent-2 hero-status"><span class="status-dot" aria-hidden="true"></span>Open to opportunities</span>
-      <h6 class="eyebrow">Software Engineer</h6>
+      <p class="eyebrow">Software Engineer</p>
       <h1 class="hero-title">Building <span class="highlight">ML systems</span>, <span class="nowrap">full-stack</span> apps &amp; dev tools</h1>
       <p class="hero-desc">{site.bio}</p>
       <div class="hero-actions">
@@ -37,7 +37,7 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
         <a href={site.github} class="btn btn-secondary" target="_blank" rel="noopener">GitHub</a>
       </div>
     </div>
-    <div class="hero-figure">
+    <div class="hero-figure" data-reveal style="--reveal-delay: 120ms">
       {/* The hero's LCP element. It is above the fold on every viewport, so it
           is fetched at high priority and never lazily — the browser's default
           heuristics de-prioritise it behind the stylesheet otherwise. */}
@@ -53,10 +53,10 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
     </div>
   </header>
 
-  <section class="container home-section">
+  <section class="container home-section" data-reveal>
     <div class="section-head">
       <div>
-        <h6 class="eyebrow">Case Studies</h6>
+        <p class="eyebrow">Case Studies</p>
         <h2>Deep dives</h2>
       </div>
       <hr class="rule section-line" />
@@ -79,10 +79,10 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
     </div>
   </section>
 
-  <section class="container home-section">
+  <section class="container home-section" data-reveal>
     <div class="section-head">
       <div>
-        <h6 class="eyebrow">Featured Projects</h6>
+        <p class="eyebrow">Featured Projects</p>
         <h2>Recent work</h2>
       </div>
       <hr class="rule section-line" />
@@ -95,10 +95,10 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
     </div>
   </section>
 
-  <section class="container home-section">
+  <section class="container home-section" data-reveal>
     <div class="section-head">
       <div>
-        <h6 class="eyebrow">Skills &amp; Stack</h6>
+        <p class="eyebrow">Skills &amp; Stack</p>
         <h2 class="skills-title">What I build with</h2>
       </div>
       <hr class="rule section-line" />
@@ -108,21 +108,21 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
     </div>
   </section>
 
-  <section class="closing-banner">
+  <section class="closing-banner" data-reveal>
     <div class="container closing-inner">
       <div>
         <h2 class="closing-title">Let's work together</h2>
         <p class="closing-desc">Open to interesting ML/CV, full-stack, and systems projects.</p>
       </div>
       <div class="closing-actions">
-        <a href={`mailto:${site.email}`} class="btn btn-on-accent">Hire Me</a>
+        <a href={`mailto:${site.email}`} class="btn btn-on-accent">Hire me</a>
         <a href="/resume" class="btn btn-on-accent-outline">Resume</a>
       </div>
     </div>
   </section>
 </BaseLayout>
 <style>
-  .eyebrow { color: var(--color-accent-700); margin-bottom: var(--space-2); }
+  .eyebrow { margin-bottom: var(--space-2); }
 
   /* — hero — */
   .hero {
@@ -189,8 +189,10 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
   .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
 
   .cs-card { text-decoration: none; color: inherit; }
-  .cs-card:hover { color: inherit; }
-  .cs-card:hover .card-title { color: var(--color-accent); }
+  .cs-card:hover,
+  .cs-card:focus-visible { color: inherit; }
+  .cs-card:hover .card-title,
+  .cs-card:focus-visible .card-title { color: var(--color-accent); }
   .cs-card-cta {
     display: inline-flex;
     align-items: center;
@@ -219,11 +221,11 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
     flex-wrap: wrap;
   }
   .closing-title { font-size: clamp(28px, 4vw, 42px); margin-bottom: var(--space-2); }
-  .closing-desc { margin: 0; opacity: 0.9; }
+  .closing-desc { margin: 0; }
   .closing-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
-  .btn-on-accent { background: var(--color-bg); color: var(--color-accent-700); }
+  .btn-on-accent { background: var(--color-bg); color: var(--color-accent-700); transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease; }
   .btn-on-accent:hover { background: var(--color-accent-100); color: var(--color-accent-800); }
-  .btn-on-accent-outline { border-color: var(--color-bg); color: var(--color-bg); }
+  .btn-on-accent-outline { border-color: var(--color-bg); color: var(--color-bg); transition: background-color var(--dur-fast) ease, border-color var(--dur-fast) ease; }
   .btn-on-accent-outline:hover { background: color-mix(in srgb, var(--color-bg) 18%, transparent); color: var(--color-bg); }
 
   @media (max-width: 900px) {

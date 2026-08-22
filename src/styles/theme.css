@@ -105,13 +105,23 @@
      `color-mix`. Real ramp steps rather than a mix of `--color-text`, because
      a mix against a dark ground goes the wrong way. */
   --color-text-muted: var(--color-neutral-700);
-  --color-text-faint: var(--color-neutral-600);
+  /* Literal steps rather than ramp references. Neutral-600 was the obvious
+     pick and fails WCAG where faint is actually used — 11px card metadata on
+     the surface — at 2.43:1 light. #756d5e holds 4.57:1 on the surface and
+     4.94:1 on the ground while staying lighter than neutral-700, which is
+     what keeps "faint" quieter than "muted". */
+  --color-text-faint: #756d5e;
 
   /* Motion. One easing for anything that travels (the reveal, an arrow
-     nudging on hover) and one for anything that only changes colour. Defined
-     on `:root`, so every theme inherits them unless it says otherwise. */
+     nudging on hover) and one for anything that only changes colour.
+     Durations are named rather than inlined because a motion system is one
+     opinion: if the reveal and the dropdown ever disagree about how long
+     "quick" is, it is here that they get argued with. */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 150ms;
+  --dur-base: 250ms;
+  --dur-reveal: 600ms;
 
   /* Page shell — the widths content wraps at. */
   --wrap-wide: 1120px;
@@ -166,6 +176,15 @@
   --color-neutral-800: #cfc8ba;
   --color-neutral-900: #f6f3ec;
 
+  /* Declared here rather than inherited from `:root`: faint is a literal
+     colour now, and a literal does not re-resolve the way a ramp reference
+     did. Muted still points at neutral-700 above, so it needs no repeat. */
+  --color-text-muted: var(--color-neutral-700);
+  /* Same reasoning as the light block: neutral-600 read at 3.10:1 on the dark
+     surface. #8b8477 holds 4.91:1 there and 5.31:1 on the ground, still
+     lighter than the muted step above it. */
+  --color-text-faint: #8b8477;
+
   --color-accent-100: #241610;
   --color-accent-200: #3a2216;
   --color-accent-300: #5c3620;
@@ -216,6 +235,11 @@
     --color-neutral-700: #9a9284;
     --color-neutral-800: #cfc8ba;
     --color-neutral-900: #f6f3ec;
+
+    /* Same pair, same reasoning — this block is the OS-following dark path
+       and must not fall back to the light literals in `:root`. */
+    --color-text-muted: var(--color-neutral-700);
+    --color-text-faint: #8b8477;
 
     --color-accent-100: #241610;
     --color-accent-200: #3a2216;

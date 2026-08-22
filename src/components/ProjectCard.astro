@@ -20,7 +20,7 @@ const { title, slug, summary, tags, status, year, repoUrl, demoUrl, caseStudySlu
   </div>
   <div class="card-actions">
     <a class="btn btn-primary btn-sm" href={caseStudySlug ? `/case-studies/${caseStudySlug}` : `/projects/${slug}`}>
-      {caseStudySlug ? 'Case Study' : 'Details'}
+      {caseStudySlug ? 'Case study' : 'Details'}
     </a>
     {caseStudySlug && <a class="btn btn-secondary btn-sm" href={`/projects/${slug}`}>Details</a>}
     {demoUrl && <a class="btn btn-secondary btn-sm" href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
@@ -30,7 +30,22 @@ const { title, slug, summary, tags, status, year, repoUrl, demoUrl, caseStudySlu
 <style>
   .card-image img { width: 100%; height: 160px; object-fit: cover; }
   .card-title a { color: inherit; text-decoration: none; }
-  .card-title a:hover { color: var(--color-accent); }
+  .card-title a:hover,
+  .card-title a:focus-visible { color: var(--color-accent); }
   .card-tags { display: flex; flex-wrap: wrap; gap: 6px; }
   .card-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); }
+
+  /* The journal's rule, brought here so both card surfaces treat photographs
+     the same way: black and white at rest, colour when the card is engaged.
+     `:focus-within` gives keyboard users the same answer: focus lands on the
+     title link inside the card and the photo responds. The pointer reveal
+     sits under `hover: hover` so a touch tap does not leave the photograph
+     stuck in colour; focus keeps working everywhere. */
+  @media (hover: hover) {
+    .project-card:hover .grayscale { filter: none; }
+  }
+  .project-card:focus-within .grayscale { filter: none; }
+  @media (prefers-reduced-motion: no-preference) {
+    .card-image img { transition: filter 0.4s ease; }
+  }
 </style>
