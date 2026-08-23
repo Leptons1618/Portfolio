@@ -255,7 +255,9 @@ function build(): Library {
   const headCopy = document.createElement('div');
   headCopy.className = 'modal-head-copy';
 
-  const eyebrow = document.createElement('h6');
+  /* A label, not a heading: it sits before the modal's real title and would
+     otherwise scramble the heading outline assistive tech navigates by. */
+  const eyebrow = document.createElement('p');
   eyebrow.className = 'admin-eyebrow-mono';
   eyebrow.textContent = 'MODULE: MEDIA';
 

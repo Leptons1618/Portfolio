@@ -85,6 +85,10 @@ const projectsData = allProjects.map(p => ({
     <div id="no-results" class="empty-state hidden">
       <div class="empty-state-art"><Illustration name="no-data" /></div>
       <p class="empty-state-copy">No projects match your filters.</p>
+      {/* An empty state teaches the space: the fact, then the way out — the
+          same pair the journal's empty state renders. */}
+      <p class="empty-state-hint">Try a broader search, or clear a category or tag chip.</p>
+      <button type="button" class="btn btn-secondary" id="clear-filters">Clear filters</button>
     </div>
   </section>
 </BaseLayout>
@@ -216,6 +220,20 @@ const projectsData = allProjects.map(p => ({
     activeTags = activeTags.includes(val) ? activeTags.filter(t => t !== val) : [...activeTags, val];
     updateURL(); applyFilters();
   }));
+
+  /* The empty state's way out: everything back to the unfiltered view, the
+     same path the URL round-trip already knows. */
+  document.getElementById('clear-filters')?.addEventListener('click', () => {
+    query = '';
+    activeCategory = 'all';
+    activeTags = [];
+    sort = 'featured';
+    if (searchInput) searchInput.value = '';
+    if (sortSelect) sortSelect.value = sort;
+    updateURL();
+    applyFilters();
+    searchInput?.focus();
+  });
   applyFilters();
 </script>
 

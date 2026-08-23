@@ -1,37 +1,25 @@
 # Design Checkup — Anish Giri Portfolio
 
-Mode: `/design checkup` · Date: 2026-08-21 · Scope: public surface (home, projects, project detail, journal, about, resume entry, case studies, shared chrome, Ask widget)
+Mode: `/design checkup` · Date: 2026-08-22 · Scope: public surface + admin island (re-scan after the 2026-08-22 deslop repairs) · Classic light + dark
 
 ---
 
-## Score: 40 / 60 — Verdict: BLOCK
+## Score: 50 / 60 — Verdict: NEEDS CHANGES
 
 | # | Vital | Status | Points | Key finding |
 |---|---|---|---|---|
-| 1 | Intentionality | Healthy | 10 | Token-driven system with documented decisions; nothing reads as assembled defaults |
-| 2 | Readability | Watch | 5 | `--color-text-faint` fails WCAG at 11px sizes in both modes |
-| 3 | Usability | Healthy | 10 | Core tasks complete; filters sync to URL, live region announces results, empty state exists |
-| 4 | Responsiveness | Watch | 5 | Sub-16px inputs trigger iOS focus zoom; several controls under 44px touch minimum |
-| 5 | Speed | Healthy | 10 | Self-hosted fonts, local WebP hero with high fetch priority, lazy media, pre-paint theme restore |
-| 6 | Accessibility | Critical | 0 | Autoplaying looping video ignores `prefers-reduced-motion`; contrast failure on faint text |
+| 1 | Intentionality | Watch | 5 | Admin eyebrows lost the mono/uppercase label voice in the h6→p swap; they render as sentence-case body text |
+| 2 | Readability | Healthy | 10 | Faint token holds 4.57–5.31:1 across both modes at every serving size checked |
+| 3 | Usability | Healthy | 10 | Filters, URL state, live count, teaching empty state, owner-voice resume — core paths verified |
+| 4 | Responsiveness | Watch | 5 | Public inputs floored at 16px; admin island's explicitly sized fields are not |
+| 5 | Speed | Healthy | 10 | Self-hosted faces, high-priority hero, cached assistant status; no new jank sources |
+| 6 | Accessibility | Watch | 5 | One heading-label straggler in `media-library.ts`; `<p>` inside `<summary>` is non-conforming |
 
 ---
 
-## Escalation triggers (HIGH on sight)
+## Escalation triggers
 
-### 1. Autoplaying looping video with no reduced-motion guard — HIGH · Motion/Accessibility
-
-- **Location:** `src/layouts/CaseStudyLayout.astro:29`
-- **Before:** `<video src={heroVideo} autoplay muted loop playsinline></video>`
-- **After:** Gate autoplay behind `(prefers-reduced-motion: no-preference)` (CSS `@media` hiding the video or JS checking `matchMedia` before setting `autoplay`), add a visible pause/play control, and give the video a poster frame so reduced-motion visitors see a still instead of motion they cannot stop.
-- **Why:** Self-starting video is a named escalation trigger: vestibular-triggering motion that runs regardless of `prefers-reduced-motion`. Every other animated surface on this site guards itself; this one does not. It also ships no `controls` and no pause affordance, so even a motion-tolerant visitor cannot stop it.
-
-### 2. Faint text token fails contrast at its actual sizes — HIGH · Color/Accessibility
-
-- **Location:** `src/styles/theme.css:108` (`--color-text-faint: var(--color-neutral-600)`); consumed by `.card-meta` (`src/styles/global.css:629`, 11px) and `figcaption` (`src/styles/global.css:143`)
-- **Before:** Light `#a49c8c` on surface `#f5f2ea` = **2.43:1**; dark `#6a6459` on `#171513` = **3.10:1**
-- **After:** Point `--color-text-faint` at a step that clears 4.5:1 on both grounds (light ≈ `#8a8172`, dark ≈ `#8f887b`), or re-point `.card-meta`/`figcaption` at `--color-text-muted` (5.17:1 / 5.91:1, already passing).
-- **Why:** Text sitting on a background it does not have enough contrast against is an escalation trigger. This is 11px metadata — the size least able to survive low contrast — and it repeats across every project card, journal card, and figure caption on the site.
+**None firing.** Checked explicitly this pass: contrast at serving sizes (computed, passing both modes), self-starting motion (video gated behind `prefers-reduced-motion`, pause control, poster), keyboard path (skip link, combobox keyboard model, native buttons), visible focus (`:focus-visible` coverage), color-alone meaning (current-page indicator is underline + color), placeholder-as-label (search fields carry `aria-label`), destructive actions (danger zones confirm).
 
 ---
 
@@ -39,25 +27,22 @@ Mode: `/design checkup` · Date: 2026-08-21 · Scope: public surface (home, proj
 
 | # | Severity | Discipline | Location | Before | After | Why |
 |---|---|---|---|---|---|---|
-| 1 | HIGH | Motion | `src/layouts/CaseStudyLayout.astro:29` | `<video … autoplay muted loop playsinline>` | Reduced-motion-gated autoplay + visible pause control + poster | Vestibular motion that never stops and cannot be stopped |
-| 2 | HIGH | Color | `src/styles/theme.css:108`, `src/styles/global.css:629,143` | faint = n600, 2.43:1 light / 3.10:1 dark at 11px | Raise faint step or re-point consumers to muted (≥4.5:1) | Small text below WCAG AA on every card and caption |
-| 3 | MEDIUM | Accessibility | `src/pages/index.astro:32,59,85,101`, `src/pages/about.astro:8`, `src/pages/journal/index.astro:50` | `<h6 class="eyebrow">` used as decorative labels, appearing before/outside the h1–h3 sequence | `<p class="eyebrow">` (visually identical via existing rules) | Scrambled heading outline misleads screen-reader navigation |
-| 4 | MEDIUM | Responsive | `src/styles/global.css:467` (`.input` 14px), `src/components/AskWidget.astro:1496` (13px), FilterBar search | Inputs at 13–14px | 16px on narrow/coarse pointers | Sub-16px inputs trigger iOS Safari auto-zoom on focus, breaking layout |
-| 5 | MEDIUM | Interaction | `src/components/ThemeToggle.astro:114` (28px), `src/components/AskWidget.astro:1157` (26px), `:1509` (34px), `.tag-button` (~22px tall) | Hit areas below 44×44 | Expand via `::before` overlay or raise min-height to 44px | Adjacent small targets merge and mis-tap on touch |
-| 6 | MEDIUM | Accessibility | `src/layouts/BaseLayout.astro:69-71` | `<body><Header/><main>` — no skip link, no `main` id | Visually-hidden "Skip to content" link targeting `<main id="main">` | Keyboard users re-tab 8 controls on every page before content |
-| 7 | LOW | Color | `src/pages/index.astro:222` (`.closing-desc` opacity 0.9 on accent) | 4.32:1 white-on-terracotta | Full-opacity `var(--color-bg)` text or lighten mix | Banner body copy just misses AA for normal text |
-| 8 | LOW | Type | `src/styles/global.css:603-608` (`.card-kicker` 10px uppercase) | 10px metadata | 11px floor (matches `.tag`) | Smallest type on the site; passes contrast but strains at the size |
+| 1 | MEDIUM | Type / Voice | `src/styles/global.css:111-118` (voice lives on the `h6` element selector), `src/styles/admin.css:299-300` (classes add color only), ~44 usage sites | After the h6→p semantics swap, `.admin-eyebrow*` / `.login-eyebrow` render as sentence-case body paragraphs in accent color — the mono/uppercase/12px letterspaced label voice is gone from every admin screen | Add the three classes to the shared label rule (or an equivalent class-level declaration) so the voice travels with the class, not the element | Regression introduced by the deslop repair. The brief names mono uppercase letterspaced metadata as the site's label voice; every module header in the admin island now contradicts it. One rule repairs all sites |
+| 2 | MEDIUM | Responsive | `src/styles/admin.css:390` (`.pf-highlights` textarea at 13px mono; other explicitly sized admin fields to audit alongside) | Explicitly sized admin fields escape the global 16px phone floor (`global.css:529-533`) that covers `.input`-classed controls | Restate the 16px floor inside `admin.css`'s own 640px block (the block at `:404` already exists) for admin-scoped controls | Sub-16px fields trigger iOS Safari focus zoom. Owner-only surface and still usable post-zoom, so Watch, not Critical — the public surface is clean |
+| 3 | LOW | Semantics | `src/lib/media-library.ts:258-259` | `document.createElement('h6')` — the last heading-as-label straggler, minted client-side, invisible to the markup sweep | `'p'` | Same reflex the 43-site markup swap fixed; this one builds DOM in script |
+| 4 | LOW | HTML validity | `src/pages/admin/resume.astro` `ed-legend` labels ×11 (lines 116-239) | `<p>` inside `<summary>` — `<summary>` takes phrasing content, so the semantics repair traded a scrambled outline for non-conforming markup | `<span class="admin-eyebrow ed-legend">` with the existing block layout (or a display rule) | Browsers tolerate it; validators flag it. Cheap to make conforming while restoring the voice in finding 1 |
 
 ---
 
-## Prescriptions (for the criticals)
+## Prescriptions
 
-**Accessibility vital — Critical.** Two escalations stand:
+**Intentionality vital — Watch.** Finding 1 is the whole cost. The fix is one declaration: extend the label voice in `global.css:111-118` from `h6, .eyebrow` to also cover `.admin-eyebrow`, `.admin-eyebrow-mono`, `.login-eyebrow`. Every admin screen heals at once, and the voice stops being coupled to an element name — which is the property that made the swap fragile in the first place.
 
-1. The case-study hero video is the only self-running motion on an otherwise exemplary reduced-motion story. Fix is contained to one element: respect the media query, add a pause control, ship a poster.
-2. The faint token is one variable with site-wide reach — fixing it at the token level repairs every card meta, caption, and timestamp at once. Highest leverage per line changed in this report.
+**Responsiveness vital — Watch.** Finding 2 is the same one-block pattern the AskWidget and FilterBar already ship: restate the floor where the scoped size wins.
 
-Run `/design a11y` next; it will consume findings 1, 2, 3, 5, 6 in one pass.
+**Accessibility vital — Watch.** Findings 3 and 4 close in the same pass as finding 1: change one `createElement` argument, swap eleven `<p>` for `<span>`.
+
+All four findings together are roughly a dozen edited lines, no design decisions required. Any fix command clears them; the natural next move is a targeted pass rather than a broad mode.
 
 ---
 
@@ -65,11 +50,10 @@ Run `/design a11y` next; it will consume findings 1, 2, 3, 5, 6 in one pass.
 
 | Location | Candidate | Rejected because |
 |---|---|---|
-| `src/styles/global.css:278-343` | Simplify the `.btn-primary` sweep/ticks | Deliberate signature, documented rationale, states all covered; complexity buys identity |
-| `src/styles/theme.css:268-276` | Remove the grain overlay | Fixed layer, `pointer-events: none`, print-disabled, opacity-tokened per mode; costs nothing measurable |
-| `src/styles/global.css:72` | Raise 15px body base to 16px | Prose already renders 16px/1.7; UI chrome at 15px is a consistent, deliberate choice with passing contrast |
-| `src/lib/select.ts` | Replace custom combobox with native select | Full keyboard model (arrows/Home/End/type-ahead/Escape), `aria-activedescendant`, native fallback without JS — exceeds what a bare `<select>` offers |
-| `src/components/Header.astro:33` | Hamburger drawer under 640px | Wrapping nav keeps links reachable without JS; a drawer would add a disclosure pattern for five links |
+| `src/styles/theme.css:113,186` | Re-flag the faint token | Computed fresh this pass: 4.57/4.94:1 light, 4.91/5.31:1 dark — passes at every serving size found |
+| `src/components/AskWidget.astro:959-992` | Treat the launcher lift as reduced-motion risk | No transition attached; it is discrete repositioning during scroll, not animated travel |
+| `src/pages/projects.astro` card headings | h2-under-h1 depth complaint | Correct outline; cards are sections of the page, not peer documents |
+| `src/pages/admin/dashboard.astro:112,145` | Count `.section-heading` margin-only rule against finding 1 | Margin is contextual spacing, correctly separate from the voice |
 
 ---
 
@@ -77,21 +61,21 @@ Run `/design a11y` next; it will consume findings 1, 2, 3, 5, 6 in one pass.
 
 Ran:
 
-- Read every public page, layout, shared component, and stylesheet cited above (home, projects listing + detail, journal, about, case-study layout, header/footer/theme toggle/ask widget/filter bar/tag/illustration, `theme.css`, `global.css`, `select.ts`, `site.ts`, `ThemeHead.astro`)
-- Computed 19 WCAG contrast ratios for both modes' token pairs against their actual surfaces (node script over the hex values in `theme.css`)
-- Grepped for skip-link/main-id markup (none found) and all `<h6>` usages across public pages
-- Confirmed `src/pages/projects/[slug].astro` intact on disk (5,955 bytes) after a read-tool miss on the bracketed path
-- Traced the reveal system's arming/fallback path in `BaseLayout.astro` for stranded-content risk (guarded)
+- `git status`: deslop changes present as unstaged modifications; tree otherwise clean
+- Located every `.admin-eyebrow*` / `.login-eyebrow` consumer (44 markup sites + `media-library.ts`) and confirmed the only style sources are `global.css:111-118` (`h6, .eyebrow` — element-coupled) and `admin.css:299-300` (color/font-family only)
+- Computed WCAG ratios for `--color-text-faint` against both surfaces in both modes (node script over the hex values): 4.57 / 4.94 / 4.91 / 5.31 — all pass
+- Inventoried `admin.css` `@media` blocks: one 640px block (`:404`) reflows grids only; no input floor
+- Live checks carried forward from the deslop pass (same day, verified against served output before the server was stopped): resume renders the owner-voice summary, zero "carbon-based"; zero `<h6>` on admin routes; 16px sort-select rule present and cascade-ordered in the served page; `clear-filters` wiring present in markup and bundle; `--ask-lift` code in the served AskWidget bundle; `npm run check` 0 errors
 
 Not verified:
 
-- Rendered runtime behavior — no dev server was started; findings are from source plus computed values, not screenshots
-- Blueprint alternate theme (`src/styles/themes/blueprint.css`) was not audited; contrast findings cover Classic only
-- Real-device checks: iOS input zoom asserted from the font-size rule, not observed on hardware
-- Lighthouse/performance profiling; Speed vital rests on implementation reading (font loading, image priorities, prerender strategy)
+- No dev server was started for this pass; visual statuses rest on the earlier same-day live checks plus current-source reads
+- Blueprint theme untouched and unaudited (standing gap)
+- Real devices, screen readers, Lighthouse (standing gaps)
+- Full inventory of explicitly-sized admin fields beyond `.pf-highlights` — finding 2 names the verified instance and the audit path
 
 ---
 
-## Verdict: **BLOCK**
+## Verdict: **NEEDS CHANGES**
 
-Two HIGH findings are standing (unguarded autoplay video; failing faint-text contrast). Both are small, surgical fixes with outsized reach. Clear them — `/design a11y` addresses both plus four of the six remaining findings — and this surface moves to Needs changes on the strength of its Watch items alone.
+No HIGH stands; no escalation trigger fires. Three Watch vitals share one root cause — the label voice was coupled to the `h6` element, and the semantics repair severed it. One declaration restores the voice everywhere, three small edits close the rest. The surface is safe to keep building on; the admin island's headers just look wrong until that declaration lands.

@@ -49,7 +49,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     <a class="btn btn-ghost btn-sm je-back" href="/admin/journal">
       <Icon name="lucide:arrow-left" class="admin-nav-icon" />All entries
     </a>
-    <h6 class="admin-eyebrow-mono">{editing ? 'MODULE: EDIT_ENTRY' : 'MODULE: NEW_ENTRY'}</h6>
+    <p class="admin-eyebrow-mono">{editing ? 'MODULE: EDIT_ENTRY' : 'MODULE: NEW_ENTRY'}</p>
     <h1 class="admin-title-sm" id="editor-heading">
       {editing ? fields!.title : 'Create New Journal Entry'}
     </h1>
@@ -180,7 +180,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
   <aside class="editor-side focus-hide">
     <div class="card elev-sm">
-      <h6 class="admin-eyebrow">Metadata</h6>
+      <p class="admin-eyebrow">Metadata</p>
       <div class="field">
         <div class="je-field-head">
           <label for="f-summary">Summary</label>
@@ -242,7 +242,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     </div>
 
     <div class="card elev-sm">
-      <h6 class="admin-eyebrow">Thumbnail</h6>
+      <p class="admin-eyebrow">Thumbnail</p>
       <div class="field">
         <label for="f-hero">Featured image</label>
         <input class="input" id="f-hero" placeholder="/images/post.jpg or https://…" />
