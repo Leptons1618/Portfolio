@@ -28,5 +28,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # `npm run check` runs check-content.mjs, which refuses an ungenerated
+      # wrangler.jsonc under CI (see its check 5): without a real database_id
+      # the build would only fail later, with something far less obvious. This
+      # is the same generate step deploy.yml runs before deploying.
+      - name: Generate wrangler config
+        env:
+          D1_DATABASE_ID: ${{ secrets.D1_DATABASE_ID }}
+        run: npm run config
+
       - name: Typecheck
         run: npm run check
