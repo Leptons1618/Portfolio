@@ -30,6 +30,7 @@
  */
 
 import type { CaseStudyData, Category, PostStatus, ProjectStatus } from './content';
+import { DEEP_DIVES_KEY } from './content';
 import { getToken } from './github';
 import { RESUME_KEY, type ResumeDocument } from './resume';
 
@@ -150,8 +151,9 @@ const LIVE_PATH: Record<Table, (slug: string) => string> = {
   journal: slug => `/journal/${encodeURIComponent(slug)}`,
   case_studies: slug => `/case-studies/${encodeURIComponent(slug)}`,
   projects: slug => `/projects/${encodeURIComponent(slug)}`,
-  // The resume is a singleton; its key is not part of its URL.
-  documents: () => '/resume',
+  // The resume is a singleton; its key is not part of its URL. So are the home
+  // page's deep-dive picks, whose "page" is the home page itself.
+  documents: slug => (slug === DEEP_DIVES_KEY ? '/' : '/resume'),
 };
 
 const liveUrl = (table: Table, slug: string): string => LIVE_PATH[table](slug);
@@ -357,6 +359,30 @@ export function patchCaseStudy(
  */
 export function saveResume(document: ResumeDocument): Promise<WriteResult> {
   return write('documents', RESUME_KEY, 'patch', { fields: { json: JSON.stringify(document) } });
+}
+
+/**
+ * Save the home page's deep-dive line-up.
+ *
+ * An ordered array of case-study slugs, written whole like the resume beside
+ * it — there is no partial update of "third card down" worth expressing. An
+ * empty array is the automatic line-up (newest first), which is what the read
+ * side treats any empty list as.
+ *
+ * Unlike `resume`, this row has no migration seeding it, and a patch on a row
+ * that does not exist is refused — so the first save creates it instead. Every
+ * save after that takes the patch branch.
+ */
+export async function saveDeepDives(slugs: string[]): Promise<WriteResult> {
+  const fields = { json: JSON.stringify({ slugs }) };
+  try {
+    return await write('documents', DEEP_DIVES_KEY, 'patch', { fields });
+  } catch (error) {
+    if (error instanceof ContentError && error.status === 404) {
+      return write('documents', DEEP_DIVES_KEY, 'create', { fields });
+    }
+    throw error;
+  }
 }
 
 /* ---------- import ---------- */

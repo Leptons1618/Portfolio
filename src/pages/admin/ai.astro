@@ -37,7 +37,7 @@ import {
   <div class="admin-main-wide" id="admin-ai">
     <div class="admin-head">
       <div>
-        <h6 class="admin-eyebrow-mono">MODULE: ASSISTANT</h6>
+        <p class="admin-eyebrow-mono">MODULE: ASSISTANT</p>
         <h1 class="admin-title">AI Assistant</h1>
         <span class="text-muted admin-stamp" id="ai-stamp">Reading providers…</span>
       </div>
@@ -74,7 +74,7 @@ import {
       <div class="ai-grid">
       <div class="ai-col">
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">Providers</h6>
+          <p class="admin-eyebrow">Providers</p>
           <p class="text-muted admin-note">
             Any endpoint that speaks the OpenAI chat-completions shape — OpenRouter,
             OpenAI, Groq, Together, DeepSeek, a local server. The first
@@ -93,7 +93,7 @@ import {
 
       <aside class="ai-side">
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">How one gets picked</h6>
+          <p class="admin-eyebrow">How one gets picked</p>
           <ol class="ai-steps">
             <li>The <strong>active</strong> rows are tried in priority order, lowest first.</li>
             <li>Within a row, the model is tried and then each fallback in turn — a retired model id or a 429 falls through on the same key.</li>
@@ -108,7 +108,7 @@ import {
         </section>
 
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">Both assistants, one key</h6>
+          <p class="admin-eyebrow">Both assistants, one key</p>
           <p class="text-muted admin-note">
             These rows answer the public assistant <em>and</em> the writing assistant in
             the editors. The switch on the next tab governs only the first — turning
@@ -127,7 +127,7 @@ import {
             what the owner is billed, so it is the first thing on the panel
             rather than the top of a rail beside something else. */}
         <section class="card elev-sm ai-switch-card">
-          <h6 class="admin-eyebrow">Public assistant</h6>
+          <p class="admin-eyebrow">Public assistant</p>
           <label class="ai-switch">
             <input type="checkbox" id="ai-enabled" />
             <span>Answer questions from visitors</span>
@@ -142,7 +142,7 @@ import {
         </section>
 
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">Scope and voice</h6>
+          <p class="admin-eyebrow">Scope and voice</p>
           <div class="field">
             <label for="ai-persona">House style notes</label>
             <textarea
@@ -169,7 +169,7 @@ import {
 
       <aside class="ai-side">
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">Limits</h6>
+          <p class="admin-eyebrow">Limits</p>
           <p class="text-muted admin-note">
             The only thing standing between an unauthenticated endpoint and someone
             else's bill. Each is capped again on the server, so nothing typed here
@@ -226,7 +226,7 @@ import {
         </section>
 
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">What it knows</h6>
+          <p class="admin-eyebrow">What it knows</p>
           <p class="text-muted admin-note" id="ai-corpus">Measuring…</p>
           <p class="text-muted admin-note">
             Published posts, visible projects, case studies and the resume. Hidden
@@ -235,7 +235,7 @@ import {
             address.
           </p>
           <hr class="rule ai-rule" />
-          <h6 class="admin-eyebrow">Today</h6>
+          <p class="admin-eyebrow">Today</p>
           <p class="text-muted admin-note" id="ai-usage">—</p>
         </section>
       </aside>
@@ -459,7 +459,7 @@ import {
       several and the other two pick one. The rows are built in script, so their
       rules hang off `#ai-model-list` with `:global()` — a scoped selector never
       reaches DOM that did not come from this template. */}
-  <dialog class="modal ai-modal" id="ai-models">
+  <dialog class="modal modal-fixed ai-modal" id="ai-models">
     <form method="dialog" class="modal-head">
       <h3 class="modal-title" id="ai-models-title">Choose a model</h3>
       <button class="btn btn-icon" value="cancel" aria-label="Close">
@@ -1020,6 +1020,43 @@ import {
     const RENDER_CAP = 250;
     const LONG_CONTEXT = 128_000;
 
+    /**
+     * The wait, as rows rather than a sentence over an empty box.
+     *
+     * The import modal's pattern, mirrored: same grid as a real model row
+     * (id + badges, then the note line), same `.skeleton` sweep from
+     * admin.css — so the list does not reflow when the response replaces it,
+     * and the dialog reads as working from the frame it opens.
+     */
+    function renderModelSkeleton() {
+      const rows = Array.from({ length: 6 }, () => {
+        const row = document.createElement('div');
+        row.className = 'ai-model-skeleton';
+        row.setAttribute('aria-hidden', 'true');
+
+        const head = document.createElement('div');
+        head.className = 'ai-model-skeleton-head';
+        const id = document.createElement('div');
+        id.className = 'skeleton skeleton-line-sm ai-model-skeleton-id';
+        const badges = document.createElement('div');
+        badges.className = 'ai-model-skeleton-badges';
+        for (const width of ['34px', '44px', '28px']) {
+          const badge = document.createElement('div');
+          badge.className = 'skeleton ai-model-skeleton-badge';
+          badge.style.width = width;
+          badges.append(badge);
+        }
+        head.append(id, badges);
+
+        const note = document.createElement('div');
+        note.className = 'skeleton skeleton-line-sm ai-model-skeleton-note';
+
+        row.append(head, note);
+        return row;
+      });
+      modelList.replaceChildren(...rows);
+    }
+
     const price = (value: number | null) =>
       value === null ? '' : value === 0 ? 'free' : `$${value < 1 ? value.toFixed(3) : value.toFixed(2)}/M`;
 
@@ -1138,7 +1175,7 @@ import {
       modelStatus.hidden = false;
       modelStatus.dataset.tone = 'pending';
       modelStatus.textContent = 'Asking the provider what it serves…';
-      modelList.replaceChildren();
+      renderModelSkeleton();
       modelCount.textContent = '';
 
       if (!catalogue) {
@@ -1162,6 +1199,10 @@ import {
           modelStatus.dataset.tone = 'error';
           modelStatus.textContent =
             error instanceof Error ? error.message : 'Could not read the model list.';
+          /* The skeleton promised rows. When they are not coming, it comes
+             down — shimmering placeholders over a failure message is the
+             worst of both, the import modal's own rule. */
+          modelList.replaceChildren();
         }
       } else {
         modelStatus.hidden = true;
@@ -1460,11 +1501,15 @@ import {
 
   /* Every row below is built by the script, so it carries no `data-astro-cid`
      and a plain scoped selector would never reach it. Hung off the
-     server-rendered list instead, the way `#import-list` is. */
+     server-rendered list instead, the way `#import-list` is.
+     `modal-fixed` above pins the dialog's height, so the list fills whatever
+     band is left rather than sizing the frame — three hundred rows and three
+     hits open the same window, the way the import modal behaves. */
   .ai-model-list {
     display: flex;
     flex-direction: column;
-    max-height: 46vh;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow-y: auto;
     border: 1px solid var(--color-divider);
   }
@@ -1523,6 +1568,47 @@ import {
     overflow: hidden;
   }
   .ai-model-count { font-size: 11px; margin-right: auto; }
+
+  /* The loading rows. Same grid and padding as a real `.ai-model-row`, so the
+     list does not reflow when the response replaces them — the import
+     modal's rule, mirrored here. `pointer-events: none` because a skeleton
+     is not pressable, and `aria-hidden` in the builder keeps it out of the
+     tree. */
+  .ai-model-list :global(.ai-model-skeleton) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: 'id badges' 'note note';
+    gap: 2px var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--color-divider);
+    pointer-events: none;
+  }
+  .ai-model-list :global(.ai-model-skeleton-head) {
+    display: contents;
+  }
+  .ai-model-list :global(.ai-model-skeleton-id) {
+    grid-area: id;
+    height: 12px;
+    width: 58%;
+    max-width: 300px;
+  }
+  .ai-model-list :global(.ai-model-skeleton-badges) {
+    grid-area: badges;
+    display: flex;
+    gap: 4px;
+    justify-content: flex-end;
+  }
+  .ai-model-list :global(.ai-model-skeleton-badge) {
+    height: 14px;
+  }
+  .ai-model-list :global(.ai-model-skeleton-note) {
+    grid-area: note;
+    height: 11px;
+    width: 72%;
+    max-width: 420px;
+    margin-top: 6px;
+  }
 
   @media (max-width: 1000px) {
     .ai-grid { grid-template-columns: 1fr; }

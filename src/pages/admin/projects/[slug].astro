@@ -75,7 +75,7 @@ const STATUS_VARIANT: Record<string, string> = {
 
     <div class="admin-head pd-head">
       <div class="pd-id">
-        <h6 class="admin-eyebrow-mono">MODULE: PROJECT_DETAIL</h6>
+        <p class="admin-eyebrow-mono">MODULE: PROJECT_DETAIL</p>
         <h1 class="admin-title">{fields.title}</h1>
         <p class="pd-paths">
           <code>{projectPath(slug)}</code>
@@ -162,7 +162,7 @@ const STATUS_VARIANT: Record<string, string> = {
     <div class="tab-panel" id="pd-panel-fields" role="tabpanel" aria-labelledby="pd-tab-fields">
     <div class="pd-grid">
       <section class="card elev-sm">
-        <h6 class="admin-eyebrow">Project Frontmatter</h6>
+        <p class="admin-eyebrow">Project Frontmatter</p>
         <p class="text-muted admin-note">
           Fields left blank are removed when they are optional. Visibility is the switch
           above, not a field here.
@@ -232,7 +232,7 @@ const STATUS_VARIANT: Record<string, string> = {
 
       <aside class="pd-side">
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">Repository</h6>
+          <p class="admin-eyebrow">Repository</p>
           <dl class="pd-facts">
             <div><dt>Mapped</dt><dd><a href={fields.repoUrl} target="_blank" rel="noopener">{owner}/{repoName} ↗</a></dd></div>
             <div><dt>Branch</dt><dd id="pd-branch">not fetched</dd></div>
@@ -261,7 +261,7 @@ const STATUS_VARIANT: Record<string, string> = {
         </section>
 
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">Danger Zone</h6>
+          <p class="admin-eyebrow">Danger Zone</p>
           <p class="text-muted admin-note">
             Deleting removes the row <code>{projectPath(slug)}</code> outright. There is no
             history holding a copy, so nothing brings it back — hide it with the switch

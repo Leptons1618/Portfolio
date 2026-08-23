@@ -1,11 +1,10 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import Illustration from '../components/Illustration.astro';
 import { site } from '../lib/site';
 ---
 <BaseLayout title="About" description={`About ${site.name} — ML/CV engineer and full-stack developer.`}>
-  <article class="container container-prose about">
-    <h6 class="eyebrow">About</h6>
+  <article class="container container-prose about" data-reveal>
+    <p class="eyebrow">About</p>
     <h1 class="about-title">About Me</h1>
     <p class="about-lead">I'm {site.name}, a software engineer focused on machine learning, computer vision, and full-stack development.</p>
 
@@ -34,7 +33,6 @@ import { site } from '../lib/site';
     </div>
 
     <hr class="rule about-rule" />
-    <div class="about-art"><Illustration name="developer-activity" /></div>
 
     <div class="about-links">
       <a href={site.github} class="btn btn-primary" target="_blank" rel="noopener">GitHub ↗</a>
@@ -45,7 +43,7 @@ import { site } from '../lib/site';
 </BaseLayout>
 <style>
   .about { padding-top: var(--space-6); padding-bottom: var(--space-8); }
-  .eyebrow { color: var(--color-accent-700); margin-bottom: var(--space-2); }
+  .eyebrow { margin-bottom: var(--space-2); }
   .about-title { margin-bottom: var(--space-2); }
   .about-lead { font-size: 17px; opacity: 0.85; max-width: 56ch; margin-bottom: var(--space-6); }
 
@@ -58,11 +56,6 @@ import { site } from '../lib/site';
   .about-rule { margin: var(--space-6) 0; }
   .about-photo img { width: 100%; aspect-ratio: 1; object-fit: cover; object-position: center 20%; }
   .about-profile p { font-size: 16px; line-height: 1.7; opacity: 0.9; margin: 0; }
-
-  .about-art {
-    width: min(420px, 100%);
-    margin: 0 auto;
-  }
 
   .about-links { display: flex; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-6); }
 

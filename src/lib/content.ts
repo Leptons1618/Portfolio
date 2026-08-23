@@ -247,6 +247,65 @@ export async function getCaseStudies(db: D1Database, limit?: number): Promise<Ca
   return limit === undefined ? sorted : sorted.slice(0, limit);
 }
 
+/* ---------- the home page's deep dives ---------- */
+
+/**
+ * The home page leads with a handful of case studies, and which ones — and in
+ * what order — is an authoring decision, not something `date DESC` should keep
+ * deciding. The decision is stored as a singleton row in `documents`, the same
+ * shape of fact as the resume and the AI settings: one record, no table of its
+ * own, holding `{ "slugs": ["querypilot", …] }` top-to-bottom.
+ *
+ * The admin writes through `saveDeepDives()` in `content-store.ts`.
+ */
+export const DEEP_DIVES_KEY = 'home-deep-dives';
+
+/** Whatever the row held, as an ordered list of real slugs, duplicates gone. */
+function clampSlugs(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const slugs = raw.filter((slug): slug is string => typeof slug === 'string' && slug !== '');
+  return [...new Set(slugs)];
+}
+
+/**
+ * The saved selection, top-to-bottom. Empty means automatic: no row yet, an
+ * emptied list, or a row of JSON that does not parse all read as "the site
+ * chooses" rather than as an error — the same tolerance `clampSettings`
+ * extends the AI settings, because a hand-edited row must never take the home
+ * page down with it.
+ */
+export async function getDeepDiveSelection(db: D1Database): Promise<string[]> {
+  const row = await db
+    .prepare('SELECT json FROM documents WHERE slug = ?')
+    .bind(DEEP_DIVES_KEY)
+    .first<{ json: string } | null>();
+  if (!row?.json) return [];
+  try {
+    return clampSlugs((JSON.parse(row.json) as { slugs?: unknown }).slugs);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The case studies the home page shows, in order.
+ *
+ * The saved list is intersected with what actually exists at read time, so a
+ * deleted study drops out of the line-up instead of leaving a hole in the grid
+ * — and a selection whose every slug has since been deleted falls back to
+ * automatic rather than rendering an empty section.
+ */
+export async function getDeepDiveCaseStudies(db: D1Database): Promise<CaseStudy[]> {
+  const [all, selected] = [await getCaseStudies(db), await getDeepDiveSelection(db)];
+  if (!selected.length) return all;
+  const bySlug = new Map(all.map(cs => [cs.slug, cs]));
+  const picked = selected.flatMap(slug => {
+    const found = bySlug.get(slug);
+    return found ? [found] : [];
+  });
+  return picked.length > 0 ? picked : all;
+}
+
 /**
  * Journal posts, newest first.
  *
