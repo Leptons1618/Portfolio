@@ -81,7 +81,7 @@ const SORTS = [
   <div class="admin-main-wide" id="admin-journal">
     <div class="admin-head">
       <div>
-        <h6 class="admin-eyebrow-mono">MODULE: JOURNAL</h6>
+        <p class="admin-eyebrow-mono">MODULE: JOURNAL</p>
         <h1 class="admin-title">Journal</h1>
         <p class="jl-desc">
           Every row in <code>journal</code>, drafts and withdrawn posts included.
@@ -127,7 +127,7 @@ const SORTS = [
     ) : (
       <>
         <div class="existing-head">
-          <h6 class="admin-eyebrow">Entries ({existing.length})</h6>
+          <p class="admin-eyebrow">Entries ({existing.length})</p>
           <div class="existing-filters">
             <input
               class="input entry-search"
@@ -155,7 +155,7 @@ const SORTS = [
         {sections.map(section => (
           <section class="entry-section" data-section={section.id} hidden={section.rows.length === 0}>
             <div class="entry-section-head">
-              <h6 class="admin-eyebrow">{section.title} ({section.rows.length})</h6>
+              <p class="admin-eyebrow">{section.title} ({section.rows.length})</p>
               <p class="text-muted admin-note entry-section-note">{section.note}</p>
             </div>
             <div class="card elev-sm existing-card">

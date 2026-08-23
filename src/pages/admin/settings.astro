@@ -106,7 +106,7 @@ const idFor = (key: string) => `s-${key}`;
   <div class="admin-main-wide" id="admin-settings">
     <div class="admin-head">
       <div>
-        <h6 class="admin-eyebrow-mono">MODULE: IDENTITY</h6>
+        <p class="admin-eyebrow-mono">MODULE: IDENTITY</p>
         <h1 class="admin-title">Site Identity</h1>
         <span class="text-muted admin-stamp">src/lib/site.ts · export only</span>
       </div>
@@ -127,7 +127,7 @@ const idFor = (key: string) => `s-${key}`;
       <div class="st-main">
         {GROUPS.map(group => (
           <section class="card elev-sm">
-            <h6 class="admin-eyebrow">{group.title}</h6>
+            <p class="admin-eyebrow">{group.title}</p>
             <p class="text-muted admin-note">{group.note}</p>
             <hr class="rule st-rule" />
 
@@ -158,7 +158,7 @@ const idFor = (key: string) => `s-${key}`;
             the first, which meant the one page on the surface titled "theme"
             could not reach half of the theme. */}
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">Theme</h6>
+          <p class="admin-eyebrow">Theme</p>
           <div class="seg" role="group" aria-label="Theme">
             {THEMES.map(theme => (
               <label class="seg-opt"><input type="radio" name="settings-theme" value={theme.id} />{theme.label}</label>
@@ -183,7 +183,7 @@ const idFor = (key: string) => `s-${key}`;
             reaches the site. It is said next to the fields, not only in a
             footnote — every other editor on this surface saves for real. */}
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">How this lands</h6>
+          <p class="admin-eyebrow">How this lands</p>
           <div class="st-art"><Illustration name="personal-settings" /></div>
           <p class="text-muted admin-note">
             <strong>Save</strong> keeps a copy in this browser so the fields survive a
@@ -195,7 +195,7 @@ const idFor = (key: string) => `s-${key}`;
         </section>
 
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">Who reads what</h6>
+          <p class="admin-eyebrow">Who reads what</p>
           <ul class="st-reads">
             <li><code>githubUser</code> — who may write. <code>authorize.ts</code>.</li>
             <li><code>url</code> — canonicals, OG tags, sitemap, <code>robots.txt</code>.</li>

@@ -11,7 +11,7 @@ import { ClientRouter } from 'astro:transitions';
 import AdminErrorBoundary from '../components/AdminErrorBoundary.astro';
 import AdminSidebar from '../components/AdminSidebar.astro';
 import ThemeHead from '../components/ThemeHead.astro';
-import { SIDEBAR_KEY, TOAST_HOST_ID } from '../lib/admin';
+import { SIDEBAR_KEY, SIDEBAR_WIDTH, SIDEBAR_WIDTH_KEY, TOAST_HOST_ID } from '../lib/admin';
 import { EXPIRY_KEY, TOKEN_KEY, isConfigured } from '../lib/github';
 
 /* Only gate when the build actually has a GitHub App wired up. An
@@ -37,7 +37,7 @@ const { title } = Astro.props;
       rather than being rebuilt on every navigation. Public pages stay plain
       MPA — this is the only layout that mounts it. */}
   <ClientRouter />
-  <script is:inline define:vars={{ SIDEBAR_KEY, TOKEN_KEY, EXPIRY_KEY, GATE }}>
+  <script is:inline define:vars={{ SIDEBAR_KEY, SIDEBAR_WIDTH, SIDEBAR_WIDTH_KEY, TOKEN_KEY, EXPIRY_KEY, GATE }}>
     // Runs before first paint: bounce an unauthenticated visitor before any
     // editor chrome renders, and restore the sidebar and theme so neither
     // flashes the wrong way.
@@ -57,6 +57,14 @@ const { title } = Astro.props;
         }
         if (localStorage.getItem(SIDEBAR_KEY) === '1') {
           document.documentElement.dataset.adminCollapsed = '1';
+        }
+        // The rail's remembered width, applied as the same custom property the
+        // stylesheet consumes — clamped here so a hand-edited value can only
+        // ever land inside the range the drag allows. Collapsed wins over it:
+        // the collapsed rule sets its own width at higher specificity.
+        var width = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+        if (width >= SIDEBAR_WIDTH.min && width <= SIDEBAR_WIDTH.max) {
+          document.documentElement.style.setProperty('--admin-sidebar-w', width + 'px');
         }
         // `ThemeHead` above published this and already ran it once. Calling it
         // again here is what survives a view transition, which replaces every

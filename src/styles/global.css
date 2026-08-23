@@ -107,9 +107,17 @@ h5 { font-size: 16px; }
    A class alongside the `h6` rule because eyebrows are labels, not headings:
    an `<h6>` before the section's real heading scrambles the document outline
    screen readers navigate by. Pages mark them `<p class="eyebrow">` and get
-   the identical rendering from this rule instead of from heading semantics. */
+   the identical rendering from this rule instead of from heading semantics.
+
+   The admin island's eyebrow classes carry the same voice here rather than in
+   `admin.css`, so the label dress is owned by the class and not by an element
+   name — the coupling that broke the moment the admin labels stopped being
+   `<h6>`. */
 h6,
-.eyebrow {
+.eyebrow,
+.admin-eyebrow,
+.admin-eyebrow-mono,
+.login-eyebrow {
   font-family: var(--font-mono);
   font-weight: 500;
   font-size: 12px;

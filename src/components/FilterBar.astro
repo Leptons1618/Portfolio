@@ -60,7 +60,12 @@ const { categories, topTags } = Astro.props;
   @media (max-width: 640px) {
     .filter-controls { flex-direction: column; align-items: stretch; }
     .filter-search { max-width: none; }
-    .filter-sort { width: 100%; margin-left: 0; }
+    /* 16px floor on both shapes of the same control — the native select and
+       its enhanced replacement — or iOS Safari zooms the viewport when the
+       field takes focus. Scoped 12px rules above outrank global.css's own
+       floor, which is why this block has to restate it. */
+    .filter-sort,
+    .filter-controls :global(.select-button) { width: 100%; margin-left: 0; font-size: 16px; }
     .filter-controls :global(.select) { width: 100%; margin-left: 0; }
   }
 </style>
