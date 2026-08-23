@@ -55,10 +55,13 @@
    are always on screen, and the nav in the middle is the only part that ever
    scrolls. */
 .admin-sidebar {
-  /* Wide enough for the session line — `@handle · 8h left` — to sit on one row
-     next to the avatar. At 220px it wrapped, which read as a layout bug on the
-     one piece of text that says whether you can commit at all. */
-  width: 260px;
+  /* The remembered width arrives as a custom property on `<html>`, set by the
+     pre-paint script in `AdminLayout`; the default is what the stylesheet
+     falls back to, so first paint never guesses. Wide enough for the session
+     line — `@handle · 8h left` — to sit on one row next to the avatar. At
+     220px it wrapped, which read as a layout bug on the one piece of text that
+     says whether you can commit at all. */
+  width: var(--admin-sidebar-w, 260px);
   flex: none;
   background: var(--color-surface);
   border-right: 1px solid var(--color-divider);
@@ -152,6 +155,27 @@
   min-height: 0;
 }
 
+/* The rail reads as two lists, not six buttons in a run: what you make with
+   (Manage) and what the site runs on (System). The labels wear the same mono
+   voice as every other micro-heading on this surface. */
+.admin-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.admin-nav-group + .admin-nav-group { margin-top: var(--space-4); }
+
+.admin-nav-label {
+  margin: 0 0 2px;
+  padding-inline: 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+
 .admin-nav-link {
   display: flex;
   align-items: center;
@@ -170,11 +194,20 @@
   background: color-mix(in srgb, var(--color-accent) 10%, transparent);
 }
 
+.admin-nav-link:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
 .admin-nav-link[aria-current='page'] {
   background: var(--color-accent-100);
   color: var(--color-text);
   position: relative;
 }
+
+/* The current section's icon joins the accent — one more pixel of wayfinding
+   on the line the rail already spends its colour on. */
+.admin-nav-link[aria-current='page'] .admin-nav-icon { color: var(--color-accent); }
 
 /* The current section is marked in the accent, on the leading edge — the one
    place the sidebar spends colour. */
@@ -199,6 +232,81 @@
 
 .admin-collapse svg { transition: transform 0.15s; }
 :root[data-admin-collapsed] .admin-collapse svg { transform: rotate(180deg); }
+
+/* — resize handle —
+
+   A nine-pixel strip riding the rail's edge. At rest it is invisible — the
+   border is just a border; the grip surfaces when the pointer comes near or
+   focus arrives, and turns accent while the width is actually being pulled.
+   `sticky` on the rail makes it the containing block, so the strip tracks the
+   full viewport height for free. */
+.admin-resizer {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: -4px;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 30;
+}
+
+/* The edge itself tints under the pointer — the affordance is where the eye
+   already is. */
+.admin-resizer::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: transparent;
+  transition: background-color var(--dur-fast) ease;
+}
+.admin-resizer:hover::before,
+body.is-resizing-sidebar .admin-resizer::before {
+  background: color-mix(in srgb, var(--color-accent) 45%, transparent);
+}
+
+.admin-resizer::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 32px;
+  border-radius: 999px;
+  background: var(--color-text-faint);
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) ease,
+    background-color var(--dur-fast) ease;
+}
+.admin-resizer:hover::after,
+.admin-resizer:focus-visible::after,
+body.is-resizing-sidebar .admin-resizer::after { opacity: 1; }
+
+/* Focus lands on the grip rather than an outline around a full-height strip —
+   the grip *is* the control's whole visible shape. */
+.admin-resizer:focus-visible { outline: none; }
+.admin-resizer:focus-visible::after,
+body.is-resizing-sidebar .admin-resizer::after { background: var(--color-accent); }
+
+/* While pulling: no width animation against the pointer, the cursor states
+   the intent everywhere (the strip is narrower than the move), nothing on the
+   page selects itself underneath, and the edge holds the accent. */
+body.is-resizing-sidebar {
+  cursor: col-resize;
+  user-select: none;
+}
+body.is-resizing-sidebar .admin-sidebar {
+  transition: none;
+  border-right-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-divider));
+}
+
+/* Collapsed there is no edge to speak of, and the stored width would fight
+   the 64px rule. */
+:root[data-admin-collapsed] .admin-resizer { display: none; }
 
 /* Identity moved to the head, so the foot carries one job: the actions. */
 .admin-sidebar-foot {
@@ -403,6 +511,15 @@ textarea[data-grow] { max-height: 60vh; }
 
 @media (max-width: 640px) {
   .pf-grid { grid-template-columns: 1fr; }
+  /* Same floor global.css gives `.input`-classed fields: iOS Safari zooms the
+     viewport when a sub-16px field takes focus. These admin controls size
+     themselves explicitly, which outranks the global rule — so the floor is
+     restated where the overrides live. */
+  .input,
+  textarea,
+  .pf-highlights {
+    font-size: 16px;
+  }
 }
 
 /* — image upload, attached to a path field —
@@ -854,6 +971,13 @@ textarea[data-grow] { max-height: 60vh; }
    and the foot band cancels it. */
 .modal-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-4); }
 .modal-foot .modal-actions { margin-top: 0; margin-left: auto; }
+/* A `method="dialog"` form rides around the Cancel buttons, and an unstyled
+   form is a block flex item: the band stretches *it* to the primary's height
+   while the button inside keeps its own — which is why these rows read as a
+   short control beside a tall one. `display: contents` steps the form out of
+   the box tree so every control is a direct item and stretch lands on the
+   buttons themselves. */
+.modal-actions > form { display: contents; }
 /* The import form's assistant button sits at the left of the band, away from
    Cancel and Create: it is the only control there that neither commits nor
    abandons the form, and beside Create it reads like a second one. The row has
@@ -977,6 +1101,11 @@ textarea[data-grow] { max-height: 60vh; }
   :root[data-admin-collapsed] .admin-sidebar-head { flex-direction: row; }
   .admin-collapse { display: none; }
   .admin-nav { flex-direction: row; flex-wrap: wrap; overflow: visible; }
+  /* A horizontal banner has no edge to drag, and a run of chips does not
+     need section labels. */
+  .admin-resizer { display: none; }
+  .admin-nav-group + .admin-nav-group { margin-top: 0; }
+  .admin-nav-label { display: none; }
   .admin-main { padding: var(--space-4) var(--space-4) var(--space-8); }
   .admin-grid-3,
   .admin-grid-main { grid-template-columns: 1fr; }

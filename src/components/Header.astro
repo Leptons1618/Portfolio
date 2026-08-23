@@ -21,7 +21,7 @@ const isCurrent = (href: string) =>
     ))}
   </div>
   <ThemeToggle />
-  <a class="btn btn-primary nav-cta" href={`mailto:${site.email}`}>Hire Me</a>
+  <a class="btn btn-primary nav-cta" href={`mailto:${site.email}`}>Hire me</a>
 </nav>
 <style>
   .nav-brand { text-decoration: none; color: inherit; }
@@ -35,5 +35,14 @@ const isCurrent = (href: string) =>
     .nav-brand { margin-right: auto; }
     .nav-links { order: 3; width: 100%; flex-wrap: wrap; gap: var(--space-3) var(--space-4); }
     .nav-cta { flex: none; }
+  }
+
+  /* At the narrow end — an iPhone SE is 320px — the five links measure past
+     the row and wrap mid-list into a ragged third line. One compact step:
+     13px and tighter gaps bring the whole set back onto a single line, so
+     the bar stays two rows tall all the way down. */
+  @media (max-width: 400px) {
+    .nav-links { gap: var(--space-2) var(--space-3); }
+    .nav-links a { font-size: 13px; }
   }
 </style>

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI in the Admin — Technical Documentation</title>
+<style>
+  :root {
+    --ink: #1a1712;
+    --paper: #fcfbf8;
+    --surface: #f5f2ea;
+    --accent: #b4501e;
+    --accent-deep: #8a3a12;
+    --divider: #e5dfd2;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.65;
+    font-size: 16px;
+  }
+  main {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 48px 24px 96px;
+  }
+  header.masthead { border-bottom: 3px solid var(--ink); padding-bottom: 24px; margin-bottom: 40px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent-deep);
+    margin: 0 0 8px;
+  }
+  h1 {
+    font-family: Georgia, "Times New Roman", serif;
+    font-weight: 400;
+    font-size: clamp(32px, 5vw, 48px);
+    line-height: 1.15;
+    margin: 0 0 8px;
+  }
+  .standfirst { font-size: 18px; color: #57503f; max-width: 62ch; margin: 0; }
+  h2 {
+    font-family: Georgia, serif;
+    font-weight: 400;
+    font-size: 28px;
+    margin: 56px 0 4px;
+    padding-top: 24px;
+    border-top: 1px solid var(--divider);
+  }
+  h2 + p.file { margin-top: 0; }
+  h3 { font-family: var(--sans); font-weight: 650; font-size: 17px; margin: 32px 0 8px; }
+  p { margin: 12px 0; max-width: 72ch; }
+  ul, ol { max-width: 72ch; padding-left: 24px; }
+  li { margin: 6px 0; }
+  code {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    background: var(--surface);
+    border: 1px solid var(--divider);
+    border-radius: 4px;
+    padding: 1px 6px;
+    white-space: nowrap;
+  }
+  strong { font-weight: 650; }
+  em.term { color: var(--accent-deep); font-style: normal; font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0 24px; font-size: 14.5px; }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #7a7261;
+    border-bottom: 2px solid var(--ink);
+    padding: 8px 12px 8px 0;
+  }
+  td { border-bottom: 1px solid var(--divider); padding: 10px 12px 10px 0; vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  td code, th code { white-space: normal; }
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--divider);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.55;
+    margin: 16px 0 24px;
+  }
+  pre code { background: none; border: 0; padding: 0; white-space: pre; }
+  .file {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: #7a7261;
+    margin: 0 0 16px;
+  }
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--divider);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 20px 0;
+    max-width: none;
+  }
+  .callout p { margin: 0; max-width: none; }
+  .callout.warn { border-left: 3px solid var(--accent); }
+  footer { margin-top: 64px; padding-top: 16px; border-top: 3px solid var(--ink); }
+  footer p { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; color: #7a7261; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<main>
+
+<header class="masthead">
+  <p class="eyebrow">Technical documentation · Admin surface</p>
+  <h1>How AI powers the admin</h1>
+  <p class="standfirst">One route, one closed task table, one engine shared with the public
+  chat and nothing else in common with it. This page walks every AI feature in the admin:
+  what it does, which files make it true, what it is allowed to write, and where every limit
+  lives.</p>
+</header>
+
+<section>
+  <h2>The mental model</h2>
+  <p class="file">src/pages/api/ai/assist.ts · src/lib/assist-tasks.ts · src/lib/assist-panel.ts · src/lib/ai-store.ts</p>
+  <p>Three ideas explain the whole feature:</p>
+  <ol>
+    <li><strong>The assistant drafts; it never saves.</strong> Every AI output lands in the
+    editor as text. Publishing still happens through the same Save button a person presses.
+    An agent that could write a row would be an agent that could publish.</li>
+    <li><strong>The task list is closed.</strong> <code>/api/ai/assist</code> looks the task
+    name up in a source-level table. A name that isn't there gets a 400 listing the valid
+    names — never a forwarded prompt. That keeps the honest claim "there are sixteen things
+    this endpoint can be asked to do" instead of the weaker "only the owner can call it".</li>
+    <li><strong>It is independent of the public switch.</strong> <code>settings.enabled</code>
+    governs whether strangers may ask questions. Turning the public assistant off must not
+    take away the author's own tools; the assist route only checks that a keyed provider
+    exists.</li>
+  </ol>
+
+  <pre><code>Admin screen (JournalEditor / project editor / resume editor)
+  │  buttons carry data-assist-task="…"
+  ▼
+assist-panel.ts        — panel UI, command composer, streaming reader,
+  │                      Undo snapshots, transcript persistence
+  ▼
+ai-store.ts (fetch) ─── POST /api/ai/assist   { task, context, instruction,
+  │                                             history?, model?, effort? }
+  ▼
+requireOwner() → closed-task lookup → usableProviders() → [index?] →
+assistPrompt() → callChat() → agentStream() (tool loop) → NDJSON frames</code></pre>
+</section>
+
+<section>
+  <h2>The task table</h2>
+  <p class="file">src/lib/assist-tasks.ts — ASSIST_TASKS, the single source of truth</p>
+  <p>Nineteen tasks. Each declares its prompt contract, output format, ceilings, sampling
+  temperature, required context fields, and how its output reaches the editor. The route
+  refuses anything not in this table; the editors render their buttons from
+  <code>ASSIST_MENU</code>, so UI and server cannot drift apart about what exists.</p>
+
+  <table>
+    <thead><tr><th>Task</th><th>Screen</th><th>What it produces</th><th>Delivery</th></tr></thead>
+    <tbody>
+      <tr><td><code>compose</code></td><td>journal</td><td>Whole post from a topic — TITLE / SUMMARY / TAGS / READTIME / BODY filled into every field at once</td><td>streams into fields (<code>live: document</code>)</td></tr>
+      <tr><td><code>outline</code></td><td>journal</td><td>Section headings + one sentence each</td><td>panel → Insert</td></tr>
+      <tr><td><code>expand</code></td><td>journal</td><td>Selected heading/note written out as finished prose</td><td>replaces selection</td></tr>
+      <tr><td><code>tighten</code></td><td>journal</td><td>Selection rewritten shorter, claims preserved verbatim</td><td>replaces selection</td></tr>
+      <tr><td><code>revise</code></td><td>journal</td><td>Whole body rewritten to an instruction ("less formal", "cut to 600 words")</td><td><code>live: body</code>, watchable + stoppable, Undoable</td></tr>
+      <tr><td><code>selection</code></td><td>journal</td><td>Selection rewritten to any typed instruction</td><td>preview beside selection; nothing changes until Replace</td></tr>
+      <tr><td><code>summary</code></td><td>journal</td><td>One sentence ≤160 chars for card + meta description</td><td><code>live: summary</code> straight into the field, Undo offered</td></tr>
+      <tr><td><code>titles</code></td><td>journal</td><td>Five alternative titles, one per line</td><td>panel → click to apply</td></tr>
+      <tr><td><code>tags</code></td><td>journal</td><td>Up to six tags, preferring ones already on the site (reads the index)</td><td>panel → apply</td></tr>
+      <tr><td><code>diagram</code></td><td>journal</td><td>One Mermaid diagram, rendered client-side to SVG and saved as an asset</td><td>inserted as image</td></tr>
+      <tr><td><code>alt</code></td><td>journal</td><td>Alt text + caption for the hero image</td><td>panel → two targets</td></tr>
+      <tr><td><code>chat</code></td><td>both editors</td><td>Plain conversation; if asked for a change, replies ONLY in <code>FIELD: value</code> lines the editor applies with Undo</td><td>prose stays in panel; edits go to fields</td></tr>
+      <tr><td><code>project</code></td><td>project</td><td>Frontmatter from the repo README — summary, category, tags, stack, highlights</td><td><code>live: project</code></td></tr>
+      <tr><td><code>casestudy</code></td><td>project</td><td>Case-study header (problem/solution/achievements/stack) from the project's own record</td><td><code>live: caseStudy</code></td></tr>
+      <tr><td><code>casestudybody</code></td><td>project</td><td>The long-form prose under that header — reads the header so it never contradicts it</td><td><code>live: caseStudyBody</code></td></tr>
+      <tr><td><code>resumeSummary</code> / <code>resumeProjects</code> / <code>resumeBullet</code> / <code>resumeVariant</code></td><td>resume</td><td>Summary tailored to a pasted advert; ranked real projects (by slug, verified against the index); one-line rewrites; whole-variant selection from real role/skill ids</td><td>summary live; selections land as proposals with Apply</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <p><strong>Two design rules worth knowing when extending the table:</strong> tasks whose
+    output replaces text the author already wrote are deliberately <em>not</em> live — they
+    preview first, because "it is written, press Undo" is the wrong offer for a range the
+    author chose. And every anti-fabrication rule in the prompts ("invent no benchmark",
+    "slugs must come from the index") exists because the failure mode of a writing model on
+    a portfolio is plausible invention, not refusal.</p>
+  </div>
+
+  <h3>Voice grounding</h3>
+  <p class="file">needsCorpus: true → buildIndex() over published content only</p>
+  <p>Drafting tasks set <code>needsCorpus</code>. The route then fetches all four content
+  tables and builds <code>buildIndex()</code> — the same filtered table-of-contents the public
+  chat uses, so new prose matches the author's existing voice and reuses their real tags and
+  slugs. Reformatting tasks (tighten, diagram, resume bullets) skip the four queries and
+  several thousand tokens entirely.</p>
+</section>
+
+<section>
+  <h2>The request path, end to end</h2>
+  <p class="file">src/pages/api/ai/assist.ts</p>
+  <ol>
+    <li><strong><code>requireOwner(request)</code></strong> before the body is read at all.
+    The browser sends the GitHub user token sign-in issued; the Worker asks GitHub who it
+    belongs to and requires <code>login === site.githubUser</code>. No site-owned API key
+    exists; revocation belongs to GitHub (sign-out, ~8-hour expiry, App uninstall); it fails
+    closed even when GitHub is unreachable.</li>
+    <li><strong>Closed lookup:</strong> <code>isAssistTask(task)</code> or 400 with the valid names — the honest claim is "there are nineteen things this endpoint can do", not "only the owner can call it".</li>
+    <li><strong>Provider check:</strong> at least one active row holding a key, else 503 with copy naming the fix.</li>
+    <li><strong>Model pinning:</strong> the panel may pass a model id, but
+    <code>pickModel()</code> accepts only ids present in configured provider rows — a stolen
+    session cannot name an arbitrary expensive model.</li>
+    <li><strong>Prompt assembly:</strong> <code>assistPrompt()</code> builds the system message
+    from the task's instructions, the owner's persona string, the requested context fields
+    (each individually capped), trimmed conversation turns (roles other than user/assistant
+    are dropped, so nothing in a stored transcript can become a second system message), and
+    the tool summary when tools are offered.</li>
+    <li><strong>Stream:</strong> NDJSON out — <code>{"thinking":…}</code> frames separated by
+    the engine's stripper, then <code>{"delta":…}</code>, plus <code>{"tool":…}</code>
+    provenance rows for lookups. Vendor error text is shown in full here (the reader is the
+    owner; it names the wrong model or empty account), unlike the public route where it stays
+    server-side.</li>
+  </ol>
+
+  <h3>The tool loop behind drafting</h3>
+  <p class="file">src/lib/ai.ts — agentStream()</p>
+  <p>Tasks given the index may also be given the five read-only lookup tools
+  (<code>search_content</code>, <code>read_post</code>, <code>read_project</code>,
+  <code>read_case_study</code>, <code>read_resume</code>). The loop bounds itself three ways:
+  round count (3 default), total calls (<code>MAX_TOOL_CALLS = 8</code>), and — the part that
+  makes those real — the tools are <strong>withdrawn</strong> once spent rather than merely
+  forbidden, because a limit a model is told about is a limit it asks past. Later rounds pin
+  to the provider that answered round one; half an answer from each of two vendors is two
+  conversations spliced, not fallback.</p>
+</section>
+
+<section>
+  <h2>The AI settings screen</h2>
+  <p class="file">src/pages/admin/ai.astro · src/lib/ai-store.ts · GET+POST /api/ai/providers · GET /api/ai/models</p>
+  <ul>
+    <li><strong>Providers are rows</strong> in <code>ai_providers</code>: label, base URL,
+    model, optional assist-only model, active flag, priority order. Any OpenAI-compatible
+    vendor works without an adapter. Multiple active rows are a fallback chain — failures
+    walk down the priority list instead of erroring at a visitor.</li>
+    <li><strong>The key is write-only from the screen's point of view.</strong> The form sends
+    it only when newly typed; an empty field means "leave it alone". Reads return a masked
+    fingerprint via <code>summarise()</code>, built key-by-key so a future column cannot ride
+    along. <code>scripts/test-ai.mjs</code> asserts the serialized response cannot contain the
+    key.</li>
+    <li><strong>Test button = a real completion.</strong> POST
+    <code>/api/ai/providers</code> sends an 8-token request to exactly the chosen row — not
+    through the fallback walk, so a broken primary can't borrow a healthy backup's green tick.
+    Model listing succeeds on some vendors with keys that cannot run inference, which is why
+    listing is not the test.</li>
+    <li><strong>Model picker backed by a proxy.</strong> GET <code>/api/ai/models</code> asks
+    <code>{baseUrl}/models</code> (key outbound only, 15s timeout) and rebuilds the vendor's
+    JSON into the seven fields the site uses. Failures come back as
+    <code>{ models: [], error }</code> at 200 — ordinary states of a form mid-typing, not
+    exceptions.</li>
+    <li><strong>Settings are clamped twice.</strong> The screen saves through
+    <code>clampSettings()</code>, whose ceilings (≤60/hour per IP, ≤2000/day, ≤
+    MAX_OUTPUT_CEILING tokens) exist because the one person who can reach the form is the one
+    person whose typo spends their own balance. Decision 22: a settings screen may not lift
+    its own limits.</li>
+    <li><strong>Cost visibility.</strong> The screen reports corpus vs index sizes side by
+    side (the difference <em>is</em> the retrieval saving) and today's usage — answers served
+    and distinct callers — from the same counter table the budgets charge.</li>
+    <li><strong>Public switch semantics.</strong> The toggle writes the raw stored value, not
+    the folded readiness <code>/api/ai/status</code> reports — otherwise a switch reading
+    back off because no key was pasted yet would be a control refusing to stay where it was
+    put.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Transcripts: ai_chats / ai_messages</h2>
+  <p class="file">migrations/0007_ai_chats.sql · /api/ai/chats · migrations/0008_ai_agent.sql</p>
+  <ul>
+    <li>Conversation ids are generated by the browser, so streaming can start before any
+    server round-trip names the thing.</li>
+    <li>A chat is pinned to a <code>surface</code> (journal / project) because commands and
+    fields differ; history listed in the wrong editor would be unresumable there.</li>
+    <li><code>doc_slug</code> is nullable and deliberately not a foreign key: a draft that was
+    abandoned keeps its conversation readable, and <code>journal/new</code> has no slug yet.</li>
+    <li>Messages have a third role, <code>note</code> — the panel's own voice ("stopped",
+    "nothing was written"). Stored so transcripts don't silently lose events; kept a separate
+    role so it can never be replayed to a model as an assistant turn.</li>
+    <li><code>thinking</code> is stored beside the answer, never inside it — the storage shape
+    mirrors the wire protocol's separation.</li>
+    <li>Caps bound runaway loops, not people: 20 000 chars/message, 400 messages/chat, 60
+    chats listed. The route uses fixed hand-written SQL (no identifier interpolation) because
+    append needs autoincrement ids the generic slug-keyed endpoint cannot express.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Where the limits actually live</h2>
+  <table>
+    <thead><tr><th>Limit</th><th>Value / mechanism</th><th>Enforced in</th></tr></thead>
+    <tbody>
+      <tr><td>Who may call assist</td><td>GitHub login === site.githubUser, verified per request</td><td><code>authorize.ts</code></td></tr>
+      <tr><td>What may be asked</td><td>Closed 19-name task table</td><td><code>assist-tasks.ts</code></td></tr>
+      <tr><td>Which model may be named</td><td>Only ids present in provider rows</td><td><code>pickModel()</code></td></tr>
+      <tr><td>Which params reach vendors</td><td><code>clampParams()</code> allowlist — keys from source, values clamped</td><td><code>ai-catalog.ts</code></td></tr>
+      <tr><td>How much thinking fits</td><td>Task ceiling raised to the model's real maximum (<code>effectiveMaxTokens</code>) so reasoning isn't truncated mid-thought</td><td><code>ai.ts</code></td></tr>
+      <tr><td>Tool spend per answer</td><td>≤3 rounds, ≤8 calls, tools withdrawn after</td><td><code>agentStream()</code></td></tr>
+      <tr><td>Transcript size</td><td>20k chars/msg, 400 msgs/chat, 60 chats listed</td><td><code>chats.ts</code></td></tr>
+      <tr><td>Public budget (contrast)</td><td>per-IP hourly + site daily, charged pre-call</td><td><code>ai-guard.ts charge()</code></td></tr>
+    </tbody>
+  </table>
+  <p>The asymmetry is deliberate: the admin surface authenticates every call and therefore
+  needs no rate limiter; the public surface authenticates nobody and therefore meters
+  everything.</p>
+</section>
+
+<section>
+  <h2>Failure behaviour</h2>
+  <ul>
+    <li><strong>Vendor down:</strong> the walk moves to the next active provider; only total
+    failure surfaces, as the vendor's own words in the panel.</li>
+    <li><strong>Stream dies mid-answer:</strong> partial deltas already delivered stay in the
+    editor; the panel appends a note frame explaining the stop; the transcript records the
+    note.</li>
+    <li><strong>Stop button:</strong> aborts the fetch; the snapshot taken before the run
+    restores the pre-stream state via the same Undo path.</li>
+    <li><strong>No provider configured:</strong> 503 with copy pointing at the AI screen —
+    the editors grey their assist controls rather than sending requests that cannot succeed.</li>
+  </ul>
+</section>
+
+<footer>
+  <p>Anish Giri Portfolio · docs/admin-ai.html · companion to docs/AI-ARCHITECTURE.md · 2026-08-22</p>
+</footer>
+
+</main>
+</body>
+</html>

@@ -30,7 +30,7 @@ const imageURL = absoluteUrl(image, origin);
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>{fullTitle}</title>
   <meta name="description" content={description} />
   <link rel="canonical" href={canonicalURL} />
@@ -67,8 +67,12 @@ const imageURL = absoluteUrl(image, origin);
   </script>
 </head>
 <body>
+  {/* First thing Tab can reach. The nav sits between every keyboard arrival
+      and the content; this hands the trip back to whoever does not want it.
+      Visible only while focused, so pointer users never see it. */}
+  <a class="skip-link" href="#main">Skip to content</a>
   <Header />
-  <main><slot /></main>
+  <main id="main" tabindex="-1"><slot /></main>
   <Footer />
   {/* Renders hidden and unhides itself only if the assistant is switched on —
       a prerendered page cannot read the row that decides it, so the launcher
@@ -104,7 +108,11 @@ const imageURL = absoluteUrl(image, origin);
             .filter(entry => entry.isIntersecting)
             .forEach((entry, index) => {
               const node = entry.target as HTMLElement;
-              node.style.setProperty('--reveal-delay', `${index * STAGGER}ms`);
+              /* Authored delays win: a page that staged its own entrance
+                 keeps it, and the batch stagger fills in for everyone else. */
+              if (!node.style.getPropertyValue('--reveal-delay')) {
+                node.style.setProperty('--reveal-delay', `${index * STAGGER}ms`);
+              }
               node.classList.add('is-revealed');
               self.unobserve(node);
             });
@@ -117,3 +125,41 @@ const imageURL = absoluteUrl(image, origin);
   </script>
 </body>
 </html>
+<style>
+  /* Off-canvas until focused, then a panel top-left in the page's own
+     materials. `:focus` not `:focus-visible`: keyboard activation of an
+     anchor does move focus here, but the link must also appear for the
+     touch and switch users a `focus-visible` heuristic can miss. */
+  .skip-link {
+    position: fixed;
+    /* The inset is a floor, not a constant: on a notched device in landscape
+       the safe-area env() is larger and wins, so the panel never lands under
+       the corner or the browser chrome. On a plain rectangle env() is 0 and
+       the token holds. */
+    top: max(var(--space-4), env(safe-area-inset-top));
+    left: max(var(--space-4), env(safe-area-inset-left));
+    z-index: 100;
+    padding: var(--space-2) var(--space-4);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-size: 14px;
+    font-weight: 500;
+    border: 1px solid var(--color-text);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    transform: translateY(calc(-100% - var(--space-4)));
+  }
+  .skip-link:focus {
+    transform: none;
+  }
+
+  /* The arrival is a motion moment — the panel drops in from off-screen —
+     so it gets a short settle rather than teleporting into place. The exit
+     keeps its instant snap: dismissal should be quicker than arrival, and
+     nobody watches this one leave. */
+  @media (prefers-reduced-motion: no-preference) {
+    .skip-link:focus {
+      transition: transform var(--dur-fast) var(--ease-out);
+    }
+  }
+</style>

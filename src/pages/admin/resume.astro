@@ -84,8 +84,12 @@ const seed = {
           <select class="input" id="rv-public"></select>
         </label>
         <div class="rv-danger">
-          <button type="button" class="btn btn-secondary btn-sm" id="rv-duplicate">Duplicate</button>
-          <button type="button" class="btn btn-secondary btn-sm admin-danger" id="rv-delete">Delete</button>
+          {/* Full-size, not `btn-sm`: this row's neighbours are `.input` fields
+              at a 36px floor, and the compact buttons floated visibly short of
+              them. The default button height plus the row's own min-height
+              lands them level with the selects they sit beside. */}
+          <button type="button" class="btn btn-secondary" id="rv-duplicate">Duplicate</button>
+          <button type="button" class="btn btn-secondary admin-danger" id="rv-delete">Delete</button>
         </div>
       </div>
     </div>
@@ -113,9 +117,9 @@ const seed = {
 
         <details class="card elev-sm ed-section" open>
           <summary class="ed-summary">
-            <h6 class="admin-eyebrow ed-legend">
+            <span class="admin-eyebrow ed-legend">
               Summary <span class="tag tag-neutral ed-count" id="count-summary"></span>
-            </h6>
+            </span>
           </summary>
           <div class="ed-body">
             <label class="field">
@@ -128,9 +132,9 @@ const seed = {
 
         <details class="card elev-sm ed-section" open>
           <summary class="ed-summary">
-            <h6 class="admin-eyebrow ed-legend">
+            <span class="admin-eyebrow ed-legend">
               Experience <span class="tag tag-neutral ed-count" id="count-experience"></span>
-            </h6>
+            </span>
           </summary>
           <div class="ed-body">
             <div id="experience-list" class="entry-list"></div>
@@ -140,9 +144,9 @@ const seed = {
 
         <details class="card elev-sm ed-section">
           <summary class="ed-summary">
-            <h6 class="admin-eyebrow ed-legend">
+            <span class="admin-eyebrow ed-legend">
               Skills <span class="tag tag-neutral ed-count" id="count-skills"></span>
-            </h6>
+            </span>
           </summary>
           <div class="ed-body">
             <div id="skills-groups" class="skill-groups"></div>
@@ -152,9 +156,9 @@ const seed = {
 
         <details class="card elev-sm ed-section">
           <summary class="ed-summary">
-            <h6 class="admin-eyebrow ed-legend">
+            <span class="admin-eyebrow ed-legend">
               Education <span class="tag tag-neutral ed-count" id="count-education"></span>
-            </h6>
+            </span>
           </summary>
           <div class="ed-body">
             <div id="education-list" class="entry-list"></div>
@@ -164,9 +168,9 @@ const seed = {
 
         <details class="card elev-sm ed-section">
           <summary class="ed-summary">
-            <h6 class="admin-eyebrow ed-legend">
+            <span class="admin-eyebrow ed-legend">
               Certifications <span class="tag tag-neutral ed-count" id="count-certifications"></span>
-            </h6>
+            </span>
           </summary>
           <div class="ed-body">
             <div id="cert-list" class="cert-rows"></div>
@@ -183,7 +187,7 @@ const seed = {
       <div class="editor-col" id="tailor-body">
         <details class="card elev-sm ed-section" open>
           <summary class="ed-summary">
-            <h6 class="admin-eyebrow ed-legend">This variant</h6>
+            <span class="admin-eyebrow ed-legend">This variant</span>
           </summary>
           <div class="ed-body">
             <label class="field">
@@ -203,18 +207,18 @@ const seed = {
 
         <details class="card elev-sm ed-section" open>
           <summary class="ed-summary">
-            <h6 class="admin-eyebrow ed-legend">
+            <span class="admin-eyebrow ed-legend">
               Experience <span class="tag tag-neutral ed-count" id="tv-count-experience"></span>
-            </h6>
+            </span>
           </summary>
           <div class="ed-body"><div id="tv-experience" class="pick-list"></div></div>
         </details>
 
         <details class="card elev-sm ed-section" open>
           <summary class="ed-summary">
-            <h6 class="admin-eyebrow ed-legend">
+            <span class="admin-eyebrow ed-legend">
               Projects <span class="tag tag-neutral ed-count" id="tv-count-projects"></span>
-            </h6>
+            </span>
           </summary>
           <div class="ed-body">
             <div id="tv-projects" class="pick-list"></div>
@@ -227,16 +231,16 @@ const seed = {
 
         <details class="card elev-sm ed-section">
           <summary class="ed-summary">
-            <h6 class="admin-eyebrow ed-legend">
+            <span class="admin-eyebrow ed-legend">
               Skills <span class="tag tag-neutral ed-count" id="tv-count-skills"></span>
-            </h6>
+            </span>
           </summary>
           <div class="ed-body"><div id="tv-skills" class="pick-list"></div></div>
         </details>
 
         <details class="card elev-sm ed-section">
           <summary class="ed-summary">
-            <h6 class="admin-eyebrow ed-legend">Education &amp; certifications</h6>
+            <span class="admin-eyebrow ed-legend">Education &amp; certifications</span>
           </summary>
           <div class="ed-body">
             <div id="tv-education" class="pick-list"></div>
@@ -1760,6 +1764,9 @@ const seed = {
   .rv-field { flex: 1; min-width: 180px; margin: 0; }
   .rv-field-narrow { flex: 0 1 200px; }
   .rv-danger { display: flex; gap: 6px; }
+  /* Level with the selects beside them — `.input` carries a 36px floor, and
+     the buttons' own padding stops a pixel short of it. */
+  .rv-danger .btn { min-height: 36px; }
 
   /* — collapsible sections —
 
@@ -1823,4 +1830,9 @@ const seed = {
   .preview-note { margin-top: var(--space-3); max-width: 70ch; }
   .export-note { margin-top: var(--space-4); max-width: 70ch; }
   .export-note code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+
+  /* The section legends are labels inside <summary>, which takes phrasing
+     content — a <p> there is non-conforming. Spans with block display,
+     dressed by the shared eyebrow rule in global.css. */
+  span.admin-eyebrow.ed-legend { display: block; }
 </style>

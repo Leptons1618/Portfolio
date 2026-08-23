@@ -53,10 +53,10 @@ const firstName = site.name.split(' ')[0];
         <p class="ask-sub">Answers come from this site's own pages.</p>
       </div>
       <div class="ask-head-actions">
-        <button type="button" class="ask-icon-btn" id="ask-new" aria-label="New chat" title="New chat">
+        <button type="button" class="ask-icon-btn tap-target" id="ask-new" aria-label="New chat" title="New chat">
           <Icon name="lucide:message-square-plus" class="ask-icon" />
         </button>
-        <button type="button" class="ask-icon-btn" id="ask-close" aria-label="Close" title="Close">
+        <button type="button" class="ask-icon-btn tap-target" id="ask-close" aria-label="Close" title="Close">
           <Icon name="lucide:x" class="ask-icon" />
         </button>
       </div>
@@ -82,7 +82,7 @@ const firstName = site.name.split(' ')[0];
           markup because swapping them in script would mean writing over an
           inlined `astro-icon` SVG — the same trap `setLabel()` exists for on
           the admin surface. `data-busy` picks which one paints. */}
-      <button type="submit" class="ask-send" id="ask-send" aria-label="Send">
+      <button type="submit" class="ask-send tap-target" id="ask-send" aria-label="Send">
         <Icon name="lucide:arrow-up" class="ask-send-icon" />
         <Icon name="lucide:square" class="ask-send-icon ask-send-stop" />
       </button>
@@ -540,9 +540,11 @@ const firstName = site.name.split(' ')[0];
       busy = true;
       stopped = false;
       /* Not `disabled`: while an answer streams this button is the Stop
-         control, so it has to stay pressable. `data-busy` swaps which of its
-         two inlined icons paints. */
+          control, so it has to stay pressable. `data-busy` swaps which of its
+          two inlined icons paints — cross-fading, not toggling — and names
+          the button for what a press will now do. */
       send.dataset.busy = '';
+      send.setAttribute('aria-label', 'Stop');
 
       history.push({ role: 'user', content: question });
       bubble('user').textContent = question;
@@ -728,6 +730,7 @@ const firstName = site.name.split(' ')[0];
       } finally {
         busy = false;
         delete send.dataset.busy;
+        send.setAttribute('aria-label', 'Send');
         inFlight = null;
         input.focus();
       }
@@ -775,9 +778,22 @@ const firstName = site.name.split(' ')[0];
     }
 
     let opened = false;
+    /* The close animation's timer, so a re-open during the 150ms exit can
+       cancel it instead of being hidden mid-entrance. */
+    let hideTimer: number | undefined;
+
+    const REDUCED_MOTION = window.matchMedia('(prefers-reduced-motion: reduce)');
 
     function openPanel(status: Status) {
+      clearTimeout(hideTimer);
       panel.hidden = false;
+      panel.classList.remove('is-closing');
+      /* A frame between the display change and the open class, or the browser
+         sees both in one style update and never transitions — the same beat
+         `.select-menu`'s `.is-open` waits for. */
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => panel.classList.add('is-open'));
+      });
       launcher.setAttribute('aria-expanded', 'true');
       root.dataset.open = '1';
 
@@ -789,7 +805,19 @@ const firstName = site.name.split(' ')[0];
     }
 
     function closePanel() {
-      panel.hidden = true;
+      const hide = () => {
+        panel.hidden = true;
+        panel.classList.remove('is-open', 'is-closing');
+      };
+      if (REDUCED_MOTION.matches) {
+        hide();
+      } else {
+        panel.classList.remove('is-open');
+        panel.classList.add('is-closing');
+        /* The CSS exit is 150ms; hiding on its clock rather than waiting for
+           an event keeps the two from drifting apart. */
+        hideTimer = window.setTimeout(hide, 150);
+      }
       launcher.setAttribute('aria-expanded', 'false');
       delete root.dataset.open;
       /* An answer nobody will read is an answer nobody should pay for — the
@@ -927,6 +955,41 @@ const firstName = site.name.split(' ')[0];
         if (panel.hidden) openPanel(status);
         else closePanel();
       });
+
+      /* The launcher is fixed to a corner the footer's link row also claims.
+         While the two rectangles intersect, lift the launcher above the
+         collision zone; settle back once they part. rAF-throttled because
+         scroll fires faster than any of this needs to run. The panel is not
+         lifted: it opens over content by design, and it hides its own
+         launcher while open. */
+      const footer = document.querySelector('footer.site-footer');
+      if (footer) {
+        let ticking = false;
+        const syncLift = () => {
+          ticking = false;
+          if (panel.hidden) {
+            const f = footer.getBoundingClientRect();
+            const l = launcher.getBoundingClientRect();
+            const overlaps =
+              l.left < f.right && l.right > f.left && l.bottom > f.top && l.top < f.bottom;
+            root.style.setProperty(
+              '--ask-lift',
+              overlaps ? `${Math.ceil(l.bottom - Math.max(f.top, 0)) + 8}px` : '0px'
+            );
+          }
+        };
+        const requestSync = () => {
+          if (!ticking) {
+            ticking = true;
+            requestAnimationFrame(syncLift);
+          }
+        };
+        syncLift();
+        window.addEventListener('scroll', requestSync, { passive: true });
+        window.addEventListener('resize', requestSync);
+        /* Opening and closing the panel changes which control is showing. */
+        panel.addEventListener('transitionend', syncLift);
+      }
       $<HTMLButtonElement>('ask-close').addEventListener('click', closePanel);
       $<HTMLButtonElement>('ask-new').addEventListener('click', () => newChat(status));
 
@@ -977,8 +1040,16 @@ const firstName = site.name.split(' ')[0];
      for that to go wrong. */
   .ask {
     position: fixed;
-    right: var(--space-4);
-    bottom: var(--space-4);
+    /* Safe-area aware: on a notched phone the env() insets are larger than
+       the token and win, so the launcher and the open panel never sit under
+       the home indicator or a rounded corner. On a plain rectangle both
+       env()s are 0 and the token holds. */
+    right: max(var(--space-4), env(safe-area-inset-right));
+    /* `--ask-lift` is written from script while the launcher overlaps the
+       footer's link row — the one place on every page where a fixed control
+       parks on real content. 0px at rest, so the safe-area `max()` above is
+       untouched until an intersection says otherwise. */
+    bottom: max(calc(var(--space-4) + var(--ask-lift, 0px)), env(safe-area-inset-bottom));
     z-index: 40;
     display: flex;
     flex-direction: column;
@@ -1017,6 +1088,17 @@ const firstName = site.name.split(' ')[0];
 
   .ask-launcher-icon { width: 16px; height: 16px; }
 
+  /* Arrival, played whenever the launcher becomes displayed: the first time
+     the status fetch unhides it, and every time a closing panel hands the
+     corner back. A small rise, nothing more — it is an invitation, not an
+     entrance. */
+  @media (prefers-reduced-motion: no-preference) {
+    .ask-launcher { animation: ask-launcher-in var(--dur-base) var(--ease-out); }
+  }
+  @keyframes ask-launcher-in {
+    from { opacity: 0; translate: 0 6px; }
+  }
+
   /* The launcher is redundant while the panel is open, and on a phone it sits
      on top of it. */
   .ask[data-open] .ask-launcher { display: none; }
@@ -1038,6 +1120,37 @@ const firstName = site.name.split(' ')[0];
   }
 
   .ask-panel[hidden] { display: none; }
+
+  /* — open and close —
+
+     The same three-state pattern the shared `.select-menu` uses: the resting
+     styles are the closed state, `.is-open` is the open one, and `.is-closing`
+     runs the exit so both directions transition. `hidden` is what actually
+     removes the panel; the classes only decide how it leaves and arrives.
+     Anchored bottom-right, so it grows from its corner — `transform-origin`
+     bottom right keeps the motion attached to the launcher that opened it.
+     The global reduced-motion kill switch collapses these to 0.01ms, so
+     `transitionend` still fires and the script's `hidden` swap is instant. */
+  @media (prefers-reduced-motion: no-preference) {
+    .ask-panel {
+      opacity: 0;
+      transform: translateY(6px) scale(0.98);
+      transform-origin: bottom right;
+      transition:
+        opacity var(--dur-base) var(--ease-out),
+        transform var(--dur-base) var(--ease-out);
+    }
+  }
+
+  .ask-panel.is-open { opacity: 1; transform: none; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .ask-panel.is-closing {
+      opacity: 0;
+      transform: translateY(4px) scale(0.99);
+      transition-duration: 150ms;
+    }
+  }
 
   /* The resize handle, at the corner the panel actually grows from. Two rules
      carry the affordance: the diagonal, drawn as a gradient rather than a data
@@ -1096,6 +1209,12 @@ const firstName = site.name.split(' ')[0];
     cursor: pointer;
     padding: 0;
   }
+
+  /* The shared `.tap-target` utility carries the mechanics; the inset is
+     this control's own — vertical takes 26px to the floor, horizontal is
+     capped at half the header's 4px gap so the two buttons' expansions
+     never overlap. */
+  .ask-icon-btn.tap-target { --tap-expand: -9px -2px; }
   .ask-icon-btn:hover { color: var(--color-accent); background: var(--color-surface); }
   .ask-icon { width: 16px; height: 16px; }
 
@@ -1430,10 +1549,14 @@ const firstName = site.name.split(' ')[0];
   }
   .ask-input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -1px; }
 
+  /* Send and Stop are one button wearing two icons, so the swap is a
+     cross-fade rather than a visibility toggle: both icons live in the same
+     grid cell and hand over through opacity, scale and blur — the idle icon
+     shrinking out as the busy one arrives. Nothing is communicated by the
+     movement alone; `[data-busy]` also swaps the aria-label in script. */
   .ask-send {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    display: inline-grid;
+    place-items: center;
     width: 34px;
     height: 34px;
     flex: none;
@@ -1442,11 +1565,35 @@ const firstName = site.name.split(' ')[0];
     color: var(--color-bg);
     cursor: pointer;
   }
+  /* The shared `.tap-target` utility carries the mechanics; the form's 8px
+     gap is what this 5px expansion stops inside. */
+  .ask-send.tap-target { --tap-expand: -5px; }
   .ask-send:disabled { opacity: 0.5; cursor: default; }
-  .ask-send-stop { display: none; }
-  .ask-send[data-busy] .ask-send-icon { display: none; }
-  .ask-send[data-busy] .ask-send-stop { display: block; }
-  .ask-send-icon { width: 16px; height: 16px; }
+
+  .ask-send-icon {
+    grid-area: 1 / 1;
+    width: 16px;
+    height: 16px;
+    opacity: 1;
+    scale: 1;
+    filter: blur(0);
+    transition:
+      opacity var(--dur-fast) cubic-bezier(0.2, 0, 0, 1),
+      scale var(--dur-fast) cubic-bezier(0.2, 0, 0, 1),
+      filter var(--dur-fast) cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .ask-send-stop { opacity: 0; scale: 0.25; filter: blur(4px); }
+  .ask-send[data-busy] .ask-send-icon:not(.ask-send-stop) {
+    opacity: 0;
+    scale: 0.25;
+    filter: blur(4px);
+  }
+  .ask-send[data-busy] .ask-send-stop {
+    opacity: 1;
+    scale: 1;
+    filter: blur(0);
+  }
 
   .ask-foot {
     margin: 0;
@@ -1475,9 +1622,12 @@ const firstName = site.name.split(' ')[0];
      resized on a laptop hanging off the side of a phone. */
   @media (max-width: 520px) {
     .ask[data-open] {
-      inset: 0;
-      right: 0;
-      bottom: 0;
+      /* Full-screen on its own terms, but inside the safe area: a landscape
+         phone would otherwise put the close button under the notch. */
+      top: env(safe-area-inset-top);
+      right: max(env(safe-area-inset-right), var(--space-1));
+      bottom: max(env(safe-area-inset-bottom), var(--space-1));
+      left: max(env(safe-area-inset-left), var(--space-1));
     }
     .ask[data-open] .ask-panel {
       width: 100%;
@@ -1492,6 +1642,14 @@ const firstName = site.name.split(' ')[0];
        header and they sit right where the hand is. */
     .ask-icon-btn { width: 36px; height: 36px; }
     .ask-log { font-size: 14px; }
+  }
+
+  /* 16px under the phone breakpoint: iOS Safari zooms the viewport when a
+     smaller field takes focus. */
+  @media (max-width: 520px) {
+    .ask-input {
+      font-size: 16px;
+    }
   }
 
   /* A short window — a laptop in a split view, or a phone in landscape — has

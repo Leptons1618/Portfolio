@@ -17,19 +17,30 @@
 import { Icon } from 'astro-icon/components';
 import ThemeToggle from './ThemeToggle.astro';
 import { site } from '../lib/site';
+import { SIDEBAR_WIDTH } from '../lib/admin';
 
 /* Identity is the fifth destination. It was a dialog on the grounds that a
    screen should be something that writes, and it is still the one entry here
    that only exports — but the rule cost more than it bought: a modal has no
    URL, does not survive a reload, and loses what you typed to a stray Escape.
    Decision 14 has the reversal; the screen itself says it exports. */
-const NAV = [
-  { label: 'Dashboard', href: '/admin/dashboard', icon: 'lucide:layout-dashboard' },
-  { label: 'Projects', href: '/admin/projects', icon: 'lucide:folder-git-2' },
-  { label: 'Journal', href: '/admin/journal', icon: 'lucide:pen-line' },
-  { label: 'Resume', href: '/admin/resume', icon: 'lucide:file-text' },
-  { label: 'AI', href: '/admin/ai', icon: 'lucide:sparkles' },
-  { label: 'Identity', href: '/admin/settings', icon: 'lucide:user-round-cog' },
+const NAV_GROUPS = [
+  {
+    label: 'Manage',
+    items: [
+      { label: 'Dashboard', href: '/admin/dashboard', icon: 'lucide:layout-dashboard' },
+      { label: 'Projects', href: '/admin/projects', icon: 'lucide:folder-git-2' },
+      { label: 'Journal', href: '/admin/journal', icon: 'lucide:pen-line' },
+      { label: 'Resume', href: '/admin/resume', icon: 'lucide:file-text' },
+    ],
+  },
+  {
+    label: 'System',
+    items: [
+      { label: 'AI', href: '/admin/ai', icon: 'lucide:sparkles' },
+      { label: 'Identity', href: '/admin/settings', icon: 'lucide:user-round-cog' },
+    ],
+  },
 ];
 
 /* Built and served paths differ by a trailing slash, so compare without one.
@@ -65,16 +76,21 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
   </div>
 
   <nav class="admin-nav" aria-label="Admin sections">
-    {NAV.map(item => (
-      <a
-        href={item.href}
-        class="admin-nav-link"
-        title={item.label}
-        aria-current={isCurrent(item.href) ? 'page' : undefined}
-      >
-        <Icon name={item.icon} class="admin-nav-icon" />
-        <span class="collapsible">{item.label}</span>
-      </a>
+    {NAV_GROUPS.map(group => (
+      <div class="admin-nav-group">
+        <p class="admin-nav-label collapsible">{group.label}</p>
+        {group.items.map(item => (
+          <a
+            href={item.href}
+            class="admin-nav-link"
+            title={item.label}
+            aria-current={isCurrent(item.href) ? 'page' : undefined}
+          >
+            <Icon name={item.icon} class="admin-nav-icon" />
+            <span class="collapsible">{item.label}</span>
+          </a>
+        ))}
+      </div>
     ))}
   </nav>
 
@@ -98,10 +114,27 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
       </button>
     </span>
   </div>
+
+  {/* — resize handle —
+
+      The rail's edge, made into a control: a separator you can drag, nudge
+      with the arrow keys, or double-act to put the default width back. The
+      grip only surfaces when the pointer is near or focus arrives, so at rest
+      the edge reads as an edge and not as chrome asking for attention. */}
+  <div
+    class="admin-resizer"
+    id="admin-resizer"
+    role="separator"
+    aria-orientation="vertical"
+    tabindex="0"
+    aria-valuemin={SIDEBAR_WIDTH.min}
+    aria-valuemax={SIDEBAR_WIDTH.max}
+    aria-label={`Resize sidebar. Drag, or use the arrow keys. Range ${SIDEBAR_WIDTH.min} to ${SIDEBAR_WIDTH.max} pixels.`}
+  ></div>
 </aside>
 
 <script>
-  import { SIDEBAR_KEY } from '../lib/admin';
+  import { SIDEBAR_KEY, SIDEBAR_WIDTH, SIDEBAR_WIDTH_KEY } from '../lib/admin';
   import { getUser, isConfigured, sessionExpiresAt, signOut } from '../lib/github';
 
   const root = document.documentElement;
@@ -162,6 +195,94 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
     localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0');
     markCollapsed(next);
   });
+
+  /* — resize —
+
+     The width is a custom property on `<html>`, never an inline width on the
+     rail: the collapsed rule has to keep winning while collapsed, and a
+     variable lets the stylesheet own both states. `AdminLayout`'s pre-paint
+     script restores the remembered value the same way, so nothing here has to
+     run before first paint. */
+  const resizer = document.getElementById('admin-resizer');
+
+  if (resizer) {
+    const clamp = (px: number) =>
+      Math.min(SIDEBAR_WIDTH.max, Math.max(SIDEBAR_WIDTH.min, px));
+    const stored = () => {
+      const raw = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY));
+      return raw >= SIDEBAR_WIDTH.min && raw <= SIDEBAR_WIDTH.max ? raw : null;
+    };
+
+    let width = stored() ?? SIDEBAR_WIDTH.default;
+    resizer.setAttribute('aria-valuenow', String(width));
+
+    function applyWidth(px: number) {
+      width = px;
+      /* Collapsed, the property would be invisible anyway — writing it there
+         would let an old value spring back the moment the rail was expanded. */
+      if (root.dataset.adminCollapsed !== '1') {
+        root.style.setProperty('--admin-sidebar-w', `${px}px`);
+        resizer!.setAttribute('aria-valuenow', String(px));
+      }
+    }
+
+    function remember() {
+      if (width === SIDEBAR_WIDTH.default) localStorage.removeItem(SIDEBAR_WIDTH_KEY);
+      else localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+    }
+
+    let dragging = false;
+
+    resizer.addEventListener('pointerdown', event => {
+      if (root.dataset.adminCollapsed === '1') return;
+      dragging = true;
+      document.body.classList.add('is-resizing-sidebar');
+      /* Capture keeps a fast pull tracked once the pointer outruns the strip.
+         It can legitimately fail — the pointer cancelled between events — and
+         the window-level listeners below cover that case anyway. */
+      try {
+        resizer.setPointerCapture(event.pointerId);
+      } catch {
+        /* keep going */
+      }
+      event.preventDefault();
+    });
+
+    /* On `window`, not on the strip: the pointer is free to leave nine pixels
+       of handle while it is still pulling, and the drag must follow it. */
+    window.addEventListener('pointermove', event => {
+      if (!dragging) return;
+      /* The rail starts at x=0, so the pointer *is* the right edge. */
+      applyWidth(clamp(event.clientX));
+    });
+
+    const endDrag = () => {
+      if (!dragging) return;
+      dragging = false;
+      document.body.classList.remove('is-resizing-sidebar');
+      remember();
+    };
+    window.addEventListener('pointerup', endDrag);
+    window.addEventListener('pointercancel', endDrag);
+
+    /* The keyboard path mirrors the drag in 16px steps; Home puts the default
+       back — the same three verbs the drag offers, without the mouse. */
+    resizer.addEventListener('keydown', event => {
+      if (root.dataset.adminCollapsed === '1') return;
+      const step = event.key === 'ArrowRight' ? 16 : event.key === 'ArrowLeft' ? -16 : 0;
+      if (step || event.key === 'Home') {
+        event.preventDefault();
+        applyWidth(step ? clamp(width + step) : SIDEBAR_WIDTH.default);
+        remember();
+      }
+    });
+
+    /* A double-click on an edge means "I didn't mean to change this". */
+    resizer.addEventListener('dblclick', () => {
+      applyWidth(SIDEBAR_WIDTH.default);
+      remember();
+    });
+  }
 
   /* — current section —
 

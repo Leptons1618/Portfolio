@@ -1,8 +1,7 @@
 ---
-import { Icon } from 'astro-icon/components';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import ProjectCard from '../components/ProjectCard.astro';
-import { categoryLabel, getCaseStudies, getFeaturedProjects, getProjects } from '../lib/content';
+import { categoryLabel, getDeepDiveCaseStudies, getFeaturedProjects, getProjects } from '../lib/content';
 import { site } from '../lib/site';
 
 /* Reads content from D1 per request — see the note in `src/lib/content.ts`.
@@ -14,7 +13,9 @@ const { DB } = Astro.locals.runtime.env;
 
 const allProjects = await getProjects(DB);
 const featured = await getFeaturedProjects(DB, 6);
-const caseStudies = await getCaseStudies(DB);
+/* The line-up is the author's call, not `date DESC`'s — the admin picks and
+   orders these, and an empty or absent pick falls back to newest first. */
+const caseStudies = await getDeepDiveCaseStudies(DB);
 
 /* Case studies carry neither category nor year — both come from the project
    that links to the study, the same way the case-study page's eyebrow does. */
@@ -24,12 +25,40 @@ const linkedProject = new Map(
 
 const skillSet = new Set<string>();
 allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
+
+/* The skills section is a wall of ~70 chips when it is one alphabetical
+   run — no order a visitor can hold onto. Grouping by discipline gives the
+   wall a reading path: scan the labels, land on your stack. Membership is
+   derived from the projects themselves; anything unmatched falls into
+   "Also" rather than being dropped or invented into a bucket. */
+const SKILL_ORDER = ['ML / CV', 'Languages', 'Web', 'Data & Infra', 'Also'];
+type SkillGroup = { label: string; items: string[] };
+const SKILL_BUCKETS: Record<string, string[]> = {
+  'ML / CV': ['pytorch', 'tensorflow', 'opencv', 'scikit', 'yolo', 'transformers', 'onnx', 'ml ', 'machine learning', 'vision'],
+  Languages: ['python', 'typescript', 'javascript', 'go', 'rust', 'c++', 'sql', 'java', 'c#'],
+  Web: ['react', 'next.js', 'nextjs', 'astro', 'vue', 'svelte', 'tailwind', 'html', 'css', 'fastapi', 'node', 'express', 'vite'],
+  'Data & Infra': ['postgres', 'redis', 'kafka', 'duckdb', 'docker', 'kubernetes', 'github actions', 'cloudflare', 'vercel', 'aws', 'gcp', 'linux'],
+};
+function skillGroupFor(skill: string): string {
+  const s = skill.toLowerCase();
+  for (const [label, needles] of Object.entries(SKILL_BUCKETS)) {
+    if (needles.some(n => s.includes(n))) return label;
+    if (s.includes(label.split(' ')[0].toLowerCase())) return label;
+  }
+  return 'Also';
+}
+const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
+  label,
+  items: Array.from(skillSet)
+    .filter(s => skillGroupFor(s) === label)
+    .sort((a, b) => a.localeCompare(b))
+})).filter(g => g.items.length > 0);
 ---
 <BaseLayout title="Home" description={site.tagline}>
   <header class="hero container">
-    <div class="hero-copy">
+    <div class="hero-copy" data-reveal>
       <span class="tag tag-accent-2 hero-status"><span class="status-dot" aria-hidden="true"></span>Open to opportunities</span>
-      <h6 class="eyebrow">Software Engineer</h6>
+      <p class="eyebrow">Software Engineer</p>
       <h1 class="hero-title">Building <span class="highlight">ML systems</span>, <span class="nowrap">full-stack</span> apps &amp; dev tools</h1>
       <p class="hero-desc">{site.bio}</p>
       <div class="hero-actions">
@@ -37,7 +66,7 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
         <a href={site.github} class="btn btn-secondary" target="_blank" rel="noopener">GitHub</a>
       </div>
     </div>
-    <div class="hero-figure">
+    <div class="hero-figure" data-reveal style="--reveal-delay: 120ms">
       {/* The hero's LCP element. It is above the fold on every viewport, so it
           is fetched at high priority and never lazily — the browser's default
           heuristics de-prioritise it behind the stylesheet otherwise. */}
@@ -53,36 +82,42 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
     </div>
   </header>
 
-  <section class="container home-section">
+  <section class="container home-section" data-reveal>
     <div class="section-head">
       <div>
-        <h6 class="eyebrow">Case Studies</h6>
+        <p class="eyebrow">Case Studies</p>
         <h2>Deep dives</h2>
       </div>
       <hr class="rule section-line" />
     </div>
-    <div class="grid-3">
-      {caseStudies.map(cs => {
+    <div class="grid-3 cs-grid">
+      {caseStudies.map((cs, i) => {
         const project = linkedProject.get(cs.slug);
         const year = project?.data.year ?? new Date(cs.data.date).getFullYear();
         return (
-          <a href={`/case-studies/${encodeURIComponent(cs.slug)}`} class="card elev-sm cs-card">
-            <span class="card-kicker">
-              {project ? `${year} · ${categoryLabel(project.data.category)}` : year}
-            </span>
+          <a
+            href={`/case-studies/${encodeURIComponent(cs.slug)}`}
+            class:list={['card', 'elev-sm', 'cs-card', { 'cs-lead': i === 0 && caseStudies.length >= 3 }]}
+          >
+            <span class="card-kicker">{year} · {project ? categoryLabel(project.data.category) : 'Case study'}</span>
             <h3 class="card-title">{cs.data.title}</h3>
             <p class="card-body">{cs.data.subtitle}</p>
-            <span class="card-meta cs-card-cta">Read case study<Icon name="lucide:arrow-right" class="cs-card-cta-icon" /></span>
+            {/* A span, not an anchor — the whole card already links to the
+                study, and a button inside a link is the one nesting browsers
+                refuse to render. Dressed as the same primary action the
+                project cards below use, so both sections answer "where do I
+                click" identically. */}
+            <span class="btn btn-primary btn-sm cs-card-cta">Read case study</span>
           </a>
         );
       })}
     </div>
   </section>
 
-  <section class="container home-section">
+  <section class="container home-section" data-reveal>
     <div class="section-head">
       <div>
-        <h6 class="eyebrow">Featured Projects</h6>
+        <p class="eyebrow">Featured Projects</p>
         <h2>Recent work</h2>
       </div>
       <hr class="rule section-line" />
@@ -95,34 +130,41 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
     </div>
   </section>
 
-  <section class="container home-section">
+  <section class="container home-section" data-reveal>
     <div class="section-head">
       <div>
-        <h6 class="eyebrow">Skills &amp; Stack</h6>
+        <p class="eyebrow">Skills &amp; Stack</p>
         <h2 class="skills-title">What I build with</h2>
       </div>
       <hr class="rule section-line" />
     </div>
-    <div class="tag-row">
-      {Array.from(skillSet).sort().map(s => <span class="tag tag-neutral">{s}</span>)}
+    <div class="skills-grid">
+      {skillGroups.map(group => (
+        <div class:list={['skill-cluster', { 'skill-cluster-wide': group.label === 'Also' }]}>
+          <p class="skill-label">{group.label}</p>
+          <div class="tag-row">
+            {group.items.map(s => <span class="tag tag-neutral">{s}</span>)}
+          </div>
+        </div>
+      ))}
     </div>
   </section>
 
-  <section class="closing-banner">
+  <section class="closing-banner" data-reveal>
     <div class="container closing-inner">
       <div>
         <h2 class="closing-title">Let's work together</h2>
         <p class="closing-desc">Open to interesting ML/CV, full-stack, and systems projects.</p>
       </div>
       <div class="closing-actions">
-        <a href={`mailto:${site.email}`} class="btn btn-on-accent">Hire Me</a>
+        <a href={`mailto:${site.email}`} class="btn btn-on-accent">Hire me</a>
         <a href="/resume" class="btn btn-on-accent-outline">Resume</a>
       </div>
     </div>
   </section>
 </BaseLayout>
 <style>
-  .eyebrow { color: var(--color-accent-700); margin-bottom: var(--space-2); }
+  .eyebrow { margin-bottom: var(--space-2); }
 
   /* — hero — */
   .hero {
@@ -188,21 +230,65 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
   .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
 
+  /* Case studies are not three equal tiles. The lead study takes a double
+     column and the taller type; the rest stack in the remaining lane. One
+     card is allowed to be more important than the others because one of
+     them is — the newest, deepest dive is the argument for reading any. */
+  .cs-grid.cs-grid { grid-template-areas: 'lead lead b' 'lead lead c'; grid-template-columns: 1fr 1fr 1fr; }
+  .cs-grid .cs-card:nth-child(1) { grid-area: lead; }
+  .cs-grid .cs-card:nth-child(2) { grid-area: b; }
+  .cs-grid .cs-card:nth-child(3) { grid-area: c; }
+  /* Fewer than three studies: no hierarchy to draw, so the flat grid stays. */
+  @media (min-width: 761px) {
+    .cs-grid:not(:has(.cs-card:nth-child(3))) { grid-template-areas: none; grid-template-columns: repeat(3, 1fr); }
+    .cs-grid:not(:has(.cs-card:nth-child(3))) .cs-card { grid-area: auto; }
+  }
+
   .cs-card { text-decoration: none; color: inherit; }
-  .cs-card:hover { color: inherit; }
-  .cs-card:hover .card-title { color: var(--color-accent); }
+  /* The lead card earns larger type with its double column; the stack cards
+     keep the shared scale so the hierarchy reads as chosen, not noisy. */
+  .cs-lead .card-title { font-size: clamp(24px, 2.6vw, 34px); max-width: 30ch; }
+  .cs-lead .card-body { font-size: 15px; opacity: 0.85; max-width: 52ch; }
+  .cs-card:hover,
+  .cs-card:focus-visible { color: inherit; }
+  .cs-card:hover .card-title,
+  .cs-card:focus-visible .card-title { color: var(--color-accent); }
+  /* The card's action wears the project cards' primary button. A flex-column
+     `.card` stretches its children, so the button is pulled back to its label;
+     the top margin parks it after the body copy on every card height. */
   .cs-card-cta {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    color: var(--color-accent-700);
+    align-self: flex-start;
     margin-top: var(--space-2);
   }
-  .cs-card-cta-icon { width: 14px; height: 14px; transition: transform 0.15s; }
-  .cs-card:hover .cs-card-cta-icon { transform: translateX(3px); }
 
   .skills-title { margin-bottom: var(--space-3); }
   .tag-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  /* The wall reads as columns of related work, not one undifferentiated run.
+     Labels wear the site's eyebrow voice so the clusters scan like the rest
+     of the page's metadata; "Also" is deliberately unstyled beyond the voice
+     so it stays the quiet last stop, not a fifth peer. */
+  .skills-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--space-6) var(--space-4);
+    align-items: start;
+  }
+  .skill-cluster { display: flex; flex-direction: column; gap: var(--space-2); }
+  /* "Also" is the overflow bucket, not a peer discipline — a lone narrow
+     column of stragglers beside four full clusters read as a layout mistake.
+     Spanning the whole width turns it into its own band, the way the run
+     would have flowed before the grouping existed. */
+  .skill-cluster-wide { grid-column: 1 / -1; }
+  .skill-label {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
 
   /* — closing banner: the one place the accent runs as a field — */
   .closing-banner {
@@ -219,18 +305,23 @@ allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
     flex-wrap: wrap;
   }
   .closing-title { font-size: clamp(28px, 4vw, 42px); margin-bottom: var(--space-2); }
-  .closing-desc { margin: 0; opacity: 0.9; }
+  .closing-desc { margin: 0; }
   .closing-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
-  .btn-on-accent { background: var(--color-bg); color: var(--color-accent-700); }
+  .btn-on-accent { background: var(--color-bg); color: var(--color-accent-700); transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease; }
   .btn-on-accent:hover { background: var(--color-accent-100); color: var(--color-accent-800); }
-  .btn-on-accent-outline { border-color: var(--color-bg); color: var(--color-bg); }
+  .btn-on-accent-outline { border-color: var(--color-bg); color: var(--color-bg); transition: background-color var(--dur-fast) ease, border-color var(--dur-fast) ease; }
   .btn-on-accent-outline:hover { background: color-mix(in srgb, var(--color-bg) 18%, transparent); color: var(--color-bg); }
 
   @media (max-width: 900px) {
     .grid-3 { grid-template-columns: repeat(2, 1fr); }
+    /* The lead keeps its dominance at two columns; the stack cards sit
+       beneath it in a pair rather than losing the hierarchy entirely. */
+    .cs-grid.cs-grid { grid-template-areas: 'lead lead' 'b c'; }
   }
   @media (max-width: 760px) {
     .hero { grid-template-columns: 1fr; gap: var(--space-6); }
+    .cs-grid.cs-grid { grid-template-areas: 'lead' 'b' 'c'; grid-template-columns: 1fr; }
+    .cs-lead .card-title { font-size: 24px; }
     .hero-figure {
       border-left: 0;
       border-top: 2px solid var(--color-divider);
