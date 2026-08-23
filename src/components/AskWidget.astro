@@ -955,6 +955,41 @@ const firstName = site.name.split(' ')[0];
         if (panel.hidden) openPanel(status);
         else closePanel();
       });
+
+      /* The launcher is fixed to a corner the footer's link row also claims.
+         While the two rectangles intersect, lift the launcher above the
+         collision zone; settle back once they part. rAF-throttled because
+         scroll fires faster than any of this needs to run. The panel is not
+         lifted: it opens over content by design, and it hides its own
+         launcher while open. */
+      const footer = document.querySelector('footer.site-footer');
+      if (footer) {
+        let ticking = false;
+        const syncLift = () => {
+          ticking = false;
+          if (panel.hidden) {
+            const f = footer.getBoundingClientRect();
+            const l = launcher.getBoundingClientRect();
+            const overlaps =
+              l.left < f.right && l.right > f.left && l.bottom > f.top && l.top < f.bottom;
+            root.style.setProperty(
+              '--ask-lift',
+              overlaps ? `${Math.ceil(l.bottom - Math.max(f.top, 0)) + 8}px` : '0px'
+            );
+          }
+        };
+        const requestSync = () => {
+          if (!ticking) {
+            ticking = true;
+            requestAnimationFrame(syncLift);
+          }
+        };
+        syncLift();
+        window.addEventListener('scroll', requestSync, { passive: true });
+        window.addEventListener('resize', requestSync);
+        /* Opening and closing the panel changes which control is showing. */
+        panel.addEventListener('transitionend', syncLift);
+      }
       $<HTMLButtonElement>('ask-close').addEventListener('click', closePanel);
       $<HTMLButtonElement>('ask-new').addEventListener('click', () => newChat(status));
 
@@ -1010,7 +1045,11 @@ const firstName = site.name.split(' ')[0];
        the home indicator or a rounded corner. On a plain rectangle both
        env()s are 0 and the token holds. */
     right: max(var(--space-4), env(safe-area-inset-right));
-    bottom: max(var(--space-4), env(safe-area-inset-bottom));
+    /* `--ask-lift` is written from script while the launcher overlaps the
+       footer's link row — the one place on every page where a fixed control
+       parks on real content. 0px at rest, so the safe-area `max()` above is
+       untouched until an intersection says otherwise. */
+    bottom: max(calc(var(--space-4) + var(--ask-lift, 0px)), env(safe-area-inset-bottom));
     z-index: 40;
     display: flex;
     flex-direction: column;

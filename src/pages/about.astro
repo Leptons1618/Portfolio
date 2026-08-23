@@ -1,6 +1,5 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import Illustration from '../components/Illustration.astro';
 import { site } from '../lib/site';
 ---
 <BaseLayout title="About" description={`About ${site.name} — ML/CV engineer and full-stack developer.`}>
@@ -34,7 +33,6 @@ import { site } from '../lib/site';
     </div>
 
     <hr class="rule about-rule" />
-    <div class="about-art"><Illustration name="developer-activity" /></div>
 
     <div class="about-links">
       <a href={site.github} class="btn btn-primary" target="_blank" rel="noopener">GitHub ↗</a>
@@ -58,11 +56,6 @@ import { site } from '../lib/site';
   .about-rule { margin: var(--space-6) 0; }
   .about-photo img { width: 100%; aspect-ratio: 1; object-fit: cover; object-position: center 20%; }
   .about-profile p { font-size: 16px; line-height: 1.7; opacity: 0.9; margin: 0; }
-
-  .about-art {
-    width: min(420px, 100%);
-    margin: 0 auto;
-  }
 
   .about-links { display: flex; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-6); }
 

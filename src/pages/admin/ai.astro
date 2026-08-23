@@ -37,7 +37,7 @@ import {
   <div class="admin-main-wide" id="admin-ai">
     <div class="admin-head">
       <div>
-        <h6 class="admin-eyebrow-mono">MODULE: ASSISTANT</h6>
+        <p class="admin-eyebrow-mono">MODULE: ASSISTANT</p>
         <h1 class="admin-title">AI Assistant</h1>
         <span class="text-muted admin-stamp" id="ai-stamp">Reading providers…</span>
       </div>
@@ -74,7 +74,7 @@ import {
       <div class="ai-grid">
       <div class="ai-col">
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">Providers</h6>
+          <p class="admin-eyebrow">Providers</p>
           <p class="text-muted admin-note">
             Any endpoint that speaks the OpenAI chat-completions shape — OpenRouter,
             OpenAI, Groq, Together, DeepSeek, a local server. The first
@@ -93,7 +93,7 @@ import {
 
       <aside class="ai-side">
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">How one gets picked</h6>
+          <p class="admin-eyebrow">How one gets picked</p>
           <ol class="ai-steps">
             <li>The <strong>active</strong> rows are tried in priority order, lowest first.</li>
             <li>Within a row, the model is tried and then each fallback in turn — a retired model id or a 429 falls through on the same key.</li>
@@ -108,7 +108,7 @@ import {
         </section>
 
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">Both assistants, one key</h6>
+          <p class="admin-eyebrow">Both assistants, one key</p>
           <p class="text-muted admin-note">
             These rows answer the public assistant <em>and</em> the writing assistant in
             the editors. The switch on the next tab governs only the first — turning
@@ -127,7 +127,7 @@ import {
             what the owner is billed, so it is the first thing on the panel
             rather than the top of a rail beside something else. */}
         <section class="card elev-sm ai-switch-card">
-          <h6 class="admin-eyebrow">Public assistant</h6>
+          <p class="admin-eyebrow">Public assistant</p>
           <label class="ai-switch">
             <input type="checkbox" id="ai-enabled" />
             <span>Answer questions from visitors</span>
@@ -142,7 +142,7 @@ import {
         </section>
 
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">Scope and voice</h6>
+          <p class="admin-eyebrow">Scope and voice</p>
           <div class="field">
             <label for="ai-persona">House style notes</label>
             <textarea
@@ -169,7 +169,7 @@ import {
 
       <aside class="ai-side">
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">Limits</h6>
+          <p class="admin-eyebrow">Limits</p>
           <p class="text-muted admin-note">
             The only thing standing between an unauthenticated endpoint and someone
             else's bill. Each is capped again on the server, so nothing typed here
@@ -226,7 +226,7 @@ import {
         </section>
 
         <section class="card elev-sm">
-          <h6 class="admin-eyebrow">What it knows</h6>
+          <p class="admin-eyebrow">What it knows</p>
           <p class="text-muted admin-note" id="ai-corpus">Measuring…</p>
           <p class="text-muted admin-note">
             Published posts, visible projects, case studies and the resume. Hidden
@@ -235,7 +235,7 @@ import {
             address.
           </p>
           <hr class="rule ai-rule" />
-          <h6 class="admin-eyebrow">Today</h6>
+          <p class="admin-eyebrow">Today</p>
           <p class="text-muted admin-note" id="ai-usage">—</p>
         </section>
       </aside>
