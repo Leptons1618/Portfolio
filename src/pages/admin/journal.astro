@@ -26,7 +26,7 @@
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import Illustration from '../../components/Illustration.astro';
 import { Icon } from 'astro-icon/components';
-import { getPosts } from '../../lib/content';
+import { getPosts, getJournalOrder } from '../../lib/content';
 import { formatShortDate, relativeTime } from '../../lib/format';
 import { POST_STATUSES } from '../../lib/content-store';
 
@@ -41,6 +41,19 @@ export const prerender = false;
 const { DB } = Astro.locals.runtime.env;
 
 const existing = await getPosts(DB, true);
+
+/* The pinned order the public journal follows, so this screen arranges what a
+   visitor actually sees — the same rule the deep-dives editor works by. */
+const savedOrder = await getJournalOrder(DB);
+const orderedSlugs = [
+  ...savedOrder.filter(slug => existing.some(entry => entry.slug === slug)),
+  ...existing.map(entry => entry.slug).filter(slug => !savedOrder.includes(slug)),
+];
+/* Date order, for the Automatic reset to restore. */
+const dateOrder = [...existing]
+  .sort((a, b) => (b.data.date ?? '').localeCompare(a.data.date ?? ''))
+  .map(entry => entry.slug)
+  .join(',');
 
 const counts = {
   draft: existing.filter(entry => entry.data.status === 'draft').length,
@@ -78,7 +91,7 @@ const SORTS = [
 ];
 ---
 <AdminLayout title="Journal">
-  <div class="admin-main-wide" id="admin-journal">
+  <div class="admin-main-wide" id="admin-journal" data-date-order={dateOrder}>
     <div class="admin-head">
       <div>
         <p class="admin-eyebrow-mono">MODULE: JOURNAL</p>
@@ -126,6 +139,11 @@ const SORTS = [
       </div>
     ) : (
       <>
+        {/* Reordering, like the dashboard's deep dives: the pinned order is
+            what the public journal follows, dragging a row moves it within its
+            shelf, and Save writes the whole order as one document. The sort
+            control above is still a view of this list — it re-appends rows and
+            so does the drag; whichever acted last wins until you save. */}
         <div class="existing-head">
           <p class="admin-eyebrow">Entries ({existing.length})</p>
           <div class="existing-filters">
@@ -152,6 +170,18 @@ const SORTS = [
           </div>
         </div>
 
+        <div class="order-toolbar">
+          <p class="text-muted admin-note order-lede">
+            Drag a post to change where it sits in the public journal — pinned posts come first,
+            in this order, ahead of everything newer. Saving writes the whole order;
+            <strong>Automatic</strong> puts every post back to date order.
+          </p>
+          <div class="admin-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="order-reset">Automatic</button>
+            <button type="button" class="btn btn-primary btn-sm" id="order-save">Save order</button>
+          </div>
+        </div>
+
         {sections.map(section => (
           <section class="entry-section" data-section={section.id} hidden={section.rows.length === 0}>
             <div class="entry-section-head">
@@ -159,7 +189,10 @@ const SORTS = [
               <p class="text-muted admin-note entry-section-note">{section.note}</p>
             </div>
             <div class="card elev-sm existing-card">
-              {section.rows.map(entry => (
+              {orderedSlugs
+                .map(slug => section.rows.find(entry => entry.slug === slug))
+                .filter(entry => entry !== undefined)
+                .map(entry => (
                 <div
                   class="existing-row"
                   data-slug={entry.slug}
@@ -188,6 +221,15 @@ const SORTS = [
                       </span>
                     )}
                   </span>
+
+                  <button
+                    type="button"
+                    class="row-grip"
+                    aria-label={`Reorder ${entry.data.title}. Drag, or focus here and use the arrow keys.`}
+                    title="Drag to reorder"
+                  >
+                    <Icon name="lucide:grip-vertical" class="admin-nav-icon" />
+                  </button>
 
                   <a class="btn btn-secondary btn-sm" href={`/admin/journal/${entry.slug}`}>
                     <Icon name="lucide:pencil" class="admin-nav-icon" />Edit
@@ -241,7 +283,6 @@ const SORTS = [
             </div>
           </section>
         ))}
-
         {/* A filter that matched none of the posts there are is a different
             nothing from having none, and it wants a different sentence. Outside
             the cards now that there are two of them — and outside the rows the
@@ -264,7 +305,7 @@ const SORTS = [
 
 <script>
   import { onAdminPage, setBusy, setLabel, toast } from '../../lib/admin';
-  import { removePost, setPostStatus, postPath, type PostStatus } from '../../lib/content-store';
+  import { removePost, setPostStatus, postPath, saveJournalOrder, type PostStatus } from '../../lib/content-store';
   import { getToken } from '../../lib/github';
 
   /* The admin client-routes, so this runs on first paint and again every time
@@ -279,6 +320,118 @@ const SORTS = [
     const entriesEmpty = document.getElementById('entries-empty')!;
     const sections = Array.from(document.querySelectorAll<HTMLElement>('.entry-section'));
     const rowBySlug = new Map(rows.map(row => [row.dataset.slug!, row]));
+
+    /* — reordering —
+       Same shape as the dashboard's deep-dives editor: the DOM order inside
+       each shelf is the state, dragging or arrow keys move the row, and Save
+       reads the whole order back out of the DOM. The saved list is global, not
+       per-shelf: a slug keeps its position whether it sits under Active or
+       Archived. */
+    const orderSaveButton = document.getElementById('order-save') as HTMLButtonElement;
+    const orderResetButton = document.getElementById('order-reset') as HTMLButtonElement;
+    const signedIn = Boolean(getToken());
+
+    function pinnedSlugs(): string[] {
+      /* Every row in DOM order across both shelves — the shelves are display,
+         and this flat list is what the public journal follows. */
+      return Array.from(document.querySelectorAll<HTMLElement>('.existing-row'))
+        .map(row => row.dataset.slug!);
+    }
+
+    async function commitOrder(slugs: string[], note: string) {
+      setBusy(orderSaveButton, true, 'Saving…');
+      try {
+        await saveJournalOrder(slugs);
+        toast(note, { tone: 'success' });
+      } catch (error) {
+        const text = error instanceof Error ? error.message : 'Save failed.';
+        toast(text, { tone: 'error' });
+      } finally {
+        setBusy(orderSaveButton, false);
+      }
+    }
+
+    if (!signedIn) {
+      for (const button of [orderSaveButton, orderResetButton]) {
+        button.disabled = true;
+        button.title = 'Sign in with GitHub to change the public journal.';
+      }
+    } else {
+      orderSaveButton.addEventListener('click', () => {
+        void commitOrder(pinnedSlugs(), 'Journal order saved.');
+      });
+      /* Restore what the server rendered as the default — date order, newest
+         first — and save an empty list, which the read side treats as
+         automatic. */
+      orderResetButton.addEventListener('click', () => {
+        const slugs = (document.getElementById('admin-journal')!.dataset.dateOrder ?? '')
+          .split(',')
+          .filter(Boolean);
+        slugs.map(slug => rowBySlug.get(slug)).forEach(row => {
+          if (!row) return;
+          const card = row.closest('.existing-card');
+          if (card) card.appendChild(row);
+        });
+        applySort();
+        applyEntryFilters();
+        void commitOrder([], 'Automatic — every post in date order.');
+      });
+
+      /* Dragging within a shelf, plus the keyboard path through the grip's
+         arrow keys. Rows cannot cross between Active and Archived by dragging:
+         membership there is status, which has its own menu control. */
+      let dragged: HTMLElement | null = null;
+
+      rows.forEach(row => {
+        row.draggable = true;
+        row.classList.add('is-orderable');
+
+        row.addEventListener('dragstart', event => {
+          dragged = row;
+          row.classList.add('is-dragging');
+          event.dataTransfer?.setData('text/plain', row.dataset.slug ?? '');
+          if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+        });
+        row.addEventListener('dragend', () => {
+          row.classList.remove('is-dragging');
+          dragged = null;
+        });
+
+        row.querySelector<HTMLButtonElement>('.row-grip')?.addEventListener('keydown', event => {
+          const delta =
+            event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
+          if (!delta) return;
+          event.preventDefault();
+          const card = row.closest('.existing-card');
+          if (!card) return;
+          const siblings = Array.from(card.querySelectorAll<HTMLElement>('.existing-row:not([hidden])'));
+          const neighbour = siblings[siblings.indexOf(row) + delta];
+          if (!neighbour) return;
+          if (delta < 0) neighbour.before(row);
+          else neighbour.after(row);
+          row.querySelector<HTMLElement>('.row-grip')?.focus();
+        });
+      });
+
+      document.addEventListener('dragover', event => {
+        if (!dragged) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+        const card = (event.target as HTMLElement).closest<HTMLElement>('.existing-card');
+        if (!card) return;
+        const overRow = (event.target as HTMLElement).closest<HTMLElement>('.existing-row');
+        if (!overRow || overRow === dragged || !card.contains(overRow)) return;
+        const box = overRow.getBoundingClientRect();
+        const after = event.clientY > box.top + box.height / 2;
+        if (after ? dragged.nextElementSibling === overRow : dragged.previousElementSibling === overRow) return;
+        if (after) overRow.after(dragged);
+        else overRow.before(dragged);
+      });
+      document.addEventListener('drop', event => {
+        if (dragged) event.preventDefault();
+      });
+    }
+
 
     function applyEntryFilters() {
       const term = (entrySearch?.value ?? '').trim().toLowerCase();
@@ -509,6 +662,41 @@ const SORTS = [
     flex-wrap: wrap;
     margin-bottom: var(--space-3);
   }
+
+  /* — reordering — */
+  .order-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+  }
+  .order-lede { max-width: 68ch; margin: 0; }
+
+  .row-grip {
+    display: inline-flex;
+    padding: 2px;
+    border: 0;
+    background: none;
+    border-radius: 7px;
+    color: var(--color-text-faint);
+    cursor: grab;
+    vertical-align: middle;
+  }
+  .row-grip:hover { color: var(--color-text); }
+  .row-grip:focus-visible { outline: 2px solid var(--color-accent); }
+  .row-grip:active { cursor: grabbing; }
+
+  /* The grip sits ahead of the title, inside the first grid cell. */
+  .existing-id { flex-wrap: nowrap; }
+  .is-orderable { cursor: grab; }
+  @media (prefers-reduced-motion: no-preference) {
+    .is-orderable { transition: box-shadow var(--dur-base) var(--ease-out); }
+  }
+  .is-orderable:hover { box-shadow: var(--shadow-sm); }
+  .existing-row.is-dragging { opacity: 0.45; }
+
   .existing-head h6 { margin: 0; }
   .existing-filters { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
   .entry-search { width: 220px; font-size: 13px; padding: 6px 10px; }
