@@ -307,7 +307,38 @@ export async function getDeepDiveCaseStudies(db: D1Database): Promise<CaseStudy[
 }
 
 /**
+ * The journal listing's saved order — the same singleton-in-`documents`
+ * arrangement as the deep dives above, under its own key. An ordered list of
+ * post slugs to float to the top of the journal in this order; everything not
+ * named keeps the date order beneath them. Empty means automatic.
+ *
+ * The admin writes through `saveJournalOrder()` in `content-store.ts`.
+ */
+export const JOURNAL_ORDER_KEY = 'journal-order';
+
+/** Whatever the row held, as an ordered list of real slugs, duplicates gone. */
+export async function getJournalOrder(db: D1Database): Promise<string[]> {
+  const row = await db
+    .prepare('SELECT json FROM documents WHERE slug = ?')
+    .bind(JOURNAL_ORDER_KEY)
+    .first<{ json: string } | null>();
+  if (!row?.json) return [];
+  try {
+    return clampSlugs((JSON.parse(row.json) as { slugs?: unknown }).slugs);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Journal posts, newest first.
+ *
+ * The admin can pin an explicit order on top of the date (`saveJournalOrder()`
+ * in `content-store.ts`, the same singleton-in-`documents` arrangement as the
+ * home page's deep dives). Rows named in the saved list come first in that
+ * order; everything else — including rows added after the order was saved —
+ * keeps the date below. `sort` is stable, so unlisted posts stay newest-first
+ * among themselves rather than being shuffled.
  *
  * `published` is public. `draft` is visible while writing — in `dev` and to
  * the admin screens — and never in production. `unpublished` is visible only
@@ -320,7 +351,19 @@ export async function getDeepDiveCaseStudies(db: D1Database): Promise<CaseStudy[
 export async function getPosts(db: D1Database, includeAll = false): Promise<Post[]> {
   const keep = ({ data }: Post) =>
     includeAll || data.status === 'published' || (data.status === 'draft' && !import.meta.env.PROD);
-  return (await all(db, 'journal')).map(toPost).filter(keep).sort(byDateDesc);
+  const [rows, order] = [await all(db, 'journal'), await getJournalOrder(db)];
+  /* The saved order is a position map, not a filter: a slug named there that no
+     longer exists (or is filtered out here) simply costs nothing, and posts it
+     never mentions sort after every one it does. */
+  const position = new Map(order.map((slug, i) => [slug, i]));
+  return rows
+    .map(toPost)
+    .filter(keep)
+    .sort(
+      (a, b) =>
+        (position.get(a.slug) ?? order.length) - (position.get(b.slug) ?? order.length) ||
+        byDateDesc(a, b),
+    );
 }
 
 /**

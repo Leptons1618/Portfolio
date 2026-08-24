@@ -102,8 +102,17 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
      real content in that column, but a journal post never does. The empty
      column just shifted the body a third of the way across the page while the
      title, hero and tags above it stayed flush left, so the post visibly
-     stopped lining up with itself partway down. */
-  .post-prose { max-width: var(--wrap-prose); }
+     stopped lining up with itself partway down.
+
+     It then sat at `--wrap-prose` (720px) inside the 1120px container, which
+     read as a narrow strip under a full-width cover block. Posts are code-heavy,
+     so the body takes `--wrap-mid` (900px): wide enough that fenced blocks stop
+     clipping, still short of a 100-character line. */
+  .post-prose { max-width: var(--wrap-mid); }
+
+  /* Code and tables are the reason the column is wider than prose measure:
+     let both use all of it rather than wrapping inside an already-wide box. */
+  .post-prose pre { overflow-x: auto; }
 
   .post-footer-rule { margin-top: var(--space-8); }
   .post-footer {
