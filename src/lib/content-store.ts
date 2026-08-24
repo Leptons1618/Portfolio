@@ -30,7 +30,7 @@
  */
 
 import type { CaseStudyData, Category, PostStatus, ProjectStatus } from './content';
-import { DEEP_DIVES_KEY } from './content';
+import { DEEP_DIVES_KEY, JOURNAL_ORDER_KEY } from './content';
 import { getToken } from './github';
 import { RESUME_KEY, type ResumeDocument } from './resume';
 
@@ -380,6 +380,27 @@ export async function saveDeepDives(slugs: string[]): Promise<WriteResult> {
   } catch (error) {
     if (error instanceof ContentError && error.status === 404) {
       return write('documents', DEEP_DIVES_KEY, 'create', { fields });
+    }
+    throw error;
+  }
+}
+
+/**
+ * Save the journal listing's order — an ordered list of post slugs to float to
+ * the top of `/journal`, written whole like the deep dives beside it. An empty
+ * array is the automatic date order, which is what the read side treats any
+ * empty list as.
+ *
+ * Like `saveDeepDives`, the row has no migration seeding it, so the first save
+ * creates it and every save after that takes the patch branch.
+ */
+export async function saveJournalOrder(slugs: string[]): Promise<WriteResult> {
+  const fields = { json: JSON.stringify({ slugs }) };
+  try {
+    return await write('documents', JOURNAL_ORDER_KEY, 'patch', { fields });
+  } catch (error) {
+    if (error instanceof ContentError && error.status === 404) {
+      return write('documents', JOURNAL_ORDER_KEY, 'create', { fields });
     }
     throw error;
   }
