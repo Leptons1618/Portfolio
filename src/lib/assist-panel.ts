@@ -52,7 +52,7 @@ import {
   type ChatSummary,
   type ToolFrame,
 } from './ai-store';
-import { ASSIST_MENU, parseCommand, type AssistMenuItem, type AssistScreen } from './assist-tasks';
+import { ASSIST_MENU, parseCommand, pickTask, type AssistMenuItem, type AssistScreen } from './assist-tasks';
 
 /* ---------- what a page drives ---------- */
 
@@ -605,29 +605,53 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
 
     const { task, instruction, unknown } = parseCommand(line);
 
-    if (unknown) {
+    /* An exact command runs exactly as typed. Everything else — a slash that
+       names nothing, and plain prose — gets one pass through the router
+       first: "update the case study" is how a request is spoken, and
+       `/write-case-study` is what it resolves to. Whatever the router cannot
+       place stays what it would have been. */
+    if (task) return dispatch(task, instruction || '', line);
+
+    /* The router sees everything that was typed — a mistyped slash word is
+       often the command's own name ("write-case-study" without its slash),
+       and the words after it are often the rest of the request. */
+    const routed = pickTask(line, config.surface);
+
+    if (routed) return dispatch(routed, instruction || line, line);
+
+    if (unknown !== null) {
       say(`There is no /${unknown} here. Type / to see what there is.`, 'error');
       return;
     }
-    if (task) {
-      const why = config.blocked?.(task, instruction);
-      if (why) {
-        say(why, 'error');
-        return;
-      }
+
+    /* Conversation: the line is the message and the message is the line. */
+    dispatch(null, line, line);
+  }
+
+  /**
+   * Log the author's line and hand a job to the page.
+   *
+   * One door for every send, typed command and routed request alike, because
+   * all three are the same transaction: the words go into the log verbatim,
+   * the composer empties, the page runs. A request the router *placed* gets a
+   * small mono caption naming the command it became — the transcript has to
+   * agree with what was said while still saying what will happen.
+   */
+  function dispatch(item: AssistMenuItem | null, instruction: string, typed: string) {
+    const why = item ? config.blocked?.(item, instruction) : null;
+    if (why) {
+      say(why, 'error');
+      return;
     }
 
-    /* The author's line goes in the log verbatim, command and all. A command
-       rewritten into its label would make the transcript disagree with what was
-       typed, and re-running from history is the main thing a transcript is for. */
-    const user = bubble('user');
-    user.body.textContent = line;
-    turns.push({ role: 'user', content: line });
-    void remember('user', line, { task: task?.command });
+    const user = bubble('user', item && !typed.startsWith(`/${item.command}`) ? `/${item.command}` : '');
+    user.body.textContent = typed;
+    turns.push({ role: 'user', content: typed });
+    void remember('user', typed, { task: item?.command });
 
     input.value = '';
     closeMenu();
-    void config.run(task, instruction || (task ? '' : line));
+    void config.run(item, instruction);
   }
 
   input.addEventListener('input', () => {
@@ -1032,6 +1056,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     const stop = () => {
       delete dialog.dataset.resizing;
       rememberSize();
+      syncPageRoom();
       grip.removeEventListener('pointermove', move);
       grip.removeEventListener('pointerup', stop);
       grip.removeEventListener('pointercancel', stop);
@@ -1058,6 +1083,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     const box = dialog.getBoundingClientRect();
     applySize(box.width + growX(by[0]), box.height + by[1]);
     rememberSize();
+    syncPageRoom();
   });
 
   /* A window narrowed after the fact must not leave the panel wider than it.
@@ -1069,6 +1095,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     if (!dialog.open || !dialog.style.getPropertyValue('--asx-w')) return;
     const box = dialog.getBoundingClientRect();
     applySize(box.width, box.height);
+    syncPageRoom();
   });
 
   restoreSize();
@@ -1095,9 +1122,44 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
 
   function markDock(dock: Dock) {
     dialog.dataset.dock = dock;
-    /* `aria-pressed` names which side is current — the icon itself is what
-       CSS swaps off `data-dock`, keyed to the same attribute. */
-    dockToggle.setAttribute('aria-pressed', String(dock === 'left'));
+    /* The icon itself is what CSS swaps off `data-dock`; the labels say where
+       a click goes *next*, which is the one thing the picture cannot. */
+    const label =
+      dock === 'left'
+        ? 'Move the panel to the right edge'
+        : dock === 'right'
+          ? 'Move the panel to the left edge'
+          : 'Dock the panel to an edge';
+    dockToggle.title = label;
+    dockToggle.setAttribute('aria-label', label);
+    syncPageRoom();
+  }
+
+  /* ---------- the page makes room ----------
+
+     A docked panel used to sit on top of whatever the page had at that edge.
+     While it is open *and* pinned to a side, its state goes onto `<body>`
+     (`data-asx-dock`) and its outer width into the `--asx-dock-w` custom
+     property, which the content column reads as padding on that side — the
+     page narrows instead of being covered. Dragged free, closed, or below
+     the wide-screen breakpoint, nothing is reserved.
+
+     Written per *event* rather than per frame — dock changes, resize stops,
+     opens, closes — through one rAF-coalesced writer, because a drag across
+     the header fires dozens of `markDock`-shaped events and the measurement
+     is a layout read. */
+  function syncPageRoom() {
+    requestAnimationFrame(() => {
+      const dock = dialog.dataset.dock;
+      if (!dialog.open || (dock !== 'left' && dock !== 'right')) {
+        delete document.body.dataset.asxDock;
+        return;
+      }
+      document.body.dataset.asxDock = dock;
+      /* The panel plus the gap it floats off the edge by. */
+      const box = dialog.getBoundingClientRect();
+      document.body.style.setProperty('--asx-dock-w', `${Math.round(box.width + 16)}px`);
+    });
   }
 
   /** Offsets from the right and bottom edges, clamped to leave the panel on screen. */
@@ -1133,11 +1195,20 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     }
   }
 
-  /* Floating counts as "right" for the purpose of the toggle — the two docks
-     are the only two states a click can choose between, and a panel dragged
-     free has to resolve to one of them on the first press. */
+  /* One button through all three placements: right → left → free → right.
+     Floating counts as a first-class stop now rather than something a drag
+     produces and a click dissolves — a panel dragged into the middle of the
+     page is a placement worth keeping, and the icon says so. */
+  const NEXT_DOCK: Record<Dock, Dock> = { right: 'left', left: 'float', float: 'right' };
+
   dockToggle.addEventListener('click', () => {
-    markDock(dialog.dataset.dock === 'left' ? 'right' : 'left');
+    markDock(NEXT_DOCK[(dialog.dataset.dock as Dock) ?? 'right']);
+    if (dialog.dataset.dock === 'float' && !dialog.style.getPropertyValue('--asx-right')) {
+      /* Onto free from a click: keep it where it already is rather than
+         snapping to stored offsets from some previous float. */
+      const box = dialog.getBoundingClientRect();
+      applyFloat(window.innerWidth - box.right, window.innerHeight - box.bottom);
+    }
     rememberPlace();
   });
 
@@ -1224,6 +1295,9 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
       if (document.querySelector('dialog[open]:modal')) dialog.showModal();
       else dialog.show();
       settleFloat();
+      /* After the dialog has its box: this is what reserves the page column
+         for a docked placement, including one restored from storage. */
+      syncPageRoom();
     }
     if (command) {
       input.value = `/${command} `;
@@ -1256,6 +1330,8 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
   dialog.addEventListener('close', () => {
     config.stop();
     running(false);
+    /* The reserved column goes with the panel. */
+    delete document.body.dataset.asxDock;
   });
 
   greet();

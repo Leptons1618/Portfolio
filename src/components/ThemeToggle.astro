@@ -12,9 +12,9 @@
  * Server-rendered in the default state; the inline head script in the layouts
  * has already set both attributes before paint, so this script only relabels.
  */
-import { DEFAULT_THEME, THEMES } from '../lib/theme';
+import { THEMES } from '../lib/theme';
 
-const next = THEMES.find(theme => theme.id !== DEFAULT_THEME)!;
+const next = THEMES[1]!;
 ---
 <div class="theme-controls">
   <button
@@ -55,6 +55,16 @@ const next = THEMES.find(theme => theme.id !== DEFAULT_THEME)!;
   const themeLabel = document.getElementById('theme-toggle-label')!;
   const modeBtn = document.getElementById('mode-toggle')!;
 
+  /**
+   * The theme after the one showing, wrapping. Three families now, so the
+   * old "find the one that isn't current" lookup is gone — with two themes
+   * that was a cycle by luck; this makes it one on purpose.
+   */
+  function nextTheme(current: string) {
+    const index = THEMES.findIndex(theme => theme.id === current);
+    return THEMES[(index + 1) % THEMES.length]!;
+  }
+
   const MODE_TITLES: Record<ModeChoice, string> = {
     light: 'Light. Click for dark.',
     dark: 'Dark. Click to follow your system.',
@@ -64,7 +74,7 @@ const next = THEMES.find(theme => theme.id !== DEFAULT_THEME)!;
   /* Re-read on the theme event because the identity modal can change either
      choice while these buttons are on screen. */
   function relabel() {
-    const target = THEMES.find(theme => theme.id !== currentTheme())!;
+    const target = nextTheme(currentTheme());
     themeLabel.textContent = target.label;
     themeBtn.setAttribute('aria-label', `Switch to the ${target.label} theme`);
 
@@ -84,7 +94,7 @@ const next = THEMES.find(theme => theme.id !== DEFAULT_THEME)!;
   syncTheme();
 
   themeBtn.addEventListener('click', () => {
-    selectTheme(THEMES.find(theme => theme.id !== currentTheme())!.id);
+    selectTheme(nextTheme(currentTheme()).id);
   });
 
   modeBtn.addEventListener('click', () => {

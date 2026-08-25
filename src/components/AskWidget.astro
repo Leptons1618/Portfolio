@@ -808,6 +808,11 @@ const firstName = site.name.split(' ')[0];
       const hide = () => {
         panel.hidden = true;
         panel.classList.remove('is-open', 'is-closing');
+        /* Revealing the launcher only now, not at the top of `closePanel`:
+           the root is a flex column with the launcher above the panel, so an
+           early reveal puts the button on top of the still-visible panel and
+           drops it into place when the panel leaves. */
+        delete root.dataset.open;
       };
       if (REDUCED_MOTION.matches) {
         hide();
@@ -819,7 +824,6 @@ const firstName = site.name.split(' ')[0];
         hideTimer = window.setTimeout(hide, 150);
       }
       launcher.setAttribute('aria-expanded', 'false');
-      delete root.dataset.open;
       /* An answer nobody will read is an answer nobody should pay for — the
          server's stream `cancel()` releases the upstream reader, which is what
          actually stops the tokens. */
