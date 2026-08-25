@@ -444,6 +444,7 @@ const STATUS_VARIANT: Record<string, string> = {
     type AssistTask,
     type AssistTaskName,
     type FieldShape,
+    type ParsedFields,
     type ProjectTarget,
   } from '../../../lib/assist-tasks';
   import {
@@ -1312,18 +1313,31 @@ const STATUS_VARIANT: Record<string, string> = {
          No repository read, no snapshot, no live target: an answer to a
          question is not a draft, and there is deliberately no Insert. */
       if (name === 'chat') {
+        /* The conversation sees both halves of the screen when there is a
+           case study behind it: its framing fields are what an edit to the
+           write-up has to agree with, and they are the difference between
+           "update the case study" landing in the form and landing nowhere. */
+        const value = (id: string) =>
+          (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null)?.value ?? '';
+        const source: Record<string, string> = {
+          title: project.title.value,
+          summary: project.summary.value,
+          tags: project.tags.value,
+          stack: project.stack.value,
+          highlights: project.highlights.value,
+          ...(linkedSlug
+            ? { problem: value('cs-problem'), solution: value('cs-solution') }
+            : {}),
+        };
+        const context: Record<string, string> = {};
+        for (const key of ASSIST_TASKS.chat.context) context[key] = source[key] ?? '';
+
         let said = '';
         let thought = '';
         try {
           const answer = await runAssist(
             name,
-            {
-              title: project.title.value,
-              summary: project.summary.value,
-              tags: project.tags.value,
-              stack: project.stack.value,
-              highlights: project.highlights.value,
-            },
+            context,
             instruction,
             {
               onDelta: chunk => {
@@ -1355,32 +1369,59 @@ const STATUS_VARIANT: Record<string, string> = {
              as a command's output would — `turn.status` overwrites the
              labelled text that streamed into the bubble, because what they
              want to read now is which fields moved. Same rule, same reader, in
-             the journal editor's panel. */
-          const edit = parseEdit(answer, PROJECT_KEYS);
+             the journal editor's panel.
+
+             Both shapes are tried. The project's fields and the case study's
+             share `TITLE`, so the one with more labelled content wins, and
+             the case study takes ties when the request named it — "update the
+             case study title" arrives as `TITLE:` alone, and the words that
+             asked for it are the only way to tell which title that is. */
+          const projectEdit = parseEdit(answer, PROJECT_KEYS);
+          const studyEdit = linkedSlug ? parseEdit(answer, CASE_STUDY_KEYS) : null;
+
+          /** Head fields a parse actually wrote, tail included only once started. */
+          const writtenKeys = (shape: FieldShape, parsed: ParsedFields): string[] =>
+            [...shape.head, shape.tail]
+              .filter(spec =>
+                spec.key === shape.tail.key ? parsed.tailStarted : Boolean(parsed.values[spec.key]),
+              )
+              .map(spec => spec.key);
+
+          const studyNamesake = /case[\s-]?stud/i.test(instruction || '');
+          const studyScore = studyEdit
+            ? writtenKeys(CASE_STUDY_KEYS, studyEdit).length +
+              (studyNamesake ? 0.5 : 0)
+            : -1;
+          const projectScore = projectEdit ? writtenKeys(PROJECT_KEYS, projectEdit).length : -1;
+
+          let target: ProjectTarget | null = null;
+          let parsed: ParsedFields | null = null;
+          if (studyEdit && studyScore > projectScore) {
+            target = 'caseStudy';
+            parsed = studyEdit;
+          } else if (projectEdit) {
+            target = 'project';
+            parsed = projectEdit;
+          }
+
           /* Labels with nothing under them are recognised and edit nothing —
              `applyLive` would write none of them — so that reads as an answer
              rather than as a run that emptied the form. */
-          const editing = edit
-            ? [...PROJECT_KEYS.head, PROJECT_KEYS.tail]
-                .filter(spec =>
-                  spec.key === PROJECT_KEYS.tail.key
-                    ? edit.tailStarted
-                    : Boolean(edit.values[spec.key]),
-                )
-                .map(spec => spec.key)
+          const editing = target && parsed
+            ? writtenKeys(TARGET_SHAPES[target]!, parsed)
             : [];
 
-          if (editing.length) {
-            takeSnapshot('project', 'Chat edit');
-            applyLive('project', answer);
+          if (target && editing.length) {
+            takeSnapshot(target, 'Chat edit');
+            applyLive(target, answer);
             /* Covers the model that "changed" a field to what it already said,
                which would otherwise offer an Undo that does nothing. */
             dropUnusedSnapshot();
-            const written = editing.join(', ');
-            turn.status(`Updated ${written} in the fields. Nothing is saved until you press Save changes.`);
+            const where = target === 'caseStudy' ? 'the case study' : 'the project';
+            turn.status(`Updated ${editing.join(', ')} in ${where}. Nothing is saved until you press Save changes.`);
             turn.actions([...undoAction(), again]);
             turn.end(answer);
-            toast(`Updated ${written}.`, { tone: 'success' });
+            toast(`Updated ${editing.join(', ')}.`, { tone: 'success' });
             return;
           }
 

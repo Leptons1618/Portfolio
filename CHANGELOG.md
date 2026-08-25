@@ -14,11 +14,29 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **The assistant panel docks, and moves.** Two buttons in its header put it
-  against the left or the right edge; dragging the header puts it wherever you
-  drop it. Both survive a reload, alongside the size the grip already
-  remembered. The default is unchanged — bottom-right, at the size it always
-  opened at.
+- **The assistant panel docks, and the page makes room.** The header's
+  placement button now shows where the panel *is* — right edge, left edge, or
+  floating free, one icon each — and cycles through all three on click; the
+  free placement is a first-class stop rather than something only a drag could
+  reach. While it is pinned to an edge, the page's content column narrows by
+  the panel's width instead of being covered, so docked writing no longer
+  hides what it is editing. Everything survives a reload alongside the size
+  the grip already remembered.
+
+- **The assistant picks its own command.** Type "write a case study for this"
+  or "suggest some tags" and the panel resolves it to `/write-case-study` or
+  `/suggest-tags`, showing which job the words became; edit-shaped requests —
+  "make my title shorter" — stay in conversation, where the reply is applied
+  to the fields directly. A slash followed by a word that names no command
+  gets the same one try before the "there is no such command" note.
+
+- **Conversation can now update the case study.** On a project's screen, an
+  assistant reply that opens with the write-up's labelled fields — `PROBLEM:`,
+  `SOLUTION:` — lands in the case-study form with a snapshot behind it, the
+  way project edits already landed in the frontmatter. Both shapes are tried
+  and the request's own words break ties when both would fit, so "update the
+  case study title" writes the title above the write-up rather than the
+  project's.
 
 - **An import drafts with its work on screen.** "Draft with AI" on the import
   form used to run behind a disabled button and a one-line status: twenty

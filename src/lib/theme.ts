@@ -36,6 +36,7 @@ export const MODE_KEY = 'om-mode';
 export const THEMES = [
   { id: 'classic', label: 'Classic', themeColor: { light: '#fcfbf8', dark: '#0c0b09' } },
   { id: 'blueprint', label: 'Blueprint', themeColor: { light: '#f9f9ff', dark: '#0a111e' } },
+  { id: 'nocturne', label: 'Nocturne', themeColor: { light: '#fafafa', dark: '#0a0a0c' } },
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]['id'];

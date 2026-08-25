@@ -968,9 +968,9 @@ If they asked a question, answer it in prose:
 - Short. A paragraph, or a short list. This is a conversation, not a document.
 - If you do not know, say so. Do not invent facts about their project.
 
-If they asked you to change a field — a new title, a tighter summary, different tags, a rewritten section — make the change instead of describing it. Reply with **only** the fields you are changing, nothing else:
+If they asked you to change a field — a new title, a tighter summary, different tags, a rewritten section, a sharper problem statement — make the change instead of describing it. Reply with **only** the fields you are changing, nothing else:
 - One field per line, starting at the very first character of your reply: the field's name in capitals, a colon, then the new value. Nothing before it, no preamble, no explanation after it.
-- The names are the ones the context above used: TITLE, SUMMARY, TAGS, STACK, CATEGORY, READTIME. The long ones — BODY, HIGHLIGHTS, ACHIEVEMENTS — go last, with the label on its own line and the content below it, and everything after that label is that field.
+- The names are the ones the context above used: TITLE, SUBTITLE, SUMMARY, TAGS, STACK, CATEGORY, READTIME, PROBLEM, SOLUTION. The long ones — BODY, HIGHLIGHTS, ACHIEVEMENTS — go last, with the label on its own line and the content below it, and everything after that label is that field.
 - Only the fields they asked about. A field you do not write is left exactly as it is, so never repeat one back unchanged.
 - Write the finished value, not a suggestion: "TITLE: Pinned skills, reproducible bootstraps" and never "TITLE: how about Pinned skills?".
 - The editor applies this to the form and the author presses Save, so a sentence about what you changed would be pasted into their post. Say nothing outside the fields.
@@ -985,9 +985,17 @@ Everything you write goes to someone reading their own draft. If a request is am
     needsCorpus: false,
     /* Everything either editor might have. A field a surface does not have
        arrives empty, which is what `source[key] ?? ''` in both panels already
-       does — and every one of these is capped by `CONTEXT_LIMITS`. */
+       does — and every one of these is capped by `CONTEXT_LIMITS`.
+
+       The case study's framing is here because the project screen's
+       conversation has to be able to edit the write-up it sits above: an
+       "update the case study" that arrives on a page whose problem and
+       solution were never sent produces prose that cannot name them, and a
+       reply parsed against the project's shape alone drops every labelled
+       field the write-up actually has. */
     context: [
       'title', 'summary', 'tags', 'body', 'selection', 'stack', 'highlights',
+      'problem', 'solution',
       'resume', 'jobDescription',
     ],
     needsTopic: true,
@@ -1063,6 +1071,223 @@ export function parseCommand(line: string): {
   return task
     ? { task, instruction: rest, unknown: null }
     : { task: null, instruction: rest, unknown: word.slice(1) };
+}
+
+/* ---------- what a plain sentence means ---------- */
+
+/**
+ * The commands a spoken request could name, and the phrases that name them.
+ *
+ * The panel's commands are exact strings behind a slash, but requests arrive
+ * as prose — "write a case study for this", "suggest some tags". This table is
+ * the bridge: per task, the phrases and word stems that mean *that* job. It
+ * lives beside the task table rather than inside it because a task describes
+ * itself to a model; this describes it to a matcher, and the two vocabularies
+ * have nothing else in common.
+ *
+ * Two shapes of entry, and the difference matters:
+ *
+ *   - **A phrase** (`'whole post'`) is a run of whole words, matched against
+ *     the request's own words with at most one stray word allowed between two
+ *     phrase words — "whole new post" still lands. Phrases are what carry the
+ *     verdict almost everywhere, because they are specific enough that a
+ *     question mentioning the subject stays out: "how do I add tags" contains
+ *     neither `suggest tags` nor any other phrase here.
+ *   - **A stem** (`'outlin*'`) is a prefix any word may extend — outline,
+ *     outlined, outlining. Used only where every extension means the same job,
+ *     never where a noun share the root: `summar*` is deliberately absent,
+ *     because "what does the summary field do" is a question about a field and
+ *     not an order to write one.
+ *
+ * Deliberately **generative** phrasing throughout. "Update the case study",
+ * "make the title shorter" and every other *edit*-shaped request resolve to
+ * nothing here on purpose — they belong to conversation, whose contract is to
+ * reply with the changed fields themselves, and routing an edit into a
+ * generating command would silently regenerate work the author wrote by hand.
+ */
+const ROUTE_HINTS: Record<Exclude<AssistTaskName, 'chat'>, readonly string[]> = {
+  compose: [
+    'whole post',
+    'full post',
+    'entire post',
+    'write the post',
+    'write a post',
+    'draft the post',
+    'draft a post',
+    'new draft',
+  ],
+  outline: ['outlin*', 'section headings'],
+  expand: ['expand*', 'flesh out', 'elaborate*', 'write it out'],
+  tighten: ['tighten*', 'trim the selection', 'more concise', 'condense*'],
+  summary: ['write the summary', 'write a summary', 'one sentence summary', 'meta description'],
+  revise: [
+    'revise the post',
+    'revise this post',
+    'rework the post',
+    'rewrite the whole post',
+    'less formal',
+    'more formal',
+    'change the tone',
+  ],
+  titles: ['suggest titles', 'title ideas', 'alternative titles', 'titles for this'],
+  tags: ['suggest tags', 'tags for this', 'tag ideas'],
+  diagram: ['draw a diagram', 'diagram of', 'mermaid*', 'flowchart*', 'sequence diagram', 'state diagram'],
+  alt: ['alt text', 'caption for', 'hero image', 'describe the image'],
+  selection: ['the selection', 'selected text', 'this passage', 'this paragraph'],
+  project: ['frontmatter', 'from the readme', 'from the repo'],
+  casestudy: [
+    'case study fields',
+    'write a case study',
+    'case study header',
+    'problem and solution',
+  ],
+  casestudybody: [
+    'case study prose',
+    'case study body',
+    'long form write up',
+    'the write up',
+  ],
+  resumeSummary: ['professional summary', 'tailor the summary', 'resume summary', 'summary for this role'],
+  resumeProjects: [
+    'which projects',
+    'project shortlist',
+    'projects for this role',
+    'suggest projects',
+    'pick projects',
+  ],
+  resumeBullet: ['this line', 'rewrite the line', 'this bullet'],
+  resumeVariant: [
+    'variant*',
+    'tailor my resume',
+    'tailor the resume',
+    'build me a resume',
+    'resume for this role',
+  ],
+};
+
+/**
+ * Words that turn a nearby phrase into its opposite.
+ *
+ * "Don't suggest tags, just tell me which ones" names the tags job in its
+ * own words and wants exactly the opposite of running it. A match with one of
+ * these within three words before it simply does not count — the request falls
+ * through to conversation, which reads the sentence as a whole.
+ */
+const NEGATORS = new Set(['not', 'no', 'never', 'stop', 'without', 'avoid', 'instead', 'skip']);
+
+/**
+ * Normalise a request into the tokens everything below matches against.
+ *
+ * Lowercase, hyphens and underscores become spaces ("/write-case-study" typed
+ * without its slash and "case study" spoken land on the same words), curly
+ * quotes straightened, and the contraction suffix folded so "don't" becomes
+ * "do not" and its `not` lands where the negation window can see it.
+ */
+function tokenizeRequest(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/n't\b/g, ' not')
+    .replace(/[-_/]+/g, ' ')
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+/**
+ * Where a phrase's words appear in order, allowing one stray word between any
+ * two of them, or `-1`.
+ *
+ * Gap-tolerant rather than literal because requests grow adjectives the way
+ * drafts grow hedges: "the whole new post" is `whole post` with one word in
+ * the middle, and refusing it would send a clear order to conversation. Two
+ * gaps would make `case study` reach across half a sentence, so one is all it
+ * gets.
+ */
+function phraseAt(tokens: string[], words: readonly string[], start: number): number {
+  let cursor = start;
+  let end = -1;
+  for (let i = 0; i < words.length; i += 1) {
+    const found = tokens.indexOf(words[i], cursor);
+    if (found === -1 || found - cursor > 1) return -1;
+    cursor = found + 1;
+    end = found;
+  }
+  return end;
+}
+
+/** Whether a negation sits within three words before position `at`. */
+function negatedBefore(tokens: string[], at: number): boolean {
+  const from = Math.max(0, at - 3);
+  return tokens.slice(from, at).some(token => NEGATORS.has(token));
+}
+
+/**
+ * The task a plain-language request is asking for, or `null` for conversation.
+ *
+ * Three passes, cheapest first:
+ *
+ *   1. A task's own command name, typed without its slash — `/casestudy`
+ *      missed, `write-case-study` typed anyway — is the author naming the job
+ *      and wins outright.
+ *   2. Phrase and stem matches, scored: a stem is worth 2, a phrase 3 plus a
+ *      point for every word past two, and anything under the bar of 2 is no
+ *      match at all. Ties break toward the longer matched phrase; a tie past
+ *      that resolves to `null`, because two equally strong readings means the
+ *      author should say which.
+ *   3. Nothing. Conversation is the default, and a request the matcher cannot
+ *      place is answered rather than guessed at.
+ *
+ * Only the task comes back; the caller owns the instruction, because the
+ * matcher cannot know whether the words that matched are the steer or the
+ * whole message.
+ */
+export function pickTask(text: string, surface: AssistScreen): AssistMenuItem | null {
+  const tokens = tokenizeRequest(text);
+  if (!tokens.length) return null;
+
+  /* 1 — the command's own name, slash or not. */
+  for (const item of ASSIST_MENU) {
+    if (item.surface !== surface) continue;
+    const words = tokenizeRequest(item.command);
+    if (words.length && phraseAt(tokens, words, 0) !== -1) return item;
+  }
+
+  /* 2 — scored phrases and stems. */
+  let best: { item: AssistMenuItem; score: number; length: number } | null = null;
+
+  for (const item of ASSIST_MENU) {
+    if (item.surface !== surface) continue;
+
+    let score = 0;
+    let longest = 0;
+    for (const hint of ROUTE_HINTS[item.name as Exclude<AssistTaskName, 'chat'>] ?? []) {
+      if (hint.endsWith('*')) {
+        const stem = hint.slice(0, -1);
+        const at = tokens.findIndex(token => token.startsWith(stem));
+        if (at !== -1 && !negatedBefore(tokens, at)) {
+          score += 2;
+          longest = Math.max(longest, stem.length);
+        }
+        continue;
+      }
+      const words = hint.split(' ');
+      for (let start = 0; start < tokens.length; start += 1) {
+        const at = phraseAt(tokens, words, start);
+        if (at === -1) continue;
+        if (negatedBefore(tokens, at)) break;
+        score += 3 + Math.max(0, words.length - 2);
+        longest = Math.max(longest, hint.length);
+        break;
+      }
+    }
+
+    if (score < 2) continue;
+    if (!best || score > best.score || (score === best.score && longest > best.length)) {
+      best = { item, score, length: longest };
+    }
+  }
+
+  return best?.item ?? null;
 }
 
 /* ---------- reading a labelled-field response ---------- */
