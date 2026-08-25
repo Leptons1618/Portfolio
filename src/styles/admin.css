@@ -1640,15 +1640,38 @@ textarea[data-grow] { max-height: 60vh; }
   cursor: nesw-resize;
 }
 
-.asx-dock[aria-pressed='true'] { color: var(--color-accent); }
+/* — the page makes room —
 
-/* One button, two inlined icons — only one shown at a time, off the dialog's
-   own `data-dock` rather than a class the script has to toggle separately.
-   Default markup ships `data-dock="right"`, so the right-filled icon is the
-   one visible until the panel is actually docked left. */
-.asx-dock-icon-left { display: none; }
-.asx[data-dock='left'] .asx-dock-icon-left { display: block; }
-.asx[data-dock='left'] .asx-dock-icon-right { display: none; }
+   A docked panel sits on top of the page's own edge, and used to cover
+   whatever was there — the editor gutter on the right, the field labels on
+   the left. While it is open *and* pinned to a side, the script stamps
+   `data-asx-dock` on `<body>` and the panel's outer width into
+   `--asx-dock-w` on `<html>`, and the content column pads itself away from
+   that edge instead of being covered. Dragged free or closed, the attribute
+   goes and the column takes its width back.
+
+   Above 620px only: below it the panel is the full width of the screen and
+   there is no column beside it to shrink. Physical properties because the
+   docks themselves are physical — the placement rules pin the panel to
+   literal left/right edges. */
+@media (min-width: 621px) {
+  body[data-asx-dock='right'] .admin-main { padding-right: var(--asx-dock-w, 608px); }
+  body[data-asx-dock='left'] .admin-main { padding-left: var(--asx-dock-w, 608px); }
+}
+
+/* One button through all three placements, one inlined icon visible at a
+   time, keyed to the dialog's own `data-dock`.
+
+   Every rule carries `.asx` *and* the icon class on purpose. `.btn svg`
+   in `global.css` sets `display: block` at class-plus-type specificity,
+   and the first cut of this lost that contest on the default right dock —
+   `display: none` on the bare icon class never applied, so both icons
+   rendered. The left dock happened to work only because its rule was the
+   more specific one; that accident is now the rule. */
+.asx .asx-dock-ic { display: none; }
+.asx[data-dock='right'] .asx-dock-ic-right,
+.asx[data-dock='left'] .asx-dock-ic-left,
+.asx[data-dock='float'] .asx-dock-ic-free { display: block; }
 
 /* The header is the drag surface; the buttons sitting in it are not. */
 .asx-head[data-drag] { cursor: grab; }
