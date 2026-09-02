@@ -14,6 +14,151 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Fenced code is lit, framed and dealt in.** `src/lib/code-fx.ts` colours
+  every listing in a post or a case study in the browser — the write-time
+  markdown processor cannot run a highlighter at all (decision 45), so the
+  page shipped grey slabs on a site whose posts are mostly code. Eight
+  grammars, no dependency, and the source text is never rewritten: every
+  token is the original string, escaped, so copy, find-in-page and a screen
+  reader all still get the program. Each block gains a real chrome bar in its
+  theme's voice — Geometry's window dots and `~/`, Blueprint's `// LISTING`,
+  Paper's `fig. —` — with a Copy button, and its lines arrive one at a time
+  when the block scrolls into view. Colours are `--code-*` tokens: two hues
+  and the neutral ramp, so a listing still looks like the theme it is in.
+  Nothing here runs under `prefers-reduced-motion` but the colours, and with
+  no JavaScript the block is exactly what it was.
+
+- **Let's connect: a contact section as a terminal session.** The home
+  page's closing banner is now a two-column contact section. Left, a shell
+  window that types and answers `whoami`, `cat contact.txt` and `ping` when
+  it scrolls into view — email, location, a live clock in the owner's
+  timezone, availability — with GitHub, LinkedIn and X as terminal-flavoured
+  cards under it. Right, a developer's form (name, email, subject, message,
+  **Send Transmission**) that composes a `mailto:` — this site has no inbound
+  mail endpoint on purpose, and the hint under the button says so. Stacks on
+  mobile. The footer is now a two-row status line with the profiles as
+  `--flags` and the stack named. `site.ts` gained `twitter`, `availability`
+  and `timezone`; the X handle is **assumed** from the GitHub login and
+  should be corrected there.
+- **The `~/` wordmark, on every theme.** The blinking-bar path wordmark that
+  was Geometry's is the site's: Blueprint and Paper drop their `[brackets]`
+  and paint the bar in their own accent through `--brand-bar`. The same
+  voice reaches the page heads as `PathLine` — `user@host:~/projects $ ls`,
+  typed in on arrival — on Projects, Journal, About, every project, post and
+  case study, and the home hero, whose `whoami` decodes the eyebrow in.
+- **Text effects and a live transform, without a dependency.**
+  `src/lib/text-fx.ts` is a scramble/decode and a typewriter on
+  `requestAnimationFrame`, keeping the real string in the DOM for readers and
+  find-in-page and doing nothing under reduced motion. `MathVisual.astro` is
+  a wireframe cube under `Rₓ(φ)·Rᵧ(θ)` whose nine matrix cells and tracked
+  vertex are rewritten every frame from the numbers that placed the lines; it
+  sits in the Projects header on every theme and pauses off screen.
+- **Blueprint and Paper move.** Blueprint's section rules are drawn in by a
+  plotter, its marked phrase is traced by travelling dashes, its light pings
+  in rust and its swatch blinks like a ready LED; Paper's highlighter stroke
+  draws in, its dot taps like a pencil, its rules are ruled in by hand and a
+  card lifts with a fraction of a turn.
+- **Project pages and case studies say more.** A mono spec sheet
+  (`category = …`) in the project sidebar, numbered highlights that arrive in
+  sequence; on a case study an at-a-glance strip under the head, numbered
+  sections and outcomes, staggered reveals, and a two-pixel reading-progress
+  bar that turns to the second accent when the write-up is read to the end.
+- **The admin rail.** Collapsed, every icon grows a tooltip from its label;
+  the avatar wears a session ring that empties with the eight-hour token and
+  pulses under an eighth; group labels rule out to the edge; the current
+  marker grows in; **Ctrl/⌘+B** toggles the rail.
+- **Both chats move.** Turns rise in from the side their rule is on, a block
+  caret sits after the last streamed glyph, the assistant's rule goes accent
+  while a reply is live, the header carries a live dot (read off existing
+  state with `:has()`), chips and lookup rows land in sequence, and both
+  panels take the theme's radius.
+
+### Fixed
+
+- **The dark bar in the top-left corner of every page.** The skip link is
+  parked above the viewport by a transform, and it was positioned at a 16px
+  inset and moved off by the same 16px — landing its bottom edge on exactly
+  y=0, where its border still painted a row, and where `--shadow-lg` (a hard
+  4px offset on both drafting themes) painted a solid bar. It now sits at the
+  top edge, clears it by 4px, and carries its elevation only while focused.
+- **The section band is one boundary on all three themes.** Paper drew it
+  56px deep against everyone else's 72 and marked its corners with round pins
+  rather than squares; both are shared tokens now. Its kraft fill and offset
+  sat on the full-bleed band rather than on the column-width cell, so on any
+  wide screen the strip ran past the drawing as two blank rectangles with a
+  hard line under them — the paper is the cell now, and the ground shows
+  either side of it. Geometry and Blueprint drew the band, its marks and its
+  hatch in `--color-divider`, which on Geometry is four values off the
+  ground; the band has its own `--sep-ink`, a real step down each theme's
+  ramp. And between 1121px and 1160px the corner marks were sliced in half by
+  the band's own clip — the frame stands down at 1160 now, where a whole
+  square fits.
+- **Case studies, project pages and posts use the site's own separator.**
+  All three closed their cover block with a hairline `<hr>` while every other
+  page used the full-bleed drafting band. Each is now an article containing
+  `.container` blocks with bands between them, so a boundary looks the same
+  wherever a reader meets one.
+- **Geometry's primary action carries the theme at rest.** It was a plain ink
+  pill: the sweep only appears under a pointer and this theme hides the
+  registration ticks, so the button the page is built around showed nothing
+  of the design until you touched it. It now has a violet-into-ember gradient
+  ring, a mono label, and a bloom that lifts on hover as the wedge sweeps in.
+- **The header no longer overflows on a tablet.** The nav wrapped its links
+  to a second row below 640px, but the row measures a little over 920px — so
+  every width from 641 to 920 was a bar that did not fit and a document with
+  a horizontal scrollbar. The breakpoint is 960px.
+
+### Changed
+
+- **Geometry has its portrait back.** The orbit no longer replaces the photo;
+  it frames it — the portrait is a disc in the inner ring, and drifts.
+- **Paper's separator is a strip of kraft tape**: surface-coloured, sepia
+  cross-hatch, pencil-dashed edges with the theme's hard offset, rust
+  registration marks. The shared hatch over Paper's own laid lines was moiré
+  in no palette. (The tape covers the column rather than the viewport, and
+  its marks are squares like every other theme's — see Fixed, above.)
+
+### Removed
+
+- The closing banner and its `.btn-on-accent*` rules across all three themes;
+  the Geometry-only `geometry-page-art` slot on Projects (the transform took
+  its place on every theme). `geometry-circuit.svg` is no longer referenced.
+
+- **Three themes, and a drafting frame around every page.** The site now
+  ships Geometry (default), Blueprint and Paper, and nothing else — Classic,
+  Nocturne and the short-lived Motion are retired, Instrument Serif with
+  them. Geometry is a near-black drafting board after the reference launch
+  page: hairline cells with `+` crosshairs and `01 /` indices, `//` mono
+  eyebrows, a violet-to-ember sweep on the primary button and the hero's
+  marked phrase, pill buttons and pill nav, a `~/` wordmark, a blinking
+  caret in the theme switch, code blocks framed as terminal windows, a
+  closing cell with the gradient as its top rule, and a wireframe orbit in
+  the hero that slowly turns. Blueprint's grid becomes graph paper (a heavier
+  line every fifth cell), its eyebrows count `§1, §2 …`, its cards are
+  `FIG. 01`, tags are hairline callouts, listings carry a `// listing`
+  register mark, and its closing banner is a navy title block. Paper's
+  eyebrows and figures count too (`§1`, `fig. 1`), its cards are index cards
+  with a double-ruled top, the hero phrase wears a highlighter stroke, tags
+  are pencilled, and the closing band is kraft.
+
+  Between sections, every theme now draws the reference's separator: two
+  vertical rails running the column's full height, a full-bleed hatched band
+  at each boundary, and a small node wherever a rail crosses a rule. One
+  mechanism in the shared layer (`.section-sep`, `SectionSep.astro`), voiced
+  per theme through tokens — solid rails and square nodes on Geometry,
+  dashed rails and rounded squares on Blueprint, pencil-dashed rails and pins
+  on Paper. Rails and nodes stand down below the column width and in print.
+
+### Changed
+
+- **`data-theme` is always on `<html>`.** With no attribute-less theme left,
+  the layouts render the default into the tag, the pre-paint script only
+  corrects it, and `applyTheme` never deletes it. A stored id for a retired
+  theme falls back to the default rather than to a page with no palette.
+  `src/styles/theme.css` is now the base-token sheet — spacing, radii,
+  motion, widths, the grain plumbing and the frame's tokens — and carries no
+  colour of its own.
+
 - **The assistant panel docks, and the page makes room.** The header's
   placement button now shows where the panel *is* — right edge, left edge, or
   floating free, one icon each — and cycles through all three on click; the

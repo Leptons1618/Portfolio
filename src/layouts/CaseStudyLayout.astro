@@ -1,5 +1,7 @@
 ---
 import BaseLayout from './BaseLayout.astro';
+import PathLine from '../components/PathLine.astro';
+import SectionSep from '../components/SectionSep.astro';
 import Tag from '../components/Tag.astro';
 import { Icon } from 'astro-icon/components';
 import { formatDate } from '../lib/format';
@@ -20,91 +22,137 @@ const {
   title, subtitle, heroImage, heroVideo, problem, solution, architectureImage,
   achievements, stack, repoUrl, demoUrl, date, readTime, eyebrow, prev = null, next = null,
 } = Astro.props;
+
+/* The prompt's cwd is the URL — the layout takes no slug, and the path bar is
+   already the one thing that names where a reader is. */
+const cwd = Astro.url.pathname.replace(/^\/+|\/+$/g, '');
+
+/* At a glance: the study's numbers as a strip of `key value` pairs under the
+   head. Everything here is a fact the page renders elsewhere; nothing is
+   typed twice. */
+const glance: [string, string][] = [
+  ['published', formatDate(date)],
+  ...(readTime ? [['read', `${readTime}`] as [string, string]] : []),
+  ['stack', `${stack.length} ${stack.length === 1 ? 'tool' : 'tools'}`],
+  ['outcomes', String(achievements.length)],
+  ['media', heroVideo ? 'video' : heroImage ? 'image' : '—'],
+];
 ---
 <BaseLayout title={title} description={subtitle}>
-  <article class="container case-study">
-    <a class="btn btn-ghost back-link" href="/projects">← Back to Projects</a>
+  {/* How far along the write-up the reader is. `scaleX` from script; two
+      pixels, the accent, pinned to the top of the viewport. Scroll-linked, so
+      it is state rather than motion — reduced motion leaves it alone. */}
+  <div class="cs-progress" id="cs-progress" aria-hidden="true"></div>
 
-    <header class="cs-head" data-reveal>
-      {heroVideo
-        ? <div class="cs-hero cs-hero-media">
-            {/* Autoplay is a decision the visitor's motion preference gets to
-                make, not one the markup makes for them: the attribute is set
-                from script only when `prefers-reduced-motion` allows it, and
-                a looping hero is exactly the kind of motion that preference
-                exists to stop. The pause control is rendered either way —
-                anything that plays for more than a few seconds owes the
-                visitor a visible way to stop it. Without JavaScript the
-                video simply never plays and the control never appears.
-                `grayscale` sits on the video, not the wrapper, so the filter
-                never greys out the control sitting on top of it. */}
-            <video class="grayscale" src={heroVideo} poster={heroImage} muted loop playsinline preload="metadata"></video>
-            <button type="button" class="cs-video-toggle" id="cs-video-toggle" hidden>
-              <span class="cs-video-face" data-icon="pause"><Icon name="lucide:pause" class="cs-video-icon" /></span>
-              <span class="cs-video-face" data-icon="play" hidden><Icon name="lucide:play" class="cs-video-icon" /></span>
-            </button>
-          </div>
-        : heroImage
-          ? <div class="grayscale cs-hero"><img src={heroImage} alt={title} /></div>
-          : null}
-      <div class="cs-chips">
-        {eyebrow.split(' · ').map(part => <span class="tag tag-neutral">{part}</span>)}
-        <span class="tag tag-neutral">{formatDate(date)}</span>
-        {readTime && <span class="tag tag-neutral">{readTime} read</span>}
-      </div>
-      <h1 class="cs-title">{title}</h1>
-      <p class="cs-subtitle">{subtitle}</p>
-    </header>
-    <hr class="rule cs-head-rule" />
+  {/* The article is no longer the column: it is the page, and the columns are
+      the three blocks inside it. `SectionSep` is full-bleed by construction —
+      its rules run to the viewport and its cell is `--wrap-wide` — so a band
+      nested inside a `.container` would be a boundary drawn only across the
+      middle of the page, which is not what the home page, the projects index
+      or the journal index draw. Splitting the article is what lets a case
+      study close its cover sheet with the same mark every other page uses. */}
+  <article class="case-study">
+    <div class="container cs-cover">
+      <a class="btn btn-ghost back-link" href="/projects">← Back to Projects</a>
 
-    <section class="cs-split">
-      <h3 class="cs-split-head">The Problem</h3>
-      <div class="card elev-sm cs-split-body"><p class="cs-copy">{problem}</p></div>
-    </section>
-
-    <section class="cs-split">
-      <h3 class="cs-split-head">The Solution</h3>
-      <div class="card elev-sm cs-split-body"><p class="cs-copy">{solution}</p></div>
-    </section>
-
-    <div class="cs-split">
-      <div></div>
-      <div class="prose cs-content"><slot /></div>
+      <header class="cs-head" data-reveal>
+        <PathLine path={cwd} cmd="less writeup.md" />
+        {heroVideo
+          ? <div class="cs-hero cs-hero-media">
+              {/* Autoplay is a decision the visitor's motion preference gets to
+                  make, not one the markup makes for them: the attribute is set
+                  from script only when `prefers-reduced-motion` allows it, and
+                  a looping hero is exactly the kind of motion that preference
+                  exists to stop. The pause control is rendered either way —
+                  anything that plays for more than a few seconds owes the
+                  visitor a visible way to stop it. Without JavaScript the
+                  video simply never plays and the control never appears.
+                  `grayscale` sits on the video, not the wrapper, so the filter
+                  never greys out the control sitting on top of it. */}
+              <video class="grayscale" src={heroVideo} poster={heroImage} muted loop playsinline preload="metadata"></video>
+              <button type="button" class="cs-video-toggle" id="cs-video-toggle" hidden>
+                <span class="cs-video-face" data-icon="pause"><Icon name="lucide:pause" class="cs-video-icon" /></span>
+                <span class="cs-video-face" data-icon="play" hidden><Icon name="lucide:play" class="cs-video-icon" /></span>
+              </button>
+            </div>
+          : heroImage
+            ? <div class="grayscale cs-hero"><img src={heroImage} alt={title} /></div>
+            : null}
+        <div class="cs-chips">
+          {eyebrow.split(' · ').map(part => <span class="tag tag-neutral">{part}</span>)}
+          <span class="tag tag-neutral">{formatDate(date)}</span>
+          {readTime && <span class="tag tag-neutral">{readTime} read</span>}
+        </div>
+        <h1 class="cs-title">{title}</h1>
+        <p class="cs-subtitle">{subtitle}</p>
+      </header>
     </div>
 
-    {architectureImage && (
-      <section class="cs-split">
-        <h3 class="cs-split-head">Architecture</h3>
-        <figure class="grayscale cs-arch"><img src={architectureImage} alt="Architecture diagram" /></figure>
-      </section>
-    )}
+    <SectionSep />
 
-    <section class="cs-split">
-      <h3 class="cs-split-head">Achievements</h3>
-      <div class="card elev-sm cs-split-body">
-        <ul class="cs-list">
-          {achievements.map(a => <li>{a}</li>)}
-        </ul>
-      </div>
-    </section>
-
-    <section class="cs-split">
-      <h3 class="cs-split-head">Stack</h3>
-      <div class="cs-split-body">
-        <div class="cs-stack">
-          {stack.map(s => <Tag text={s} variant="neutral" />)}
-        </div>
-        {(repoUrl || demoUrl) && (
-          <div class="cs-actions">
-            {repoUrl && <a class="btn btn-primary" href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>}
-            {demoUrl && <a class="btn btn-secondary" href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
+    <div class="container cs-main">
+      <dl class="cs-glance" data-reveal>
+        {glance.map(([key, value]) => (
+          <div class="cs-glance-item">
+            <dt>{key}</dt>
+            <dd>{value}</dd>
           </div>
-        )}
+        ))}
+      </dl>
+
+      <section class="cs-split" data-reveal>
+        <h3 class="cs-split-head"><span class="cs-split-num">01</span>The Problem</h3>
+        <div class="card elev-sm cs-split-body"><p class="cs-copy">{problem}</p></div>
+      </section>
+
+      <section class="cs-split" data-reveal>
+        <h3 class="cs-split-head"><span class="cs-split-num">02</span>The Solution</h3>
+        <div class="card elev-sm cs-split-body"><p class="cs-copy">{solution}</p></div>
+      </section>
+
+      <div class="cs-split">
+        <div></div>
+        <div class="prose cs-content"><slot /></div>
       </div>
-    </section>
+
+      {architectureImage && (
+        <section class="cs-split" data-reveal>
+          <h3 class="cs-split-head"><span class="cs-split-num">03</span>Architecture</h3>
+          <figure class="grayscale cs-arch"><img src={architectureImage} alt="Architecture diagram" /></figure>
+        </section>
+      )}
+
+      <section class="cs-split" data-reveal>
+        <h3 class="cs-split-head"><span class="cs-split-num">{architectureImage ? '04' : '03'}</span>Achievements</h3>
+        <div class="card elev-sm cs-split-body">
+          <ol class="cs-list">
+            {achievements.map((a, i) => (
+              <li data-reveal style={`--reveal-delay: ${100 + i * 70}ms`}>{a}</li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      <section class="cs-split" data-reveal>
+        <h3 class="cs-split-head"><span class="cs-split-num">{architectureImage ? '05' : '04'}</span>Stack</h3>
+        <div class="cs-split-body">
+          <div class="cs-stack">
+            {stack.map(s => <Tag text={s} variant="neutral" />)}
+          </div>
+          {(repoUrl || demoUrl) && (
+            <div class="cs-actions">
+              {repoUrl && <a class="btn btn-primary" href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>}
+              {demoUrl && <a class="btn btn-secondary" href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+
+    {(prev || next) && <SectionSep />}
 
     {(prev || next) && (
-      <nav class="cs-nav">
+      <nav class="container cs-nav">
         {prev && (
           <a href={`/case-studies/${prev.slug}`} class="cs-nav-link">
             <span class="text-muted">← Previous</span>
@@ -122,6 +170,33 @@ const {
   </article>
 </BaseLayout>
 <script>
+  /* — reading progress —
+     Scale, not width: a transform composites without layout, and this runs
+     on every scroll frame. Bound to the article rather than the document so
+     the footer and the prev/next nav do not count as unread write-up. */
+  const bar = document.getElementById('cs-progress');
+  const article = document.querySelector<HTMLElement>('.case-study');
+  if (bar && article) {
+    let queued = false;
+    const paint = () => {
+      queued = false;
+      const rect = article.getBoundingClientRect();
+      const total = rect.height - window.innerHeight;
+      const done = total > 0 ? Math.min(1, Math.max(0, -rect.top / total)) : 1;
+      bar.style.transform = `scaleX(${done.toFixed(4)})`;
+      if (done >= 0.999) bar.setAttribute('data-done', '');
+      else bar.removeAttribute('data-done');
+    };
+    const onScroll = () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(paint);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    paint();
+  }
+
   /* The hero video's contract with the visitor: it plays only if their OS
      says motion is welcome, and a visible control stops it either way.
 
@@ -177,8 +252,63 @@ const {
   }
 </script>
 <style>
-  .case-study { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  /* The article is the page; the three `.container` blocks inside it are the
+     columns, and the bands between them are full-bleed. Vertical rhythm
+     therefore belongs to the blocks and not to the article — a padding on the
+     article would put space *outside* the first band and none inside it. */
+  .cs-cover { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  .cs-main { padding-top: var(--space-8); }
+  .cs-nav { padding-top: var(--space-6); padding-bottom: var(--space-8); }
   .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
+
+  /* — reading progress — */
+  .cs-progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    z-index: 60;
+    background: var(--color-accent);
+    transform: scaleX(0);
+    transform-origin: 0 50%;
+    pointer-events: none;
+  }
+  /* Read to the end: the bar hands over to the accent-2 step for a beat, so
+     "done" reads as a state and not as the bar simply having stopped. */
+  .cs-progress[data-done] { background: var(--color-accent-2); }
+  @media print { .cs-progress { display: none; } }
+
+  /* — at a glance — */
+  .cs-glance {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-6);
+    /* No negative top margin any more: it existed to pull the strip up under
+       the head's rule, and the head now closes with a band that owns its own
+       space. */
+    margin: 0 0 var(--space-8);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--color-divider);
+    font-family: var(--font-mono);
+    font-size: 12px;
+  }
+  .cs-glance-item { display: flex; align-items: baseline; gap: 0.6ch; }
+  .cs-glance-item dt { color: var(--color-text-faint); }
+  .cs-glance-item dt::after { content: ':'; }
+  .cs-glance-item dd { margin: 0; color: var(--color-text); }
+
+  /* Section numbers in the mono voice, ahead of each head — the study reads
+     as a numbered specification. */
+  .cs-split-num {
+    display: block;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--color-accent);
+    margin-bottom: 4px;
+  }
 
   /* The hero is one block: image, then the identifying chips, title and
      lead sitting on it — the study's cover sheet. */
@@ -186,7 +316,6 @@ const {
   .cs-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-3); }
   .cs-title { margin-bottom: var(--space-2); }
   .cs-subtitle { font-size: 18px; line-height: 1.6; opacity: 0.85; max-width: 62ch; margin: 0; }
-  .cs-head-rule { margin-bottom: var(--space-8); }
 
   .cs-hero { margin-bottom: var(--space-4); }
   .cs-hero img, .cs-hero video { width: 100%; height: 360px; object-fit: cover; }
@@ -283,20 +412,31 @@ const {
 
   .cs-arch { margin: 0; }
 
-  .cs-list { list-style: disc; opacity: 0.85; padding-left: 20px; margin: 0; }
-  .cs-list li { margin-bottom: 6px; }
+  /* Outcomes are counted, not bulleted: `01`, `02` in the mono accent, the
+     same register the project page's highlights use. */
+  .cs-list { list-style: none; opacity: 0.85; padding: 0; margin: 0; counter-reset: outcome; }
+  .cs-list li { position: relative; padding-left: calc(var(--space-6) + var(--space-2)); margin-bottom: 6px; counter-increment: outcome; }
+  .cs-list li::before {
+    content: counter(outcome, decimal-leading-zero);
+    position: absolute;
+    left: 0;
+    top: 0.2em;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--color-accent);
+  }
   .cs-list li:last-child { margin-bottom: 0; }
 
   .cs-stack { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-4); }
   .cs-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
 
+  /* The band above it is the rule now, so the nav carries neither a border of
+     its own nor the margin that used to hold it off one. */
   .cs-nav {
     display: flex;
     justify-content: space-between;
     gap: var(--space-4);
-    margin-top: var(--space-8);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--color-divider);
   }
   .cs-nav-link { display: flex; flex-direction: column; gap: 2px; max-width: 45%; text-decoration: none; font-size: 13px; overflow-wrap: anywhere; }
   .cs-nav-link span { font-size: 12px; }

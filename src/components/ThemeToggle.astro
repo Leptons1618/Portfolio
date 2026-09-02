@@ -12,9 +12,12 @@
  * Server-rendered in the default state; the inline head script in the layouts
  * has already set both attributes before paint, so this script only relabels.
  */
-import { THEMES } from '../lib/theme';
+import { DEFAULT_THEME, THEMES } from '../lib/theme';
 
-const next = THEMES[1]!;
+/* The label names where the click goes: the theme after the default, wrapping,
+   which is the same arithmetic the client script below runs once it knows the
+   stored choice. */
+const next = THEMES[(THEMES.findIndex(theme => theme.id === DEFAULT_THEME) + 1) % THEMES.length]!;
 ---
 <div class="theme-controls">
   <button

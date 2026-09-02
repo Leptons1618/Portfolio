@@ -2,6 +2,9 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import FilterBar from '../components/FilterBar.astro';
 import Illustration from '../components/Illustration.astro';
+import MathVisual from '../components/MathVisual.astro';
+import PathLine from '../components/PathLine.astro';
+import SectionSep from '../components/SectionSep.astro';
 import { CATEGORY_LABELS, categoryLabel, getProjects, topTags } from '../lib/content';
 
 /* Reads content from D1 per request — see the note in `src/lib/content.ts`.
@@ -42,11 +45,22 @@ const projectsData = allProjects.map(p => ({
 ---
 <BaseLayout title="Projects" description="All projects — filterable by category, tag, and stack.">
   <header class="container page-header" data-reveal>
-    <h1>Projects</h1>
-    <p class="page-desc">The work — production systems, experiments, and everything in between, filterable by category, tag, and stack.</p>
+    <div class="page-header-copy">
+      <PathLine path="projects" cmd="ls --sort=year --all" />
+      <h1>Projects</h1>
+      <p class="page-desc">The work — production systems, experiments, and everything in between, filterable by category, tag, and stack.</p>
+    </div>
+    {/* The rotation and its matrix, on every theme: the header's argument is
+        that this is engineering, and a transform computed in front of you
+        says so better than a static grid did. */}
+    <div class="page-header-art">
+      <MathVisual />
+    </div>
   </header>
 
-  <div class="container" data-reveal style="--reveal-delay: 80ms">
+  <SectionSep />
+
+  <div class="container filter-row" data-reveal style="--reveal-delay: 80ms">
     <FilterBar categories={categories} topTags={topTags(allProjects)} />
   </div>
 
@@ -238,7 +252,21 @@ const projectsData = allProjects.map(p => ({
 </script>
 
 <style>
-  .page-header { padding-top: var(--space-6); padding-bottom: var(--space-4); }
+  .page-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 260px;
+    gap: var(--space-8);
+    align-items: center;
+    padding-top: var(--space-6);
+    padding-bottom: var(--space-6);
+  }
+  .page-header-copy { min-width: 0; }
+  /* Sized from the wrapper, never from the component — a class on a component
+     root does not carry this page's scope. */
+  .page-header-art { width: 260px; }
+  /* Room under the separator band before the controls. */
+  .filter-row { padding-top: var(--space-6); }
+
   .page-desc { opacity: 0.8; max-width: 60ch; margin: 0; }
   .results { padding-bottom: var(--space-8); }
   .project-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
@@ -279,5 +307,7 @@ const projectsData = allProjects.map(p => ({
   }
   @media (max-width: 640px) {
     .project-grid { grid-template-columns: 1fr; }
+    .page-header { grid-template-columns: 1fr; gap: var(--space-4); }
+    .page-header-art { width: 200px; }
   }
 </style>

@@ -1,5 +1,7 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
+import PathLine from '../../components/PathLine.astro';
+import SectionSep from '../../components/SectionSep.astro';
 import Tag from '../../components/Tag.astro';
 import { categoryLabel, getProject, getProjects } from '../../lib/content';
 
@@ -16,88 +18,132 @@ const { title, summary, category, tags, stack, status, year, highlights, repoUrl
 const related = (await getProjects(DB))
   .filter(p => p.slug !== project.slug && p.data.tags.some(t => tags.includes(t)))
   .slice(0, 8);
+
+/* The spec sheet: the project's facts as key = value, the way a manifest
+   prints them. Derived, never typed twice — each line reads a field the head
+   already shows or a count of a list the sidebar already renders. */
+const spec: [string, string][] = [
+  ['category', categoryLabel(category)],
+  ['year', String(year)],
+  ['status', status],
+  ['stack', `${stack.length} ${stack.length === 1 ? 'item' : 'items'}`],
+  ['highlights', String(highlights.length)],
+  ['case_study', caseStudySlug ? 'yes' : 'no'],
+  ['demo', demoUrl ? 'live' : '—'],
+];
 ---
 <BaseLayout title={title} description={summary}>
-  <div class="container detail">
-    <a class="btn btn-ghost back-link" href="/projects">← Back to Projects</a>
+  {/* Two columns and a band, not one column and a hairline. `SectionSep` is
+      full-bleed by construction, so a band nested inside a `.container` would
+      draw a boundary across only the middle of the page — the wrapper is the
+      page and the `.container`s inside it are the columns, the same shape the
+      case study uses. */}
+  <div class="detail">
+    <div class="container detail-cover">
+      <a class="btn btn-ghost back-link" href="/projects">← Back to Projects</a>
 
-    {/* The card has shown this since there were cards; this page never did, so
-        an image the author uploaded and a field they filled in appeared
-        everywhere except on the project's own page. Same treatment as a case
-        study's hero — one block above the identifying chips. */}
-    {heroImage && (
-      <div class="grayscale detail-hero"><img src={heroImage} alt={title} /></div>
-    )}
+      {/* The card has shown this since there were cards; this page never did, so
+          an image the author uploaded and a field they filled in appeared
+          everywhere except on the project's own page. Same treatment as a case
+          study's hero — one block above the identifying chips. */}
+      {heroImage && (
+        <div class="grayscale detail-hero"><img src={heroImage} alt={title} /></div>
+      )}
 
-    <header class="detail-head" data-reveal>
-      <div class="detail-chips">
-        <span class="tag tag-neutral">{categoryLabel(category)}</span>
-        <span class="tag tag-neutral">{year}</span>
-        <span class="tag tag-neutral">{status}</span>
-      </div>
-      <h1>{title}</h1>
-      <p class="detail-summary">{summary}</p>
-    </header>
-    <hr class="rule detail-head-rule" />
+      <header class="detail-head" data-reveal>
+        <PathLine path={`projects/${project.slug}`} cmd="cat project.toml" />
+        <div class="detail-chips">
+          <span class="tag tag-neutral">{categoryLabel(category)}</span>
+          <span class="tag tag-neutral">{year}</span>
+          <span class="tag tag-neutral">{status}</span>
+        </div>
+        <h1>{title}</h1>
+        <p class="detail-summary">{summary}</p>
+      </header>
+    </div>
 
-    <div class="detail-grid">
-      <div class="detail-main">
-        {highlights.length > 0 && (
-          <section class="detail-section">
-            <div class="section-head-rule detail-section-head">
-              <h2>Highlights</h2>
-              <hr class="rule" />
-            </div>
-            <div class="card elev-sm">
-              <ul class="highlight-list">
-                {highlights.map(h => <li>{h}</li>)}
-              </ul>
-            </div>
-          </section>
-        )}
+    <SectionSep />
 
-        {related.length > 0 && (
-          <section class="detail-section">
-            <div class="section-head-rule detail-section-head">
-              <h2>Related Projects</h2>
-              <hr class="rule" />
-            </div>
-            <div class="related-list">
-              {related.map(r => (
-                <a href={`/projects/${r.slug}`} class="card elev-sm related-card">
-                  <span class="card-kicker">{r.data.year}</span>
-                  <h3 class="card-title">{r.data.title}</h3>
-                  <p class="card-body">{r.data.summary}</p>
-                </a>
+    <div class="container detail-body">
+      <div class="detail-grid">
+        <div class="detail-main">
+          {highlights.length > 0 && (
+            <section class="detail-section" data-reveal>
+              <div class="section-head-rule detail-section-head">
+                <h2>Highlights</h2>
+                <hr class="rule" />
+              </div>
+              <div class="card elev-sm">
+                {/* Each line arrives on its own, numbered — a changelog rather
+                    than a bullet list. The stagger is authored so it follows
+                    the section's own reveal instead of racing it. */}
+                <ol class="highlight-list">
+                  {highlights.map((h, i) => (
+                    <li data-reveal style={`--reveal-delay: ${120 + i * 70}ms`}>{h}</li>
+                  ))}
+                </ol>
+              </div>
+            </section>
+          )}
+
+          {related.length > 0 && (
+            <section class="detail-section" data-reveal>
+              <div class="section-head-rule detail-section-head">
+                <h2>Related Projects</h2>
+                <hr class="rule" />
+              </div>
+              <div class="related-list">
+                {related.map((r, i) => (
+                  <a href={`/projects/${r.slug}`} class="card elev-sm related-card" data-reveal style={`--reveal-delay: ${i * 60}ms`}>
+                    <span class="card-kicker">{r.data.year}</span>
+                    <h3 class="card-title">{r.data.title}</h3>
+                    <p class="card-body">{r.data.summary}</p>
+                  </a>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+
+        <aside class="detail-sidebar" data-reveal style="--reveal-delay: 100ms">
+          <div class="card sidebar-card spec-card">
+            <p class="eyebrow sidebar-label">Spec</p>
+            <dl class="spec">
+              {spec.map(([key, value]) => (
+                <div class="spec-row">
+                  <dt>{key}</dt>
+                  <dd>{value}</dd>
+                </div>
               ))}
-            </div>
-          </section>
-        )}
-      </div>
-
-      <aside class="detail-sidebar">
-        <div class="card sidebar-card">
-          <p class="eyebrow sidebar-label">Links</p>
-          <div class="link-list">
-            <a href={repoUrl} class="btn btn-secondary btn-block" target="_blank" rel="noopener">Repository ↗</a>
-            {demoUrl && <a href={demoUrl} class="btn btn-primary btn-block" target="_blank" rel="noopener">Live Demo ↗</a>}
-            {caseStudySlug && <a href={`/case-studies/${caseStudySlug}`} class="btn btn-primary btn-block">Read case study →</a>}
+            </dl>
           </div>
-        </div>
-        <div class="card sidebar-card">
-          <p class="eyebrow sidebar-label">Tags</p>
-          <div class="tag-list">{tags.map(tag => <Tag text={tag} variant="neutral" />)}</div>
-        </div>
-        <div class="card sidebar-card">
-          <p class="eyebrow sidebar-label">Stack</p>
-          <div class="tag-list">{stack.map(s => <Tag text={s} variant="outline" />)}</div>
-        </div>
-      </aside>
+          <div class="card sidebar-card">
+            <p class="eyebrow sidebar-label">Links</p>
+            <div class="link-list">
+              <a href={repoUrl} class="btn btn-secondary btn-block" target="_blank" rel="noopener">Repository ↗</a>
+              {demoUrl && <a href={demoUrl} class="btn btn-primary btn-block" target="_blank" rel="noopener">Live Demo ↗</a>}
+              {caseStudySlug && <a href={`/case-studies/${caseStudySlug}`} class="btn btn-primary btn-block">Read case study →</a>}
+            </div>
+          </div>
+          <div class="card sidebar-card">
+            <p class="eyebrow sidebar-label">Tags</p>
+            <div class="tag-list">{tags.map(tag => <Tag text={tag} variant="neutral" />)}</div>
+          </div>
+          <div class="card sidebar-card">
+            <p class="eyebrow sidebar-label">Stack</p>
+            <div class="tag-list">{stack.map(s => <Tag text={s} variant="outline" />)}</div>
+          </div>
+        </aside>
+      </div>
     </div>
   </div>
 </BaseLayout>
 <style>
-  .detail { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  /* The wrapper is the page and the two `.container`s inside it are the
+     columns, so vertical rhythm belongs to them — a padding on the wrapper
+     would put space outside the band rather than inside the blocks. */
+  .detail-cover { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  .detail-body { padding-top: var(--space-8); padding-bottom: var(--space-8); }
   .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
   .detail-grid { display: grid; grid-template-columns: 1fr 280px; gap: var(--space-8); }
   .detail-main { min-width: 0; }
@@ -109,14 +155,30 @@ const related = (await getProjects(DB))
   .detail-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-3); }
   h1 { margin-bottom: var(--space-2); }
   .detail-summary { font-size: 18px; line-height: 1.6; opacity: 0.85; max-width: 62ch; margin: 0; }
-  .detail-head-rule { margin-bottom: var(--space-6); }
 
   .detail-section { margin-bottom: var(--space-6); }
   .detail-section-head { margin-bottom: var(--space-3); }
   .detail-section-head h3 { margin: 0; }
-  .highlight-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-2); }
-  .highlight-list li { padding-left: var(--space-4); position: relative; opacity: 0.85; font-size: 14px; }
-  .highlight-list li::before { content: '→'; position: absolute; left: 0; color: var(--color-accent); }
+  .highlight-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-2); counter-reset: highlight; }
+  .highlight-list li { padding-left: calc(var(--space-6) + var(--space-2)); position: relative; opacity: 0.85; font-size: 14px; counter-increment: highlight; }
+  .highlight-list li::before {
+    content: counter(highlight, decimal-leading-zero);
+    position: absolute;
+    left: 0;
+    top: 0.15em;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--color-accent);
+  }
+
+  /* The spec sheet: `key = value` in mono, dotted leaders between so the
+     values line up as a column the eye can run down. */
+  .spec { margin: 0; display: flex; flex-direction: column; gap: 4px; font-family: var(--font-mono); font-size: 12px; }
+  .spec-row { display: flex; align-items: baseline; gap: var(--space-2); }
+  .spec-row dt { color: var(--color-text-faint); flex: none; }
+  .spec-row dt::after { content: ' ='; color: var(--color-accent); }
+  .spec-row dd { margin: 0; color: var(--color-text); overflow-wrap: anywhere; }
 
   .related-list { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
   .related-card { text-decoration: none; color: inherit; }

@@ -1,5 +1,7 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
+import PathLine from '../../components/PathLine.astro';
+import SectionSep from '../../components/SectionSep.astro';
 import { getPost } from '../../lib/content';
 import { formatTag, metaLine } from '../../lib/format';
 import { absoluteUrl, site } from '../../lib/site';
@@ -23,34 +25,47 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
       and therefore the same measure as `CaseStudyLayout`. It used to be
       `container-prose`, which is a 720px page rather than a 720px column: the
       hero, the title and the footer were all squeezed into it, and the two
-      long-form pages on this site read at visibly different widths. */}
-  <article class="container journal-post">
-    <a class="btn btn-ghost back-link" href="/journal">← Back to Journal</a>
+      long-form pages on this site read at visibly different widths.
 
-    <header class="post-head">
-      {heroImage && (
-        <div class="post-figure">
-          <div class="grayscale"><img src={heroImage} alt={title} /></div>
-          {videoDuration && <span class="tag tag-neutral post-duration">{videoDuration}</span>}
+      The article is the page and the three `.container` blocks inside it are
+      the columns, because the bands between them are full-bleed and a
+      `SectionSep` nested in a `.container` would draw a boundary across only
+      the middle of the page. Same shape as `CaseStudyLayout` and the project
+      page, which is the point: three long-form surfaces, one set of marks. */}
+  <article class="journal-post">
+    <div class="container post-cover">
+      <a class="btn btn-ghost back-link" href="/journal">← Back to Journal</a>
+
+      <header class="post-head">
+        {heroImage && (
+          <div class="post-figure">
+            <div class="grayscale"><img src={heroImage} alt={title} /></div>
+            {videoDuration && <span class="tag tag-neutral post-duration">{videoDuration}</span>}
+          </div>
+        )}
+
+        <PathLine path={`journal/${post.slug}`} cmd="less post.md" />
+        <div class="tag-row">
+          {tags.map((tag, i) => (
+            <span class={`tag ${i % 2 === 0 ? 'tag-accent' : 'tag-accent-2'}`}>{formatTag(tag)}</span>
+          ))}
         </div>
-      )}
 
-      <div class="tag-row">
-        {tags.map((tag, i) => (
-          <span class={`tag ${i % 2 === 0 ? 'tag-accent' : 'tag-accent-2'}`}>{formatTag(tag)}</span>
-        ))}
-      </div>
+        <h1 class="post-title">{title}</h1>
+        <p class="text-muted post-meta">{meta}</p>
+        <p class="post-summary">{summary}</p>
+      </header>
+    </div>
 
-      <h1 class="post-title">{title}</h1>
-      <p class="text-muted post-meta">{meta}</p>
-      <p class="post-summary">{summary}</p>
-    </header>
-    <hr class="rule post-head-rule" />
+    <SectionSep />
 
-    <div class="prose post-prose"><Fragment set:html={post.html} /></div>
+    <div class="container post-body">
+      <div class="prose post-prose"><Fragment set:html={post.html} /></div>
+    </div>
 
-    <hr class="rule post-footer-rule" />
-    <div class="post-footer">
+    <SectionSep />
+
+    <div class="container post-footer">
       <span class="text-muted share-label">Share this post</span>
       <div class="share-actions">
         <button type="button" class="btn btn-secondary" id="copy-link" data-url={shareUrl}>Copy link</button>
@@ -77,16 +92,19 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
 </script>
 
 <style>
-  .journal-post { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  /* The article is the page and the `.container`s inside it are the columns,
+     so vertical rhythm belongs to them: a padding on the article would put
+     space outside the bands rather than inside the blocks they separate. */
+  .post-cover { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  .post-body { padding-top: var(--space-8); padding-bottom: var(--space-8); }
   .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
 
   /* Hero, tags, title and lead as one cover block over the full width, closed
-     with a rule — a case study's `.cs-head` by another name. */
-  .post-head { margin-bottom: var(--space-4); }
+     by the band below it — a case study's `.cs-head` by another name. */
+  .post-head { margin-bottom: 0; }
   .tag-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-3); }
   .post-title { margin-bottom: var(--space-2); }
   .post-meta { font-size: 13px; margin-bottom: var(--space-3); }
-  .post-head-rule { margin-bottom: var(--space-8); }
 
   .post-figure { position: relative; margin-bottom: var(--space-4); }
   .post-figure img { width: 100%; height: 360px; object-fit: cover; }
@@ -114,14 +132,16 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
      let both use all of it rather than wrapping inside an already-wide box. */
   .post-prose pre { overflow-x: auto; }
 
-  .post-footer-rule { margin-top: var(--space-8); }
+  /* The band above it is the rule now, so the footer carries only its own
+     breathing room. */
   .post-footer {
     display: flex;
     justify-content: space-between;
     align-items: center;
     gap: var(--space-3);
     flex-wrap: wrap;
-    padding-top: var(--space-4);
+    padding-top: var(--space-6);
+    padding-bottom: var(--space-8);
   }
   .share-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
   .share-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }

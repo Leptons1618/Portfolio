@@ -1,0 +1,476 @@
+---
+/**
+ * Let's connect — the contact section, as a terminal session.
+ *
+ * Left, a shell window that *runs* the contact details: `whoami`, `cat
+ * contact.txt`, `ping`, each typed in and answered in turn when the section
+ * scrolls into view, with a live clock in the owner's timezone and a ping
+ * time that jitters the way a real one does. Under it, the three profiles as
+ * terminal-flavoured cards. Right, a plain developer's form.
+ *
+ * Everything here reads from `site.ts`; nothing hard-codes an address.
+ *
+ * ## The form has no server
+ *
+ * This site has no inbound mail endpoint and no third-party form service, on
+ * purpose — the one write path is the admin's, and a public POST that stores
+ * visitor text is a database of strangers' messages to be responsible for.
+ * "Send Transmission" therefore composes a `mailto:` from the fields and hands
+ * it to the visitor's mail client. The hint under the button says so, in the
+ * terminal's own voice, so nobody waits for a confirmation that will not
+ * come. Without JavaScript the form still works: its `action` is the same
+ * `mailto:` and the browser builds the query string itself.
+ *
+ * ## Styling
+ *
+ * Tokens only, so the window is Geometry's cell, Blueprint's sheet or Paper's
+ * card without a rule of its own — `--rule-style` and `--shadow-sm` already
+ * carry each theme's idiom. The typewriter's spans are built by
+ * `src/lib/text-fx.ts` and styled in `global.css`.
+ */
+import { Icon } from 'astro-icon/components';
+import { site } from '../lib/site';
+
+const host = new URL(site.url).hostname;
+const user = site.githubUser.toLowerCase();
+const handle = (url: string) => '@' + url.replace(/\/+$/, '').split('/').pop();
+
+const socials = [
+  { label: 'GitHub', href: site.github, handle: handle(site.github), cmd: 'open github', icon: 'lucide:github' },
+  { label: 'LinkedIn', href: site.linkedin, handle: 'in/anish-giri', cmd: 'open linkedin', icon: 'lucide:linkedin' },
+  { label: 'X / Twitter', href: site.twitter, handle: handle(site.twitter), cmd: 'open x', icon: 'lucide:at-sign' },
+];
+---
+<section class="contact container" id="contact" aria-labelledby="contact-title">
+  <div class="contact-head" data-reveal>
+    <p class="eyebrow">Contact</p>
+    <h2 class="contact-title" id="contact-title">
+      <span class="contact-lets">Let’s</span>
+      <span class="contact-connect">connect<span class="contact-dot">.</span></span>
+    </h2>
+    <p class="contact-intro">
+      A role, a hard problem, a paper worth arguing about — send a transmission.
+      Every message is read by a person, and answered.
+    </p>
+  </div>
+
+  <div class="contact-grid">
+    <div class="contact-left" data-reveal>
+      {/* — the terminal — */}
+      <div class="term" id="contact-term" role="group" aria-label="Contact details">
+        <div class="term-bar">
+          <span class="term-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="term-title">{user}@{host} — sh — 80×24</span>
+          <span class="term-status"><span class="term-live" aria-hidden="true"></span>online</span>
+        </div>
+
+        {/* Every row is `data-seq`: hidden until its turn, then shown in
+            order by the script below. Commands are typed; outputs appear.
+            Without JavaScript the `hidden` never applies (it is added from
+            script), so the whole transcript is simply there. */}
+        <div class="term-body">
+          <p class="term-row" data-seq><span class="term-prompt">$</span> <span class="term-cmd" data-cmd>whoami</span></p>
+          <p class="term-row term-out" data-seq>{user} — {site.roleLong}</p>
+
+          <p class="term-row" data-seq><span class="term-prompt">$</span> <span class="term-cmd" data-cmd>cat contact.txt</span></p>
+          <p class="term-row term-out term-kv" data-seq>
+            <span class="term-key">EMAIL</span>
+            <a href={`mailto:${site.email}`} class="term-link">{site.email}</a>
+          </p>
+          <p class="term-row term-out term-kv" data-seq>
+            <span class="term-key">LOCATION</span>
+            <span>{site.location}</span>
+          </p>
+          <p class="term-row term-out term-kv" data-seq>
+            <span class="term-key">LOCAL_TIME</span>
+            <span><time data-clock data-tz={site.timezone}>--:--:--</time> <span class="term-dim">({site.timezone})</span></span>
+          </p>
+          <p class="term-row term-out term-kv" data-seq>
+            <span class="term-key">STATUS</span>
+            <span class="term-ok">{site.availability}</span>
+          </p>
+
+          <p class="term-row" data-seq><span class="term-prompt">$</span> <span class="term-cmd" data-cmd>ping -c 3 {host}</span></p>
+          <p class="term-row term-out term-dim" data-seq>PING {host}: 56 data bytes</p>
+          <p class="term-row term-out" data-seq>64 bytes from edge: icmp_seq=0 ttl=57 time=<b class="term-num" data-ping>—</b> ms</p>
+          <p class="term-row term-out" data-seq>64 bytes from edge: icmp_seq=1 ttl=57 time=<b class="term-num" data-ping>—</b> ms</p>
+          <p class="term-row term-out" data-seq>64 bytes from edge: icmp_seq=2 ttl=57 time=<b class="term-num" data-ping>—</b> ms</p>
+          <p class="term-row term-out term-ok" data-seq>3 packets transmitted, 3 received, 0% packet loss</p>
+
+          <p class="term-row" data-seq><span class="term-prompt">$</span> <span class="term-caret" aria-hidden="true"></span></p>
+        </div>
+      </div>
+
+      {/* — the profiles — */}
+      <div class="contact-socials">
+        {socials.map(s => (
+          <a class="term-card" href={s.href} target="_blank" rel="noopener me">
+            <span class="term-card-cmd"><span class="term-prompt">$</span> {s.cmd}</span>
+            <span class="term-card-row">
+              <Icon name={s.icon} class="term-card-icon" />
+              <span class="term-card-name">{s.label}</span>
+              <span class="term-card-arrow" aria-hidden="true">↗</span>
+            </span>
+            <span class="term-card-handle">{s.handle}</span>
+          </a>
+        ))}
+      </div>
+    </div>
+
+    {/* — the form — */}
+    <form
+      class="contact-form"
+      id="contact-form"
+      action={`mailto:${site.email}`}
+      method="get"
+      enctype="text/plain"
+      data-reveal
+      style="--reveal-delay: 120ms"
+    >
+      <div class="contact-form-head">
+        <span class="term-prompt">$</span> <span class="contact-form-file">vim new_transmission.msg</span>
+        <span class="contact-form-mode" aria-hidden="true">-- INSERT --</span>
+      </div>
+
+      <div class="contact-fields">
+        <div class="field contact-field">
+          <label for="contact-name">name</label>
+          <input class="input" id="contact-name" name="name" type="text" autocomplete="name" required placeholder="Ada Lovelace" />
+        </div>
+        <div class="field contact-field">
+          <label for="contact-email">email</label>
+          <input class="input" id="contact-email" name="from" type="email" autocomplete="email" required placeholder="ada@example.com" />
+        </div>
+        <div class="field contact-field contact-field-wide">
+          <label for="contact-subject">subject</label>
+          <input class="input" id="contact-subject" name="subject" type="text" required placeholder="Re: that CV pipeline" />
+        </div>
+        <div class="field contact-field contact-field-wide">
+          <label for="contact-message">message</label>
+          <textarea class="input contact-message" id="contact-message" name="body" rows="6" required placeholder="What are you building, and where does it hurt?"></textarea>
+        </div>
+      </div>
+
+      <div class="contact-form-foot">
+        <p class="contact-form-hint" id="contact-hint">
+          <span class="term-dim">›</span> composes a message in your mail client. Nothing is stored here.
+        </p>
+        <button type="submit" class="btn btn-primary contact-send">
+          Send Transmission
+          <Icon name="lucide:send-horizontal" class="contact-send-icon" />
+        </button>
+      </div>
+    </form>
+  </div>
+</section>
+
+<script>
+  import { typewrite } from '../lib/text-fx';
+
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const term = document.getElementById('contact-term');
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+  /* — the clock — */
+  document.querySelectorAll<HTMLElement>('[data-clock]').forEach(clock => {
+    const tz = clock.dataset.tz;
+    const fmt = new Intl.DateTimeFormat(undefined, {
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: tz,
+    });
+    const tick = () => {
+      const now = new Date();
+      clock.textContent = fmt.format(now);
+      clock.setAttribute('datetime', now.toISOString());
+    };
+    tick();
+    setInterval(tick, 1000);
+  });
+
+  /* — the transcript — */
+  if (term) {
+    const rows = Array.from(term.querySelectorAll<HTMLElement>('[data-seq]'));
+    const pings = Array.from(term.querySelectorAll<HTMLElement>('[data-ping]'));
+    /* A plausible edge round-trip: a base with jitter, never the same twice. */
+    const ping = () => (9 + Math.random() * 14).toFixed(1);
+
+    if (reduced) {
+      pings.forEach(p => { p.textContent = ping(); });
+    } else {
+      rows.forEach(row => { row.hidden = true; });
+
+      let played = false;
+      const play = async () => {
+        if (played) return;
+        played = true;
+        for (const row of rows) {
+          row.hidden = false;
+          const cmd = row.querySelector<HTMLElement>('[data-cmd]');
+          if (cmd) {
+            await typewrite(cmd, { speed: 38 });
+            await sleep(180);
+          } else {
+            const p = row.querySelector<HTMLElement>('[data-ping]');
+            if (p) {
+              p.textContent = ping();
+              await sleep(420);
+            } else {
+              await sleep(70);
+            }
+          }
+        }
+      };
+
+      new IntersectionObserver((entries, self) => {
+        if (entries.some(e => e.isIntersecting)) {
+          self.disconnect();
+          void play();
+        }
+      }, { threshold: 0.25 }).observe(term);
+    }
+  }
+
+  /* — the form —
+     Compose the mailto ourselves rather than let `method="get"` do it: a GET
+     to a `mailto:` puts every field into the *subject* on some clients. This
+     builds a proper `subject` and `body`, and says what it did. */
+  const form = document.getElementById('contact-form') as HTMLFormElement | null;
+  const hint = document.getElementById('contact-hint');
+  form?.addEventListener('submit', event => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const data = new FormData(form);
+    const name = String(data.get('name') ?? '').trim();
+    const from = String(data.get('from') ?? '').trim();
+    const subject = String(data.get('subject') ?? '').trim();
+    const body = String(data.get('body') ?? '').trim();
+    const to = form.action.replace(/^mailto:/, '');
+    const url =
+      `mailto:${to}` +
+      `?subject=${encodeURIComponent(subject)}` +
+      `&body=${encodeURIComponent(`${body}\n\n— ${name}\n${from}`)}`;
+    if (hint) {
+      hint.innerHTML = '';
+      const mark = document.createElement('span');
+      mark.className = 'term-ok';
+      mark.textContent = '✓';
+      hint.append(mark, ` transmission handed to your mail client · ${new Date().toLocaleTimeString()}`);
+    }
+    window.location.href = url;
+  });
+</script>
+
+<style>
+  .contact { padding-top: var(--space-8); padding-bottom: var(--space-8); }
+
+  /* — head — */
+  .contact-head { margin-bottom: var(--space-6); }
+  .eyebrow { margin-bottom: var(--space-2); }
+
+  /* "Let's" is the large word; "connect." is set a step smaller and lighter,
+     so the heading reads as an invitation rather than a headline. */
+  .contact-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.3em;
+    margin-bottom: var(--space-3);
+    line-height: 1;
+  }
+  .contact-lets { font-size: clamp(56px, 10vw, 112px); letter-spacing: -0.03em; }
+  .contact-connect {
+    font-size: clamp(28px, 4vw, 44px);
+    font-weight: 400;
+    font-family: var(--font-mono);
+    letter-spacing: -0.01em;
+    color: var(--color-text-muted);
+  }
+  .contact-dot { color: var(--color-accent); }
+  .contact-intro { font-size: 16px; max-width: 56ch; opacity: 0.85; margin: 0; }
+
+  /* — two columns — */
+  .contact-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: var(--space-8);
+    align-items: start;
+  }
+  .contact-left { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; }
+
+  /* — the terminal window —
+     A cell in the theme's own materials: the surface, the theme's rule
+     style, the theme's shadow. The traffic lights are three neutral dots
+     rather than three hard-coded colours, so they dim with the palette. */
+  .term {
+    border: 1px var(--rule-style) var(--color-divider);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.7;
+  }
+
+  .term-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px var(--rule-style) var(--color-divider);
+    background: color-mix(in srgb, var(--color-text) 4%, var(--color-surface));
+    font-size: 11px;
+    color: var(--color-text-faint);
+  }
+  .term-dots { display: inline-flex; gap: 6px; }
+  .term-dots i { width: 10px; height: 10px; border-radius: 50%; background: var(--color-neutral-500); }
+  .term-dots i:first-child { background: var(--color-accent-500); }
+  .term-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .term-status { display: inline-flex; align-items: center; gap: 6px; text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; }
+  .term-live { width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); }
+  @media (prefers-reduced-motion: no-preference) {
+    .term-live { animation: term-live 1.8s ease-in-out infinite; }
+  }
+  @keyframes term-live { 50% { opacity: 0.3; } }
+
+  .term-body {
+    padding: var(--space-3) var(--space-4);
+    /* Room for the whole transcript, so the window does not grow line by
+       line while the sequence plays and shove the cards below it. */
+    min-height: 372px;
+    color: var(--color-text);
+  }
+
+  .term-row { margin: 0; overflow-wrap: anywhere; }
+  .term-out { color: var(--color-text-muted); padding-left: 1.5ch; }
+  .term-kv { display: grid; grid-template-columns: 11ch 1fr; gap: 0 var(--space-2); }
+  .term-key { color: var(--color-text-faint); letter-spacing: 0.06em; font-size: 11px; }
+  .term-prompt { color: var(--color-accent); font-weight: 600; }
+  .term-cmd { color: var(--color-text); }
+  .term-dim { color: var(--color-text-faint); }
+  .term-ok { color: var(--color-accent-2); }
+  .term-num { font-weight: 500; color: var(--color-text); font-variant-numeric: tabular-nums; }
+  .term-link { color: var(--color-accent-700); text-decoration-color: color-mix(in srgb, var(--color-accent) 40%, transparent); }
+  .term-link:hover { color: var(--color-accent); }
+
+  /* Rows arriving: a one-line rise as each is shown. */
+  @media (prefers-reduced-motion: no-preference) {
+    .term-row:not([hidden]) { animation: term-row-in 220ms var(--ease-out) both; }
+  }
+  @keyframes term-row-in { from { opacity: 0; translate: 0 3px; } }
+
+  /* The idle prompt's block cursor. */
+  .term-caret {
+    display: inline-block;
+    width: 0.6em;
+    height: 1.05em;
+    vertical-align: -0.2em;
+    background: var(--color-accent);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .term-caret { animation: brand-caret 1s steps(1, end) infinite; }
+  }
+
+  /* — profile cards — */
+  .contact-socials {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-3);
+  }
+
+  .term-card {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: var(--space-3);
+    border: 1px var(--rule-style) var(--color-divider);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-sm);
+    text-decoration: none;
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    min-width: 0;
+    transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease, translate var(--dur-fast) var(--ease-out);
+  }
+  .term-card:hover,
+  .term-card:focus-visible {
+    color: var(--color-text);
+    border-color: var(--color-accent);
+    box-shadow: var(--shadow-md);
+    translate: 0 -2px;
+  }
+  .term-card-cmd { font-size: 11px; color: var(--color-text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .term-card-row { display: flex; align-items: center; gap: 8px; }
+  .term-card-icon { width: 16px; height: 16px; flex: none; color: var(--color-accent); }
+  .term-card-name { font-family: var(--font-body); font-weight: 600; font-size: 14px; }
+  .term-card-arrow { margin-left: auto; color: var(--color-text-faint); transition: translate var(--dur-fast) var(--ease-out), color var(--dur-fast) ease; }
+  .term-card:hover .term-card-arrow { translate: 2px -2px; color: var(--color-accent); }
+  .term-card-handle { font-size: 11px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* — the form — */
+  .contact-form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-4);
+    border: 1px var(--rule-style) var(--color-divider);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .contact-form-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6ch;
+    padding-bottom: var(--space-3);
+    border-bottom: 1px var(--rule-style) var(--color-divider);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-text-muted);
+  }
+  .contact-form-file { color: var(--color-text); }
+  .contact-form-mode { margin-left: auto; font-size: 10px; letter-spacing: 0.1em; color: var(--color-accent-2); }
+
+  .contact-fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-3);
+  }
+  .contact-field-wide { grid-column: 1 / -1; }
+
+  /* Labels in the mono voice, lower-case, like variable names. */
+  .contact-field > label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--color-text-muted);
+  }
+  .contact-field > label::before { content: '> '; color: var(--color-accent); }
+  .contact-field .input { font-family: var(--font-mono); font-size: 13px; }
+  .contact-field .input::placeholder { color: var(--color-text-faint); }
+  .contact-message { min-height: 140px; resize: vertical; }
+
+  .contact-form-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .contact-form-hint { margin: 0; font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); flex: 1 1 200px; }
+  .contact-send { gap: 8px; }
+  .contact-send-icon { width: 14px; height: 14px; transition: translate var(--dur-fast) var(--ease-out); }
+  .contact-send:hover .contact-send-icon { translate: 3px 0; }
+
+  @media (max-width: 900px) {
+    .contact-grid { grid-template-columns: 1fr; gap: var(--space-6); }
+  }
+  @media (max-width: 640px) {
+    .contact-socials { grid-template-columns: 1fr; }
+    .contact-fields { grid-template-columns: 1fr; }
+    .term-kv { grid-template-columns: 1fr; }
+    .term-body { min-height: 0; }
+    .contact-form-mode { display: none; }
+  }
+</style>
