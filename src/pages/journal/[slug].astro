@@ -1,5 +1,6 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
+import PathLine from '../../components/PathLine.astro';
 import { getPost } from '../../lib/content';
 import { formatTag, metaLine } from '../../lib/format';
 import { absoluteUrl, site } from '../../lib/site';
@@ -35,6 +36,7 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
         </div>
       )}
 
+      <PathLine path={`journal/${post.slug}`} cmd="less post.md" />
       <div class="tag-row">
         {tags.map((tag, i) => (
           <span class={`tag ${i % 2 === 0 ? 'tag-accent' : 'tag-accent-2'}`}>{formatTag(tag)}</span>

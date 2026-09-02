@@ -847,11 +847,46 @@ select.input.is-auto {
   border-bottom: 2px solid var(--color-divider);
 }
 
+/* The wordmark is a path: `~/` in the faint step, the name, then a short bar
+   that blinks on a shell's cadence — a prompt, a cwd, and a cursor. It used to
+   be Geometry's alone and the other two themes bracketed the name instead;
+   the terminal voice is now the site's, and a theme only decides what the
+   cursor is painted with through `--brand-bar` (Geometry hands it the sweep,
+   the drafting themes their single accent). */
 .nav-brand {
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: 18px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: -0.01em;
   margin-right: auto;
+}
+
+.nav-brand::before {
+  content: '~/';
+  color: var(--color-text-faint);
+  font-weight: 400;
+}
+
+.nav-brand::after {
+  content: '';
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--brand-bar, var(--color-accent));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nav-brand::after { animation: brand-caret 1.1s steps(1, end) infinite; }
+  /* The bar holds steady under the pointer — a cursor stops blinking while
+     you are typing at it. */
+  .nav-brand:hover::after { animation: none; }
+}
+
+@keyframes brand-caret {
+  50% { opacity: 0; }
 }
 
 .nav a {
@@ -1042,6 +1077,66 @@ body > main::after { right: var(--column-edge); translate: -1px 0; }
   body > main::after { display: none; }
   .section-sep { height: 0; border-bottom: 0; }
   .section-sep-inner { display: none; }
+}
+
+/* — the prompt eyebrow —
+
+   `PathLine.astro`: `user@host:~/cwd $ cmd`. The command is typed in by
+   `src/lib/text-fx.ts`, which builds the caret and the two spans in script, so
+   these rules are global for the usual reason — script-built DOM carries no
+   `data-astro-cid`. Mono throughout, the prompt glyph in the accent, the
+   caret a 2:1 block blinking on the wordmark's cadence. */
+.pathline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.5ch;
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+
+.pathline-who { color: var(--color-text-faint); }
+.pathline-at { color: var(--color-accent-2); }
+.pathline-colon { color: var(--color-text-faint); }
+.pathline-cwd { color: var(--color-text); font-weight: 500; }
+.pathline-prompt { color: var(--color-accent); font-weight: 600; }
+.pathline-cmd { color: var(--color-text); }
+
+/* The caret follows a typed command; before typing begins there is none. The
+   `fx-visual` span is the frame the effect writes into; the visually-hidden
+   twin holds the real string for everything that reads rather than looks. */
+.fx-caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -0.15em;
+  background: var(--color-accent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fx-caret { animation: brand-caret 1s steps(1, end) infinite; }
+  /* While decoding, the noise glyphs read in the faint step so the settled
+     letters stand out as they land. */
+  [data-fx-state='running'] .fx-visual { color: inherit; }
+}
+
+/* Once typed, the caret stays a beat, then goes — a finished command has no
+   cursor sitting after it. */
+[data-fx-state='done'] .fx-caret { animation: fx-caret-out 400ms 1.2s ease forwards; }
+
+@keyframes fx-caret-out { to { opacity: 0; } }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /* — figure numbers —

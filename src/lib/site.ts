@@ -26,6 +26,14 @@ export const site = {
   github: 'https://github.com/Leptons1618',
   repo: 'https://github.com/Leptons1618/Portfolio',
   linkedin: 'https://www.linkedin.com/in/anish-giri-a4031723a',
+  /* ASSUMED: no X handle was recorded anywhere in this repository when the
+     contact section was built, so this reuses the GitHub login. Correct it
+     here and nowhere else — the contact cards and the footer read it. */
+  twitter: 'https://x.com/Leptons1618',
+  /** Read by the contact terminal's `status` line. Copy, not a schedule. */
+  availability: 'Open to opportunities · ML/CV, full-stack, systems',
+  /** IANA zone for the terminal's clock line. */
+  timezone: 'Asia/Kolkata',
 
   /**
    * Portrait used by the home hero, the about page and the admin rail.

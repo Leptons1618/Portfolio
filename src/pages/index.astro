@@ -3,6 +3,8 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import ProjectCard from '../components/ProjectCard.astro';
 import Illustration from '../components/Illustration.astro';
 import SectionSep from '../components/SectionSep.astro';
+import PathLine from '../components/PathLine.astro';
+import ContactTerminal from '../components/ContactTerminal.astro';
 import { categoryLabel, getDeepDiveCaseStudies, getFeaturedProjects, getProjects } from '../lib/content';
 import { site } from '../lib/site';
 
@@ -60,7 +62,10 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
   <header class="hero container">
     <div class="hero-copy" data-reveal>
       <span class="tag tag-accent-2 hero-status"><span class="status-dot" aria-hidden="true"></span>Open to opportunities</span>
-      <p class="eyebrow">Software Engineer</p>
+      {/* The name header, in the wordmark's voice: a prompt asks `whoami`
+          and the eyebrow below decodes in as the answer. */}
+      <PathLine cmd="whoami" delay={200} />
+      <p class="eyebrow" data-fx="scramble" data-fx-delay="700">Software Engineer</p>
       <h1 class="hero-title">Building <span class="highlight">ML systems</span>, <span class="nowrap">full-stack</span> apps &amp; dev tools</h1>
       <p class="hero-desc">{site.bio}</p>
       <div class="hero-actions">
@@ -167,32 +172,18 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
 
   <SectionSep />
 
-  <section class="closing-banner" data-reveal>
-    <div class="container closing-inner">
-      <div>
-        <h2 class="closing-title">Let's work together</h2>
-        <p class="closing-desc">Open to interesting ML/CV, full-stack, and systems projects.</p>
-        {/* Theme-only artwork: Geometry's circuit board. Hidden by default,
-            revealed by geometry.css. */}
-        <div class="geometry-banner-art">
-          <Illustration name="geometry-circuit" />
-        </div>
-      </div>
-      <div class="closing-actions">
-        <a href={`mailto:${site.email}`} class="btn btn-on-accent">Hire me</a>
-        <a href="/resume" class="btn btn-on-accent-outline">Resume</a>
-      </div>
-    </div>
-  </section>
+  {/* The closing move used to be a solid banner with two buttons. It is now
+      the contact section: the same invitation, with the details a visitor
+      actually needs and a way to write back. */}
+  <ContactTerminal />
 </BaseLayout>
 <style>
   .eyebrow { margin-bottom: var(--space-2); }
 
-  /* Theme-only artwork. Both slots exist in the markup on every theme but
-     render nowhere until a theme file reveals them — the page stays theme-
+  /* Theme-only artwork. The slot exists in the markup on every theme but
+     renders nowhere until a theme file reveals it — the page stays theme-
      agnostic and the artwork is display:none, so no paint cost elsewhere. */
-  .hero-visual,
-  .geometry-banner-art { display: none; }
+  .hero-visual { display: none; }
 
   /* — hero — */
   .hero {
@@ -320,30 +311,6 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
     color: var(--color-text-muted);
     margin: 0;
   }
-
-  /* — closing banner: the one place the accent runs as a field — */
-  .closing-banner {
-    background: var(--color-accent);
-    color: var(--color-bg);
-    padding: var(--space-8) 0;
-    /* Sits flush under its separator band — the band's rule is the seam — and
-       leaves the footer's own rule to close the page. */
-    margin-bottom: 0;
-  }
-  .closing-inner {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: var(--space-6);
-    flex-wrap: wrap;
-  }
-  .closing-title { font-size: clamp(28px, 4vw, 42px); margin-bottom: var(--space-2); }
-  .closing-desc { margin: 0; }
-  .closing-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
-  .btn-on-accent { background: var(--color-bg); color: var(--color-accent-700); transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease; }
-  .btn-on-accent:hover { background: var(--color-accent-100); color: var(--color-accent-800); }
-  .btn-on-accent-outline { border-color: var(--color-bg); color: var(--color-bg); transition: background-color var(--dur-fast) ease, border-color var(--dur-fast) ease; }
-  .btn-on-accent-outline:hover { background: color-mix(in srgb, var(--color-bg) 18%, transparent); color: var(--color-bg); }
 
   @media (max-width: 900px) {
     .grid-3 { grid-template-columns: repeat(2, 1fr); }
