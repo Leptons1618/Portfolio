@@ -238,16 +238,22 @@
   --grid-ink-major: color-mix(in srgb, var(--color-text) 10%, transparent);
 
   /* The drafting frame in this theme's voice: cut lines, pencil hatch, and
-     square registration nodes with the 2px corner every other rectangle here
-     has. The band is a grid module tall — three cells — so the frame lands on
-     the paper's own lines. */
+     square registration nodes. The band is a grid module tall — three cells —
+     so the frame lands on the paper's own lines, which is also the shared
+     `--sep-height`, so it no longer needs saying twice.
+
+     `--sep-ink` is a real step down the neutral ramp rather than
+     `--color-divider`: a dashed hairline in the divider grey over a ruled
+     grid of nearly the same grey is a boundary you have to go looking for,
+     and the marks at its corners were paler still. The corner radius went
+     with it — `--radius-sm` on a 10px square is a soft blob at the one place
+     on the page whose whole job is to be a precise mark. */
   --rule-style: dashed;
   --rail-ink: var(--color-divider);
-  --hatch-ink: color-mix(in srgb, var(--color-text) 10%, transparent);
+  --sep-ink: var(--color-neutral-600);
+  --hatch-ink: color-mix(in srgb, var(--color-text) 13%, transparent);
   --hatch-step: 8px;
   --node-size: 10px;
-  --node-radius: var(--radius-sm);
-  --sep-height: calc(var(--grid-step) * 3);
 }
 
 @media screen {
@@ -393,6 +399,35 @@ html[data-theme='blueprint'] .footer-copy,
   box-shadow: var(--shadow-sm);
 }
 
+/* The framed listing keeps the drawing-set grammar: a dashed rule under the
+   bar, the hard offset every other sheet here casts, and the fence's language
+   as the figure's caption. No window dots — this theme has never pretended to
+   be a terminal. */
+[data-theme='blueprint'] .code-block {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  background: var(--color-neutral-100);
+}
+
+[data-theme='blueprint'] .code-bar {
+  border-bottom: 1px dashed var(--color-divider);
+  background: var(--color-neutral-200);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+[data-theme='blueprint'] .code-dots { display: none; }
+
+[data-theme='blueprint'] .code-name::before {
+  content: '// listing · ';
+  color: var(--color-text-faint);
+}
+
+[data-theme='blueprint'] .code-copy {
+  border-style: dashed;
+}
+
 [data-theme='blueprint'] .prose pre::before {
   content: '// listing';
   position: absolute;
@@ -405,6 +440,14 @@ html[data-theme='blueprint'] .footer-copy,
   color: var(--color-text-faint);
   border-left: 1px dashed var(--color-divider);
   border-bottom: 1px dashed var(--color-divider);
+}
+
+/* The corner tag is what the bar replaced; it stays for the no-JavaScript
+   case, which is the only case that still sees it. Below the rule it cancels
+   and not above it: the two selectors weigh exactly the same, so source order
+   is the whole of the cascade here. */
+[data-theme='blueprint'] .code-block > pre::before {
+  content: none;
 }
 
 /* — buttons press into the page ————————————————————————————————————————

@@ -88,12 +88,20 @@ const imageURL = absoluteUrl(image, origin);
        Public pages are plain MPA (decision 11), so this runs once per
        document and needs no view-transition handling. */
     import { mountTextFx } from '../lib/text-fx';
+    import { mountCode } from '../lib/code-fx';
 
     const STAGGER = 70;
 
     /* Typed prompts and decoded eyebrows. Independent of the reveal below: it
        has its own observer and its own reduced-motion check. */
     mountTextFx();
+
+    /* Fenced code: framed, coloured and dealt in a line at a time. Mounted
+       here rather than on the two pages that render `.prose`, so a third
+       long-form surface gets it without a third import — and it returns on
+       the first query when a page has no listing on it, which is most of
+       them. Its own observer and its own reduced-motion check, again. */
+    mountCode();
 
     /* The head script armed the reveal; this module is the proof it loaded. */
     const fallback = (window as unknown as { __omRevealFallback?: number }).__omRevealFallback;
@@ -138,11 +146,16 @@ const imageURL = absoluteUrl(image, origin);
      touch and switch users a `focus-visible` heuristic can miss. */
   .skip-link {
     position: fixed;
-    /* The inset is a floor, not a constant: on a notched device in landscape
-       the safe-area env() is larger and wins, so the panel never lands under
-       the corner or the browser chrome. On a plain rectangle env() is 0 and
-       the token holds. */
-    top: max(var(--space-4), env(safe-area-inset-top));
+    /* Parked at the top edge and moved off it by the transform, rather than
+       positioned at the inset and moved off by the inset. The two are only
+       the same until the arithmetic has to be exact: `top: 16px` with
+       `translateY(-100% - 16px)` lands the panel's bottom edge on *exactly*
+       y=0, where its 1px border still paints a row — which is the second half
+       of the dark bar in the corner, and the half a safe-area env() would
+       have made worse rather than better. Off-screen by a clear 4px instead.
+       The left inset is still a floor, not a constant: on a notched device in
+       landscape env() is larger and wins. */
+    top: 0;
     left: max(var(--space-4), env(safe-area-inset-left));
     z-index: 100;
     padding: var(--space-2) var(--space-4);
@@ -152,11 +165,19 @@ const imageURL = absoluteUrl(image, origin);
     font-weight: 500;
     border: 1px solid var(--color-text);
     border-radius: var(--radius-md);
-    box-shadow: var(--shadow-lg);
-    transform: translateY(calc(-100% - var(--space-4)));
+    transform: translateY(calc(-100% - var(--space-1)));
   }
+
+  /* The elevation belongs to the *focused* panel and to nothing else.
+     Carrying it at rest put a shadow on a box parked above the viewport, and
+     `--shadow-lg` is a hard 4px offset with no blur on both drafting themes —
+     so the shadow of an off-screen element landed *inside* the viewport as a
+     dark bar wedged into the top-left corner of every page. A blurred shadow
+     did the same thing more quietly. Painting it only on focus is the fix
+     that holds whatever a theme's shadow token turns out to be. */
   .skip-link:focus {
-    transform: none;
+    transform: translateY(max(var(--space-4), env(safe-area-inset-top)));
+    box-shadow: var(--shadow-lg);
   }
 
   /* The arrival is a motion moment — the panel drops in from off-screen —

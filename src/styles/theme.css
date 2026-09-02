@@ -68,15 +68,42 @@
      and a small node wherever a rail crosses a rule. The frame is one
      mechanism; these tokens are how a theme gives it a voice. `--rule-style`
      is what Blueprint and Paper set to `dashed`; `--rail-ink` is the rails'
-     colour and `transparent` switches them off; `--node-radius` is 50% for
-     Paper's pins and 0 for the square markers the reference draws. */
+     colour and `transparent` switches them off; `--sep-ink` is the band's own
+     weight and `--node-radius` is the corner on the registration marks. */
   --rule-style: solid;
   --rail-ink: var(--color-divider);
+  /* The band's own two rules and the node outlines, kept separate from
+     `--color-divider` on purpose: a divider between two rows of text wants to
+     be barely there, and a section boundary wants to be *read*. Sharing one
+     token is what made the frame vanish on the lighter themes — every theme
+     raises this to a mid-ramp step. */
+  --sep-ink: var(--color-divider);
   --hatch-ink: color-mix(in srgb, var(--color-divider) 70%, transparent);
   --hatch-step: 9px;
   --node-size: 10px;
+  /* Square, on every theme. The nodes are registration marks on a drawing —
+     the round variant Paper used read as a pin on one theme and as a stray
+     dot beside three square ones the moment anybody switched. */
   --node-radius: 0;
-  --sep-height: 64px;
+  /* One height for all three. A boundary that changes depth when the palette
+     changes is not a palette change. */
+  --sep-height: 72px;
+
+  /* Code tokens — what `src/lib/code-fx.ts` paints a listing with.
+
+     Two hues and the neutral ramp, which is the whole site's discipline and
+     not a shortcut: a highlighter with eight unrelated colours in it is a
+     second palette living inside the first, and it is the thing that makes a
+     themed page stop looking themed the moment a fence appears. The ramps
+     invert between light and dark in every theme file, so one set of tokens
+     is correct in both modes and no theme needs a second table. */
+  --code-comment: var(--color-text-faint);
+  --code-keyword: var(--color-accent-700);
+  --code-atom: var(--color-accent-700);
+  --code-type: var(--color-accent-600);
+  --code-string: var(--color-accent-2-700);
+  --code-number: var(--color-accent-2-600);
+  --code-fn: var(--color-text);
 }
 
 /* --------------------------------------------------------------------------
