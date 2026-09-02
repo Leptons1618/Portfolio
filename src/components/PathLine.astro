@@ -1,0 +1,34 @@
+---
+/**
+ * A shell prompt as a page eyebrow: `anish@anishgiri.dev:~/projects $ ls`.
+ *
+ * The wordmark already speaks in `~/`; this carries the same voice onto the
+ * page heads, where a reader lands after clicking it. `path` is the cwd after
+ * `~/`, `cmd` is the command typed at the prompt — typed in, by
+ * `src/lib/text-fx.ts`, when the line scrolls into view. Either may be
+ * omitted: a bare path is a location, a bare command is an action.
+ *
+ * The styles are in `global.css` (`.pathline`), because the caret and the
+ * typewriter's spans are built by script and a scoped rule would not reach
+ * them.
+ */
+import { site } from '../lib/site';
+
+interface Props {
+  /** The cwd after `~/`. Empty is home. */
+  path?: string;
+  /** What was typed at the prompt. Typed in on arrival. */
+  cmd?: string;
+  /** Delay before typing starts, in ms. */
+  delay?: number;
+}
+
+const { path = '', cmd, delay = 0 } = Astro.props;
+const user = site.githubUser.toLowerCase();
+const host = new URL(site.url).hostname;
+---
+<p class="pathline">
+  <span class="pathline-who">{user}<span class="pathline-at">@</span>{host}</span><span class="pathline-colon">:</span><span class="pathline-cwd">~{path ? `/${path}` : ''}</span>
+  <span class="pathline-prompt" aria-hidden="true">$</span>
+  {cmd && <span class="pathline-cmd" data-fx="type" data-fx-delay={delay || undefined}>{cmd}</span>}
+</p>

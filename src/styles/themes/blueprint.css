@@ -307,8 +307,9 @@ html[data-theme='blueprint'] .footer-copy,
   color: var(--color-text-faint);
 }
 
-[data-theme='blueprint'] .nav-brand::before { content: '['; }
-[data-theme='blueprint'] .nav-brand::after { content: ']'; }
+/* The wordmark is the shared `~/` path with a blinking bar; the bar here is a
+   plotter's pen — rust, the one interaction colour. */
+:root[data-theme='blueprint'] { --brand-bar: var(--color-accent); }
 
 /* — rules are dashed: a "cut here" line, not a border ————————————————— */
 [data-theme='blueprint'] .hr {
@@ -448,38 +449,9 @@ html[data-theme='blueprint'] .footer-copy,
   transform: translate(2px, 2px);
 }
 
-/* — the closing banner is a title block ————————————————————————————————
-   Navy, not rust: on a drawing the title block is the one solid panel, and it
-   is drawn in the ink the shadows are cast in. The rust stays what it is
-   everywhere else — the single interaction colour. Dashed rules top and
-   bottom so it belongs to the same sheet. */
-html[data-theme='blueprint'] .closing-banner {
-  background: var(--color-accent-2-800);
-  color: var(--color-neutral-100);
-  border-top: 1px dashed var(--color-accent-2-500);
-  border-bottom: 1px dashed var(--color-accent-2-500);
-}
-
-html[data-theme='blueprint'] .btn-on-accent {
-  background: var(--color-neutral-100);
-  color: var(--color-accent-2-800);
-  box-shadow: 2px 2px 0 0 var(--color-accent-2-900);
-}
-
-html[data-theme='blueprint'] .btn-on-accent:hover {
-  background: var(--color-neutral-200);
-  color: var(--color-accent-2-900);
-}
-
-html[data-theme='blueprint'] .btn-on-accent-outline {
-  border-color: var(--color-neutral-100);
-  color: var(--color-neutral-100);
-}
-
-html[data-theme='blueprint'] .btn-on-accent-outline:hover {
-  background: color-mix(in srgb, var(--color-neutral-100) 14%, transparent);
-  color: var(--color-neutral-100);
-}
+/* — the contact heading is navy ink ————————————————————————————————————
+   "Let's" in the title-block colour, the one solid the drawing has. */
+html[data-theme='blueprint'] .contact-lets { color: var(--color-accent-2-700); }
 
 /* — the theme switch itself ————————————————————————————————————————————
    Declared here as well as in `global.css` so the control matches whichever
@@ -487,4 +459,89 @@ html[data-theme='blueprint'] .btn-on-accent-outline:hover {
 [data-theme='blueprint'] .theme-toggle {
   font-family: var(--font-mono);
   border-color: var(--color-divider);
+}
+
+/* — motion: the plotter ————————————————————————————————————————————————
+   Everything that moves on this theme moves the way a pen plotter does —
+   a line is *drawn*, a light *blinks*, a box is *traced*. Every rule below
+   is opt-in on `no-preference`; the static sheet is the default, and the
+   global reduced-motion rule flattens whatever slips through.
+
+   1. Section rules draw in from the left when their section reveals, on the
+      `scale` channel so they never fight the reveal's `translate`.
+   2. The hero's marked phrase is traced: its dashed box becomes four
+      travelling dash tracks — a border cannot animate its dash offset, a
+      background can — so the pen is always somewhere on the outline.
+   3. The availability light pings in rust, a radar sweep rather than a
+      fade, the same grammar Geometry's uses in violet.
+   4. The theme switch's swatch blinks like the plotter's ready LED — slow,
+      steps, unmistakably a machine and not a cursor. */
+
+@media (prefers-reduced-motion: no-preference) {
+  html.reveal-ready[data-theme='blueprint'] [data-reveal].is-revealed .rule {
+    transform-origin: 0 50%;
+    animation: bp-draw 900ms var(--ease-out) both;
+    animation-delay: calc(var(--reveal-delay, 0ms) + 200ms);
+  }
+
+  html[data-theme='blueprint'] .hero .highlight {
+    border-color: transparent;
+    background-image:
+      repeating-linear-gradient(90deg, var(--color-accent) 0 4px, transparent 4px 8px),
+      repeating-linear-gradient(90deg, var(--color-accent) 0 4px, transparent 4px 8px),
+      repeating-linear-gradient(0deg, var(--color-accent) 0 4px, transparent 4px 8px),
+      repeating-linear-gradient(0deg, var(--color-accent) 0 4px, transparent 4px 8px);
+    background-size: 100% 1px, 100% 1px, 1px 100%, 1px 100%;
+    background-position: 0 0, 0 100%, 0 0, 100% 0;
+    background-repeat: no-repeat;
+    background-color: var(--color-accent-100);
+    animation: bp-trace 1.2s linear infinite;
+  }
+
+  html[data-theme='blueprint'] .status-dot {
+    animation: bp-ping 2.4s ease-out infinite;
+  }
+
+  html[data-theme='blueprint'] .theme-toggle-swatch {
+    animation: bp-led 2.2s steps(1, end) infinite;
+  }
+
+  /* A card under the pointer gets its crosshair: the two registration ticks
+     the shared layer never draws, fading in at the hovered corner. */
+  html[data-theme='blueprint'] a.card::after {
+    content: '+';
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1;
+    color: var(--color-accent);
+    opacity: 0;
+    transition: opacity var(--dur-fast) ease;
+    pointer-events: none;
+  }
+  html[data-theme='blueprint'] a.card { position: relative; }
+  html[data-theme='blueprint'] a.card:hover::after { opacity: 1; }
+}
+
+@keyframes bp-draw {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes bp-trace {
+  to { background-position: 8px 0, -8px 100%, 0 -8px, 100% 8px; }
+}
+
+@keyframes bp-ping {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 45%, transparent); }
+  70%  { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes bp-led {
+  0%, 100% { opacity: 1; }
+  92% { opacity: 1; }
+  96% { opacity: 0.2; }
 }

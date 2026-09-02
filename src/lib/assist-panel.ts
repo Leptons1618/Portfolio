@@ -407,6 +407,10 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
 
   function begin(label: string, task: string | null): AssistTurn {
     const view = bubble('assistant', task ? `/${task}` : label);
+    /* `data-live` for the run's duration: the stylesheet hangs the streaming
+       caret and the live rule off it, and `end()` takes it away. State for
+       CSS, nothing reads it back. */
+    view.root.dataset.live = '';
     let thinking = '';
     let answered = false;
     /* The first status is the placeholder a run sets before it has asked for
@@ -519,6 +523,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
 
       end(text) {
         settleThinking();
+        delete view.root.dataset.live;
         if (text.trim()) turns.push({ role: 'assistant', content: text });
         void remember('assistant', text || view.body.textContent || '', {
           thinking,

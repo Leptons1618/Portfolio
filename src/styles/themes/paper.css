@@ -213,11 +213,14 @@
 :root[data-theme='paper'] {
   --rule-style: dashed;
   --rail-ink: var(--color-divider);
-  --hatch-ink: color-mix(in srgb, var(--color-text) 9%, transparent);
+  /* Sepia, not text ink: the hatch is pencil shading on kraft, so it is drawn
+     in the theme's own graphite step rather than in a grey mix of the body
+     colour that belongs to no palette. */
+  --hatch-ink: color-mix(in srgb, var(--color-accent-2) 18%, transparent);
   --hatch-step: 7px;
   --node-size: 9px;
   --node-radius: 50%;
-  --sep-height: 64px;
+  --sep-height: 56px;
 }
 
 @media screen {
@@ -243,6 +246,41 @@
       var(--grid-ink) 0 1px,
       transparent 1px var(--grid-step)
     );
+}
+
+/* --- The separator: a strip of kraft tape ---------------------------------
+   The shared frame draws a hatched band straight onto the ground. On this
+   theme the ground is already laid lines and a pencil grid, so a third
+   texture over it read as moiré — and the hatch was mixed from the text
+   colour, which is no colour this palette owns. Here the band is a strip of
+   kraft paper laid across the sheet: a step darker than the ground, a sepia
+   cross-hatch, pencil-dashed edges with the hard 2px offset every sheet on
+   this theme casts, and rust-headed pins holding the corners down. */
+
+:root[data-theme='paper'] .section-sep {
+  background: var(--color-surface);
+  border-top: 1px dashed var(--color-neutral-500);
+  border-bottom: 1px dashed var(--color-neutral-500);
+  /* The tape's offset shadow, cast downward like every card's. */
+  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--color-accent-2) 22%, transparent);
+}
+
+:root[data-theme='paper'] .section-sep-inner {
+  border-left-color: var(--color-neutral-500);
+  border-right-color: var(--color-neutral-500);
+  background-image:
+    repeating-linear-gradient(-45deg, var(--hatch-ink) 0 1px, transparent 1px var(--hatch-step)),
+    repeating-linear-gradient(45deg, var(--hatch-ink) 0 1px, transparent 1px calc(var(--hatch-step) * 2));
+}
+
+/* Pins: a rust head on a lighter sheet, with the theme's hard offset. */
+:root[data-theme='paper'] .section-sep::before,
+:root[data-theme='paper'] .section-sep::after,
+:root[data-theme='paper'] .section-sep-inner::before,
+:root[data-theme='paper'] .section-sep-inner::after {
+  background: var(--color-accent-500);
+  border-color: var(--color-accent-700);
+  box-shadow: 1px 1px 0 0 var(--color-neutral-500);
 }
 
 /* --- Eyebrows: numbered § clauses, mono -------------------------------- */
@@ -284,16 +322,9 @@
   font-family: var(--font-mono);
 }
 
-/* --- Wordmark: bracketed, mono ------------------------------------------- */
+/* --- Wordmark: the shared `~/` path, cursor in rust ---------------------- */
 
-:root[data-theme='paper'] .nav-brand {
-  font-family: var(--font-mono);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-}
-
-:root[data-theme='paper'] .nav-brand::before { content: '['; color: var(--color-accent-700); }
-:root[data-theme='paper'] .nav-brand::after  { content: ']'; color: var(--color-accent-700); }
+:root[data-theme='paper'] { --brand-bar: var(--color-accent-600); }
 
 /* --- Rules: dashed, like cut lines, everywhere the shared layer draws one -- */
 
@@ -430,38 +461,11 @@
   border-radius: var(--radius-sm);
 }
 
-/* --- The closing banner: kraft ---------------------------------------------
-   Sepia rather than rust. A field of the interaction colour would make the
-   one solid panel on the page shout in the voice reserved for "click here";
-   the brown-paper band keeps the sketchbook's materials and leaves the rust
-   to the actions on it. */
+/* --- The contact heading: a highlighter stroke under "Let's" --------------- */
 
-html[data-theme='paper'] .closing-banner {
-  background: var(--color-accent-2-800);
-  color: var(--color-neutral-100);
-  border-top: 1px dashed var(--color-accent-2-500);
-  border-bottom: 1px dashed var(--color-accent-2-500);
-}
-
-html[data-theme='paper'] .btn-on-accent {
-  background: var(--color-neutral-100);
-  color: var(--color-accent-2-800);
-  box-shadow: 2px 2px 0 0 var(--color-accent-2-900);
-}
-
-html[data-theme='paper'] .btn-on-accent:hover {
-  background: var(--color-neutral-200);
-  color: var(--color-accent-2-900);
-}
-
-html[data-theme='paper'] .btn-on-accent-outline {
-  border-color: var(--color-neutral-100);
-  color: var(--color-neutral-100);
-}
-
-html[data-theme='paper'] .btn-on-accent-outline:hover {
-  background: color-mix(in srgb, var(--color-neutral-100) 14%, transparent);
-  color: var(--color-neutral-100);
+html[data-theme='paper'] .contact-lets {
+  background: linear-gradient(transparent 62%, var(--color-accent-200) 62%, var(--color-accent-200) 94%, transparent 94%);
+  padding: 0 0.06em;
 }
 
 /* --- Footer: sepia hairline, mono copy ------------------------------------- */
@@ -479,6 +483,65 @@ html[data-theme='paper'] .footer-copy {
 :root[data-theme='paper'] .theme-toggle {
   font-family: var(--font-mono);
   border-color: var(--color-divider);
+}
+
+/* --- Motion: things done to paper -------------------------------------------
+   A marker is dragged, a pencil taps, a card is nudged. Nothing glows and
+   nothing floats — the sheet is on a desk. Opt-in on `no-preference`; the
+   global reduced-motion rule flattens the rest.
+
+   1. The highlighter stroke draws in left to right when the hero reveals.
+      It is a background, so its size can animate from nothing.
+   2. The availability dot taps rather than pulses — a pencil touching the
+      page twice — and the theme swatch, a pin, does the same more slowly.
+   3. A card under the pointer lifts *and* turns a fraction of a degree, the
+      way a real index card sits when you pick it up off a stack.
+   4. Section rules are ruled in by hand: they draw from the left on reveal,
+      a little slower than Blueprint's plotter because a hand is. */
+
+@media (prefers-reduced-motion: no-preference) {
+  html.reveal-ready[data-theme='paper'] .hero [data-reveal].is-revealed .highlight {
+    background-repeat: no-repeat;
+    background-size: 0% 100%;
+    animation: paper-mark 700ms var(--ease-out) forwards;
+    animation-delay: calc(var(--reveal-delay, 0ms) + 350ms);
+  }
+
+  :root[data-theme='paper'] .status-dot {
+    animation: paper-tap 2.6s ease-in-out infinite;
+  }
+
+  :root[data-theme='paper'] .theme-toggle-swatch {
+    border-radius: 50%;
+    animation: paper-tap 3.4s ease-in-out infinite;
+  }
+
+  :root[data-theme='paper'] a.card:hover {
+    transform: translate(-2px, -2px) rotate(-0.4deg);
+  }
+
+  html.reveal-ready[data-theme='paper'] [data-reveal].is-revealed .rule {
+    transform-origin: 0 50%;
+    animation: paper-rule 1.1s var(--ease-out) both;
+    animation-delay: calc(var(--reveal-delay, 0ms) + 250ms);
+  }
+}
+
+@keyframes paper-mark {
+  to { background-size: 100% 100%; }
+}
+
+@keyframes paper-tap {
+  0%, 100% { scale: 1; opacity: 1; }
+  6% { scale: 1.35; opacity: 0.75; }
+  12% { scale: 1; opacity: 1; }
+  18% { scale: 1.25; opacity: 0.8; }
+  24% { scale: 1; opacity: 1; }
+}
+
+@keyframes paper-rule {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
 }
 
 } /* @media screen */

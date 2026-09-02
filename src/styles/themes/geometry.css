@@ -386,29 +386,10 @@ html[data-theme='geometry'] .nav {
   border-bottom-width: 1px;
 }
 
-/* The wordmark is a path. `~/` in the faint step, the name, then the sweep as
-   a 14×4 bar — a prompt, a cwd, and a cursor that happens to be a gradient. */
-html[data-theme='geometry'] .nav-brand {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-  font-family: var(--font-mono);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-}
-
-html[data-theme='geometry'] .nav-brand::before {
-  content: '~/';
-  color: var(--color-text-faint);
-  font-weight: 400;
-}
-
-html[data-theme='geometry'] .nav-brand::after {
-  content: '';
-  width: 14px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--gradient);
+/* The wordmark's cursor is the sweep here — the shared layer draws the
+   `~/` path and the bar; this theme only paints it. */
+:root[data-theme='geometry'] {
+  --brand-bar: var(--gradient);
 }
 
 /* The theme switch's swatch becomes a terminal caret: a 2:1 block that
@@ -479,24 +460,56 @@ html[data-theme='geometry'] .prose pre::before {
 
 /* — the hero, redrawn ——————————————————————————————————————————————————————
 
-   The wireframe orbit takes the portrait's place: `.hero-visual` is hidden in
-   the page's own styles and revealed here, so the page never knows which
-   theme is on. With the photo gone, the figure's left rule goes too — the
-   visual carries its own frame. */
+   The wireframe orbit *frames* the portrait rather than replacing it: the
+   `.hero-visual` slot is hidden in the page's own styles and revealed here,
+   drawn as the ground, and the photograph sits in the orbit's inner ring as
+   a disc — the person at the centre of the coordinate system. The photo stays
+   the LCP element on every theme; only its shape changes. With the orbit
+   carrying its own frame, the figure's left rule goes. */
+
+html[data-theme='geometry'] .hero-figure {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-left: 0;
+  padding-left: 0;
+}
 
 html[data-theme='geometry'] .hero-visual {
   display: block;
+  grid-area: 1 / 1;
+  width: 100%;
 }
 
+/* The disc: 38% of the figure puts it inside the r=80 inner circle of the
+   400-unit orbit (40% diameter), so the ring reads as a frame around it and
+   never touches it. Hairline in violet, a soft violet glow, and the same
+   grayscale every other photograph here wears. */
 html[data-theme='geometry'] .hero-photo {
-  display: none;
+  grid-area: 1 / 1;
+  width: 38%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+  box-shadow:
+    0 0 0 6px var(--color-bg),
+    0 0 0 7px var(--color-divider),
+    0 0 40px color-mix(in srgb, var(--color-accent) 25%, transparent);
+  z-index: 1;
 }
 
-/* Page-scoped rules carry a `data-astro-cid` each, so they outrank a bare
-   class match — the `html` prefix is what puts this rule back on top. */
-html[data-theme='geometry'] .hero-figure {
-  border-left: 0;
-  padding-left: 0;
+/* The portrait breathes with the orbit: a slow drift the eye registers as
+   the ring turning *around* it rather than as the photo moving. */
+@media (prefers-reduced-motion: no-preference) {
+  html[data-theme='geometry'] .hero-photo {
+    animation: geo-float 9s ease-in-out infinite;
+  }
+}
+
+@keyframes geo-float {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -4px; }
 }
 
 /* The marked phrase stops being a boxed term and becomes the sweep itself:
@@ -551,23 +564,10 @@ html[data-theme='geometry'] .hero .highlight {
   to { stroke-dashoffset: -24; }
 }
 
-/* — the closing banner is a cell, not a field ———————————————————————————————
-   The reference rations colour: its call-to-action sits in a hairline box on
-   the ground with the gradient as a 2px rule along the top, and the heading
-   itself carries the sweep. A solid violet field would be the one loud
-   rectangle on a page whose whole argument is restraint. The page's own
-   `.btn-on-accent*` classes are written for ink-on-accent; under this theme
-   they invert back to the page's ordinary primary/secondary grammar. */
-html[data-theme='geometry'] .closing-banner {
-  background-color: var(--color-surface);
-  background-image: var(--gradient);
-  background-size: 100% 2px;
-  background-repeat: no-repeat;
-  color: var(--color-text);
-  border-bottom: 1px solid var(--color-divider);
-}
-
-html[data-theme='geometry'] .closing-title {
+/* — the contact heading carries the sweep ————————————————————————————————
+   The one place on the page a heading wears the gradient: "Let's" is the
+   largest word on the site, and it is the sweep. */
+html[data-theme='geometry'] .contact-lets {
   color: transparent;
   background: var(--gradient);
   -webkit-background-clip: text;
@@ -576,44 +576,4 @@ html[data-theme='geometry'] .closing-title {
   padding-bottom: 0.08em;
 }
 
-html[data-theme='geometry'] .closing-desc {
-  color: var(--color-text-muted);
-}
 
-html[data-theme='geometry'] .btn-on-accent {
-  background: var(--color-text);
-  color: var(--color-bg);
-}
-
-html[data-theme='geometry'] .btn-on-accent:hover {
-  background: var(--color-accent);
-  color: var(--color-bg);
-}
-
-html[data-theme='geometry'] .btn-on-accent-outline {
-  border-color: var(--color-divider);
-  color: var(--color-text);
-}
-
-html[data-theme='geometry'] .btn-on-accent-outline:hover {
-  background: color-mix(in srgb, var(--color-text) 7%, transparent);
-  border-color: var(--color-text-muted);
-  color: var(--color-text);
-}
-
-/* --- The theme's other two visuals ----------------------------------------
-   The circuit board joins the closing banner and the isometric grid sits
-   beside the Projects page header. Both slots are hidden by default in their
-   pages' scoped styles; the `html` prefix outranks the scoped rules, same as
-   `.hero-visual` above. */
-html[data-theme='geometry'] .geometry-banner-art {
-  display: block;
-  max-width: 340px;
-  margin-top: var(--space-6);
-}
-
-html[data-theme='geometry'] .geometry-page-art {
-  display: block;
-  max-width: 300px;
-  margin-top: var(--space-6);
-}

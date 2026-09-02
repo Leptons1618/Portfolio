@@ -14,6 +14,65 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Let's connect: a contact section as a terminal session.** The home
+  page's closing banner is now a two-column contact section. Left, a shell
+  window that types and answers `whoami`, `cat contact.txt` and `ping` when
+  it scrolls into view — email, location, a live clock in the owner's
+  timezone, availability — with GitHub, LinkedIn and X as terminal-flavoured
+  cards under it. Right, a developer's form (name, email, subject, message,
+  **Send Transmission**) that composes a `mailto:` — this site has no inbound
+  mail endpoint on purpose, and the hint under the button says so. Stacks on
+  mobile. The footer is now a two-row status line with the profiles as
+  `--flags` and the stack named. `site.ts` gained `twitter`, `availability`
+  and `timezone`; the X handle is **assumed** from the GitHub login and
+  should be corrected there.
+- **The `~/` wordmark, on every theme.** The blinking-bar path wordmark that
+  was Geometry's is the site's: Blueprint and Paper drop their `[brackets]`
+  and paint the bar in their own accent through `--brand-bar`. The same
+  voice reaches the page heads as `PathLine` — `user@host:~/projects $ ls`,
+  typed in on arrival — on Projects, Journal, About, every project, post and
+  case study, and the home hero, whose `whoami` decodes the eyebrow in.
+- **Text effects and a live transform, without a dependency.**
+  `src/lib/text-fx.ts` is a scramble/decode and a typewriter on
+  `requestAnimationFrame`, keeping the real string in the DOM for readers and
+  find-in-page and doing nothing under reduced motion. `MathVisual.astro` is
+  a wireframe cube under `Rₓ(φ)·Rᵧ(θ)` whose nine matrix cells and tracked
+  vertex are rewritten every frame from the numbers that placed the lines; it
+  sits in the Projects header on every theme and pauses off screen.
+- **Blueprint and Paper move.** Blueprint's section rules are drawn in by a
+  plotter, its marked phrase is traced by travelling dashes, its light pings
+  in rust and its swatch blinks like a ready LED; Paper's highlighter stroke
+  draws in, its dot taps like a pencil, its rules are ruled in by hand and a
+  card lifts with a fraction of a turn.
+- **Project pages and case studies say more.** A mono spec sheet
+  (`category = …`) in the project sidebar, numbered highlights that arrive in
+  sequence; on a case study an at-a-glance strip under the head, numbered
+  sections and outcomes, staggered reveals, and a two-pixel reading-progress
+  bar that turns to the second accent when the write-up is read to the end.
+- **The admin rail.** Collapsed, every icon grows a tooltip from its label;
+  the avatar wears a session ring that empties with the eight-hour token and
+  pulses under an eighth; group labels rule out to the edge; the current
+  marker grows in; **Ctrl/⌘+B** toggles the rail.
+- **Both chats move.** Turns rise in from the side their rule is on, a block
+  caret sits after the last streamed glyph, the assistant's rule goes accent
+  while a reply is live, the header carries a live dot (read off existing
+  state with `:has()`), chips and lookup rows land in sequence, and both
+  panels take the theme's radius.
+
+### Changed
+
+- **Geometry has its portrait back.** The orbit no longer replaces the photo;
+  it frames it — the portrait is a disc in the inner ring, and drifts.
+- **Paper's separator is a strip of kraft tape**: surface-coloured, sepia
+  cross-hatch, pencil-dashed edges with the theme's hard offset, rust pins.
+  The shared hatch over Paper's own laid lines was moiré in no palette.
+
+### Removed
+
+- The closing banner and its `.btn-on-accent*` rules across all three themes;
+  the Geometry-only `geometry-page-art` slot on Projects (the transform took
+  its place on every theme). `geometry-circuit.svg` is no longer referenced.
+
 - **Three themes, and a drafting frame around every page.** The site now
   ships Geometry (default), Blueprint and Paper, and nothing else — Classic,
   Nocturne and the short-lived Motion are retired, Instrument Serif with

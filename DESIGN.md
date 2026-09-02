@@ -226,8 +226,9 @@ Blueprint departs sharply from Modernist, which is 0px everywhere.
   a **dashed** rule — a "cut here" line.
 - **Inputs.** Minimal: light 4-sided border, monospace placeholder.
 - **Section dividers.** A dashed rule preceded by a section mark `§`.
-- **Navigation.** Horizontal text nav; the wordmark is bracketed — `[Anish Giri]` —
-  to read as a code array.
+- **Navigation.** Horizontal text nav; the wordmark is the site-wide `~/` path
+  with a blinking bar after the name, painted in rust here through
+  `--brand-bar` (it used to be bracketed — `[Anish Giri]`).
 - **Tabs.** Where a screen is one column split in two halves that are siblings
   rather than a hierarchy — write / preview, frontmatter / case study, edit /
   preview — the split is a tablist, not two stacked panels and not two columns.

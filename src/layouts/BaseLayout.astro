@@ -87,7 +87,13 @@ const imageURL = absoluteUrl(image, origin);
 
        Public pages are plain MPA (decision 11), so this runs once per
        document and needs no view-transition handling. */
+    import { mountTextFx } from '../lib/text-fx';
+
     const STAGGER = 70;
+
+    /* Typed prompts and decoded eyebrows. Independent of the reveal below: it
+       has its own observer and its own reduced-motion check. */
+    mountTextFx();
 
     /* The head script armed the reveal; this module is the proof it loaded. */
     const fallback = (window as unknown as { __omRevealFallback?: number }).__omRevealFallback;
