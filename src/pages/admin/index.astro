@@ -1,6 +1,4 @@
 ---
-import '@fontsource/instrument-serif/400.css';
-import '@fontsource/instrument-serif/400-italic.css';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/space-grotesk';
 import '@fontsource-variable/manrope';
@@ -10,9 +8,10 @@ import Illustration from '../../components/Illustration.astro';
 import ThemeHead from '../../components/ThemeHead.astro';
 // import { grantAccessUrl } from '../../lib/github';
 import { site } from '../../lib/site';
+import { DEFAULT_THEME } from '../../lib/theme';
 ---
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme={DEFAULT_THEME}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />

@@ -207,22 +207,59 @@
   }
 }
 
-/* Blueprint draws its own ground, so the grain belongs to Classic alone —
-   noise over a ruled grid is two textures arguing. */
+/* Blueprint draws its own ground, so the grain layer stands down — noise over
+   a ruled grid is two textures arguing. */
 [data-theme='blueprint'] body::before {
   display: none;
 }
 
 /* — the pencil grid ————————————————————————————————————————————————————
-   Fixed, so it reads as the drafting surface the page sits on rather than as
-   texture printed onto the content. */
+   Graph paper, properly: a fine 24px rule with a heavier line every fifth
+   cell, so the eye can count squares the way it does on the real thing. The
+   major line is the same ink at twice the weight — one colour, two values —
+   and both layers are fixed, so the sheet reads as the drafting surface the
+   page sits on rather than as texture printed onto the content. */
 [data-theme='blueprint'] body {
   font-size: 16px;
   background-image:
+    linear-gradient(to right, var(--grid-ink-major) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-ink-major) 1px, transparent 1px),
     linear-gradient(to right, var(--grid-ink) 1px, transparent 1px),
     linear-gradient(to bottom, var(--grid-ink) 1px, transparent 1px);
-  background-size: var(--grid-step) var(--grid-step);
+  background-size:
+    calc(var(--grid-step) * 5) calc(var(--grid-step) * 5),
+    calc(var(--grid-step) * 5) calc(var(--grid-step) * 5),
+    var(--grid-step) var(--grid-step),
+    var(--grid-step) var(--grid-step);
   background-attachment: fixed;
+}
+
+:root[data-theme='blueprint'] {
+  --grid-ink-major: color-mix(in srgb, var(--color-text) 10%, transparent);
+
+  /* The drafting frame in this theme's voice: cut lines, pencil hatch, and
+     square registration nodes with the 2px corner every other rectangle here
+     has. The band is a grid module tall — three cells — so the frame lands on
+     the paper's own lines. */
+  --rule-style: dashed;
+  --rail-ink: var(--color-divider);
+  --hatch-ink: color-mix(in srgb, var(--color-text) 10%, transparent);
+  --hatch-step: 8px;
+  --node-size: 10px;
+  --node-radius: var(--radius-sm);
+  --sep-height: calc(var(--grid-step) * 3);
+}
+
+@media screen {
+  :root[data-theme='blueprint'][data-mode='dark'] {
+    --grid-ink-major: color-mix(in srgb, var(--color-text) 14%, transparent);
+  }
+}
+
+@media screen and (prefers-color-scheme: dark) {
+  :root[data-theme='blueprint']:not([data-mode='light']) {
+    --grid-ink-major: color-mix(in srgb, var(--color-text) 14%, transparent);
+  }
 }
 
 [data-theme='blueprint'] h1 {
@@ -235,6 +272,7 @@
 [data-theme='blueprint'] .card-kicker,
 [data-theme='blueprint'] .card-meta,
 [data-theme='blueprint'] .field > label,
+html[data-theme='blueprint'] .footer-copy,
 [data-theme='blueprint'] figcaption {
   font-family: var(--font-mono);
 }
@@ -245,15 +283,28 @@
 }
 
 /* — section marks and the bracketed wordmark ——————————————————————————
-   `h6` is the eyebrow throughout the site. Long-form copy is exempt: a `§`
-   in front of a heading inside an article is noise, not structure. */
-[data-theme='blueprint'] h6::before {
-  content: '§ ';
+   Every eyebrow on a page is a numbered clause: `§1`, `§2` … from the counter
+   the shared layer increments, the way a specification numbers what it says
+   so it can be referred to. `.eyebrow` is what the pages actually write
+   (`<p class="eyebrow">`); `h6` is kept for the admin surfaces that still use
+   the element. Long-form copy is exempt: a `§` in front of a heading inside an
+   article is noise, not structure. */
+[data-theme='blueprint'] h6::before,
+[data-theme='blueprint'] .eyebrow::before {
+  content: '§' counter(section) ' ';
   color: var(--color-accent);
 }
 
-[data-theme='blueprint'] .prose h6::before {
+[data-theme='blueprint'] .prose h6::before,
+[data-theme='blueprint'] .prose .eyebrow::before {
   content: none;
+}
+
+/* Figures are numbered too — `FIG. 01 ·` ahead of a card's kicker, in the
+   drawing-register voice the whole theme is set in. */
+[data-theme='blueprint'] .card-kicker::before {
+  content: 'FIG. ' counter(figure, decimal-leading-zero) ' · ';
+  color: var(--color-text-faint);
 }
 
 [data-theme='blueprint'] .nav-brand::before { content: '['; }
@@ -272,6 +323,12 @@
 
 [data-theme='blueprint'] .nav {
   border-bottom: 1px dashed var(--color-divider);
+}
+
+/* Where you are, in the same dashed grammar as every other rule here. */
+[data-theme='blueprint'] .nav a[aria-current='page'] {
+  text-decoration-style: dashed;
+  text-decoration-thickness: 1px;
 }
 
 [data-theme='blueprint'] .prose blockquote {
@@ -304,6 +361,49 @@
 [data-theme='blueprint'] a.card:hover {
   box-shadow: var(--shadow-lg);
   transform: translate(-2px, -2px);
+}
+
+/* — tags are labels on the drawing —————————————————————————————————————
+   A hairline box rather than a tinted pill: the way a part is called out on
+   a sheet, in mono, squared to the small radius. */
+[data-theme='blueprint'] .tag {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  font-size: 10.5px;
+  letter-spacing: 0.04em;
+}
+
+[data-theme='blueprint'] .tag-neutral {
+  background: var(--color-neutral-100);
+}
+
+[data-theme='blueprint'] .tag-accent { border-color: var(--color-accent-300); }
+[data-theme='blueprint'] .tag-accent-2 { border-color: var(--color-accent-2-300); }
+
+/* — code blocks are listings ———————————————————————————————————————————
+   A ruled box with a hard shadow, like every other sheet here, and a `//`
+   register mark in the corner so a listing reads as a figure in the drawing
+   set rather than a screenshot of somebody's terminal. */
+[data-theme='blueprint'] .prose pre {
+  position: relative;
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+[data-theme='blueprint'] .prose pre::before {
+  content: '// listing';
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 3px 8px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+  border-left: 1px dashed var(--color-divider);
+  border-bottom: 1px dashed var(--color-divider);
 }
 
 /* — buttons press into the page ————————————————————————————————————————
@@ -346,6 +446,39 @@
 [data-theme='blueprint'] .btn-secondary:active {
   box-shadow: none;
   transform: translate(2px, 2px);
+}
+
+/* — the closing banner is a title block ————————————————————————————————
+   Navy, not rust: on a drawing the title block is the one solid panel, and it
+   is drawn in the ink the shadows are cast in. The rust stays what it is
+   everywhere else — the single interaction colour. Dashed rules top and
+   bottom so it belongs to the same sheet. */
+html[data-theme='blueprint'] .closing-banner {
+  background: var(--color-accent-2-800);
+  color: var(--color-neutral-100);
+  border-top: 1px dashed var(--color-accent-2-500);
+  border-bottom: 1px dashed var(--color-accent-2-500);
+}
+
+html[data-theme='blueprint'] .btn-on-accent {
+  background: var(--color-neutral-100);
+  color: var(--color-accent-2-800);
+  box-shadow: 2px 2px 0 0 var(--color-accent-2-900);
+}
+
+html[data-theme='blueprint'] .btn-on-accent:hover {
+  background: var(--color-neutral-200);
+  color: var(--color-accent-2-900);
+}
+
+html[data-theme='blueprint'] .btn-on-accent-outline {
+  border-color: var(--color-neutral-100);
+  color: var(--color-neutral-100);
+}
+
+html[data-theme='blueprint'] .btn-on-accent-outline:hover {
+  background: color-mix(in srgb, var(--color-neutral-100) 14%, transparent);
+  color: var(--color-neutral-100);
 }
 
 /* — the theme switch itself ————————————————————————————————————————————

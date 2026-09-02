@@ -2,6 +2,7 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import FilterBar from '../components/FilterBar.astro';
 import Illustration from '../components/Illustration.astro';
+import SectionSep from '../components/SectionSep.astro';
 import { CATEGORY_LABELS, categoryLabel, getProjects, topTags } from '../lib/content';
 
 /* Reads content from D1 per request — see the note in `src/lib/content.ts`.
@@ -44,9 +45,16 @@ const projectsData = allProjects.map(p => ({
   <header class="container page-header" data-reveal>
     <h1>Projects</h1>
     <p class="page-desc">The work — production systems, experiments, and everything in between, filterable by category, tag, and stack.</p>
+    {/* Geometry-only art. Hidden here, revealed by geometry.css — the page
+        never knows which theme is on. */}
+    <div class="geometry-page-art">
+      <Illustration name="geometry-grid" />
+    </div>
   </header>
 
-  <div class="container" data-reveal style="--reveal-delay: 80ms">
+  <SectionSep />
+
+  <div class="container filter-row" data-reveal style="--reveal-delay: 80ms">
     <FilterBar categories={categories} topTags={topTags(allProjects)} />
   </div>
 
@@ -238,7 +246,12 @@ const projectsData = allProjects.map(p => ({
 </script>
 
 <style>
-  .page-header { padding-top: var(--space-6); padding-bottom: var(--space-4); }
+  .page-header { padding-top: var(--space-6); padding-bottom: var(--space-6); }
+  /* Room under the separator band before the controls. */
+  .filter-row { padding-top: var(--space-6); }
+
+  /* Geometry-only art: hidden here, revealed by geometry.css. */
+  .geometry-page-art { display: none; }
   .page-desc { opacity: 0.8; max-width: 60ch; margin: 0; }
   .results { padding-bottom: var(--space-8); }
   .project-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }

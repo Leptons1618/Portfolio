@@ -1,8 +1,10 @@
 @import './theme.css';
-/* Alternate themes. Each file is inert until `<html>` carries its
-   `data-theme`, and each wins on specificity rather than on source order. */
+/* The three themes. Each file is inert until `<html>` carries its
+   `data-theme` — which it always does; see `src/lib/theme.ts` — and each wins
+   on specificity rather than on source order. Geometry is the default. */
+@import './themes/geometry.css';
 @import './themes/blueprint.css';
-@import './themes/nocturne.css';
+@import './themes/paper.css';
 /* The resume sheet. Global rather than page-scoped because three surfaces
    render the same markup — the public page, the admin preview and the printed
    PDF — and a stylesheet only one of them could see is how the preview drifted
@@ -287,10 +289,11 @@ pre {
    family. The transition lives in each variant's own list — a `transition`
    on `.btn` alone would be overwritten by `.btn-primary`'s sweep list two
    rules down, leaving the press an instant snap. Guarded by `no-preference`
-   so the static sheet stays the default, and scoped off Blueprint, whose
-   press is a conserved 2px offset translate that added scale would deepen. */
+   so the static sheet stays the default, and scoped off the two drafting
+   themes, whose press is a conserved 2px offset (the hard shadow collapses,
+   the button moves the same distance) that added scale would deepen. */
 @media (prefers-reduced-motion: no-preference) {
-  html:not([data-theme='blueprint']) .btn:not(:disabled):active { scale: 0.98; }
+  html:not([data-theme='blueprint']):not([data-theme='paper']) .btn:not(:disabled):active { scale: 0.98; }
 }
 
 .btn:disabled {
@@ -751,7 +754,7 @@ select.input.is-auto {
      the keyboard gets the same arrival the pointer does. The pointer half
      also asks for `hover: hover` — on touch, a tap-and-hold would otherwise
      leave the card floating until something else took focus. */
-  html:not([data-theme='blueprint']) a.card {
+  html:not([data-theme='blueprint']):not([data-theme='paper']) a.card {
     transition:
       box-shadow var(--dur-base) var(--ease-out),
       transform var(--dur-base) var(--ease-out);
@@ -759,14 +762,14 @@ select.input.is-auto {
 }
 
 @media (prefers-reduced-motion: no-preference) and (hover: hover) {
-  html:not([data-theme='blueprint']) a.card:hover {
+  html:not([data-theme='blueprint']):not([data-theme='paper']) a.card:hover {
     transform: translateY(-2px);
     box-shadow: var(--shadow-md);
   }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  html:not([data-theme='blueprint']) a.card:focus-visible {
+  html:not([data-theme='blueprint']):not([data-theme='paper']) a.card:focus-visible {
     transform: translateY(-2px);
     box-shadow: var(--shadow-md);
   }
@@ -892,6 +895,166 @@ select.input.is-auto {
 .container-mid { max-width: var(--wrap-mid); }
 .container-resume { max-width: var(--wrap-resume); }
 .container-prose { max-width: var(--wrap-prose); }
+
+/* ==========================================================================
+   Section geometry — the drafting frame.
+
+   Borrowed from the reference launch page: the content column is a strip
+   drawn on the sheet, with two hairline rails running its full height, a
+   hatched band separating one section from the next, and a small node wherever
+   a rail crosses a rule — the way a technical drawing marks the points it was
+   measured from. Three parts:
+
+   1. The rails, drawn once on `<main>` as two zero-width pseudo-elements at
+      the column's edges. `main` rather than `.container` because the column
+      has to be continuous through every section a page stacks, and a border
+      on each wrapper would break at every margin and shift content by a pixel.
+      Zero layout cost: they are absolutely positioned and painted *under* the
+      children (`z-index: -1` inside the stacking context `body > *` opens), so
+      a full-bleed banner covers them rather than being crossed by them.
+   2. The band, `.section-sep`: full-bleed top and bottom rules with a
+      column-width cell inside, filled with a 45° hatch. Placed by pages
+      between sections through `SectionSep.astro`; the page says *where* a
+      boundary is, the theme says what a boundary *looks like*.
+   3. The nodes: four per band, one on each corner of the cell, centred on the
+      intersection. Two are the cell's own pseudo-elements (top corners) and
+      two are the band's (bottom corners), positioned by the same arithmetic
+      the rails use. They are the ground colour with a hairline, so they read
+      as cuts in the lines rather than as dots on them.
+
+   Every visual decision is a token (`--rule-style`, `--rail-ink`,
+   `--hatch-ink`, `--hatch-step`, `--node-size`, `--node-radius`,
+   `--sep-height`, all in `theme.css`), so the three themes share one frame
+   and none of them has to redraw it. The column edge is
+   `calc(50% - min(50%, var(--wrap-wide) / 2))`: half the viewport minus half
+   the column, clamped so a viewport narrower than the column puts the edge at
+   0 rather than off-screen.
+
+   Below `--wrap-wide` the rails coincide with the viewport edge and the nodes
+   would hang half off it, so both the rails and the nodes stand down there —
+   the band keeps its rules and hatch, which is the part that still separates.
+   ========================================================================== */
+
+body > main {
+  --column-edge: calc(50% - min(50%, var(--wrap-wide) / 2));
+}
+
+body > main::before,
+body > main::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-left: 1px var(--rule-style) var(--rail-ink);
+}
+
+body > main::before { left: var(--column-edge); }
+/* `right` rather than a second `left`, so the two rails stay symmetric to
+   the pixel when the column edge lands on a half-pixel. The 1px pull-back
+   puts the stroke *inside* the column edge, where the cell's own right
+   border falls, so rail and cell meet as one line. */
+body > main::after { right: var(--column-edge); translate: -1px 0; }
+
+.section-sep {
+  position: relative;
+  height: var(--sep-height);
+  border-top: 1px var(--rule-style) var(--color-divider);
+  border-bottom: 1px var(--rule-style) var(--color-divider);
+  /* The nodes overhang the band on every side by half their size. Clipping
+     the x-axis alone stops a node at the viewport edge from widening the page
+     — `clip` is the one overflow value that leaves the other axis `visible`,
+     which is what lets the top and bottom nodes straddle the rules. */
+  overflow-x: clip;
+}
+
+.section-sep-inner {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  max-width: var(--wrap-wide);
+  margin: 0 auto;
+  border-left: 1px var(--rule-style) var(--rail-ink);
+  border-right: 1px var(--rule-style) var(--rail-ink);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--hatch-ink) 0 1px,
+    transparent 1px var(--hatch-step)
+  );
+}
+
+.section-sep::before,
+.section-sep::after,
+.section-sep-inner::before,
+.section-sep-inner::after {
+  content: '';
+  position: absolute;
+  width: var(--node-size);
+  height: var(--node-size);
+  box-sizing: border-box;
+  background: var(--color-bg);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--node-radius);
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Top corners belong to the cell: its edges are the rails. */
+.section-sep-inner::before { top: 0; left: 0; translate: calc(-50% - 0.5px) calc(-50% - 0.5px); }
+.section-sep-inner::after { top: 0; right: 0; translate: calc(50% + 0.5px) calc(-50% - 0.5px); }
+
+/* Bottom corners belong to the band, whose bottom rule they sit on; their
+   x is the same column edge the rails use. */
+.section-sep::before,
+.section-sep::after {
+  bottom: 0;
+}
+.section-sep::before {
+  left: calc(50% - min(50%, var(--wrap-wide) / 2));
+  margin-left: calc(var(--node-size) / -2);
+  translate: 0.5px calc(50% + 0.5px);
+}
+.section-sep::after {
+  right: calc(50% - min(50%, var(--wrap-wide) / 2));
+  margin-right: calc(var(--node-size) / -2);
+  translate: -0.5px calc(50% + 0.5px);
+}
+
+@media (max-width: 1120px) {
+  body > main::before,
+  body > main::after,
+  .section-sep::before,
+  .section-sep::after,
+  .section-sep-inner::before,
+  .section-sep-inner::after {
+    display: none;
+  }
+  .section-sep-inner {
+    border-left: 0;
+    border-right: 0;
+  }
+}
+
+@media print {
+  body > main::before,
+  body > main::after { display: none; }
+  .section-sep { height: 0; border-bottom: 0; }
+  .section-sep-inner { display: none; }
+}
+
+/* — figure numbers —
+
+   Every card on a page is counted, and each theme decides whether and how to
+   say the number: Geometry prefixes the kicker `01 /`, Blueprint `FIG. 01 ·`,
+   Paper `fig. 1 ·`. Counted here, in the shared layer, because the counter has
+   to be reset once per document and incremented once per card regardless of
+   which theme is reading it — a theme that only *displays* the count cannot
+   also own it without every theme repeating the reset. */
+body > main { counter-reset: figure section; }
+.card { counter-increment: figure; }
+.eyebrow { counter-increment: section; }
 
 /* ==========================================================================
    Long-form copy — the design's article body treatment, shared by the case

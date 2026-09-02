@@ -30,8 +30,10 @@ import { DEFAULT_THEME, MODE_KEY, THEME_KEY, THEMES } from '../lib/theme';
     window.__omRestoreTheme = function () {
       var root = document.documentElement;
       var theme = localStorage.getItem(THEME_KEY);
-      if (theme && theme !== DEFAULT_THEME && THEME_IDS.indexOf(theme) !== -1) root.dataset.theme = theme;
-      else delete root.dataset.theme;
+      // Always an attribute, never absent: the layouts render the default into
+      // `<html>` and this only corrects it. A stored id that is no longer a
+      // theme (Classic, Nocturne, Motion have all been retired) falls back.
+      root.dataset.theme = theme && THEME_IDS.indexOf(theme) !== -1 ? theme : DEFAULT_THEME;
 
       var mode = localStorage.getItem(MODE_KEY);
       if (mode === 'light' || mode === 'dark') root.dataset.mode = mode;

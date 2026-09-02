@@ -1,6 +1,8 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import ProjectCard from '../components/ProjectCard.astro';
+import Illustration from '../components/Illustration.astro';
+import SectionSep from '../components/SectionSep.astro';
 import { categoryLabel, getDeepDiveCaseStudies, getFeaturedProjects, getProjects } from '../lib/content';
 import { site } from '../lib/site';
 
@@ -67,6 +69,13 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
       </div>
     </div>
     <div class="hero-figure" data-reveal style="--reveal-delay: 120ms">
+      {/* The wireframe orbit takes the portrait's place under the Geometry
+          theme — hidden by default here, revealed by geometry.css, so the
+          page never knows which theme is on. The photo stays the LCP element:
+          it is present in the markup on every theme. */}
+      <div class="hero-visual">
+        <Illustration name="geometry-orbit" />
+      </div>
       {/* The hero's LCP element. It is above the fold on every viewport, so it
           is fetched at high priority and never lazily — the browser's default
           heuristics de-prioritise it behind the stylesheet otherwise. */}
@@ -81,6 +90,8 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
       />
     </div>
   </header>
+
+  <SectionSep />
 
   <section class="container home-section" data-reveal>
     <div class="section-head">
@@ -114,6 +125,8 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
     </div>
   </section>
 
+  <SectionSep />
+
   <section class="container home-section" data-reveal>
     <div class="section-head">
       <div>
@@ -129,6 +142,8 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
       ))}
     </div>
   </section>
+
+  <SectionSep />
 
   <section class="container home-section" data-reveal>
     <div class="section-head">
@@ -150,11 +165,18 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
     </div>
   </section>
 
+  <SectionSep />
+
   <section class="closing-banner" data-reveal>
     <div class="container closing-inner">
       <div>
         <h2 class="closing-title">Let's work together</h2>
         <p class="closing-desc">Open to interesting ML/CV, full-stack, and systems projects.</p>
+        {/* Theme-only artwork: Geometry's circuit board. Hidden by default,
+            revealed by geometry.css. */}
+        <div class="geometry-banner-art">
+          <Illustration name="geometry-circuit" />
+        </div>
       </div>
       <div class="closing-actions">
         <a href={`mailto:${site.email}`} class="btn btn-on-accent">Hire me</a>
@@ -165,6 +187,12 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
 </BaseLayout>
 <style>
   .eyebrow { margin-bottom: var(--space-2); }
+
+  /* Theme-only artwork. Both slots exist in the markup on every theme but
+     render nowhere until a theme file reveals them — the page stays theme-
+     agnostic and the artwork is display:none, so no paint cost elsewhere. */
+  .hero-visual,
+  .geometry-banner-art { display: none; }
 
   /* — hero — */
   .hero {
@@ -215,8 +243,11 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
   .hero-figure { border-left: 2px solid var(--color-divider); padding-left: var(--space-6); }
   .hero-photo { width: 100%; aspect-ratio: 1; object-fit: cover; object-position: center 20%; }
 
-  /* — sections — */
-  .home-section { padding-bottom: var(--space-8); }
+  /* — sections —
+     Padded on both ends now that a separator band sits between them: the
+     band's rule is the boundary, and content needs the same breathing room
+     below it as it has above the next one. */
+  .home-section { padding-top: var(--space-6); padding-bottom: var(--space-8); }
   .section-head {
     display: flex;
     justify-content: space-between;
@@ -295,7 +326,9 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
     background: var(--color-accent);
     color: var(--color-bg);
     padding: var(--space-8) 0;
-    margin-bottom: var(--space-8);
+    /* Sits flush under its separator band — the band's rule is the seam — and
+       leaves the footer's own rule to close the page. */
+    margin-bottom: 0;
   }
   .closing-inner {
     display: flex;
