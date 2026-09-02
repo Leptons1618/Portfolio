@@ -29,8 +29,16 @@ const isCurrent = (href: string) =>
 
   /* Below the wide breakpoint the bar keeps the brand and the primary
      action on one line and lets the links flow onto a second row, rather
-     than hiding navigation behind a drawer. */
-  @media (max-width: 640px) {
+     than hiding navigation behind a drawer.
+
+     960, not 640. The five links, the wordmark, the two theme controls and
+     the primary action measure a little over 920px laid out in a row, so
+     every tablet width between 641 and 920 was a single row that did not fit
+     — and because `.nav` is a flex row with no wrapping, what did not fit
+     simply hung off the right edge and gave the whole document a horizontal
+     scrollbar. It is the one breakpoint on the site that has to be derived
+     from content rather than chosen from a scale. */
+  @media (max-width: 960px) {
     .nav { flex-wrap: wrap; row-gap: var(--space-3); }
     .nav-brand { margin-right: auto; }
     .nav-links { order: 3; width: 100%; flex-wrap: wrap; gap: var(--space-3) var(--space-4); }

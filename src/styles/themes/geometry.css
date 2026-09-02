@@ -217,15 +217,21 @@ html[data-theme='geometry'] body::before {
 }
 
 /* — the drafting frame, in this theme's voice ————————————————————————————————
-   Solid hairlines, a fine hatch, square nodes — the reference as drawn. */
+   Solid hairlines, a fine hatch, square nodes — the reference as drawn.
+
+   `--color-divider` here is #e4e4e8, which is four values off the ground: the
+   band's rules, its nodes and its hatch were all drawn in it, and the whole
+   frame was a rumour. `--sep-ink` takes the band to the mid ramp and the
+   hatch is mixed from it rather than from the divider, so the boundary reads
+   at a glance and the rails between sections stay the hairline they should
+   be. */
 :root[data-theme='geometry'] {
   --rule-style: solid;
   --rail-ink: var(--color-divider);
-  --hatch-ink: color-mix(in srgb, var(--color-divider) 75%, transparent);
+  --sep-ink: var(--color-neutral-500);
+  --hatch-ink: color-mix(in srgb, var(--color-neutral-600) 45%, transparent);
   --hatch-step: 8px;
   --node-size: 10px;
-  --node-radius: 0;
-  --sep-height: 72px;
 }
 
 /* — the signatures ————————————————————————————————————————————————————————
@@ -350,12 +356,79 @@ html[data-theme='geometry'] .btn-primary::after {
   display: none;
 }
 
-/* The shared sweep, recoloured. `global.css` fills the wedge with the flat
-   accent; here the wedge itself runs violet into ember, so the hover is the
-   theme's one gradient crossing the button. Same hard stop at 50%, same 220%
-   canvas, same `background-position` travel — only the paint changes. */
+/* — the primary action, redrawn ————————————————————————————————————————————
+
+   What this was: a plain ink pill. The shared sweep does not show until a
+   pointer is on it, this theme hides the registration ticks, and the theme's
+   own gradient was spent entirely on a hover state — so at rest the one
+   button the page is built around carried nothing of the design at all. It
+   was a black lozenge on a page whose argument is the violet-into-ember
+   sweep.
+
+   Now the sweep draws the *edge* before anyone touches it. Three background
+   layers, painted top to bottom:
+
+     1. the hover wedge, 220% wide and parked off the right edge, so animating
+        `background-position-x` alone drives it across;
+     2. the ink core, clipped to the padding box;
+     3. the gradient, clipped to the *border* box — which is what turns a
+        transparent 1px border into a gradient ring. `border-image` cannot
+        follow a border radius; a pseudo-element would need its own radius,
+        its own stacking order and its own hover rule.
+
+   `background-origin` and `background-clip` are both per-layer lists: the
+   wedge and the ink start at the padding edge, the ring at the border edge,
+   and a single value would apply to all three and fill the border with ink.
+
+   The ring runs violet → ember → violet at twice the button's width and
+   travels the other way on hover, so the edge light runs as the fill sweeps
+   in. Three stops rather than `--gradient`'s two for one reason: a two-stop
+   ramp at 200% shows *half* a ramp whichever end it is parked at, so the
+   resting ring was flat violet and the hover was flat ember. Palindromic, both
+   halves are a whole gradient. The bloom under it is a colour, not an
+   elevation: this is a flat theme and cards are cells, but the primary action
+   is the one element allowed to be lit. */
 html[data-theme='geometry'] .btn-primary {
-  background-image: linear-gradient(120deg, var(--color-accent) 0, var(--color-accent-2) 50%, transparent 50%);
+  border-color: transparent;
+  background-color: transparent;
+  /* `in oklab` on both ramps. Violet to ember through sRGB passes through a
+     muddy plum on the way; through oklab it stays a colour someone chose. */
+  background-image:
+    linear-gradient(120deg in oklab, var(--color-accent) 0, var(--color-accent-2) 50%, transparent 50%),
+    linear-gradient(var(--color-text), var(--color-text)),
+    linear-gradient(95deg in oklab, var(--color-accent-500), var(--color-accent-2-400), var(--color-accent-500));
+  background-size: 220% 100%, auto, 200% 100%;
+  background-position: 100% 0, 0 0, 0 0;
+  background-repeat: no-repeat;
+  background-origin: padding-box, padding-box, border-box;
+  background-clip: padding-box, padding-box, border-box;
+  /* The label is a command on this theme, the way the eyebrows and the tags
+     are. `VIEW PROJECTS` set in the mono face reads as something you type. */
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  box-shadow: 0 4px 14px -8px color-mix(in srgb, var(--color-accent) 70%, transparent);
+  transition:
+    background-position 0.4s var(--ease-soft),
+    box-shadow var(--dur-base) var(--ease-out),
+    scale var(--dur-fast) var(--ease-out);
+}
+
+html[data-theme='geometry'] .btn-primary:hover {
+  /* Every layer named, because a one-value `background-position` in the
+     shared layer would be copied onto all three and drag the ring back. */
+  background-position: 40% 0, 0 0, 100% 0;
+  border-color: transparent;
+  box-shadow: 0 10px 26px -10px color-mix(in srgb, var(--color-accent) 85%, transparent);
+}
+
+html[data-theme='geometry'] .btn-primary:active {
+  background-position: 28% 0, 0 0, 100% 0;
+  box-shadow: 0 3px 10px -8px color-mix(in srgb, var(--color-accent) 70%, transparent);
+}
+
+html[data-theme='geometry'] .btn-primary:disabled {
+  box-shadow: none;
 }
 
 /* Nav links are the reference's: a quiet label that fills to a solid pill
@@ -456,6 +529,33 @@ html[data-theme='geometry'] .prose pre::before {
     radial-gradient(circle at 37px 50%, var(--color-neutral-500) 4.5px, transparent 5.5px);
   background-position: var(--space-3) 0;
   background-repeat: no-repeat;
+}
+
+/* Once `code-fx.ts` has framed a listing, the window chrome above is a real
+   bar with a real button in it, and the pseudo-element would be a second
+   title strip stacked on the first. It stays for the no-JavaScript case,
+   which is the only case that still sees it.
+
+   This has to sit *below* the rule it cancels: both selectors weigh the same
+   — an element, an attribute, a class, an element and a pseudo-element — so
+   source order is the whole of the cascade here, and written above it the
+   cancellation silently lost. */
+html[data-theme='geometry'] .code-block > pre::before {
+  content: none;
+}
+
+/* The rule above pulls the `<pre>`'s top padding to zero, because its own
+   header sat in that space with a negative margin. The framed bar is a
+   sibling, so the padding comes back. */
+html[data-theme='geometry'] .code-block > pre {
+  padding-top: var(--space-4);
+}
+
+/* The framed bar in the voice the pseudo-element had: the dots, then the
+   path. `~/` is the prompt this whole theme speaks in. */
+html[data-theme='geometry'] .code-name::before {
+  content: '~/ ';
+  color: var(--color-text-faint);
 }
 
 /* — the hero, redrawn ——————————————————————————————————————————————————————

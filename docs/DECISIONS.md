@@ -1125,3 +1125,41 @@ The import list shows the same facts it sends: primary language, stars, when it 
 **Why the shape is per surface.** The journal panel reads a reply against `POST_KEYS` and the project panel against `PROJECT_KEYS`, because `HIGHLIGHTS:` is a field on a project and an ordinary line in a post. That is the same rule `parseFields` has always run on, and it is why there is no global label table. The resume screen is left out on purpose: every task there is a proposal about a *selection* — which roles, which projects — and a selection rearranging itself under the author is not an edit they can watch. Decision 35's reasoning, unchanged.
 
 **What the prompt had to say.** The task instructions now describe both jobs and, for an edit, insist on the finished value rather than a suggestion — "TITLE: Pinned skills" and never "TITLE: how about Pinned skills?" — and on writing only the fields that change, because a field repeated back unchanged is a field overwritten with a model's copy of it. `check:ai` pins the discriminator rather than the prompt: what a model does with an instruction is a property of a third party's weights, and what the editor does with the reply is ours.
+
+---
+
+## 49. Code is highlighted in the browser, by a lexer this repo owns
+
+**Status:** accepted
+
+**Context.** Decision 45 turned the syntax highlighter off at write time and had to: Shiki instantiates a WebAssembly module on first use, `workerd` refuses to compile one, and the default markdown processor therefore threw on every save with a fence in it. What that left on the page was `<pre><code class="language-ts">` with plain text inside it — a grey slab — on a site whose journal is mostly code. The constraint is real and it is not going away; what was missing was the other half of the answer.
+
+**Decision.** `src/lib/code-fx.ts` colours a listing in the browser, after it has been served. The Worker still renders no highlighting, still compiles no WebAssembly, and still stores exactly what it stored before; `BaseLayout` mounts the module on every public page and it returns on its first query where there is no `<pre>`, which is most of them.
+
+**Why not a dependency.** The smallest credible highlighter on npm is an order of magnitude more bytes than this file, for grammars no post here uses, and it would ship from `BaseLayout` — that is, on every page. What is here is a regular expression per grammar and a classifier, and the eight grammars are a keyword list each.
+
+**What it is not.** It is a lexer. It does not parse, it has no notion of scope, and it will colour `class` inside a string as a string and nothing else. That is the correct trade for a *reading* surface: the failure mode of a wrong guess is a word in the wrong hue. The C-family languages share one table on purpose — `func` is a keyword in Go and not in Java, colouring it in Java anyway costs a reader nothing, and nine keyword lists that drift apart cost the next person real time.
+
+**The invariant that matters.** Every token's text is the source text, escaped, and every character of the input appears in exactly one token. `textContent` of a finished block therefore equals what came in, which is what keeps copy-paste, find-in-page and a screen reader reading the program rather than the markup. The line wrappers the entrance animates are built during rendering rather than by splitting the finished HTML on `\n`, because a block comment is one token spanning several lines and cutting a string of markup inside it produces two unbalanced spans.
+
+**The frame.** Each block gains a real chrome bar with a Copy button, in each theme's own voice — Geometry's window dots and `~/`, Blueprint's `// LISTING`, Paper's `fig. —`. The `pre::before` chrome those themes drew is not deleted: it is cancelled *below itself* in each theme file, because the two selectors weigh exactly the same and source order is the whole of the cascade there. It is what a reader with no JavaScript still gets.
+
+**The colours are two hues.** `--code-*` resolves to each theme's accent, its second accent and the neutral ramp, and to nothing else. A highlighter with eight unrelated colours in it is a second palette living inside the first, and it is the thing that makes a themed page stop looking themed the moment a fence appears. The ramps invert between light and dark in every theme file, so one table is correct in both modes. Paper overrides three of them, because its second accent is a sepia four values off body ink — a hue that is not a colour there.
+
+**Motion is the entrance and nothing else.** Lines are dealt in when a block scrolls into view, staggered for the first screenful and together after it. `prefers-reduced-motion` skips it entirely and leaves the coloured, framed block exactly where it is: nothing is ever hidden waiting for a script to show it again.
+
+---
+
+## 50. A long-form page is an article of columns, so the band between them is full-bleed
+
+**Status:** accepted
+
+**Context.** `SectionSep` is full-bleed by construction — its two rules run to the viewport edge and only its hatched cell is `--wrap-wide`. Every index page therefore renders it as a *sibling* of its `.container` sections, which is what makes the boundary read as a cut across the sheet. The three long-form pages did not: a case study, a project page and a journal post were each one `.container` from top to bottom, so there was nowhere to put a band, and all three closed their cover block with a hairline `<hr class="rule">` instead. Two grammars for the same thing, decided by markup nesting rather than by meaning.
+
+**Decision.** The `<article>` (or the page wrapper) is no longer the column. It holds two or three `.container` blocks, with `SectionSep` between them: cover, body, and — where there is one — the prev/next footer. The band closes the cover exactly as it does on the home page.
+
+**What moved with it.** Vertical rhythm belongs to the blocks now, not to the wrapper: a padding on the article would put space *outside* the first band and none inside it. `.cs-glance` lost the negative top margin it used to pull itself up under the head's rule, and `.cs-nav` lost the border and margin that used to stand in for one.
+
+**What did not change.** `.case-study` is still the class the reading-progress script measures, and the `<article>` is still the semantic wrapper — only its width is delegated.
+
+**About is deliberately excluded.** It is `container-prose`, a 720px page rather than a 720px column inside a wide one. A band whose cell is 1120px across a 720px page is not the same mark at a different size, it is a different mark; the hairline is right there.

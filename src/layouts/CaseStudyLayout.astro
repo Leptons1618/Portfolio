@@ -1,6 +1,7 @@
 ---
 import BaseLayout from './BaseLayout.astro';
 import PathLine from '../components/PathLine.astro';
+import SectionSep from '../components/SectionSep.astro';
 import Tag from '../components/Tag.astro';
 import { Icon } from 'astro-icon/components';
 import { formatDate } from '../lib/format';
@@ -43,101 +44,115 @@ const glance: [string, string][] = [
       it is state rather than motion — reduced motion leaves it alone. */}
   <div class="cs-progress" id="cs-progress" aria-hidden="true"></div>
 
-  <article class="container case-study">
-    <a class="btn btn-ghost back-link" href="/projects">← Back to Projects</a>
+  {/* The article is no longer the column: it is the page, and the columns are
+      the three blocks inside it. `SectionSep` is full-bleed by construction —
+      its rules run to the viewport and its cell is `--wrap-wide` — so a band
+      nested inside a `.container` would be a boundary drawn only across the
+      middle of the page, which is not what the home page, the projects index
+      or the journal index draw. Splitting the article is what lets a case
+      study close its cover sheet with the same mark every other page uses. */}
+  <article class="case-study">
+    <div class="container cs-cover">
+      <a class="btn btn-ghost back-link" href="/projects">← Back to Projects</a>
 
-    <header class="cs-head" data-reveal>
-      <PathLine path={cwd} cmd="less writeup.md" />
-      {heroVideo
-        ? <div class="cs-hero cs-hero-media">
-            {/* Autoplay is a decision the visitor's motion preference gets to
-                make, not one the markup makes for them: the attribute is set
-                from script only when `prefers-reduced-motion` allows it, and
-                a looping hero is exactly the kind of motion that preference
-                exists to stop. The pause control is rendered either way —
-                anything that plays for more than a few seconds owes the
-                visitor a visible way to stop it. Without JavaScript the
-                video simply never plays and the control never appears.
-                `grayscale` sits on the video, not the wrapper, so the filter
-                never greys out the control sitting on top of it. */}
-            <video class="grayscale" src={heroVideo} poster={heroImage} muted loop playsinline preload="metadata"></video>
-            <button type="button" class="cs-video-toggle" id="cs-video-toggle" hidden>
-              <span class="cs-video-face" data-icon="pause"><Icon name="lucide:pause" class="cs-video-icon" /></span>
-              <span class="cs-video-face" data-icon="play" hidden><Icon name="lucide:play" class="cs-video-icon" /></span>
-            </button>
-          </div>
-        : heroImage
-          ? <div class="grayscale cs-hero"><img src={heroImage} alt={title} /></div>
-          : null}
-      <div class="cs-chips">
-        {eyebrow.split(' · ').map(part => <span class="tag tag-neutral">{part}</span>)}
-        <span class="tag tag-neutral">{formatDate(date)}</span>
-        {readTime && <span class="tag tag-neutral">{readTime} read</span>}
-      </div>
-      <h1 class="cs-title">{title}</h1>
-      <p class="cs-subtitle">{subtitle}</p>
-    </header>
-    <hr class="rule cs-head-rule" />
-
-    <dl class="cs-glance" data-reveal>
-      {glance.map(([key, value]) => (
-        <div class="cs-glance-item">
-          <dt>{key}</dt>
-          <dd>{value}</dd>
+      <header class="cs-head" data-reveal>
+        <PathLine path={cwd} cmd="less writeup.md" />
+        {heroVideo
+          ? <div class="cs-hero cs-hero-media">
+              {/* Autoplay is a decision the visitor's motion preference gets to
+                  make, not one the markup makes for them: the attribute is set
+                  from script only when `prefers-reduced-motion` allows it, and
+                  a looping hero is exactly the kind of motion that preference
+                  exists to stop. The pause control is rendered either way —
+                  anything that plays for more than a few seconds owes the
+                  visitor a visible way to stop it. Without JavaScript the
+                  video simply never plays and the control never appears.
+                  `grayscale` sits on the video, not the wrapper, so the filter
+                  never greys out the control sitting on top of it. */}
+              <video class="grayscale" src={heroVideo} poster={heroImage} muted loop playsinline preload="metadata"></video>
+              <button type="button" class="cs-video-toggle" id="cs-video-toggle" hidden>
+                <span class="cs-video-face" data-icon="pause"><Icon name="lucide:pause" class="cs-video-icon" /></span>
+                <span class="cs-video-face" data-icon="play" hidden><Icon name="lucide:play" class="cs-video-icon" /></span>
+              </button>
+            </div>
+          : heroImage
+            ? <div class="grayscale cs-hero"><img src={heroImage} alt={title} /></div>
+            : null}
+        <div class="cs-chips">
+          {eyebrow.split(' · ').map(part => <span class="tag tag-neutral">{part}</span>)}
+          <span class="tag tag-neutral">{formatDate(date)}</span>
+          {readTime && <span class="tag tag-neutral">{readTime} read</span>}
         </div>
-      ))}
-    </dl>
-
-    <section class="cs-split" data-reveal>
-      <h3 class="cs-split-head"><span class="cs-split-num">01</span>The Problem</h3>
-      <div class="card elev-sm cs-split-body"><p class="cs-copy">{problem}</p></div>
-    </section>
-
-    <section class="cs-split" data-reveal>
-      <h3 class="cs-split-head"><span class="cs-split-num">02</span>The Solution</h3>
-      <div class="card elev-sm cs-split-body"><p class="cs-copy">{solution}</p></div>
-    </section>
-
-    <div class="cs-split">
-      <div></div>
-      <div class="prose cs-content"><slot /></div>
+        <h1 class="cs-title">{title}</h1>
+        <p class="cs-subtitle">{subtitle}</p>
+      </header>
     </div>
 
-    {architectureImage && (
-      <section class="cs-split" data-reveal>
-        <h3 class="cs-split-head"><span class="cs-split-num">03</span>Architecture</h3>
-        <figure class="grayscale cs-arch"><img src={architectureImage} alt="Architecture diagram" /></figure>
-      </section>
-    )}
+    <SectionSep />
 
-    <section class="cs-split" data-reveal>
-      <h3 class="cs-split-head"><span class="cs-split-num">{architectureImage ? '04' : '03'}</span>Achievements</h3>
-      <div class="card elev-sm cs-split-body">
-        <ol class="cs-list">
-          {achievements.map((a, i) => (
-            <li data-reveal style={`--reveal-delay: ${100 + i * 70}ms`}>{a}</li>
-          ))}
-        </ol>
-      </div>
-    </section>
-
-    <section class="cs-split" data-reveal>
-      <h3 class="cs-split-head"><span class="cs-split-num">{architectureImage ? '05' : '04'}</span>Stack</h3>
-      <div class="cs-split-body">
-        <div class="cs-stack">
-          {stack.map(s => <Tag text={s} variant="neutral" />)}
-        </div>
-        {(repoUrl || demoUrl) && (
-          <div class="cs-actions">
-            {repoUrl && <a class="btn btn-primary" href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>}
-            {demoUrl && <a class="btn btn-secondary" href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
+    <div class="container cs-main">
+      <dl class="cs-glance" data-reveal>
+        {glance.map(([key, value]) => (
+          <div class="cs-glance-item">
+            <dt>{key}</dt>
+            <dd>{value}</dd>
           </div>
-        )}
+        ))}
+      </dl>
+
+      <section class="cs-split" data-reveal>
+        <h3 class="cs-split-head"><span class="cs-split-num">01</span>The Problem</h3>
+        <div class="card elev-sm cs-split-body"><p class="cs-copy">{problem}</p></div>
+      </section>
+
+      <section class="cs-split" data-reveal>
+        <h3 class="cs-split-head"><span class="cs-split-num">02</span>The Solution</h3>
+        <div class="card elev-sm cs-split-body"><p class="cs-copy">{solution}</p></div>
+      </section>
+
+      <div class="cs-split">
+        <div></div>
+        <div class="prose cs-content"><slot /></div>
       </div>
-    </section>
+
+      {architectureImage && (
+        <section class="cs-split" data-reveal>
+          <h3 class="cs-split-head"><span class="cs-split-num">03</span>Architecture</h3>
+          <figure class="grayscale cs-arch"><img src={architectureImage} alt="Architecture diagram" /></figure>
+        </section>
+      )}
+
+      <section class="cs-split" data-reveal>
+        <h3 class="cs-split-head"><span class="cs-split-num">{architectureImage ? '04' : '03'}</span>Achievements</h3>
+        <div class="card elev-sm cs-split-body">
+          <ol class="cs-list">
+            {achievements.map((a, i) => (
+              <li data-reveal style={`--reveal-delay: ${100 + i * 70}ms`}>{a}</li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      <section class="cs-split" data-reveal>
+        <h3 class="cs-split-head"><span class="cs-split-num">{architectureImage ? '05' : '04'}</span>Stack</h3>
+        <div class="cs-split-body">
+          <div class="cs-stack">
+            {stack.map(s => <Tag text={s} variant="neutral" />)}
+          </div>
+          {(repoUrl || demoUrl) && (
+            <div class="cs-actions">
+              {repoUrl && <a class="btn btn-primary" href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>}
+              {demoUrl && <a class="btn btn-secondary" href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+
+    {(prev || next) && <SectionSep />}
 
     {(prev || next) && (
-      <nav class="cs-nav">
+      <nav class="container cs-nav">
         {prev && (
           <a href={`/case-studies/${prev.slug}`} class="cs-nav-link">
             <span class="text-muted">← Previous</span>
@@ -237,7 +252,13 @@ const glance: [string, string][] = [
   }
 </script>
 <style>
-  .case-study { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  /* The article is the page; the three `.container` blocks inside it are the
+     columns, and the bands between them are full-bleed. Vertical rhythm
+     therefore belongs to the blocks and not to the article — a padding on the
+     article would put space *outside* the first band and none inside it. */
+  .cs-cover { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  .cs-main { padding-top: var(--space-8); }
+  .cs-nav { padding-top: var(--space-6); padding-bottom: var(--space-8); }
   .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
 
   /* — reading progress — */
@@ -263,8 +284,11 @@ const glance: [string, string][] = [
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2) var(--space-6);
-    margin: calc(var(--space-6) * -1) 0 var(--space-8);
-    padding: var(--space-3) 0;
+    /* No negative top margin any more: it existed to pull the strip up under
+       the head's rule, and the head now closes with a band that owns its own
+       space. */
+    margin: 0 0 var(--space-8);
+    padding-bottom: var(--space-3);
     border-bottom: 1px solid var(--color-divider);
     font-family: var(--font-mono);
     font-size: 12px;
@@ -292,7 +316,6 @@ const glance: [string, string][] = [
   .cs-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-3); }
   .cs-title { margin-bottom: var(--space-2); }
   .cs-subtitle { font-size: 18px; line-height: 1.6; opacity: 0.85; max-width: 62ch; margin: 0; }
-  .cs-head-rule { margin-bottom: var(--space-8); }
 
   .cs-hero { margin-bottom: var(--space-4); }
   .cs-hero img, .cs-hero video { width: 100%; height: 360px; object-fit: cover; }
@@ -408,13 +431,12 @@ const glance: [string, string][] = [
   .cs-stack { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-4); }
   .cs-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
 
+  /* The band above it is the rule now, so the nav carries neither a border of
+     its own nor the margin that used to hold it off one. */
   .cs-nav {
     display: flex;
     justify-content: space-between;
     gap: var(--space-4);
-    margin-top: var(--space-8);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--color-divider);
   }
   .cs-nav-link { display: flex; flex-direction: column; gap: 2px; max-width: 45%; text-decoration: none; font-size: 13px; overflow-wrap: anywhere; }
   .cs-nav-link span { font-size: 12px; }

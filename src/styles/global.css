@@ -996,8 +996,8 @@ body > main::after { right: var(--column-edge); translate: -1px 0; }
 .section-sep {
   position: relative;
   height: var(--sep-height);
-  border-top: 1px var(--rule-style) var(--color-divider);
-  border-bottom: 1px var(--rule-style) var(--color-divider);
+  border-top: 1px var(--rule-style) var(--sep-ink);
+  border-bottom: 1px var(--rule-style) var(--sep-ink);
   /* The nodes overhang the band on every side by half their size. Clipping
      the x-axis alone stops a node at the viewport edge from widening the page
      — `clip` is the one overflow value that leaves the other axis `visible`,
@@ -1030,7 +1030,7 @@ body > main::after { right: var(--column-edge); translate: -1px 0; }
   height: var(--node-size);
   box-sizing: border-box;
   background: var(--color-bg);
-  border: 1px solid var(--color-divider);
+  border: 1px solid var(--sep-ink);
   border-radius: var(--node-radius);
   z-index: 1;
   pointer-events: none;
@@ -1057,7 +1057,14 @@ body > main::after { right: var(--column-edge); translate: -1px 0; }
   translate: -0.5px calc(50% + 0.5px);
 }
 
-@media (max-width: 1120px) {
+/* 1160, not 1120: a node straddles the column edge, so it needs half its own
+   width of viewport outside `--wrap-wide` to be a whole square. Between 1121
+   and 1160 the rails were still drawn and the nodes were sliced in half by the
+   band's own `overflow-x: clip` — the frame's own edge cutting its own marks.
+   The number is `--wrap-wide` plus `--node-size` plus a little air; a media
+   query cannot read a custom property, which is the only reason it is spelled
+   out here. */
+@media screen and (max-width: 1160px) {
   body > main::before,
   body > main::after,
   .section-sep::before,
@@ -1070,6 +1077,13 @@ body > main::after { right: var(--column-edge); translate: -1px 0; }
     border-left: 0;
     border-right: 0;
   }
+}
+
+/* A 72px band is a section boundary on a desktop and a third of the first
+   screenful on a phone. The gesture survives at two-thirds the depth; the
+   content gets the rest back. */
+@media screen and (max-width: 640px) {
+  .section-sep { height: calc(var(--sep-height) * 0.7); }
 }
 
 @media print {
@@ -1222,6 +1236,156 @@ body > main { counter-reset: figure section; }
 
 .prose img {
   margin-bottom: var(--space-4);
+}
+
+/* — fenced code —
+
+   `src/lib/code-fx.ts` frames every `<pre>` in a `.code-block`, colours its
+   tokens and wraps each line in a `.cl` so the listing can be dealt in when
+   it arrives. Global rules, for the usual reason: none of those nodes exists
+   until a script builds it, so none of them carries a page's
+   `data-astro-cid`.
+
+   Everything here is written so the *unenhanced* block is still correct — a
+   reader with no JavaScript gets `.prose pre` above and each theme's own
+   `pre::before` chrome, and nothing below this comment ever matches. */
+
+.code-block {
+  margin: 0 0 var(--space-4);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  /* The bar is a filled strip against the block's top corners; without this
+     its square corners paint over the round ones. */
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.code-block > pre {
+  /* The frame owns the border, the radius and the ground now. The `<pre>` is
+     just the body inside it, and keeps only its own scroll. */
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.code-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+  background: color-mix(in srgb, var(--color-text) 4%, var(--color-surface));
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+/* Three discs in the neutral ramp rather than three traffic lights: a window
+   control that is red, amber and green is somebody else's operating system,
+   and these have to be at home on all three palettes. */
+.code-dots {
+  display: flex;
+  gap: 5px;
+  flex: none;
+}
+
+.code-dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-neutral-500);
+}
+
+.code-name {
+  color: var(--color-text-faint);
+  /* A long fence label must not push the copy button off the bar. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-copy {
+  margin-left: auto;
+  flex: none;
+  padding: 4px var(--space-2);
+  /* `font` only — a button's face comes from the UA sheet and has to be
+     overridden; `letter-spacing` is inherited and already the bar's. */
+  font: inherit;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+
+.code-copy:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+
+.code-copy[data-state='done'] {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* — the tokens —
+
+   `.tk` carries nothing but the colour: weight, size and family are the
+   `<pre>`'s, so a listing stays one texture and the colour is the only thing
+   saying what a word is. */
+.tk-com { color: var(--code-comment); font-style: italic; }
+.tk-kw { color: var(--code-keyword); font-weight: 600; }
+.tk-ty { color: var(--code-type); }
+.tk-str { color: var(--code-string); }
+.tk-num { color: var(--code-number); }
+.tk-at { color: var(--code-atom); }
+.tk-fn { color: var(--code-fn); font-weight: 600; }
+
+/* — the entrance —
+
+   One line per row, dealt top to bottom when the block arrives. `data-lit` is
+   set by the observer and never by the server, and it is never set at all
+   under `prefers-reduced-motion` — so the default state of this rule is a
+   listing that is simply *there*, which is also what a failed bundle leaves
+   behind. Nothing is hidden until the script has proved it can show it again.
+
+   `--cl-i` is the row's index, capped by the module: past the first screenful
+   the stagger stops, because a 300-line listing should not take nine seconds
+   to finish arriving. */
+.code-block .cl {
+  display: block;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .code-block[data-lit] .cl {
+    animation: code-line-in 420ms var(--ease-out) both;
+    animation-delay: calc(var(--cl-i, 18) * 24ms);
+  }
+}
+
+@keyframes code-line-in {
+  from {
+    opacity: 0;
+    /* Along the line, not up it: a listing arrives the way it is typed. */
+    translate: -6px 0;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+/* A printed listing is a listing. The bar is a control surface and the
+   entrance is motion; neither survives the page leaving the screen. */
+@media print {
+  .code-bar { display: none; }
+  .code-block { break-inside: avoid; }
+  .code-block .cl { animation: none; }
 }
 
 /* A wide table — dependency matrices, benchmark numbers — is genuinely

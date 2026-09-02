@@ -206,21 +206,36 @@
    texture and shadows are presentation; print keeps the plain palette.
    ========================================================================== */
 
-/* The drafting frame in this theme's voice: pencil-dashed rules, a soft
-   graphite hatch, and round nodes — pins through the sheet rather than
-   registration squares. Outside `@media screen` because they are tokens the
-   frame reads, and the frame already knows to stand down for print. */
+/* The drafting frame in this theme's voice: pencil-dashed rules and a soft
+   graphite hatch. The nodes were round here — pins through the sheet — and
+   they are square now, like the other two: a mark that changes shape with the
+   palette reads as a different component rather than the same one recoloured.
+   Depth is the shared `--sep-height`; it used to be 56px against everyone
+   else's 72, which is a boundary that gets shallower when you change colour.
+   Outside `@media screen` because they are tokens the frame reads, and the
+   frame already knows to stand down for print. */
 :root[data-theme='paper'] {
   --rule-style: dashed;
   --rail-ink: var(--color-divider);
+  /* A step down the warm ramp from `--color-divider`, so the band's rules
+     carry across the kraft strip instead of dissolving into it. */
+  --sep-ink: var(--color-neutral-600);
   /* Sepia, not text ink: the hatch is pencil shading on kraft, so it is drawn
      in the theme's own graphite step rather than in a grey mix of the body
      colour that belongs to no palette. */
-  --hatch-ink: color-mix(in srgb, var(--color-accent-2) 18%, transparent);
+  --hatch-ink: color-mix(in srgb, var(--color-accent-2) 24%, transparent);
   --hatch-step: 7px;
-  --node-size: 9px;
-  --node-radius: 50%;
-  --sep-height: 56px;
+  --node-size: 10px;
+
+  /* Code tokens. The shared table gives strings and numbers to the secondary
+     accent, and on this theme the secondary accent is sepia — `#443728`
+     against body ink at `#2b2418`, which is not a colour, it is a rounding
+     error. The mid steps of the same ramp are the readable version of the
+     same idea: a listing set in rust and graphite on cream, which is what a
+     printed one looks like. */
+  --code-type: var(--color-accent-600);
+  --code-string: var(--color-accent-2-500);
+  --code-number: var(--color-accent-2-500);
 }
 
 @media screen {
@@ -254,33 +269,47 @@
    texture over it read as moiré — and the hatch was mixed from the text
    colour, which is no colour this palette owns. Here the band is a strip of
    kraft paper laid across the sheet: a step darker than the ground, a sepia
-   cross-hatch, pencil-dashed edges with the hard 2px offset every sheet on
-   this theme casts, and rust-headed pins holding the corners down. */
+   cross-hatch, pencil-dashed edges with the hard offset every sheet on this
+   theme casts, and rust registration marks pinning the corners down.
 
-:root[data-theme='paper'] .section-sep {
-  background: var(--color-surface);
-  border-top: 1px dashed var(--color-neutral-500);
-  border-bottom: 1px dashed var(--color-neutral-500);
-  /* The tape's offset shadow, cast downward like every card's. */
-  box-shadow: 0 2px 0 0 color-mix(in srgb, var(--color-accent-2) 22%, transparent);
-}
+   **The tape is the column, not the viewport.** The fill and the offset used
+   to sit on `.section-sep`, which is full-bleed — so on any screen wider than
+   the column the strip ran out past the hatched cell as two blank cream
+   rectangles with a hard grey line under them, which is what a torn edge is
+   not. `.section-sep-inner` is the cell the hatch already lives in; the paper
+   goes on the same box, so the tape starts and stops where the drawing does
+   and the ground shows either side of it the way it does on the other two
+   themes. */
 
 :root[data-theme='paper'] .section-sep-inner {
-  border-left-color: var(--color-neutral-500);
-  border-right-color: var(--color-neutral-500);
+  background-color: var(--color-surface);
+  border-left-color: var(--sep-ink);
+  border-right-color: var(--sep-ink);
   background-image:
     repeating-linear-gradient(-45deg, var(--hatch-ink) 0 1px, transparent 1px var(--hatch-step)),
     repeating-linear-gradient(45deg, var(--hatch-ink) 0 1px, transparent 1px calc(var(--hatch-step) * 2));
+  /* The strip's offset shadow, cast down-right like every card's — but only
+     off the two ends it actually has, so it never doubles the band's own
+     bottom rule across the full width of the page. */
+  box-shadow: 2px 2px 0 0 color-mix(in srgb, var(--color-accent-2) 18%, transparent);
 }
 
-/* Pins: a rust head on a lighter sheet, with the theme's hard offset. */
+/* Below the frame's own breakpoint the cell loses its side borders and runs
+   to the viewport edge, so a strip of tape with ends is no longer what is on
+   screen — a full-bleed band is. The offset goes with the ends. */
+@media screen and (max-width: 1160px) {
+  :root[data-theme='paper'] .section-sep-inner { box-shadow: none; }
+}
+
+/* The registration marks: a rust head on a lighter sheet, squared like every
+   other theme's, with this theme's hard offset. */
 :root[data-theme='paper'] .section-sep::before,
 :root[data-theme='paper'] .section-sep::after,
 :root[data-theme='paper'] .section-sep-inner::before,
 :root[data-theme='paper'] .section-sep-inner::after {
   background: var(--color-accent-500);
   border-color: var(--color-accent-700);
-  box-shadow: 1px 1px 0 0 var(--color-neutral-500);
+  box-shadow: 1px 1px 0 0 color-mix(in srgb, var(--color-accent-2) 25%, transparent);
 }
 
 /* --- Eyebrows: numbered § clauses, mono -------------------------------- */
@@ -453,6 +482,33 @@
   border: 1px dashed var(--color-neutral-500);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-sm);
+}
+
+/* The framed listing is the same glued-in printout, with a pencil-dashed
+   caption strip along the top of it. No window dots: this is a page, not a
+   screen. */
+:root[data-theme='paper'] .code-block {
+  border: 1px dashed var(--color-neutral-500);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  background: var(--color-neutral-100);
+}
+
+:root[data-theme='paper'] .code-bar {
+  border-bottom: 1px dashed var(--color-neutral-500);
+  background: var(--color-neutral-200);
+  letter-spacing: 0.06em;
+}
+
+:root[data-theme='paper'] .code-dots { display: none; }
+
+:root[data-theme='paper'] .code-name::before {
+  content: 'fig. — ';
+  color: var(--color-text-faint);
+}
+
+:root[data-theme='paper'] .code-copy {
+  border: 1px dashed var(--color-neutral-500);
 }
 
 :root[data-theme='paper'] .prose :not(pre) > code {

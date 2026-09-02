@@ -14,6 +14,20 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Fenced code is lit, framed and dealt in.** `src/lib/code-fx.ts` colours
+  every listing in a post or a case study in the browser — the write-time
+  markdown processor cannot run a highlighter at all (decision 45), so the
+  page shipped grey slabs on a site whose posts are mostly code. Eight
+  grammars, no dependency, and the source text is never rewritten: every
+  token is the original string, escaped, so copy, find-in-page and a screen
+  reader all still get the program. Each block gains a real chrome bar in its
+  theme's voice — Geometry's window dots and `~/`, Blueprint's `// LISTING`,
+  Paper's `fig. —` — with a Copy button, and its lines arrive one at a time
+  when the block scrolls into view. Colours are `--code-*` tokens: two hues
+  and the neutral ramp, so a listing still looks like the theme it is in.
+  Nothing here runs under `prefers-reduced-motion` but the colours, and with
+  no JavaScript the block is exactly what it was.
+
 - **Let's connect: a contact section as a terminal session.** The home
   page's closing banner is now a two-column contact section. Left, a shell
   window that types and answers `whoami`, `cat contact.txt` and `ping` when
@@ -59,13 +73,50 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   state with `:has()`), chips and lookup rows land in sequence, and both
   panels take the theme's radius.
 
+### Fixed
+
+- **The dark bar in the top-left corner of every page.** The skip link is
+  parked above the viewport by a transform, and it was positioned at a 16px
+  inset and moved off by the same 16px — landing its bottom edge on exactly
+  y=0, where its border still painted a row, and where `--shadow-lg` (a hard
+  4px offset on both drafting themes) painted a solid bar. It now sits at the
+  top edge, clears it by 4px, and carries its elevation only while focused.
+- **The section band is one boundary on all three themes.** Paper drew it
+  56px deep against everyone else's 72 and marked its corners with round pins
+  rather than squares; both are shared tokens now. Its kraft fill and offset
+  sat on the full-bleed band rather than on the column-width cell, so on any
+  wide screen the strip ran past the drawing as two blank rectangles with a
+  hard line under them — the paper is the cell now, and the ground shows
+  either side of it. Geometry and Blueprint drew the band, its marks and its
+  hatch in `--color-divider`, which on Geometry is four values off the
+  ground; the band has its own `--sep-ink`, a real step down each theme's
+  ramp. And between 1121px and 1160px the corner marks were sliced in half by
+  the band's own clip — the frame stands down at 1160 now, where a whole
+  square fits.
+- **Case studies, project pages and posts use the site's own separator.**
+  All three closed their cover block with a hairline `<hr>` while every other
+  page used the full-bleed drafting band. Each is now an article containing
+  `.container` blocks with bands between them, so a boundary looks the same
+  wherever a reader meets one.
+- **Geometry's primary action carries the theme at rest.** It was a plain ink
+  pill: the sweep only appears under a pointer and this theme hides the
+  registration ticks, so the button the page is built around showed nothing
+  of the design until you touched it. It now has a violet-into-ember gradient
+  ring, a mono label, and a bloom that lifts on hover as the wedge sweeps in.
+- **The header no longer overflows on a tablet.** The nav wrapped its links
+  to a second row below 640px, but the row measures a little over 920px — so
+  every width from 641 to 920 was a bar that did not fit and a document with
+  a horizontal scrollbar. The breakpoint is 960px.
+
 ### Changed
 
 - **Geometry has its portrait back.** The orbit no longer replaces the photo;
   it frames it — the portrait is a disc in the inner ring, and drifts.
 - **Paper's separator is a strip of kraft tape**: surface-coloured, sepia
-  cross-hatch, pencil-dashed edges with the theme's hard offset, rust pins.
-  The shared hatch over Paper's own laid lines was moiré in no palette.
+  cross-hatch, pencil-dashed edges with the theme's hard offset, rust
+  registration marks. The shared hatch over Paper's own laid lines was moiré
+  in no palette. (The tape covers the column rather than the viewport, and
+  its marks are squares like every other theme's — see Fixed, above.)
 
 ### Removed
 
