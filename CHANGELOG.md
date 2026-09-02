@@ -14,6 +14,41 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Three themes, and a drafting frame around every page.** The site now
+  ships Geometry (default), Blueprint and Paper, and nothing else — Classic,
+  Nocturne and the short-lived Motion are retired, Instrument Serif with
+  them. Geometry is a near-black drafting board after the reference launch
+  page: hairline cells with `+` crosshairs and `01 /` indices, `//` mono
+  eyebrows, a violet-to-ember sweep on the primary button and the hero's
+  marked phrase, pill buttons and pill nav, a `~/` wordmark, a blinking
+  caret in the theme switch, code blocks framed as terminal windows, a
+  closing cell with the gradient as its top rule, and a wireframe orbit in
+  the hero that slowly turns. Blueprint's grid becomes graph paper (a heavier
+  line every fifth cell), its eyebrows count `§1, §2 …`, its cards are
+  `FIG. 01`, tags are hairline callouts, listings carry a `// listing`
+  register mark, and its closing banner is a navy title block. Paper's
+  eyebrows and figures count too (`§1`, `fig. 1`), its cards are index cards
+  with a double-ruled top, the hero phrase wears a highlighter stroke, tags
+  are pencilled, and the closing band is kraft.
+
+  Between sections, every theme now draws the reference's separator: two
+  vertical rails running the column's full height, a full-bleed hatched band
+  at each boundary, and a small node wherever a rail crosses a rule. One
+  mechanism in the shared layer (`.section-sep`, `SectionSep.astro`), voiced
+  per theme through tokens — solid rails and square nodes on Geometry,
+  dashed rails and rounded squares on Blueprint, pencil-dashed rails and pins
+  on Paper. Rails and nodes stand down below the column width and in print.
+
+### Changed
+
+- **`data-theme` is always on `<html>`.** With no attribute-less theme left,
+  the layouts render the default into the tag, the pre-paint script only
+  corrects it, and `applyTheme` never deletes it. A stored id for a retired
+  theme falls back to the default rather than to a page with no palette.
+  `src/styles/theme.css` is now the base-token sheet — spacing, radii,
+  motion, widths, the grain plumbing and the frame's tokens — and carries no
+  colour of its own.
+
 - **The assistant panel docks, and the page makes room.** The header's
   placement button now shows where the panel *is* — right edge, left edge, or
   floating free, one icon each — and cycles through all three on click; the

@@ -3,18 +3,18 @@ import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import AskWidget from '../components/AskWidget.astro';
 import ThemeHead from '../components/ThemeHead.astro';
-/* Classic's faces: a display serif, a UI sans, and a mono for metadata. */
-import '@fontsource/instrument-serif/400.css';
-import '@fontsource/instrument-serif/400-italic.css';
+/* The three themes' faces. Space Grotesk heads all of them; Inter is
+   Geometry's body, Manrope is Blueprint's and Paper's, JetBrains Mono is the
+   metadata voice everywhere. Declaring an @font-face costs nothing until a
+   rendered element resolves to it, so a visitor only downloads the pair the
+   active theme actually sets. */
 import '@fontsource-variable/inter';
-/* Blueprint's. Declaring the @font-face rules costs nothing until a rendered
-   element actually resolves to one of these families, which only happens under
-   `data-theme="blueprint"` — so Classic visitors never download them. */
 import '@fontsource-variable/space-grotesk';
 import '@fontsource-variable/manrope';
 import '@fontsource-variable/jetbrains-mono';
 import '../styles/global.css';
 import { site, absoluteUrl } from '../lib/site';
+import { DEFAULT_THEME } from '../lib/theme';
 
 interface Props { title?: string; description?: string; image?: string; }
 const siteTitle = `${site.name} Portfolio`;
@@ -27,7 +27,7 @@ const canonicalURL = absoluteUrl(Astro.url.pathname, origin);
 const imageURL = absoluteUrl(image, origin);
 ---
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme={DEFAULT_THEME}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />

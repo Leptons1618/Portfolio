@@ -1,0 +1,47 @@
+<svg viewBox="0 0 400 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    geometry-circuit — a node graph routed on right angles, the way the
+    reference's diagrams route. Token strokes; `geo-dash` marks the two
+    "live" traces the Motion theme sets marching.
+  -->
+  <defs>
+    <linearGradient id="geo-sweep-3" x1="40" y1="150" x2="360" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="var(--color-accent)"/>
+      <stop offset="1" stop-color="var(--color-accent-2)"/>
+    </linearGradient>
+  </defs>
+
+  <!-- traces -->
+  <g stroke="var(--color-neutral-400)" stroke-width="1.25">
+    <path d="M40 70h84l30 30v50h66"/>
+    <path d="M40 230h110l30-30v-40"/>
+    <path d="M360 110h-72l-28 28"/>
+    <path d="M360 230h-58l-32-32"/>
+  </g>
+  <!-- the live traces -->
+  <g stroke="url(#geo-sweep-3)" stroke-width="2" stroke-dasharray="5 7" class="geo-dash">
+    <path d="M220 150h70l28-12"/>
+    <path d="M180 160l-30 30v40"/>
+  </g>
+
+  <!-- nodes -->
+  <g fill="var(--color-bg)" stroke="var(--color-accent)" stroke-width="1.5">
+    <circle cx="40" cy="70" r="5"/>
+    <circle cx="40" cy="230" r="5"/>
+    <circle cx="220" cy="150" r="6"/>
+  </g>
+  <g fill="var(--color-bg)" stroke="var(--color-accent-2)" stroke-width="1.5">
+    <circle cx="360" cy="110" r="5"/>
+    <circle cx="360" cy="230" r="5"/>
+    <circle cx="180" cy="160" r="4"/>
+  </g>
+
+  <!-- the hub: a square node, rotated 45° -->
+  <rect x="246" y="196" width="28" height="28" transform="rotate(45 260 210)" fill="var(--color-surface)" stroke="var(--color-accent)" stroke-width="1.5"/>
+  <circle cx="260" cy="210" r="3" fill="url(#geo-sweep-3)"/>
+
+  <!-- crosshair ticks -->
+  <g stroke="var(--color-neutral-300)" stroke-width="1">
+    <path d="M40 54v-12M40 246v12M360 94v-12M360 246v12M24 70h-12M376 110h12M376 230h12"/>
+  </g>
+</svg>

@@ -1,6 +1,4 @@
 ---
-import '@fontsource/instrument-serif/400.css';
-import '@fontsource/instrument-serif/400-italic.css';
 import '@fontsource-variable/inter';
 import '@fontsource-variable/space-grotesk';
 import '@fontsource-variable/manrope';
@@ -13,6 +11,7 @@ import AdminSidebar from '../components/AdminSidebar.astro';
 import ThemeHead from '../components/ThemeHead.astro';
 import { SIDEBAR_KEY, SIDEBAR_WIDTH, SIDEBAR_WIDTH_KEY, TOAST_HOST_ID } from '../lib/admin';
 import { EXPIRY_KEY, TOKEN_KEY, isConfigured } from '../lib/github';
+import { DEFAULT_THEME } from '../lib/theme';
 
 /* Only gate when the build actually has a GitHub App wired up. An
    unconfigured build (a local checkout, a fork) keeps the screens reachable
@@ -25,7 +24,7 @@ interface Props {
 const { title } = Astro.props;
 ---
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme={DEFAULT_THEME}>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />

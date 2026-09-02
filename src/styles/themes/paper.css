@@ -1,0 +1,484 @@
+/* ==========================================================================
+   Paper — the fourth theme.
+
+   Blueprint's drafting-table system carried onto textured stock: the same
+   24px pencil grid, dashed rules, hard-offset shadows and monospaced
+   metadata, but the ground is warm cream paper — laid lines and fiber grain
+   — rather than a flat cool field. Where Blueprint is vellum on a lightbox,
+   this is the sketchbook page itself.
+
+   Selected at runtime by `data-theme="paper"` on `<html>` (see
+   `src/lib/theme.ts`). Structure mirrors `blueprint.css`:
+
+   1. Token overrides, rebinding what components already read.
+   2. The signature overrides tokens cannot express — the ground texture, the
+      dashed rules, the hard offset shadows, the § eyebrows, the bracketed
+      wordmark.
+
+   Nothing here may be referenced by a page. Pages know about tokens and
+   about the component classes in `global.css`; they never know which theme
+   is on.
+   ========================================================================== */
+
+:root[data-theme='paper'] {
+  color-scheme: light;
+
+  /* Warm cream, not Blueprint's cool #f9f9ff — the paper is the point. */
+  --color-bg: #f7f2e9;
+  --color-surface: #efe7d6;
+  --color-text: #2b2418;
+  --color-accent: #a4451c;
+  --color-accent-2: #443728;
+  --color-divider: #d6c9ab;
+
+  /* Warm neutral ramp — the paper tiers and outlines. */
+  --color-neutral-100: #fffdf7;
+  --color-neutral-200: #faf5ea;
+  --color-neutral-300: #f3ecdc;
+  --color-neutral-400: #e8dfc9;
+  --color-neutral-500: #d6c9ab;
+  --color-neutral-600: #8d8371;
+  --color-neutral-700: #6b6150;
+  --color-neutral-800: #453b2c;
+  --color-neutral-900: #2b2418;
+
+  /* Rust — the single interaction accent, warmed a step from Blueprint's
+     #b52426 to sit on cream. 700 clears 4.5:1 on this ground. */
+  --color-accent-100: #fbf0e6;
+  --color-accent-200: #f6dcc3;
+  --color-accent-300: #efbd97;
+  --color-accent-400: #e69a66;
+  --color-accent-500: #d9773a;
+  --color-accent-600: #b85a20;
+  --color-accent-700: #a4451c;
+  --color-accent-800: #7f3312;
+  --color-accent-900: #55220b;
+
+  /* Sepia — secondary emphasis, and the ink the hard shadows are cast in. */
+  --color-accent-2-100: #f5f1e8;
+  --color-accent-2-200: #e7dfcc;
+  --color-accent-2-300: #cfc2a3;
+  --color-accent-2-400: #a89b7c;
+  --color-accent-2-500: #7f7258;
+  --color-accent-2-600: #5d5138;
+  --color-accent-2-700: #443728;
+  --color-accent-2-800: #2f2518;
+  --color-accent-2-900: #1f1810;
+
+  --font-heading: 'Space Grotesk Variable', 'Space Grotesk', system-ui, sans-serif;
+  --font-heading-weight: 700;
+  --font-body: 'Manrope Variable', 'Manrope', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 8px;
+
+  /* Hard offset shadows, cast in sepia ink — a sheet lying on the desk. */
+  --shadow-sm: 2px 2px 0 0 var(--color-neutral-500);
+  --shadow-md: 2px 2px 0 0 var(--color-neutral-800);
+  --shadow-lg: 4px 4px 0 0 var(--color-accent-2-800);
+
+  --color-text-muted: color-mix(in srgb, var(--color-text) 65%, transparent);
+  --color-text-faint: color-mix(in srgb, var(--color-text) 55%, transparent);
+
+  /* The 24px pencil grid, plus the laid-paper lines — the two layers of the
+     ground. Both tokens so the dark ramp can redraw them in light. */
+  --grid-step: 24px;
+  --grid-ink: color-mix(in srgb, var(--color-text) 5%, transparent);
+  --laid-ink: color-mix(in srgb, var(--color-text) 3%, transparent);
+
+  /* More fiber than Classic's ivory: the grain is the paper here. */
+  --grain-opacity: 0.055;
+}
+
+@media screen {
+
+:root[data-theme='paper'][data-mode='dark'] {
+  color-scheme: dark;
+
+  /* The desk at night: warm dark, not Blueprint's navy. Cards step up to
+     kraft, text to bone. */
+  --color-bg: #16110c;
+  --color-surface: #221b13;
+  --color-text: #ede4d3;
+  --color-accent: #e69a66;
+  --color-accent-2: #cbbc9d;
+  --color-divider: #3a2f22;
+
+  --color-neutral-100: #1c1610;
+  --color-neutral-200: #211a12;
+  --color-neutral-300: #221b13;
+  --color-neutral-400: #3a2f22;
+  --color-neutral-500: #4d3f2e;
+  --color-neutral-600: #7d6f5a;
+  --color-neutral-700: #a99b82;
+  --color-neutral-800: #d4c8b2;
+  --color-neutral-900: #ede4d3;
+
+  --color-accent-100: #2a1a0e;
+  --color-accent-200: #3a2413;
+  --color-accent-300: #5c3117;
+  --color-accent-400: #8a4517;
+  --color-accent-500: #b85a20;
+  --color-accent-600: #d9773a;
+  --color-accent-700: #e69a66;
+  --color-accent-800: #efbd97;
+  --color-accent-900: #f6dcc3;
+
+  --color-accent-2-100: #211a12;
+  --color-accent-2-200: #2c2317;
+  --color-accent-2-300: #443728;
+  --color-accent-2-400: #5d5138;
+  --color-accent-2-500: #7f7258;
+  --color-accent-2-600: #a89b7c;
+  --color-accent-2-700: #cbbc9d;
+  --color-accent-2-800: #cfc2a3;
+  --color-accent-2-900: #e7dfcc;
+
+  /* Hard offsets need ink visible against the dark ground. */
+  --shadow-sm: 2px 2px 0 0 var(--color-neutral-500);
+  --shadow-md: 2px 2px 0 0 var(--color-neutral-600);
+  --shadow-lg: 4px 4px 0 0 var(--color-accent-2-500);
+
+  --grid-ink: color-mix(in srgb, var(--color-text) 7%, transparent);
+  --laid-ink: color-mix(in srgb, var(--color-text) 4%, transparent);
+  --grain-opacity: 0.07;
+}
+
+} /* @media screen — the dark ramp is a screen palette. See above. */
+
+@media screen and (prefers-color-scheme: dark) {
+  :root[data-theme='paper']:not([data-mode='light']) {
+    color-scheme: dark;
+
+    --color-bg: #16110c;
+    --color-surface: #221b13;
+    --color-text: #ede4d3;
+    --color-accent: #e69a66;
+    --color-accent-2: #cbbc9d;
+    --color-divider: #3a2f22;
+
+    --color-neutral-100: #1c1610;
+    --color-neutral-200: #211a12;
+    --color-neutral-300: #221b13;
+    --color-neutral-400: #3a2f22;
+    --color-neutral-500: #4d3f2e;
+    --color-neutral-600: #7d6f5a;
+    --color-neutral-700: #a99b82;
+    --color-neutral-800: #d4c8b2;
+    --color-neutral-900: #ede4d3;
+
+    --color-accent-100: #2a1a0e;
+    --color-accent-200: #3a2413;
+    --color-accent-300: #5c3117;
+    --color-accent-400: #8a4517;
+    --color-accent-500: #b85a20;
+    --color-accent-600: #d9773a;
+    --color-accent-700: #e69a66;
+    --color-accent-800: #efbd97;
+    --color-accent-900: #f6dcc3;
+
+    --color-accent-2-100: #211a12;
+    --color-accent-2-200: #2c2317;
+    --color-accent-2-300: #443728;
+    --color-accent-2-400: #5d5138;
+    --color-accent-2-500: #7f7258;
+    --color-accent-2-600: #a89b7c;
+    --color-accent-2-700: #cbbc9d;
+    --color-accent-2-800: #cfc2a3;
+    --color-accent-2-900: #e7dfcc;
+
+    --shadow-sm: 2px 2px 0 0 var(--color-neutral-500);
+    --shadow-md: 2px 2px 0 0 var(--color-neutral-600);
+    --shadow-lg: 4px 4px 0 0 var(--color-accent-2-500);
+
+    --grid-ink: color-mix(in srgb, var(--color-text) 7%, transparent);
+    --laid-ink: color-mix(in srgb, var(--color-text) 4%, transparent);
+    --grain-opacity: 0.07;
+  }
+}
+
+/* == Signature overrides ===================================================
+   What the ground texture and the drafting look demand that tokens cannot
+   express. Everything below is scoped to `[data-theme='paper']` so it dies
+   the moment the theme is switched away. `@media screen` throughout — the
+   texture and shadows are presentation; print keeps the plain palette.
+   ========================================================================== */
+
+/* The drafting frame in this theme's voice: pencil-dashed rules, a soft
+   graphite hatch, and round nodes — pins through the sheet rather than
+   registration squares. Outside `@media screen` because they are tokens the
+   frame reads, and the frame already knows to stand down for print. */
+:root[data-theme='paper'] {
+  --rule-style: dashed;
+  --rail-ink: var(--color-divider);
+  --hatch-ink: color-mix(in srgb, var(--color-text) 9%, transparent);
+  --hatch-step: 7px;
+  --node-size: 9px;
+  --node-radius: 50%;
+  --sep-height: 64px;
+}
+
+@media screen {
+
+/* --- The ground: laid paper + fiber, behind the grain overlay ------------ */
+
+:root[data-theme='paper'] body {
+  background-image:
+    /* Laid lines: fine vertical rulings, like molded paper. */
+    repeating-linear-gradient(
+      90deg,
+      var(--laid-ink) 0 1px,
+      transparent 1px 6px
+    ),
+    /* The drafting grid, softer than Blueprint's. */
+    repeating-linear-gradient(
+      0deg,
+      var(--grid-ink) 0 1px,
+      transparent 1px var(--grid-step)
+    ),
+    repeating-linear-gradient(
+      90deg,
+      var(--grid-ink) 0 1px,
+      transparent 1px var(--grid-step)
+    );
+}
+
+/* --- Eyebrows: numbered § clauses, mono -------------------------------- */
+
+:root[data-theme='paper'] .eyebrow {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: none;
+  color: var(--color-accent-700);
+}
+
+/* `§1`, `§2` … from the counter the shared layer increments — a manuscript
+   numbers its sections in the margin. The sepia step, so the mark is the
+   pencil and the label is the ink. */
+:root[data-theme='paper'] .eyebrow::before {
+  content: '§' counter(section) ' ';
+  color: var(--color-accent-2-500);
+}
+
+:root[data-theme='paper'] .prose .eyebrow::before {
+  content: none;
+}
+
+/* Figures are captioned the way a sketchbook captions them: lower-case,
+   `fig. 3 ·`, ahead of whatever the card already says. */
+:root[data-theme='paper'] .card-kicker {
+  font-family: var(--font-mono);
+}
+
+:root[data-theme='paper'] .card-kicker::before {
+  content: 'fig. ' counter(figure) ' · ';
+  color: var(--color-text-faint);
+}
+
+:root[data-theme='paper'] .card-meta,
+:root[data-theme='paper'] figcaption {
+  font-family: var(--font-mono);
+}
+
+/* --- Wordmark: bracketed, mono ------------------------------------------- */
+
+:root[data-theme='paper'] .nav-brand {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+:root[data-theme='paper'] .nav-brand::before { content: '['; color: var(--color-accent-700); }
+:root[data-theme='paper'] .nav-brand::after  { content: ']'; color: var(--color-accent-700); }
+
+/* --- Rules: dashed, like cut lines, everywhere the shared layer draws one -- */
+
+:root[data-theme='paper'] .hr {
+  height: 0;
+  background: none;
+  border-top: 1px dashed var(--color-divider);
+}
+
+:root[data-theme='paper'] .rule { border-top-style: dashed; }
+:root[data-theme='paper'] .nav { border-bottom: 1px dashed var(--color-divider); }
+:root[data-theme='paper'] .nav a[aria-current='page'] { text-decoration-style: dashed; text-decoration-thickness: 1px; }
+:root[data-theme='paper'] .prose blockquote { border-left-style: dashed; }
+:root[data-theme='paper'] .prose th { border-bottom: 1px dashed var(--color-divider); }
+:root[data-theme='paper'] .prose td { border-bottom-style: dashed; }
+
+/* --- Cards: index cards ---------------------------------------------------
+   A sheet a step lighter than the ground, a pencil border, a hard offset —
+   and a double rule along the top, the ruled header line of an index card,
+   so the stack reads as a card file rather than as panels. */
+
+:root[data-theme='paper'] .card {
+  background: var(--color-neutral-100);
+  border: 1px solid var(--color-neutral-400);
+  border-top: 3px double var(--color-neutral-500);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme='paper'] a.card {
+  transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+
+:root[data-theme='paper'] a.card:hover {
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-accent-400);
+  border-top-color: var(--color-accent-400);
+  transform: translate(-2px, -2px);
+}
+
+/* --- Tags: pencilled labels ------------------------------------------------ */
+
+:root[data-theme='paper'] .tag {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  border: 1px dashed var(--color-neutral-500);
+  border-radius: var(--radius-sm);
+  background: var(--color-neutral-100);
+}
+
+:root[data-theme='paper'] .tag-accent { border-color: var(--color-accent-400); }
+:root[data-theme='paper'] .tag-accent-2 { border-color: var(--color-accent-2-400); }
+
+/* --- Hero: the marked phrase is a highlighter stroke -----------------------
+   A band of accent tint under the lower two-thirds of the words, the way a
+   marker sits on a printed line — no border, no box. The nowrap the page sets
+   is left alone. */
+
+:root[data-theme='paper'] .hero .highlight {
+  color: var(--color-text);
+  border: 0;
+  padding: 0 4px;
+  background: linear-gradient(transparent 38%, var(--color-accent-200) 38%, var(--color-accent-200) 92%, transparent 92%);
+}
+
+/* --- Buttons: squared, hard offset, rust --------------------------------- */
+
+:root[data-theme='paper'] .btn {
+  border-radius: var(--radius-sm);
+}
+
+:root[data-theme='paper'] .btn-primary,
+:root[data-theme='paper'] .btn-secondary {
+  box-shadow: var(--shadow-sm);
+  transition:
+    background-position 0.3s ease-in-out,
+    border-color 0.3s ease-in-out,
+    box-shadow 0.1s ease,
+    transform 0.1s ease,
+    background-color 0.15s ease;
+}
+
+:root[data-theme='paper'] .btn-secondary {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  background: var(--color-neutral-100);
+  border-color: var(--color-neutral-600);
+}
+
+:root[data-theme='paper'] .btn-secondary:hover:not(:disabled) {
+  background: var(--color-neutral-200);
+  border-color: var(--color-neutral-800);
+  box-shadow: var(--shadow-md);
+}
+
+:root[data-theme='paper'] .btn-primary:hover {
+  box-shadow: var(--shadow-md);
+}
+
+/* The press: the shadow collapses and the button moves the same 2px, so the
+   displacement is conserved and it reads as pressed into the paper. */
+:root[data-theme='paper'] .btn-primary:active,
+:root[data-theme='paper'] .btn-secondary:active:not(:disabled) {
+  box-shadow: none;
+  transform: translate(2px, 2px);
+}
+
+/* --- Links: rust, pencil-thin underline ---------------------------------- */
+
+:root[data-theme='paper'] a:not([class]) {
+  text-decoration-color: var(--color-accent-300);
+  text-underline-offset: 3px;
+}
+
+:root[data-theme='paper'] a:not([class]):hover {
+  text-decoration-color: var(--color-accent-700);
+}
+
+/* --- Code blocks: a pasted-in listing --------------------------------------
+   A lighter sheet with a dashed pencil border and the hard offset, as if a
+   printout had been glued onto the page. */
+
+:root[data-theme='paper'] .prose pre {
+  background: var(--color-neutral-100);
+  border: 1px dashed var(--color-neutral-500);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme='paper'] .prose :not(pre) > code {
+  background: var(--color-neutral-200);
+  border: 1px solid var(--color-neutral-400);
+  border-radius: var(--radius-sm);
+}
+
+/* --- The closing banner: kraft ---------------------------------------------
+   Sepia rather than rust. A field of the interaction colour would make the
+   one solid panel on the page shout in the voice reserved for "click here";
+   the brown-paper band keeps the sketchbook's materials and leaves the rust
+   to the actions on it. */
+
+html[data-theme='paper'] .closing-banner {
+  background: var(--color-accent-2-800);
+  color: var(--color-neutral-100);
+  border-top: 1px dashed var(--color-accent-2-500);
+  border-bottom: 1px dashed var(--color-accent-2-500);
+}
+
+html[data-theme='paper'] .btn-on-accent {
+  background: var(--color-neutral-100);
+  color: var(--color-accent-2-800);
+  box-shadow: 2px 2px 0 0 var(--color-accent-2-900);
+}
+
+html[data-theme='paper'] .btn-on-accent:hover {
+  background: var(--color-neutral-200);
+  color: var(--color-accent-2-900);
+}
+
+html[data-theme='paper'] .btn-on-accent-outline {
+  border-color: var(--color-neutral-100);
+  color: var(--color-neutral-100);
+}
+
+html[data-theme='paper'] .btn-on-accent-outline:hover {
+  background: color-mix(in srgb, var(--color-neutral-100) 14%, transparent);
+  color: var(--color-neutral-100);
+}
+
+/* --- Footer: sepia hairline, mono copy ------------------------------------- */
+
+html[data-theme='paper'] .site-footer {
+  border-top: 1px dashed var(--color-divider);
+}
+
+html[data-theme='paper'] .footer-copy {
+  font-family: var(--font-mono);
+}
+
+/* --- The theme switch, in the theme's own voice ---------------------------- */
+
+:root[data-theme='paper'] .theme-toggle {
+  font-family: var(--font-mono);
+  border-color: var(--color-divider);
+}
+
+} /* @media screen */

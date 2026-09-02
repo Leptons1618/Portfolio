@@ -1,83 +1,29 @@
 /* ==========================================================================
-   Classic — the default theme, and the one every component is measured in.
+   Base tokens — what every theme shares, and nothing any theme decides.
 
-   Ported from the `design/classic-theme-old-repo` branch's `tokens.css`. Ivory
-   paper and ink, set in Instrument Serif over Inter, with a terracotta accent
-   and a faint grain. It replaced Modernist, whose flat #f3f2f2 ground and
-   Archivo-everything are gone from the repository — see decision 38.
+   This file used to be a theme (Classic: ivory, Instrument Serif, terracotta)
+   and the attribute-less default. It is now the floor the three themes stand
+   on: spacing, radii, motion, page widths, the grain plumbing and the section
+   geometry hooks. Every *colour* and *font* lives in `src/styles/themes/*.css`,
+   selected by `data-theme` on `<html>` — an attribute the layouts always
+   render (see `src/lib/theme.ts`), so there is no palette here to fall back
+   to and none is needed.
 
    Two axes, and they are independent:
 
-     `data-theme`  which palette family        (absent = classic)
+     `data-theme`  which palette family        (always present)
      `data-mode`   light or dark within it     (absent = follow the OS)
 
-   That is why the dark ramp below is written twice. `data-mode` is absent
-   until someone presses the switch, and a visitor whose OS is dark expects a
-   dark page on arrival — so the media query carries the default and the
-   attribute overrides it in both directions. A single
-   `@media (prefers-color-scheme: dark)` block would leave "force light on a
-   dark OS" unexpressable; a single `[data-mode='dark']` block would leave a
-   dark-OS visitor staring at ivory until they found the toggle.
+   Each theme file writes its dark ramp twice for the second axis: `data-mode`
+   is absent until someone presses the switch, and a visitor whose OS is dark
+   expects a dark page on arrival — so a media query carries the default and
+   the attribute overrides it in both directions.
 
    Take every colour, font, spacing, radius and shadow from these variables;
    never hard-code a hex, a font name or a px value a token already carries.
    ========================================================================== */
 
 :root {
-  color-scheme: light;
-
-  --color-bg: #fcfbf8;
-  --color-surface: #f5f2ea;
-  --color-text: #151310;
-  --color-accent: #b4501e;
-  --color-accent-2: #3d6b6b;
-  --color-divider: #e6e1d6;
-
-  /* Tonal ramps — 100 (lightest) through 900 (ink), one shared lightness
-     scale, so the same step of any role matches the others in visual value.
-     Use 100–300 for tinted fills and subtle borders, 500 as the role's base,
-     700–900 for text on tinted fills and for pressed states. */
-  --color-neutral-100: #ffffff;
-  --color-neutral-200: #f7f5ef;
-  --color-neutral-300: #efebe1;
-  --color-neutral-400: #e6e1d6;
-  --color-neutral-500: #d3ccbc;
-  --color-neutral-600: #a49c8c;
-  --color-neutral-700: #6b6558;
-  --color-neutral-800: #453f35;
-  --color-neutral-900: #151310;
-
-  /* Terracotta — the single interaction accent. 700 is the step body-size
-     links use, and it clears 4.5:1 on this ground. */
-  --color-accent-100: #fdf3ee;
-  --color-accent-200: #f8e2d6;
-  --color-accent-300: #f0c3ab;
-  --color-accent-400: #e39a72;
-  --color-accent-500: #cf6c36;
-  --color-accent-600: #b4501e;
-  --color-accent-700: #934015;
-  --color-accent-800: #6e2f10;
-  --color-accent-900: #48200c;
-
-  /* Verdigris — secondary emphasis. Cool against the terracotta, and the one
-     colour on the page that is not a warm neutral or the accent. */
-  --color-accent-2-100: #eef5f4;
-  --color-accent-2-200: #d5e6e4;
-  --color-accent-2-300: #accfcb;
-  --color-accent-2-400: #7fb0ab;
-  --color-accent-2-500: #558c88;
-  --color-accent-2-600: #3d6b6b;
-  --color-accent-2-700: #2f5455;
-  --color-accent-2-800: #223e3f;
-  --color-accent-2-900: #16292a;
-
-  --font-heading: 'Instrument Serif', 'Iowan Old Style', Georgia, serif;
-  /* 400, not 800. Instrument Serif ships one weight and a display serif set
-     in a faked bold is the single fastest way to make this look cheap. */
-  --font-heading-weight: 400;
-  --font-body: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
-
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -85,32 +31,20 @@
   --space-6: 24px;
   --space-8: 32px;
 
+  /* Radii and elevation have theme-neutral fallbacks so a component reads
+     something sane while a theme sheet is still resolving; every theme
+     overrides all six. */
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 14px;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
 
-  /* Elevation — blurred and ink-tinted, so a card reads as paper lifted off
-     the desk rather than as a block with an outline. */
-  --shadow-sm: 0 1px 2px rgba(38, 30, 16, 0.05);
-  --shadow-md: 0 4px 14px rgba(38, 30, 16, 0.07), 0 1px 3px rgba(38, 30, 16, 0.04);
-  --shadow-lg: 0 20px 50px rgba(38, 30, 16, 0.11), 0 5px 14px rgba(38, 30, 16, 0.05);
-
-  /* How much of the grain overlay shows. A token so the dark ramp can lift it
-     — the same noise is invisible on ink at the value that reads on ivory. */
-  --grain-opacity: 0.032;
-
-  /* Derived convenience tokens — the same values the component layer's
-     `.text-muted` and `figcaption` rules would otherwise compute inline, named
-     so page-level scoped styles can reference them instead of repeating a
-     `color-mix`. Real ramp steps rather than a mix of `--color-text`, because
-     a mix against a dark ground goes the wrong way. */
-  --color-text-muted: var(--color-neutral-700);
-  /* Literal steps rather than ramp references. Neutral-600 was the obvious
-     pick and fails WCAG where faint is actually used — 11px card metadata on
-     the surface — at 2.43:1 light. #756d5e holds 4.57:1 on the surface and
-     4.94:1 on the ground while staying lighter than neutral-700, which is
-     what keeps "faint" quieter than "muted". */
-  --color-text-faint: #756d5e;
+  /* How much of the grain overlay shows. Zero by default — Paper is the one
+     theme whose ground *is* the fibre, and it raises this; the other two draw
+     their own ground and hide the layer outright. */
+  --grain-opacity: 0;
 
   /* Motion. One easing for anything that travels (the reveal, an arrow
      nudging on hover) and one for anything that only changes colour.
@@ -128,155 +62,31 @@
   --wrap-mid: 900px;
   --wrap-resume: 820px;
   --wrap-prose: 720px;
+
+  /* Section geometry — the drafting frame `global.css` draws around the page:
+     two vertical rails at the column edges, a hatched band between sections,
+     and a small node wherever a rail crosses a rule. The frame is one
+     mechanism; these tokens are how a theme gives it a voice. `--rule-style`
+     is what Blueprint and Paper set to `dashed`; `--rail-ink` is the rails'
+     colour and `transparent` switches them off; `--node-radius` is 50% for
+     Paper's pins and 0 for the square markers the reference draws. */
+  --rule-style: solid;
+  --rail-ink: var(--color-divider);
+  --hatch-ink: color-mix(in srgb, var(--color-divider) 70%, transparent);
+  --hatch-step: 9px;
+  --node-size: 10px;
+  --node-radius: 0;
+  --sep-height: 64px;
 }
 
 /* --------------------------------------------------------------------------
-   Classic, dark. Same design lit differently: the ramp inverts, the accent
-   warms to amber so it still reads at 4.5:1 on ink, and the grain lifts.
+   The grain layer.
 
-   Written as one custom-property block used by two selectors. Everything the
-   `@media` version does, the `[data-mode='dark']` version has to do too — the
-   attribute has to win over a light OS, and `:not([data-mode='light'])` is
-   what keeps the media query from winning over a deliberate choice.
-
-   **Both are inside `@media screen`, and that is load-bearing.** Paper has no
-   dark mode. Without it, a visitor reading in dark who presses Download PDF
-   gets a sheet whose every token is the dark ramp: `--color-text-muted`
-   resolves to a *light* neutral, so the summary, the dates, the skill values
-   and the section headings print as pale grey on white — and with "Background
-   graphics" ticked, which is how anyone who wants the accent prints, the whole
-   page is ink. The resume's print block hard-codes a few colours over the top
-   of this, which is the same instinct arriving too late and only for the four
-   selectors somebody thought of.
-
-   `data-mode` still does everything it did; it simply stops being consulted
-   once the medium is paper, and `:root`'s light palette is what a printer gets.
-   -------------------------------------------------------------------------- */
-
-@media screen {
-
-:root:not([data-theme])[data-mode='dark'],
-:root[data-theme='classic'][data-mode='dark'] {
-  color-scheme: dark;
-
-  --color-bg: #0c0b09;
-  --color-surface: #171513;
-  --color-text: #f6f3ec;
-  --color-accent: #dd8a5b;
-  --color-accent-2: #7fb0ab;
-  --color-divider: #292520;
-
-  --color-neutral-100: #0c0b09;
-  --color-neutral-200: #141210;
-  --color-neutral-300: #1a1715;
-  --color-neutral-400: #292520;
-  --color-neutral-500: #3a352d;
-  --color-neutral-600: #6a6459;
-  --color-neutral-700: #9a9284;
-  --color-neutral-800: #cfc8ba;
-  --color-neutral-900: #f6f3ec;
-
-  /* Declared here rather than inherited from `:root`: faint is a literal
-     colour now, and a literal does not re-resolve the way a ramp reference
-     did. Muted still points at neutral-700 above, so it needs no repeat. */
-  --color-text-muted: var(--color-neutral-700);
-  /* Same reasoning as the light block: neutral-600 read at 3.10:1 on the dark
-     surface. #8b8477 holds 4.91:1 there and 5.31:1 on the ground, still
-     lighter than the muted step above it. */
-  --color-text-faint: #8b8477;
-
-  --color-accent-100: #241610;
-  --color-accent-200: #3a2216;
-  --color-accent-300: #5c3620;
-  --color-accent-400: #8a5230;
-  --color-accent-500: #b4692f;
-  --color-accent-600: #cd7d47;
-  --color-accent-700: #dd8a5b;
-  --color-accent-800: #eda275;
-  --color-accent-900: #f6c6a5;
-
-  --color-accent-2-100: #16292a;
-  --color-accent-2-200: #1d3637;
-  --color-accent-2-300: #2f5455;
-  --color-accent-2-400: #427373;
-  --color-accent-2-500: #558c88;
-  --color-accent-2-600: #6ba09c;
-  --color-accent-2-700: #7fb0ab;
-  --color-accent-2-800: #a4c8c4;
-  --color-accent-2-900: #cbdedb;
-
-  --grain-opacity: 0.05;
-
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.42), 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.5), 0 5px 14px rgba(0, 0, 0, 0.34);
-}
-
-} /* @media screen — the dark ramp is a screen palette. See above. */
-
-@media screen and (prefers-color-scheme: dark) {
-  :root:not([data-theme]):not([data-mode='light']),
-  :root[data-theme='classic']:not([data-mode='light']) {
-    color-scheme: dark;
-
-    --color-bg: #0c0b09;
-    --color-surface: #171513;
-    --color-text: #f6f3ec;
-    --color-accent: #dd8a5b;
-    --color-accent-2: #7fb0ab;
-    --color-divider: #292520;
-
-    --color-neutral-100: #0c0b09;
-    --color-neutral-200: #141210;
-    --color-neutral-300: #1a1715;
-    --color-neutral-400: #292520;
-    --color-neutral-500: #3a352d;
-    --color-neutral-600: #6a6459;
-    --color-neutral-700: #9a9284;
-    --color-neutral-800: #cfc8ba;
-    --color-neutral-900: #f6f3ec;
-
-    /* Same pair, same reasoning — this block is the OS-following dark path
-       and must not fall back to the light literals in `:root`. */
-    --color-text-muted: var(--color-neutral-700);
-    --color-text-faint: #8b8477;
-
-    --color-accent-100: #241610;
-    --color-accent-200: #3a2216;
-    --color-accent-300: #5c3620;
-    --color-accent-400: #8a5230;
-    --color-accent-500: #b4692f;
-    --color-accent-600: #cd7d47;
-    --color-accent-700: #dd8a5b;
-    --color-accent-800: #eda275;
-    --color-accent-900: #f6c6a5;
-
-    --color-accent-2-100: #16292a;
-    --color-accent-2-200: #1d3637;
-    --color-accent-2-300: #2f5455;
-    --color-accent-2-400: #427373;
-    --color-accent-2-500: #558c88;
-    --color-accent-2-600: #6ba09c;
-    --color-accent-2-700: #7fb0ab;
-    --color-accent-2-800: #a4c8c4;
-    --color-accent-2-900: #cbdedb;
-
-    --grain-opacity: 0.05;
-
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.42), 0 1px 3px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 20px 50px rgba(0, 0, 0, 0.5), 0 5px 14px rgba(0, 0, 0, 0.34);
-  }
-}
-
-/* --------------------------------------------------------------------------
-   The one signature this theme has that tokens cannot express.
-
-   A fixed noise layer over the whole viewport at 3% — enough to stop a large
-   ivory field reading as a flat #fff rectangle, not enough to see if you look
-   for it. Fixed rather than scrolling so it behaves like paper stock and not
-   like a texture printed on the content, and `pointer-events: none` so it
-   never eats a click.
+   A fixed noise layer over the whole viewport, faded by `--grain-opacity` —
+   enough to stop a large flat field reading as a rectangle of one hex, not
+   enough to see if you look for it. Fixed rather than scrolling so it behaves
+   like paper stock and not like a texture printed on the content, and
+   `pointer-events: none` so it never eats a click.
 
    The data URI is an SVG feTurbulence, which is the one case in this
    repository where a data URI is correct: it carries no colour of its own —

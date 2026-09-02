@@ -1,0 +1,14 @@
+---
+/**
+ * A section boundary: the full-bleed hatched band, with rails and corner
+ * nodes, that the drafting frame in `global.css` draws between one section
+ * and the next.
+ *
+ * A component rather than a rule on `.section + .section` because the page
+ * knows where its boundaries are and the stylesheet does not — a hero, a
+ * filter bar and a results grid are three sections or two depending on what
+ * the page means, and only the page can say. It carries no content and no
+ * meaning, so it is hidden from assistive technology outright.
+ */
+---
+<div class="section-sep" aria-hidden="true"><div class="section-sep-inner"></div></div>
