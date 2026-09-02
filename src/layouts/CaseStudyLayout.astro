@@ -1,6 +1,7 @@
 ---
 import BaseLayout from './BaseLayout.astro';
 import Tag from '../components/Tag.astro';
+import { Icon } from 'astro-icon/components';
 import { formatDate } from '../lib/format';
 
 /** A neighbouring case study in the prev/next footer. */
@@ -24,9 +25,25 @@ const {
   <article class="container case-study">
     <a class="btn btn-ghost back-link" href="/projects">← Back to Projects</a>
 
-    <header class="cs-head">
+    <header class="cs-head" data-reveal>
       {heroVideo
-        ? <div class="grayscale cs-hero"><video src={heroVideo} autoplay muted loop playsinline></video></div>
+        ? <div class="cs-hero cs-hero-media">
+            {/* Autoplay is a decision the visitor's motion preference gets to
+                make, not one the markup makes for them: the attribute is set
+                from script only when `prefers-reduced-motion` allows it, and
+                a looping hero is exactly the kind of motion that preference
+                exists to stop. The pause control is rendered either way —
+                anything that plays for more than a few seconds owes the
+                visitor a visible way to stop it. Without JavaScript the
+                video simply never plays and the control never appears.
+                `grayscale` sits on the video, not the wrapper, so the filter
+                never greys out the control sitting on top of it. */}
+            <video class="grayscale" src={heroVideo} poster={heroImage} muted loop playsinline preload="metadata"></video>
+            <button type="button" class="cs-video-toggle" id="cs-video-toggle" hidden>
+              <span class="cs-video-face" data-icon="pause"><Icon name="lucide:pause" class="cs-video-icon" /></span>
+              <span class="cs-video-face" data-icon="play" hidden><Icon name="lucide:play" class="cs-video-icon" /></span>
+            </button>
+          </div>
         : heroImage
           ? <div class="grayscale cs-hero"><img src={heroImage} alt={title} /></div>
           : null}
@@ -104,6 +121,61 @@ const {
     )}
   </article>
 </BaseLayout>
+<script>
+  /* The hero video's contract with the visitor: it plays only if their OS
+     says motion is welcome, and a visible control stops it either way.
+
+     `autoplay` was removed from the markup on purpose. The attribute starts
+     playing regardless of `prefers-reduced-motion`, and a looping showreel is
+     precisely the vestibular motion that preference exists to stop. Setting
+     the attribute from script keeps the no-JS story clean — without it, the
+     video sits on its poster frame and nothing moves. */
+  const toggle = document.getElementById('cs-video-toggle') as HTMLButtonElement | null;
+  const found = document.querySelector('.cs-hero-media video');
+  /* Aliased to a definitely-non-null const: the functions below close over
+     it, and TypeScript will not carry an `instanceof` narrowing into them —
+     the same aliasing `AskWidget` does for its mounted root. */
+  const video = found instanceof HTMLVideoElement ? found : null;
+
+  if (toggle && video) {
+    const allowAutoplay = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (allowAutoplay) video.setAttribute('autoplay', '');
+
+    const icons = toggle.querySelectorAll<HTMLElement>('[data-icon]');
+    /* An arrow bound after the guard, not a hoisted declaration: TypeScript
+       will not carry the null narrowing into a hoisted function it cannot
+       order against the check. */
+    const paint = () => {
+      icons.forEach(icon => {
+        icon.hidden = icon.dataset.icon !== (video.paused ? 'play' : 'pause');
+      });
+      /* The label names what pressing does next, not the current state. */
+      toggle.setAttribute('aria-label', video.paused ? 'Play video' : 'Pause video');
+      toggle.title = video.paused ? 'Play video' : 'Pause video';
+    };
+
+    /* Shown once there is something to control — a failed or unsupported
+       source never surfaces a dead button. */
+    const showToggle = () => { toggle.hidden = false; };
+    if (video.autoplay) {
+      video.addEventListener('playing', showToggle, { once: true });
+      video.play().catch(() => {
+        /* Autoplay refused; surface the control so the choice stays theirs. */
+        showToggle();
+      });
+    } else {
+      showToggle();
+    }
+
+    toggle.addEventListener('click', () => {
+      if (video.paused) void video.play();
+      else video.pause();
+    });
+    video.addEventListener('play', paint);
+    video.addEventListener('pause', paint);
+    paint();
+  }
+</script>
 <style>
   .case-study { padding-top: var(--space-6); padding-bottom: var(--space-8); }
   .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
@@ -118,6 +190,75 @@ const {
 
   .cs-hero { margin-bottom: var(--space-4); }
   .cs-hero img, .cs-hero video { width: 100%; height: 360px; object-fit: cover; }
+
+  /* The video block is the positioning context for its control. */
+  .cs-hero-media { position: relative; }
+
+  /* — the video's pause/play control —
+
+     A looping hero owes a visible stop. Bottom-right, where a duration stamp
+     would sit on a journal card; ink ground so it reads on any frame; sized
+     past the touch floor because it is the only control on the media. */
+  .cs-video-toggle {
+    position: absolute;
+    right: var(--space-3);
+    bottom: var(--space-3);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    cursor: pointer;
+    color: var(--color-bg);
+    background: color-mix(in srgb, var(--color-text) 72%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-text) 40%, transparent);
+    border-radius: var(--radius-md);
+  }
+  .cs-video-toggle:hover {
+    background: color-mix(in srgb, var(--color-text) 85%, transparent);
+  }
+  .cs-video-icon { width: 18px; height: 18px; }
+
+  /* The two faces share one grid cell and hand over through `hidden`, the
+     same pattern the Ask send button's icons use. The keyframe greets the
+     incoming face whenever it becomes displayed — the same grammar as the
+     mode toggle's glyph hand-over: scale, opacity and blur, no dependency. */
+  .cs-video-toggle {
+    display: inline-grid;
+    place-items: center;
+  }
+  .cs-video-face {
+    grid-area: 1 / 1;
+    display: inline-flex;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .cs-video-face:not([hidden]) {
+      animation: cs-video-face-in 180ms cubic-bezier(0.2, 0, 0, 1);
+    }
+  }
+  @keyframes cs-video-face-in {
+    from {
+      opacity: 0;
+      scale: 0.6;
+      filter: blur(3px);
+    }
+  }
+
+  /* The control's own arrival, played when `hidden` drops: a small rise, the
+     same invitation the Ask launcher makes — it is a control appearing on
+     media, not an entrance. */
+  @media (prefers-reduced-motion: no-preference) {
+    .cs-video-toggle:not([hidden]) {
+      animation: cs-video-toggle-in var(--dur-fast) var(--ease-out);
+    }
+  }
+  @keyframes cs-video-toggle-in {
+    from {
+      opacity: 0;
+      translate: 0 6px;
+    }
+  }
 
   /* Heading left, body right — the mockup's specification layout. */
   .cs-split {
@@ -157,10 +298,11 @@ const {
     padding-top: var(--space-4);
     border-top: 1px solid var(--color-divider);
   }
-  .cs-nav-link { display: flex; flex-direction: column; gap: 2px; max-width: 45%; text-decoration: none; font-size: 13px; }
+  .cs-nav-link { display: flex; flex-direction: column; gap: 2px; max-width: 45%; text-decoration: none; font-size: 13px; overflow-wrap: anywhere; }
   .cs-nav-link span { font-size: 12px; }
   .cs-nav-link strong { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 15px; color: var(--color-text); }
-  .cs-nav-link:hover strong { color: var(--color-accent); }
+  .cs-nav-link:hover strong,
+  .cs-nav-link:focus-visible strong { color: var(--color-accent); }
   .cs-nav-link.next { text-align: right; margin-left: auto; }
 
   @media (max-width: 860px) {

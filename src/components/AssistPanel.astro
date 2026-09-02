@@ -59,24 +59,30 @@ const { surface, sub } = Astro.props;
       <p class="asx-sub">{sub}</p>
     </div>
     <div class="asx-head-actions">
-      {/* Where the panel sits. One toggle between the two docks — dragging the
-          header is what produces the third, floating position. The icon is
-          the current side, filled: `panel-left`'s left half is the solid one
-          and `panel-right`'s right half is, so swapping between them shows
-          which edge the panel is actually pinned to rather than just naming
-          an action. Both are in the markup and CSS shows one at a time off
-          the dialog's own `data-dock`, the same trick the public widget's
-          send/stop button uses for its two inlined icons. */}
+      {/* Where the panel sits. One button through all three placements —
+          docked right, docked left, floating — and a click cycles to the
+          next. Dragging the header still puts it wherever you drop it; the
+          button is the way back onto an edge without aiming.
+
+          The icon is the *current* placement, filled half toward the edge
+          it is pinned to (`panel-right`, `panel-left`) and
+          `picture-in-picture-2` when it is free. All three are in the
+          markup and CSS shows one at a time off the dialog's own
+          `data-dock` — the same trick the public widget's send/stop button
+          uses for its two inlined icons. The rules in `admin.css` are
+          written at a specificity that beats `.btn svg` from global.css,
+          which is what the first cut of this got wrong: on the default
+          right dock both icons rendered. */}
       <button
         type="button"
         class="btn btn-icon asx-dock"
         id="assist-dock-toggle"
-        aria-label="Dock the panel to the other side"
-        aria-pressed="false"
-        title="Dock to the other side"
+        aria-label="Panel placement"
+        title="Placement"
       >
-        <Icon name="lucide:panel-left" class="admin-nav-icon asx-dock-icon-left" />
-        <Icon name="lucide:panel-right" class="admin-nav-icon asx-dock-icon-right" />
+        <Icon name="lucide:panel-right" class="admin-nav-icon asx-dock-ic asx-dock-ic-right" />
+        <Icon name="lucide:panel-left" class="admin-nav-icon asx-dock-ic asx-dock-ic-left" />
+        <Icon name="lucide:picture-in-picture-2" class="admin-nav-icon asx-dock-ic asx-dock-ic-free" />
       </button>
       <button
         type="button"

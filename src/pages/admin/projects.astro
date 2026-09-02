@@ -67,7 +67,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 ---
 <AdminLayout title="Project Manager">
   <div class="admin-main-wide" id="admin-projects">
-    <h6 class="admin-eyebrow-mono">MODULE: PROJECT_MGMT</h6>
+    <p class="admin-eyebrow-mono">MODULE: PROJECT_MGMT</p>
     <h1 class="pm-title">Project Portfolio</h1>
     <p class="pm-desc">
       Import repositories and manage what is visible. <strong>Edit</strong> on a card
@@ -78,7 +78,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
     <section class="card elev-sm source-control">
       <div class="source-head">
-        <h6 class="admin-eyebrow">Source Control</h6>
+        <p class="admin-eyebrow">Source Control</p>
         <div class="admin-actions">
           {/* "Authorize" was the wrong verb and it cost an afternoon: signing
               in already authorises the App, so a button offering to do it
@@ -112,7 +112,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     </section>
 
     <div class="section-head-rule pm-grid-head">
-      <h6 class="admin-eyebrow">Repository Sync ({rows.length})</h6>
+      <p class="admin-eyebrow">Repository Sync ({rows.length})</p>
       <hr class="rule" />
     </div>
 
@@ -277,7 +277,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         search field out of reach exactly when it was needed. */}
     <div class="modal-head">
       <div class="modal-head-copy">
-        <h6 class="admin-eyebrow-mono">MODULE: IMPORT</h6>
+        <p class="admin-eyebrow-mono">MODULE: IMPORT</p>
         <h2 class="modal-title" id="import-title">Import from GitHub</h2>
         <p class="text-muted admin-note modal-lede" id="import-status">Loading repositories…</p>
       </div>
@@ -341,7 +341,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
   <dialog class="modal" id="project-modal" aria-labelledby="project-form-title">
     <div class="modal-head">
       <div class="modal-head-copy">
-        <h6 class="admin-eyebrow-mono">MODULE: IMPORT_FORM</h6>
+        <p class="admin-eyebrow-mono">MODULE: IMPORT_FORM</p>
         <h2 class="modal-title" id="project-form-title">Import project</h2>
         <p class="text-muted admin-note modal-lede">
           Inserts <code id="pf-path">projects/…</code>. Fields left blank are left unset

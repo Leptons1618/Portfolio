@@ -87,6 +87,7 @@ const {
   parseDocument,
   parseEdit,
   parseFields,
+  pickTask,
   taskForCommand,
 } = await load('src/lib/assist-tasks.ts');
 const {
@@ -1923,6 +1924,41 @@ check('the composer line splits into a command and a steer', () => {
   const inline = parseCommand('the a/b test we ran');
   assert.equal(inline.task, null);
   assert.equal(inline.unknown, null);
+});
+
+check('a spoken request is routed to the task it names', () => {
+  const routed = (line, surface) => pickTask(line, surface)?.command ?? null;
+
+  /* Generative requests land on their commands. */
+  assert.equal(routed('write a case study for this', 'project'), 'write-case-study');
+  assert.equal(routed('update the case study fields', 'project'), 'write-case-study');
+  assert.equal(routed('draft the whole post about rust', 'journal'), 'write-whole-post');
+  assert.equal(routed('give me an outline for this', 'journal'), 'draft-outline');
+  assert.equal(routed('tailor my resume for this role', 'resume'), 'build-variant');
+  assert.equal(routed('which projects should i include', 'resume'), 'suggest-projects');
+
+  /* One stray word inside a phrase still matches — and here it lands on
+     `revise`, because "rewrite … post" is literally that task's job even
+     with an adjective sitting in the middle of it. */
+  assert.equal(routed('rewrite the whole new post please', 'journal'), 'revise-post');
+
+  /* The command's own name, typed without its slash. */
+  assert.equal(routed('write-case-study', 'project'), 'write-case-study');
+  assert.equal(routed('casestudy', 'project'), null);
+
+  /* Negation keeps an order about the subject from becoming a run of it. */
+  assert.equal(routed("don't suggest tags, just tell me which ones fit", 'journal'), null);
+
+  /* Edit-shaped and question-shaped requests stay in conversation — chat's
+     reply is applied to the fields directly, and routing these into a
+     generating command would regenerate work the author wrote by hand. */
+  assert.equal(routed('update the case study', 'project'), null);
+  assert.equal(routed('make my title shorter', 'journal'), null);
+  assert.equal(routed('how do i add tags in this theme', 'journal'), null);
+  assert.equal(routed('what does the summary field do', 'journal'), null);
+
+  /* Nothing matches on the wrong surface even when the words are exact. */
+  assert.equal(routed('suggest titles', 'resume'), null);
 });
 
 check('each command appears on exactly one surface', () => {

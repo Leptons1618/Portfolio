@@ -1,7 +1,14 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import Illustration from '../../components/Illustration.astro';
-import { getCaseStudies, getPosts, getProjects } from '../../lib/content';
+import { Icon } from 'astro-icon/components';
+import {
+  categoryLabel,
+  getCaseStudies,
+  getDeepDiveSelection,
+  getPosts,
+  getProjects,
+} from '../../lib/content';
 import { formatShortDate } from '../../lib/format';
 
 /* The admin sees hidden projects and every journal status; the public site
@@ -24,6 +31,56 @@ const linkedCaseStudies = projects.filter(p => p.data.caseStudySlug).length;
 const draftCount = journal.filter(p => p.data.status === 'draft').length;
 const unpublishedCount = journal.filter(p => p.data.status === 'unpublished').length;
 const latestJournal = journal.find(p => p.data.status === 'published');
+
+/* — deep dives —
+
+    The home page's front door, edited where the rest of the home page is
+    overseen. Each row carries the same fields the public card prints — kicker,
+    title, subtitle — so what is being arranged is the artifact itself, not a
+    manifest of it. Year and category come from the linked project exactly the
+    way `index.astro` derives them; hidden projects are skipped so the preview
+    agrees with what a visitor gets. */
+interface DeepDiveRow {
+  slug: string;
+  title: string;
+  subtitle: string;
+  year: number;
+  category: string;
+  on: boolean;
+}
+
+const deepDiveSelection = await getDeepDiveSelection(DB);
+const publicProjectByCaseStudy = new Map(
+  projects
+    .filter(p => !p.data.hidden && p.data.caseStudySlug)
+    .map(p => [p.data.caseStudySlug!, p]),
+);
+const deepDiveInfo = (cs: (typeof caseStudies)[number]) => {
+  const project = publicProjectByCaseStudy.get(cs.slug);
+  return {
+    slug: cs.slug,
+    title: cs.data.title,
+    subtitle: cs.data.subtitle,
+    year: project?.data.year ?? new Date(cs.data.date).getFullYear(),
+    category: project ? categoryLabel(project.data.category) : 'Case study',
+  };
+};
+/* The saved line-up first, in its own order, then everything it leaves out.
+   No saved line-up yet reads as what it is — every study on, newest first. */
+const deepDiveRows: DeepDiveRow[] =
+  deepDiveSelection.length > 0
+    ? [
+        ...deepDiveSelection.flatMap(slug => {
+          const found = caseStudies.find(cs => cs.slug === slug);
+          return found ? [{ ...deepDiveInfo(found), on: true }] : [];
+        }),
+        ...caseStudies
+          .filter(cs => !deepDiveSelection.includes(cs.slug))
+          .map(cs => ({ ...deepDiveInfo(cs), on: false })),
+      ]
+    : caseStudies.map(cs => ({ ...deepDiveInfo(cs), on: true }));
+/* Date order, for the Automatic reset to restore. */
+const deepDiveDefault = caseStudies.map(cs => cs.slug).join(',');
 
 /* A case study has no editor of its own: its structured fields live on the
    page of the project that links to it. Unlinked ones have nowhere to go but
@@ -107,9 +164,43 @@ const readAt = new Date().toISOString().slice(0, 10);
     </div>
   </div>
 
+  {/* — tabs —
+
+      The dashboard's lower half splits the way every other admin screen
+      splits: a sticky `.tab-bar` wired by `wireTabs`, one panel per tab, the
+      default marked on the server so the right thing shows before any script
+      runs. Recent Content stays first — it is what the screen opens for — and
+      the deep-dives editor lives behind the second tab. */}
+  {caseStudies.length > 0 && (
+    <div class="tab-bar" role="tablist" aria-label="Dashboard sections" id="dash-tabs">
+      <button
+        type="button"
+        class="tab"
+        role="tab"
+        id="dash-tab-recent"
+        aria-controls="dash-panel-recent"
+        aria-selected="true"
+      >
+        <Icon name="lucide:newspaper" class="admin-nav-icon" />Recent Content
+      </button>
+      <button
+        type="button"
+        class="tab"
+        role="tab"
+        id="dash-tab-deep"
+        aria-controls="dash-panel-deep-dives"
+        aria-selected="false"
+      >
+        <Icon name="lucide:layers" class="admin-nav-icon" />Deep Dives
+        <span class="tab-badge">{caseStudies.length}</span>
+      </button>
+    </div>
+  )}
+
+  <div class="tab-panel" id="dash-panel-recent" role="tabpanel" aria-labelledby="dash-tab-recent">
   <div class="admin-grid-main">
     <section>
-      <h6 class="admin-eyebrow section-heading">Recent Content</h6>
+      <p class="admin-eyebrow section-heading">Recent Content</p>
       <div class="card elev-sm activity-card">
         {activity.length > 0 ? activity.map(item => (
           <a class="activity-row" href={item.href}>
@@ -142,7 +233,7 @@ const readAt = new Date().toISOString().slice(0, 10);
     </section>
 
     <section>
-      <h6 class="admin-eyebrow section-heading">Quick Actions</h6>
+      <p class="admin-eyebrow section-heading">Quick Actions</p>
       <div class="quick-actions">
         <a class="btn btn-secondary btn-block" href="/admin/resume">Update Resume</a>
         <a class="btn btn-secondary btn-block" href="/admin/settings">Site Identity</a>
@@ -153,12 +244,111 @@ const readAt = new Date().toISOString().slice(0, 10);
       </p>
     </section>
   </div>
+  </div>
+
+  {/* — deep dives panel —
+
+      The line-up renders as the grid visitors see — lead card included — and
+      every card is alive: drag it to move it, drop it on the shelf to take it
+      off the page, flip its switch to do either without dragging. One row per
+      study: the switch is membership, dragging is position, and Save writes
+      the whole line-up as one document. */}
+  {caseStudies.length > 0 && (
+    <div class="tab-panel" id="dash-panel-deep-dives" role="tabpanel" aria-labelledby="dash-tab-deep" hidden>
+      <section class="dd-section" id="deep-dives">
+        <div class="dd-toolbar">
+          <p class="text-muted admin-note dd-lede">
+            The home page's Deep dives section, rendered as visitors see it. Drag a card
+            to move it — the first slot is the big one — drop it on the shelf below to
+            take it off the page, or flip its switch. Switched-off studies stay live on
+            their project pages; an empty line-up falls back to newest first.
+          </p>
+          <div class="admin-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="dd-reset">Automatic</button>
+            <button type="button" class="btn btn-primary btn-sm" id="dd-save">Save layout</button>
+          </div>
+        </div>
+
+        <div class="dd-stage" id="dd-stage">
+          <ol class="dd-grid" id="dd-grid" data-default={deepDiveDefault}>
+            {deepDiveRows.filter(row => row.on).map(row => (
+              <li class="dd-row card elev-sm cs-card" data-slug={row.slug}>
+                <span class="dd-chrome">
+                  <button
+                    type="button"
+                    class="dd-grip"
+                    aria-label={`Reorder ${row.title}. Drag, or focus here and use the arrow keys.`}
+                  >
+                    <Icon name="lucide:grip-vertical" class="admin-nav-icon" />
+                  </button>
+                  <label class="dd-live">
+                    <input type="checkbox" class="dd-check" checked={row.on} />
+                    <span>Show {row.title} on the home page</span>
+                  </label>
+                </span>
+                <span class="card-kicker">{row.year} · {row.category}</span>
+                <h3 class="card-title">{row.title}</h3>
+                <p class="card-body">{row.subtitle}</p>
+                <a class="btn btn-primary btn-sm cs-card-cta" href={`/case-studies/${encodeURIComponent(row.slug)}`}>
+                  Read case study
+                </a>
+              </li>
+            ))}
+          </ol>
+          <p class="text-muted admin-note dd-empty-hint" id="dd-grid-empty" hidden>
+            Nothing leads the home page yet — drag a study here.
+          </p>
+        </div>
+
+        <p class="dd-zone-label">Off the home page</p>
+        <div class="dd-tray" id="dd-tray">
+          {deepDiveRows.filter(row => !row.on).map(row => (
+            <li class="dd-row card elev-sm cs-card" data-slug={row.slug}>
+              <span class="dd-chrome">
+                <button
+                  type="button"
+                  class="dd-grip"
+                  aria-label={`Reorder ${row.title}. Drag, or focus here and use the arrow keys.`}
+                >
+                  <Icon name="lucide:grip-vertical" class="admin-nav-icon" />
+                </button>
+                <label class="dd-live">
+                  <input type="checkbox" class="dd-check" checked={row.on} />
+                  <span>Show {row.title} on the home page</span>
+                </label>
+              </span>
+              <span class="card-kicker">{row.year} · {row.category}</span>
+              <h3 class="card-title">{row.title}</h3>
+              <p class="card-body">{row.subtitle}</p>
+              <a class="btn btn-primary btn-sm cs-card-cta" href={`/case-studies/${encodeURIComponent(row.slug)}`}>
+                Read case study
+              </a>
+            </li>
+          ))}
+          <p class="text-muted admin-note dd-empty-hint" id="dd-tray-empty" hidden>
+            Every study is on the home page.
+          </p>
+        </div>
+
+        <p class="text-muted admin-note dd-status" id="dd-status"></p>
+      </section>
+    </div>
+  )}
 </AdminLayout>
 
 <script>
-  import { ALL_ADMIN_KEYS, onAdminPage, toast } from '../../lib/admin';
+  import { ALL_ADMIN_KEYS, onAdminPage, setBusy, toast, wireTabs } from '../../lib/admin';
+  import { saveDeepDives } from '../../lib/content-store';
+  import { getToken, getUser } from '../../lib/github';
 
   onAdminPage('#admin-dashboard', () => {
+    const signedIn = Boolean(getToken() && getUser());
+
+    /* The bar exists only when there is something to put behind its second
+       tab; with no case studies the screen stays the single column it was. */
+    const dashTabs = document.getElementById('dash-tabs');
+    if (dashTabs) wireTabs(dashTabs);
+
     const btn = document.getElementById('clear-drafts') as HTMLButtonElement | null;
     btn?.addEventListener('click', () => {
       const held = ALL_ADMIN_KEYS.filter(key => localStorage.getItem(key) !== null);
@@ -174,6 +364,173 @@ const readAt = new Date().toISOString().slice(0, 10);
       );
       setTimeout(() => { btn.textContent = 'Clear Local Drafts'; }, 1500);
     });
+
+    /* — deep dives —
+
+       The grid is the state: DOM order is the line-up, and which container
+       holds a row is its membership. Every action mutates the DOM and lets the
+       save button read the truth back out of it — there is no second copy of
+       the order to keep honest. */
+    const ddRoot = document.getElementById('deep-dives');
+    if (ddRoot) {
+      const grid = document.getElementById('dd-grid') as HTMLOListElement;
+      const stage = document.getElementById('dd-stage')!;
+      const tray = document.getElementById('dd-tray')!;
+      const status = document.getElementById('dd-status')!;
+      const gridEmpty = document.getElementById('dd-grid-empty')!;
+      const trayEmpty = document.getElementById('dd-tray-empty')!;
+      const saveButton = document.getElementById('dd-save') as HTMLButtonElement;
+      const resetButton = document.getElementById('dd-reset') as HTMLButtonElement;
+
+      const message = (error: unknown) => (error instanceof Error ? error.message : 'Request failed.');
+      const rowsIn = (zone: HTMLElement) => Array.from(zone.querySelectorAll<HTMLElement>('.dd-row'));
+      const checkOf = (row: HTMLElement) => row.querySelector<HTMLInputElement>('.dd-check')!;
+
+      function say(text: string, tone: 'info' | 'error' = 'info') {
+        status.dataset.tone = tone;
+        status.textContent = text;
+      }
+
+      function ddSync() {
+        gridEmpty.hidden = rowsIn(grid).length > 0;
+        trayEmpty.hidden = rowsIn(tray).length > 0;
+      }
+      ddSync();
+
+      async function ddCommit(slugs: string[], note: string) {
+        setBusy(saveButton, true, 'Saving…');
+        try {
+          await saveDeepDives(slugs);
+          say(note);
+          toast('Deep dives updated.', { tone: 'success' });
+        } catch (error) {
+          say(message(error), 'error');
+          toast(message(error), { tone: 'error' });
+        } finally {
+          setBusy(saveButton, false);
+        }
+      }
+
+      if (!signedIn) {
+        for (const button of [saveButton, resetButton]) {
+          button.disabled = true;
+          button.title = 'Sign in with GitHub to change the home page.';
+        }
+      }
+
+      saveButton.addEventListener('click', () => {
+        if (!signedIn) return;
+        const slugs = rowsIn(grid).map(row => row.dataset.slug!);
+        void ddCommit(
+          slugs,
+          slugs.length
+            ? `Saved — ${slugs.length} ${slugs.length === 1 ? 'study' : 'studies'}, top to bottom as laid out.`
+            : 'Saved — nothing picked, so the section shows every study newest first.',
+        );
+      });
+
+      resetButton.addEventListener('click', () => {
+        if (!signedIn) return;
+        /* Restore what the server rendered as the default — every study on,
+           in date order — and save an empty selection, which the read side
+           already treats as automatic. */
+        const rows = new Map([...rowsIn(grid), ...rowsIn(tray)].map(row => [row.dataset.slug!, row]));
+        (grid.dataset.default ?? '')
+          .split(',')
+          .filter(Boolean)
+          .forEach(slug => {
+            const row = rows.get(slug);
+            if (row) {
+              grid.append(row);
+              checkOf(row).checked = true;
+            }
+          });
+        ddSync();
+        void ddCommit([], 'Automatic — every study, newest first.');
+      });
+
+      /* Dragging, and everything that has to exist for it to be fair: a
+         keyboard path through the grip's arrow keys, and membership that
+         follows location so the shelf is a control and not just a place. */
+      if (signedIn) {
+        ddRoot.classList.add('is-editable');
+
+        let dragged: HTMLElement | null = null;
+
+        for (const row of [...rowsIn(grid), ...rowsIn(tray)]) {
+          row.draggable = true;
+
+          row.addEventListener('dragstart', event => {
+            dragged = row;
+            row.classList.add('is-dragging');
+            ddRoot.classList.add('is-reordering');
+            event.dataTransfer?.setData('text/plain', row.dataset.slug ?? '');
+            if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+          });
+          row.addEventListener('dragend', () => {
+            row.classList.remove('is-dragging');
+            ddRoot.classList.remove('is-reordering');
+            dragged = null;
+            /* Membership follows location. Assigning the property rides the
+               switch component's own sync — no event needed. */
+            checkOf(row).checked = row.parentElement === grid;
+            ddSync();
+          });
+
+          checkOf(row).addEventListener('change', () => {
+            (checkOf(row).checked ? grid : tray).append(row);
+            ddSync();
+          });
+
+          row.querySelector<HTMLButtonElement>('.dd-grip')?.addEventListener('keydown', event => {
+            const delta =
+              event.key === 'ArrowUp' || event.key === 'ArrowLeft'
+                ? -1
+                : event.key === 'ArrowDown' || event.key === 'ArrowRight'
+                  ? 1
+                  : 0;
+            if (!delta) return;
+            event.preventDefault();
+            const zone = row.parentElement!;
+            const siblings = rowsIn(zone);
+            const neighbour = siblings[siblings.indexOf(row) + delta];
+            if (!neighbour) return;
+            if (delta < 0) neighbour.before(row);
+            else neighbour.after(row);
+            ddSync();
+          });
+        }
+
+        /* Live reorder: the dragged row moves as the pointer crosses a
+           neighbour, so the layout *is* the drop preview. The pointer's offset
+           from a card's centre picks before/after on whichever axis dominates,
+           which is what makes the big lead tile behave like every other slot.
+           Empty surfaces take the row whole. */
+        function bindZone(surface: HTMLElement, list: HTMLElement) {
+          surface.addEventListener('dragover', event => {
+            if (!dragged) return;
+            event.preventDefault();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+            const card = (event.target as HTMLElement).closest<HTMLElement>('.dd-row');
+            if (!card) {
+              if (!rowsIn(list).length && dragged.parentElement !== list) list.append(dragged);
+              return;
+            }
+            if (card === dragged || card.parentElement !== list) return;
+            const box = card.getBoundingClientRect();
+            const dx = event.clientX - (box.left + box.width / 2);
+            const dy = event.clientY - (box.top + box.height / 2);
+            const after = Math.abs(dx) > Math.abs(dy) ? dx > 0 : dy > 0;
+            if (after ? dragged.nextElementSibling === card : dragged.previousElementSibling === card) return;
+            if (after) card.after(dragged);
+            else card.before(dragged);
+          });
+          surface.addEventListener('drop', event => event.preventDefault());
+        }
+        bindZone(stage, grid);
+        bindZone(tray, tray);
+      }
+    }
   });
 </script>
 
@@ -205,4 +562,164 @@ const readAt = new Date().toISOString().slice(0, 10);
 
   .quick-actions { display: flex; flex-direction: column; gap: 8px; }
   .drafts-note { margin-top: var(--space-3); }
+
+  /* — deep dives —
+
+     The public card kept whole (kicker, title, body, CTA), with the editor
+     chrome floated over the corner so the thing being arranged is the
+     artifact itself. Grid areas mirror the home page's lead-plus-stack, so
+     whatever sits in slot one is the card visitors see doubled. */
+  .dd-section { margin-bottom: var(--space-6); }
+  .dd-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+  }
+  .dd-lede { max-width: 68ch; margin: 0; }
+
+  .dd-zone-label {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin: var(--space-5) 0 0;
+  }
+
+  .dd-stage { position: relative; min-height: 160px; margin-top: var(--space-3); }
+  .dd-grid.dd-grid {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+  @media (min-width: 761px) {
+    .dd-grid.dd-grid {
+      grid-template-areas: 'lead lead b' 'lead lead c';
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .dd-grid .dd-row:nth-child(1) { grid-area: lead; }
+    .dd-grid .dd-row:nth-child(2) { grid-area: b; }
+    .dd-grid .dd-row:nth-child(3) { grid-area: c; }
+    /* Fewer than three on the page: no hierarchy to draw, so the flat grid
+       the home page falls back to. */
+    .dd-grid.dd-grid:not(:has(.dd-row:nth-child(3))) { grid-template-areas: none; }
+    .dd-grid.dd-grid:not(:has(.dd-row:nth-child(3))) .dd-row { grid-area: auto; }
+  }
+
+  /* The lead card earns its larger type exactly where the home page earns
+     it: whenever a third study exists to be outranked. */
+  .dd-grid:has(.dd-row:nth-child(3)) .dd-row:first-child .card-title {
+    font-size: clamp(24px, 2.6vw, 34px);
+    max-width: 30ch;
+  }
+  .dd-grid:has(.dd-row:nth-child(3)) .dd-row:first-child .card-body {
+    font-size: 15px;
+    opacity: 0.85;
+    max-width: 52ch;
+  }
+
+  /* The home page CTA is pulled back to its label the same way index.astro
+     pulls its own — the shared `.card` is a flex column that would otherwise
+     stretch it. */
+  .dd-row .cs-card-cta { align-self: flex-start; margin-top: var(--space-2); }
+
+  .dd-row { position: relative; }
+  /* Corner chrome never collides with the kicker or a wrapping title. */
+  .dd-row .card-kicker,
+  .dd-row .card-title { padding-right: 96px; }
+
+  .dd-chrome {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px 5px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+    border: 1px solid var(--color-divider);
+    backdrop-filter: blur(4px);
+  }
+  /* The caption is the switch's accessible name; `font-size: 0` keeps the
+     words for the switch component to read while nothing shows. */
+  .dd-live { display: inline-flex; font-size: 0; line-height: 0; }
+
+  .dd-grip {
+    display: inline-flex;
+    padding: 2px;
+    border: 0;
+    background: none;
+    border-radius: 7px;
+    color: var(--color-text-faint);
+    cursor: grab;
+  }
+  .dd-grip:hover { color: var(--color-text); }
+  .dd-grip:active { cursor: grabbing; }
+
+  /* Editing affordances only exist where editing does — signed out, this is
+     a preview of the home page and nothing else. */
+  .dd-section:not(.is-editable) .dd-chrome { display: none; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .is-editable .dd-row { transition: box-shadow var(--dur-base) var(--ease-out); }
+  }
+  .is-editable .dd-row:hover { box-shadow: var(--shadow-md); }
+  .dd-row.is-dragging { opacity: 0.45; }
+  .is-reordering #dd-stage,
+  .is-reordering .dd-tray {
+    outline: 2px dashed color-mix(in srgb, var(--color-accent) 55%, transparent);
+    outline-offset: 6px;
+    border-radius: var(--radius-md);
+  }
+
+  .dd-tray {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: var(--space-3);
+    padding: var(--space-3);
+    margin-top: var(--space-2);
+    border: 1px dashed var(--color-divider);
+    border-radius: var(--radius-md);
+    min-height: 96px;
+  }
+  /* Shelved studies read as inactive at a glance, and come back to full
+     strength under the pointer or focus. */
+  .dd-tray .dd-row { opacity: 0.55; filter: grayscale(0.5); }
+  .dd-tray .dd-row:hover,
+  .dd-tray .dd-row:focus-within { opacity: 1; filter: none; }
+
+  .dd-empty-hint {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    margin: 0;
+    padding: 0 var(--space-4);
+    pointer-events: none;
+  }
+  .dd-empty-hint[hidden] { display: none; }
+
+  .dd-status { min-height: 16px; margin: var(--space-3) 0 0; }
+  .dd-status[data-tone='error'] { color: var(--color-accent-700); }
+
+  /* Collapse order mirrors index.astro: wide first, then narrower overrides
+     later in the cascade win. */
+  @media (max-width: 900px) {
+    .dd-grid.dd-grid { grid-template-areas: 'lead lead' 'b c'; }
+  }
+  @media (max-width: 760px) {
+    .dd-grid.dd-grid { grid-template-areas: 'lead' 'b' 'c'; grid-template-columns: 1fr; }
+  }
 </style>

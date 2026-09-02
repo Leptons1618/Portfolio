@@ -19,6 +19,15 @@ export const ALL_ADMIN_KEYS = Object.values(ADMIN_KEYS);
 export const SIDEBAR_KEY = 'om-admin-sidebar-collapsed';
 
 /**
+ * Sidebar width, px. The rail is resizable; like the collapse flag this is UI
+ * chrome remembering itself, restored before paint by `AdminLayout` so a
+ * reload never flashes the default width. The clamp lives here because three
+ * places enforce it — the drag, the keyboard path, and that pre-paint restore.
+ */
+export const SIDEBAR_WIDTH_KEY = 'om-admin-sidebar-width';
+export const SIDEBAR_WIDTH = { min: 208, max: 420, default: 260 } as const;
+
+/**
  * The error boundary's host element, rendered once per page by `AdminLayout`.
  *
  * Named here rather than in the component because both halves need it and the
