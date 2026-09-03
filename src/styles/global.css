@@ -845,6 +845,11 @@ select.input.is-auto {
   gap: var(--space-4);
   padding: var(--space-3) var(--space-4);
   border-bottom: 2px solid var(--color-divider);
+  /* The bar repaints on every MPA navigation and repaints recoloured on
+     every theme switch. An instant snap of the rule reads as a flash;
+     a short fade reads as a transition. Colour-only, so reduced motion
+     keeps it. */
+  transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
 }
 
 /* The wordmark is a path: `~/` in the faint step, the name, then a short bar
@@ -874,7 +879,8 @@ select.input.is-auto {
   content: '';
   width: 14px;
   height: 4px;
-  border-radius: 2px;
+  /* Square, like the frame's nodes — the cursor is a block, not a pill. */
+  border-radius: 0;
   background: var(--brand-bar, var(--color-accent));
 }
 
@@ -893,6 +899,24 @@ select.input.is-auto {
   color: inherit;
   text-decoration: none;
   font-size: 14px;
+}
+
+/* One box for nav links on every theme. Geometry drew its links as padded
+   blocks with a reserved transparent border while the drafting themes drew
+   bare text — so the bar measured differently per theme, and any hover that
+   adds a background or a border resized the row it sits in. The padding and
+   the border live here now, identical everywhere; a theme only dresses the
+   box (Geometry fills it, Blueprint and Paper underline beside it). The
+   transition lives here too, for the same reason: Geometry faded its hover
+   while the other two snapped theirs, which is the flicker. */
+.nav a:not(.btn):not(.nav-brand) {
+  padding: 5px 12px;
+  border: 1px solid transparent;
+  transition:
+    color var(--dur-fast) ease,
+    background-color var(--dur-fast) ease,
+    border-color var(--dur-fast) ease,
+    text-decoration-color var(--dur-fast) ease;
 }
 
 .nav a:hover,

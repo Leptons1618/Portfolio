@@ -33,10 +33,12 @@
 
   /* Radii and elevation have theme-neutral fallbacks so a component reads
      something sane while a theme sheet is still resolving; every theme
-     overrides all six. */
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 14px;
+     overrides all six. Square throughout: the section frame's registration
+     marks are squares (`--node-radius: 0`), and every other corner on the
+     page speaks the same geometry. */
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
   --shadow-sm: none;
   --shadow-md: none;
   --shadow-lg: none;
@@ -81,9 +83,10 @@
   --hatch-ink: color-mix(in srgb, var(--color-divider) 70%, transparent);
   --hatch-step: 9px;
   --node-size: 10px;
-  /* Square, on every theme. The nodes are registration marks on a drawing —
-     the round variant Paper used read as a pin on one theme and as a stray
-     dot beside three square ones the moment anybody switched. */
+  /* Square, on every theme. The nodes are registration marks on a drawing,
+     and the rest of the page's corners keep the same geometry — cards,
+     buttons, tags and inputs are all square, so the frame reads as the
+     system's shape rather than as one component's quirk. */
   --node-radius: 0;
   /* One height for all three. A boundary that changes depth when the palette
      changes is not a palette change. */

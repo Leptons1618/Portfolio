@@ -209,8 +209,9 @@ lying on the desk.
 
 ## Shapes
 
-Soft 4px as the standard radius — precise but not severe. This is the one place
-Blueprint departs sharply from Modernist, which is 0px everywhere.
+Sharp throughout — 0px radii on every corner, the same squares as the
+section frame's registration marks. Dots stay dots (status lights,
+portraits), but nothing rectangular rounds.
 
 ## Components
 
@@ -315,7 +316,7 @@ which theme is active.
 | `--font-heading` | Space Grotesk 700 | display, headlines |
 | `--font-body` | Manrope | body copy |
 | `--font-mono` | JetBrains Mono | labels, tags, metadata |
-| `--radius-sm/md/lg` | `2px` / `4px` / `8px` | shapes |
+| `--radius-sm/md/lg` | `0` / `0` / `0` | shapes — square, like the frame's nodes |
 | `--shadow-sm/md/lg` | hard `2px`/`2px`/`4px` offsets | elevation |
 
 The spacing tokens are **not** rebound by this theme — Blueprint inherits the

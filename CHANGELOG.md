@@ -107,6 +107,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   to a second row below 640px, but the row measures a little over 920px — so
   every width from 641 to 920 was a bar that did not fit and a document with
   a horizontal scrollbar. The breakpoint is 960px.
+- **The top bar no longer jumps between pages on Blueprint and Paper.**
+  Geometry drew its nav links as padded blocks with a reserved transparent
+  border and faded the hover; the drafting themes drew bare text with an
+  instant colour snap — so the bar measured differently per theme and every
+  hover arrived as a flicker. The link box (padding, border, transition) is
+  the shared layer's now and identical everywhere; a theme only dresses it.
+  The theme toggle's label also keeps a fixed width, so the script
+  correcting it to the stored theme after paint no longer resizes the bar.
 
 ### Changed
 
@@ -117,6 +125,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   registration marks. The shared hatch over Paper's own laid lines was moiré
   in no palette. (The tape covers the column rather than the viewport, and
   its marks are squares like every other theme's — see Fixed, above.)
+- **Square corners everywhere.** The section frame's registration marks were
+  the only squares on the page while Geometry rounded everything else into
+  pills and soft radii. All three themes are sharp now — cards, buttons,
+  tags, inputs, code windows and the nav keep square corners, and Geometry's
+  primary gets its registration ticks back, sitting inside the corner they
+  were hidden from. Dots stay dots: status lights, portraits and window
+  controls were never corners.
 
 ### Removed
 

@@ -149,6 +149,16 @@ const next = THEMES[(THEMES.findIndex(theme => theme.id === DEFAULT_THEME) + 1) 
     line-height: 1;
   }
 
+  /* Fixed width, so relabelling never resizes the button and shifts the bar.
+     The server renders the *default* theme's "next" label and this script
+     corrects it once the stored choice is known — on a prerendered page that
+     correction lands after paint, and without a reserved width the whole bar
+     jumps. 9ch fits the longest label in this uppercase mono face. */
+  #theme-toggle-label {
+    display: inline-block;
+    min-width: 9ch;
+  }
+
   /* The glyph hand-over. `hidden` removes the outgoing icon immediately —
      exits here are instant by design, the right speed for a 28px control —
      and this keyframe greets the incoming one, playing whenever it becomes

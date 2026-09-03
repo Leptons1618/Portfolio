@@ -16,7 +16,7 @@
    1. Token overrides — most of the theme rides on rebinding what components
       already read.
    2. The signature overrides tokens cannot express: the `//` eyebrows, the
-      pill buttons, the flat hairline cells, the gradient wordmark bar, the
+      square buttons, the flat hairline cells, the gradient wordmark bar, the
       violet focus ring, the isometric ground, the crosshairs, the motion.
 
    Fonts are Space Grotesk / Inter / JetBrains Mono, imported by every layout
@@ -78,9 +78,12 @@
   --font-body: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  /* Square, like the section frame's nodes: cards, tags, buttons and code
+     windows all keep sharp corners, so the separator's squares read as the
+     theme's shape rather than as one band's quirk. */
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
 
   /* Flat world. Cards are cells divided by hairlines, not sheets floating
      over the page — elevation is expressed by borders alone. */
@@ -242,8 +245,10 @@ html[data-theme='geometry'] body::before {
       table of contents, not a stack of paper — and each cell carries `+`
       crosshair marks at opposing corners, the way a technical drawing marks
       its reference points, and a two-digit index in its kicker.
-   3. Buttons are pills — the reference's softest geometry, and the only
-      roundness on the page that is not a radius token.
+   3. Buttons and nav links are square — the section frame's nodes are the
+      theme's shape, and the pills stood down with the rest of the round
+      corners. The primary keeps its registration ticks, now inside the
+      corner they were hidden from.
    4. The wordmark is a path (`~/`) and ends in a short gradient bar.
    5. Focus rings are violet. Keyboard users get the primary colour. */
 
@@ -344,26 +349,23 @@ html[data-theme='geometry'] .tag-button:hover {
   color: var(--color-accent-700);
 }
 
-/* Pills. Both button variants, so primary and secondary agree on shape. The
-   primary's registration ticks are Blueprint's grammar — a 4px square inside a
-   999px radius is a speck — so they stand down here. */
+/* Square buttons. They were pills — the reference's softest geometry — but
+   the section frame's nodes are squares, and a square pinned to a round
+   corner reads as a speck beside it. Sharp corners everywhere, so the shared
+   layer's registration ticks sit inside the panel as drawn rather than
+   standing down. */
 html[data-theme='geometry'] .btn {
-  border-radius: 999px;
-}
-
-html[data-theme='geometry'] .btn-primary::before,
-html[data-theme='geometry'] .btn-primary::after {
-  display: none;
+  border-radius: 0;
 }
 
 /* — the primary action, redrawn ————————————————————————————————————————————
 
    What this was: a plain ink pill. The shared sweep does not show until a
-   pointer is on it, this theme hides the registration ticks, and the theme's
-   own gradient was spent entirely on a hover state — so at rest the one
-   button the page is built around carried nothing of the design at all. It
-   was a black lozenge on a page whose argument is the violet-into-ember
-   sweep.
+   pointer is on it, the registration ticks stood down against the round
+   corner, and the theme's own gradient was spent entirely on a hover
+   state — so at rest the one button the page is built around carried
+   nothing of the design at all. It was a black lozenge on a page whose
+   argument is the violet-into-ember sweep.
 
    Now the sweep draws the *edge* before anyone touches it. Three background
    layers, painted top to bottom:
@@ -431,16 +433,16 @@ html[data-theme='geometry'] .btn-primary:disabled {
   box-shadow: none;
 }
 
-/* Nav links are the reference's: a quiet label that fills to a solid pill
-   under the pointer. Where you are keeps a hairline pill — a shape, not only
-   a hue — in place of the underline the shared layer draws. The brand and the
-   Hire-me button are anchors in the same bar and are not links in this
-   sense, so both are excluded. */
+/* Nav links are the reference's: a quiet label that fills to a solid block
+   under the pointer. Where you are keeps a hairline block — a shape, not only
+   a hue — in place of the underline the shared layer draws. Square, like the
+   frame's nodes; the pill stood down with the rest of the round corners. The
+   brand and the Hire-me button are anchors in the same bar and are not links
+   in this sense, so both are excluded. */
 html[data-theme='geometry'] .nav a:not(.btn):not(.nav-brand) {
-  padding: 5px 12px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+  /* Padding, border and transition are the shared layer's now — every
+     theme reserves the same box. This rule keeps only the square shape. */
+  border-radius: 0;
 }
 
 html[data-theme='geometry'] .nav a:not(.btn):not(.nav-brand):hover,
@@ -471,7 +473,7 @@ html[data-theme='geometry'] .nav {
 html[data-theme='geometry'] .theme-toggle-swatch {
   width: 6px;
   height: 11px;
-  border-radius: 1px;
+  border-radius: 0;
 }
 
 @media (prefers-reduced-motion: no-preference) {

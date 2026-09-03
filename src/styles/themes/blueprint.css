@@ -70,9 +70,9 @@
   --font-body: 'Manrope Variable', 'Manrope', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --radius-sm: 2px;
-  --radius-md: 4px;
-  --radius-lg: 8px;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
 
   /* Hard offset shadows — a solid block with no blur, so a card reads as a
      sheet of paper lying on the desk rather than as a floating panel. */

@@ -70,9 +70,9 @@
   --font-body: 'Manrope Variable', 'Manrope', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --radius-sm: 2px;
-  --radius-md: 4px;
-  --radius-lg: 8px;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
 
   /* Hard offset shadows, cast in sepia ink — a sheet lying on the desk. */
   --shadow-sm: 2px 2px 0 0 var(--color-neutral-500);
