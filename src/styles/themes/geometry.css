@@ -481,6 +481,17 @@ html[data-theme='geometry'] .theme-toggle-swatch {
   border-radius: 0;
 }
 
+/* The caret is 6px wide where the shared swatch is 8px, which left this
+   theme's header cluster two pixels narrower than the other two's — enough
+   that the brand's auto margin gave the link row a different resting place
+   per theme. The missing pixels go back into the button's side padding, so
+   the bar measures identically everywhere and the caret keeps its 6px.
+   (The label reservation this completes is `#theme-toggle-label` in the
+   component.) */
+html[data-theme='geometry'] .theme-toggle {
+  padding-inline: 11px;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   html[data-theme='geometry'] .theme-toggle-swatch {
     animation: geo-caret 1.1s steps(1, end) infinite;

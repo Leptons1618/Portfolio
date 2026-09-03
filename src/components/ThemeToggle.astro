@@ -153,10 +153,17 @@ const next = THEMES[(THEMES.findIndex(theme => theme.id === DEFAULT_THEME) + 1) 
      The server renders the *default* theme's "next" label and this script
      corrects it once the stored choice is known — on a prerendered page that
      correction lands after paint, and without a reserved width the whole bar
-     jumps. 9ch fits the longest label in this uppercase mono face. */
+     jumps. 9ch fits the longest label's glyphs ("Blueprint") in this
+     monospaced face — but glyphs are not the whole width: the toggle's own
+     0.08em letter-spacing is added after every character, the last one
+     included, and "Blueprint" is nine characters, so the natural text runs
+     0.72em past the ch reservation and the button overflowed it — wider than
+     under the themes whose next label is shorter, and the nav's link row,
+     pushed by the brand's auto margin, sat a few pixels left in Geometry.
+     The reservation carries the tracking: 9 glyphs × 0.08em. */
   #theme-toggle-label {
     display: inline-block;
-    min-width: 9ch;
+    min-width: calc(9ch + 0.72em);
   }
 
   /* The glyph hand-over. `hidden` removes the outgoing icon immediately —
