@@ -14,6 +14,60 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **A journal that writes itself, once a day, into a draft.** `/admin/ai` has
+  a third tab: switch it on, give it a window and a list of topics, and once a
+  day the assistant drafts a whole post — title, summary, tags, read time and
+  body — and saves it as a **draft**. Never published: it sits in the journal
+  list and 404s for visitors until you read it and press publish. The hour is
+  hashed from the date rather than rolled and stored, so the post lands at a
+  different time each day and all twenty-four of the day's hourly ticks agree
+  on which one it is without a lock; twenty-three of them cost one database
+  read and no tokens. A tick that fails leaves the day unwritten and the next
+  hour tries again, up to the configured attempt limit — that is the retry,
+  and `callChat`'s existing walk across models and providers is the fallback
+  inside a single attempt. "Run now" writes today's draft immediately without
+  spending one of the day's automatic attempts. The clock is
+  `.github/workflows/daily-journal.yml`; it needs a `CRON_SECRET` secret and a
+  `DAILY_JOURNAL` repository variable set to `on`. Decision 52.
+
+- **Deep dives, and the rest, on `/projects`.** The listing opens with the
+  projects there is a case study to read, then a band, then everything else.
+  Which projects lead — and in what order — is still the admin's call; the
+  editor moved with the section, arranges projects instead of case studies,
+  and previews the two-across grid the page actually draws. The filter runs
+  across both sections and takes a section, and the band above it, off the
+  screen when nothing in it matches. Decision 53.
+
+- **The colophon has a way in from the page about the work.** `/about` closes
+  with a "This Site" paragraph and a Colophon button; the footer's stack line
+  is still there, but it is 11px of mono at the bottom of the page and nobody
+  was going to find it.
+
+- **The daily journal shows its schedule on your own clock.** The window
+  fields stay UTC, because the hourly workflow is and the hashed hour is —
+  but under them is the same window in the browser's timezone, updated as you
+  type, and the status card says what time today's slot is where you are.
+  "08:00–20:00 UTC" is not an answer to "will this post while I am asleep".
+
+- **`/colophon` — how the site is built, with the screens it describes.** A
+  public page for the architecture: static-with-an-adapter and why most routes
+  do not wake the Worker, the nine D1 tables and what each drives, the single
+  write path and the two rules that hold it, the two assistants and the one
+  credential, the theme layer, and the five scripts that stand in for a test
+  suite. Every screen is shown twice — a light plate and a dark one, switched
+  by CSS off the reader's own theme, because a page arguing that a theme is a
+  layer of tokens cannot illustrate itself in one palette. Every screenshot
+  was taken signed out. Reached from the footer's stack line and from
+  `/about`.
+
+  Where a capability could reasonably be configured more than one way — how
+  much an assistant may do, where an authoring surface is guarded, what a
+  scheduled writer may ship — the page sets out the **choice**: the two honest
+  positions, what each buys and costs, and a recommendation. It deliberately
+  does not read as an inventory of what this particular deployment has
+  switched on. The architecture is the interesting half, and a page that names
+  a live configuration is a page telling a stranger which door to try.
+
 - **Fenced code is lit, framed and dealt in.** `src/lib/code-fx.ts` colours
   every listing in a post or a case study in the browser — the write-time
   markdown processor cannot run a highlighter at all (decision 45), so the
@@ -73,7 +127,73 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   state with `:has()`), chips and lookup rows land in sequence, and both
   panels take the theme's radius.
 
+### Changed
+
+- **A token ceiling is the answer *plus* room to think, not the two fighting
+  over one number.** `effectiveMaxTokens()` was
+  `max(requested, min(row, HEADROOM))`, which for any task asking for the
+  headroom or more collapses to exactly `requested` — so `/write-whole-post`
+  at 4,000 had 4,000 tokens for the deliberation **and** the post, and
+  `/write-frontmatter` and `/write-case-study` at 3,000 the same. The bigger
+  the task, the less room it had, which is why drafting a case study spent
+  itself narrating a plan and truncated. The headroom is added now: the answer
+  keeps its whole budget and thinking gets up to 4,000 more on top, never more
+  than the answer's own share, still capped by the provider row and the hard
+  ceiling. Decision 51.
+
+- **The authoring assistant always sends a reasoning effort.** The panel's
+  Effort picker ships on "Auto", and Auto used to mean *send no field* — which
+  is not "no thinking", it is whatever the vendor defaults to, and the vendors
+  that default to anything default to more. Four levels now, most specific
+  first: the picker, the AI screen's setting, the provider row, then `low`.
+  `/api/ai/chat` has done this since decision 29; the authoring surface, where
+  the long generations are, was the half still leaving it to chance.
+
+- **A run that spent itself thinking now says so.** A round that produced no
+  answer and no lookup used to arrive as a finished answer of zero characters
+  — indistinguishable, from the editor, from a dead API key or a retired model
+  id. The stream now carries an error naming roughly what it spent and the
+  three settings that change it. Reported at the end of the round rather than
+  cut off mid-stream on a budget, because a round that thinks hard and *then*
+  asks to read a post is the retrieval loop working and the two are
+  indistinguishable while the tokens are still arriving.
+
+- **The portrait is framed rather than cropped square.** Both the hero and
+  `/about` were 1:1 crops that cut the head at the top and the shoulders at
+  the bottom, and on the dark themes the near-white shirt ran into a hard
+  horizontal edge that read as a half-loaded image. Both are 4:5 now with the
+  eyeline higher, and both land their bottom edge on the page ground with a
+  gradient in `--color-bg` — which resolves to nothing on the light themes,
+  correctly. `/about` also gains the drafting frame's hairline, a node at two
+  corners, a name-and-role caption, and colour on hover, the rule every other
+  photograph on the site already followed. Geometry's orbit overrides all of
+  it and cancels the veil in its own file.
+
+- **The markdown renderer moved to `src/lib/markdown.ts`** now that two things
+  write a body — the write endpoint and the daily journal job.
+  `npm run check:content`'s WebAssembly gate widened to scan `src/lib` as well
+  as `src/pages`, so the rule that keeps Shiki out of the Worker did not stop
+  watching the thing it was written for.
+
 ### Fixed
+
+- **Hiding a project left its case study leading the site.** `hidden` is a
+  flag on a *project*, and the home page's Deep dives section was a list of
+  *case studies* read straight out of a table that has no such column — so
+  retiring a project took its card off `/projects` and 404'd its detail page
+  while its write-up went on leading the front door, its own page stayed
+  reachable, and the sitemap went on advertising it. The line-up is a list of
+  project slugs now, read through `getProjects()`, which has already dropped
+  the hidden rows; and a case study whose every linking project is hidden is
+  retired with it, in the one place the case-study page, its prev/next arrows,
+  the sitemap and the public assistant's index all read. A study nothing links
+  to is untouched — that is unlinked, not retired. Decision 53.
+
+- **The Deep Dives editor's Automatic button left rows behind.** It moved the
+  default line-up back into the grid and nothing out of it, which was correct
+  while the default was *every* row and is not now that it is a subset — the
+  leftovers stayed on the page disagreeing with the empty selection being
+  saved. It moves rows in both directions.
 
 - **The dark bar in the top-left corner of every page.** The skip link is
   parked above the viewport by a transform, and it was positioned at a 16px

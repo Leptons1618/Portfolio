@@ -1163,3 +1163,113 @@ The import list shows the same facts it sends: primary language, stars, when it 
 **What did not change.** `.case-study` is still the class the reading-progress script measures, and the `<article>` is still the semantic wrapper — only its width is delegated.
 
 **About is deliberately excluded.** It is `container-prose`, a 720px page rather than a 720px column inside a wide one. A band whose cell is 1120px across a 720px page is not the same mark at a different size, it is a different mark; the hairline is right there.
+
+**`/colophon` joined the pattern, after breaking it.** Its first draft was `container-prose` *with* the bands nested inside — which is the failure this decision describes, in its worst form: a `.section-sep` inside a 720px column renders as a 688px hatched fragment with its four corner nodes hanging in the middle of the text. The page is three `.container` blocks now, and it gets its reading measure from a 4/8 split inside them rather than from a narrow wrapper, which is the same thing `.cs-split` does one page over. **The rule to take from this: a page wants a prose measure or it wants bands, and if it wants both the measure belongs to a grid inside the column, never to the column itself.**
+
+---
+
+## 51. A token ceiling is the answer plus room to think, not the two competing for one number
+
+**Status:** accepted. Supersedes the arithmetic in decision 43; its argument is intact.
+
+**Context.** Decision 37 added `ai_providers.max_output_tokens` because a reasoning model spends `max_tokens` on deliberation *before* it writes anything, so a ceiling sized to the answer is a task that streams nothing. Decision 43 then bounded how far a provider row may raise a task's ceiling, because raising it all the way to the model's own maximum made the AI screen's Answer length field decorative and handed a 32k budget to a two-line answer.
+
+The rule those two produced was `min(max(requested, min(row, HEADROOM)), CAP)`, and it has a hole in it exactly where the expensive tasks are. For any task asking for `THINKING_HEADROOM` or more, the outer `max` selects `requested` and the expression collapses to it. So `/write-whole-post`, at 4,000, was given 4,000 tokens for the deliberation **and** the post together; `/write-frontmatter` and `/write-case-study`, at 3,000, the same. The larger the task, the less room it had — which is the opposite of the intent, and it is invisible in every test that checks a small task.
+
+Reported from the outside as: *"while creating frontmatter or case studies or journals it's taking a lot of time thinking, and if the task is medium to big it's spending all tokens in thinking only."* That is a precise description of the arithmetic.
+
+Two things made it worse in practice. `/api/ai/assist` sent no `reasoning_effort` unless the panel's picker named one, and that picker ships on "Auto" — so the normal case was no field at all, which is not "no thinking" but "whatever the vendor defaults to", and the vendors that default to anything default to more. And the failure was silent: a run that spent its whole ceiling deliberating produced an empty `content`, which every surface rendered as a finished answer of zero characters — indistinguishable, from the author's chair, from a dead API key or a retired model id.
+
+**Decision.** Three changes, and they are one change.
+
+1. **The headroom is added rather than maxed in.** `effectiveMaxTokens()` is now `requested + min(requested, THINKING_HEADROOM)`, capped by the provider row where it names a maximum and by `MAX_OUTPUT_CEILING` always — but never reduced below `requested`, or a row holding 512 would silently truncate a task that needs 1,200, which is this mechanism's own failure reintroduced backwards. The answer keeps the whole of what the task asked for. Thinking gets its own room on top, and never more room than the answer it is thinking about, so a six-word tag suggestion is not handed four thousand tokens to deliberate in.
+
+2. **The authoring endpoint always sends an effort.** Four levels, most specific first: what the author picked for this run, the AI screen's setting, the provider row's column, then `low`. `/api/ai/chat` has passed its setting explicitly since decision 29 for exactly this reason; the authoring surface, which is where the long generations are, was the half still leaving it to a vendor default.
+
+3. **A run that was nothing but thinking says so.** At the end of a round, if the model produced no answer text and asked for no lookup, the stream carries an `error` frame naming what it spent and the three settings that change it. `thinkingBudget()` — the difference between the ceiling and the answer's share — quantifies the message.
+
+**Why the report waits for the end of the round.** The obvious version is a watchdog that cuts the stream the moment deliberation passes the budget, and it is wrong. A round that thinks hard and *then* asks to read a post is the retrieval loop of decision 37 working exactly as designed, and mid-stream there is nothing to tell that apart from a runaway — the watchdog would break the feature it was added to protect. By the end of the round the question is settled. The early stop would also have saved almost nothing: `max_tokens` bounds the completion either way, so the money at stake is the tail of one generation, and the loop cannot multiply it because a round with no tool call ends it.
+
+**Consequences.** A drafting task now asks for roughly twice the tokens it used to be permitted, and nothing is billed for a ceiling that is not reached. The costs that *are* real are bounded by the same two things as before — `MAX_OUTPUT_CEILING`, and a provider row naming what its model accepts. The AI screen's copy about Answer length changed with the rule: the field is the answer now, and the note says the thinking is extra.
+
+**Rejected.** Sending a vendor-specific reasoning budget (`reasoning: { max_tokens }`) — that is OpenRouter's field, decision 29 removed the last such gamble from this body, and the plain OpenAI-compatible request is worth more than the precision. Per-task effort in `ASSIST_TASKS` — the route default covers every task, and a fifteenth column on that table for one value repeated fifteen times is not data, it is duplication.
+
+---
+
+## 52. There is a schedule, and what it writes is a draft
+
+**Status:** accepted
+
+**Context.** Everything the assistant does is started by a person: a command typed into the panel, a button on an editor, a question in the widget. The ask was for a journal that keeps itself moving — a post a day, at a different time each day, without the author opening anything.
+
+That is a genuinely different kind of endpoint, and it raises three questions the rest of the feature never had to answer: what clock drives it, what authorises a caller that is not a person, and what happens to the output when nobody is there to read it before a visitor does.
+
+**Decision.**
+
+**The clock is GitHub Actions, hourly.** Astro's Cloudflare adapter emits a Worker exporting `fetch` and nothing else. A Cloudflare Cron Trigger needs a `scheduled` export beside it, which means wrapping the adapter's generated `dist/_worker.js/index.js` with an entry of our own — an unsupported build step that a future adapter release breaks silently, in a place nothing here tests. A workflow that `curl`s the site once an hour needs no such wrapper and no change to the Worker's shape at all.
+
+**The hour is derived from the date, not rolled and stored.** The endpoint is stateless and is asked twenty-four times a day; a fresh `Math.random()` per tick would post at whichever hour the last tick happened to like. Hashing the date into the configured window gives every tick of that day the same answer with no write, no lock, and no scheduled row to go stale — and a different answer tomorrow, which is the whole request. Twenty-three ticks a day answer `skipped` after one D1 read and no tokens.
+
+**A tick that fails is not the end of the day.** The next hour tries again, bounded by `maxAttempts`. That is the retry; `callChat`'s walk across models and then providers is the fallback *inside* one attempt. They are two different failures — a rate-limited vendor and a retired model id — and both are worth handling. The attempt is recorded *before* the generation, not after, for the same reason the public rate limiter charges before the call: an attempt recorded only on the way out is not recorded at all when the isolate dies mid-generation, which is precisely the expensive case.
+
+**It writes `status = 'draft'`.** Never published. The entry appears in the admin's journal list and 404s for everyone else until the author reads it and presses publish. Decision 13's rule — nothing here publishes without a person pressing a button — applied to a machine with a timer, and a status column is what makes honouring it cost nothing.
+
+**Authorisation is a shared secret, and it buys exactly one thing.** `CRON_SECRET` is a Worker secret compared in constant time; unset, the door is shut, because a missing secret must not become an open one. It authorises asking the site whether it is time to write today's draft, and nothing else: it cannot `force` a run (only the owner's GitHub token can, which is the "Run now" button), cannot name a model, and cannot reach `/api/content`.
+
+**Why a second write path.** `POST /api/content` authenticates a *person* — it presents a GitHub token and asks GitHub whose it is — and there is no person here. So the rule that endpoint exists to enforce is kept rather than borrowed: every column name in the insert is a literal in source, nothing from a request becomes a SQL identifier, and there is nothing in a request to this route that reaches the database at all. It takes no slug, no table, no fields and no prompt. Same argument as `/api/ai/chats`, in decision 35.
+
+**The prompt is the existing `compose` task.** Not a new entry in `ASSIST_TASKS`: that table is the things the *panel* offers, each with a command and a surface, and a scheduled job is none of those. The generated half is the topic steer, built in `journal-auto.ts` from the owner's settings and the date. The task table stays closed and decision 24's argument is untouched.
+
+**The response is drained through the streaming path** rather than taken from a non-streaming completion, which would have handed a reasoning model's deliberation to `parseFields` with nothing between it and a post body. Decision 29 is a property of the frame protocol, not of the browser, and this is what makes that true.
+
+**Consequences.** `src/lib/journal-auto.ts` **imports nothing**, twice over on purpose: it is reached from `ai-store.ts`, which is browser code, so a value import of anything server-side would pull Astro's markdown processor into the admin bundle; and being import-free is what lets `scripts/test-ai.mjs` drive a year of days through the schedule directly. The two functions that need a database live in the endpoint beside their only caller. The markdown renderer moved to `src/lib/markdown.ts` for the second caller, and `check:content`'s WebAssembly gate widened to scan `src/lib` so it did not stop watching the thing it was written for.
+
+**Rejected.** Publishing directly, with an undo — the undo is the part nobody does, and the window is a stranger reading it. Draft now and auto-publish after a grace period — a second piece of scheduled state for a decision the author makes in one click. A daily rather than hourly cron — then the "random time" is a lie and a failed day has no retry.
+
+---
+
+## 53. Retiring a project retires the write-up with it, and the line-up lives on `/projects`
+
+**Status:** accepted
+
+**Context.** `projects.hidden` is the flag the admin's visibility switch writes, and it means *this is not part of the portfolio any more*. `getProjects()` honours it, so a hidden project leaves every listing, and `/projects/<slug>` 404s rather than staying reachable by anyone who kept the link. That was believed to be the whole of it.
+
+It was not. The home page's **Deep dives** section was a list of *case studies*, read through `getDeepDiveCaseStudies()` straight out of `case_studies` — a table with no `hidden` column and no idea one exists on the other side of the link. So retiring a project took its card off `/projects`, 404'd its detail page, and left its case study leading the front door of the site. The case-study page itself stayed live too, and the sitemap kept advertising it.
+
+Reported from the outside as: *"the projects and deep dive are not synced — if I turn off one project it's still showing, because in deep dive it's showing."*
+
+Two rules disagreeing about one fact is the shape of the bug, and there is no amount of care in the second rule that fixes it — the second rule was reading a table where the fact is not written.
+
+**Decision.**
+
+**The line-up is a list of project slugs, and it lives on `/projects`.** `getProjectSplit()` starts from `getProjects()` — which has already dropped the hidden rows — and splits what is left into the two sections the page renders: the saved line-up in its order, then everything it leaves out, in the site's canonical order. A hidden project cannot appear in either, and there is no second place for the flag to be honoured or forgotten. The document key changed with the meaning (`projects-deep-dives`) so the old row cannot be misread as the new list; the read side treats an absent row as automatic, so nothing has to migrate.
+
+**Automatic means "the ones with a write-up".** An empty selection is not "show everything newest first" any more — it is the projects that point at a case study, which is what the section's name has always claimed. With no case studies at all, `deep` is empty, the section takes itself off the page along with the band above it, and the listing is the single grid it used to be.
+
+**The page is the split, not a filter.** A card never moves between the two grids: which section it is in is an authoring decision. The filter's job is only to say which cards still match, and to take a section — and the boundary above it — off the screen when nothing in it does. A band is a boundary *between* two things, so it renders only when there are two.
+
+**A study whose every linking project is hidden is retired with it.** `getPublicCaseStudies()` is what `/case-studies/<slug>`, its prev/next arrows, the sitemap and the public assistant's index all read now. A study **nothing** links to is not retired — it is unlinked, which the dashboard already flags, and it is reachable on purpose. `every`, not `any`, because two projects may point at one study and one of them still being live is still a reason to read it.
+
+**Consequences.** The home page no longer has a Deep dives section; its Featured projects cards already link to a case study where there is one, so nothing was orphaned. The admin's Deep Dives editor arranges projects instead of studies, does not list hidden ones, and previews the two-across grid `/projects` actually draws — a preview that draws a hierarchy the page does not have is a preview that lies. Its **Automatic** button now moves rows in *both* directions: the default used to be every row, so putting the named ones back was the whole job, and a subset default leaves a row in the grid that the empty selection about to be saved disagrees with.
+
+**Rejected.** Adding `hidden` to `case_studies` — a second visibility flag is a second thing to keep in step, which is the bug. Filtering the old home-page section by joining to `projects` — it fixes one listing and leaves the case-study page, the sitemap and the assistant's index each free to disagree separately. Keeping the section on the home page *and* adding it to `/projects` — two curated line-ups of the same rows is two places to edit and two places to go stale.
+
+---
+
+## 54. The colophon shows what can be configured, not what is switched on here
+
+**Status:** accepted. Amends the frontmatter rule in decision 50's companion page.
+
+**Context.** `/colophon` was written as an account of this deployment, and its security paragraphs read as an inventory: the assistant has read-only lookups, it never saves, the redirect in front of `/admin` hides the editors and does not protect them, the schedule writes a draft and can do nothing else. Every sentence was true, and the page's own frontmatter already forbade credentials, ids and origins, so nothing on it was a secret.
+
+An inventory is still the wrong artifact. "This assistant cannot write" and "the page gate is cosmetic" are not architecture — they are the current settings of a live system, published on that system, in a form that answers a stranger's first two questions for them. The repository being public does not change that: reading source is work, and a page that summarises the posture is a page that has done the work for whoever asks. It also ages badly in the worst direction, because the day a setting changes the page is confidently wrong about the thing it is most sensitive to be wrong about.
+
+**Decision.** Where a capability could reasonably be configured more than one way, the page sets out the **choice** instead: the question, the two honest positions with what each buys and what it costs, then a recommendation. Three of them — how much an assistant should be able to do, where an authoring surface should be guarded, and what a scheduled writer should be allowed to ship. Each is a `.col-choice` block, a rule on the inline-start edge rather than a card, ending in a hairline and the recommendation.
+
+The mechanisms stay, in full: identity resolved before a body is parsed, no caller string becoming a SQL identifier, retrieval as a set of named lookups rather than a query the model composes, a closed task table. Those are the interesting half and they are what a reader came for. What went is the tally of which switches this particular site has flipped.
+
+**Consequences.** The page is more useful to somebody building the same thing and less useful to somebody probing this one, which is the trade worth making on a portfolio. It also stops needing an edit every time a setting moves. The rule is in `CLAUDE.md` and in the page's own frontmatter, because the natural instinct when adding a section is to describe what the code in front of you does.
+
+**Also here: every screen is shown twice.** Eight dark plates on a page whose §07 argues that a theme is a layer of tokens is the page contradicting itself for any reader in the light theme. Each figure now carries a light plate and a dark one and CSS picks. Not `<picture>`: it resolves `prefers-color-scheme` and cannot read an attribute, and this site's mode is three states — `light`, `dark`, and *absent*, meaning follow the OS. So the OS is asked in a media query and the explicit choice is written after it at equal specificity, where source order lets a person's toggle beat their system. `display: none` rather than opacity, so the unused plate leaves the render tree: one alt text is announced instead of two, and a lazy image with no box is one the browser has no reason to fetch. Every selector carries `.col-shot`, and the base one has to — the figure's own `.col-shot img` is (0,1,1) and outranks a bare `.col-plate-light` at (0,1,0), which showed *both* plates to the reader who had set nothing.
+
+**Rejected.** Dropping the security paragraphs entirely — they are the reason the page is worth reading, and vagueness is not the same as discretion. A single "recommended configuration" line with no alternatives — a recommendation with nothing to compare it against is an assertion, and the trade is the content.

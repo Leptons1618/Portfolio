@@ -16,6 +16,7 @@ import { AI_SETTINGS_KEY } from './ai';
 import type { ModelInfo } from './ai-catalog';
 import { clampParams } from './ai-catalog';
 import { ContentError, type WriteResult } from './content-store';
+import { AUTO_KEY, type AutoJournalRun, type AutoJournalSettings } from './journal-auto';
 import { getToken } from './github';
 
 export type { ProviderSummary, AiSettings };
@@ -211,6 +212,65 @@ export async function saveAiSettings(settings: AiSettings): Promise<WriteResult>
     throw new ContentError(data.error ?? `Save failed (${response.status}).`, response.status);
   }
   return { slug: AI_SETTINGS_KEY, url: '/admin/ai' };
+}
+
+/* ---------- the daily journal ---------- */
+
+/** What `GET /api/ai/daily` reports: the settings, the last run, and the verdict. */
+export interface AutoJournalOverview {
+  settings: AutoJournalSettings;
+  run: AutoJournalRun;
+  /** Whether `CRON_SECRET` is set, i.e. whether the schedule can call in. */
+  scheduled: boolean;
+  /** What the schedule would do right now, in words. */
+  next: string;
+}
+
+/** The settings, the last run, and what would happen if the clock ticked now. */
+export const loadAutoJournal = (): Promise<AutoJournalOverview> =>
+  read<AutoJournalOverview>('/api/ai/daily');
+
+/**
+ * Save the daily journal's settings.
+ *
+ * A patch on one row of `documents`, exactly like `saveAiSettings` — same table,
+ * same tested allowlist. The *run record* is a different row and is deliberately
+ * not writable from here: it is the endpoint's account of what it did, and a
+ * screen that could edit it could hand the job another day's worth of attempts.
+ */
+export async function saveAutoJournal(settings: AutoJournalSettings): Promise<WriteResult> {
+  const response = await fetch('/api/content', {
+    method: 'POST',
+    headers: authorized(),
+    body: JSON.stringify({
+      table: 'documents',
+      slug: AUTO_KEY,
+      op: 'patch',
+      fields: { json: JSON.stringify(settings) },
+    }),
+  });
+  const data = (await response.json().catch(() => ({}))) as { error?: string };
+  if (!response.ok) {
+    throw new ContentError(data.error ?? `Save failed (${response.status}).`, response.status);
+  }
+  return { slug: AUTO_KEY, url: '/admin/ai' };
+}
+
+/**
+ * Generate today's post now, regardless of the clock.
+ *
+ * The owner pressing a button, which is why it goes out with their GitHub token
+ * and not with the schedule's secret — and why the endpoint lets only this
+ * caller pass `force`. A forced run does not spend one of the day's automatic
+ * attempts, so testing the feature cannot leave the schedule with none.
+ */
+export async function runAutoJournalNow(): Promise<{
+  status: string;
+  slug?: string;
+  title?: string;
+  reason?: string;
+}> {
+  return read('/api/ai/daily', { method: 'POST', body: JSON.stringify({ force: true }) });
 }
 
 /* ---------- conversations ---------- */

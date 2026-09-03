@@ -18,7 +18,7 @@ import {
   scopePrompt,
   screenQuestion,
 } from '../../../lib/ai-guard';
-import { getCaseStudies, getPosts, getProjects } from '../../../lib/content';
+import { getPosts, getProjects, getPublicCaseStudies } from '../../../lib/content';
 import { getResume } from '../../../lib/resume';
 import { site } from '../../../lib/site';
 
@@ -147,7 +147,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
      for the two posts a question was actually about. */
   const [projects, caseStudies, posts, resume] = await Promise.all([
     getProjects(DB),
-    getCaseStudies(DB),
+    getPublicCaseStudies(DB),
     getPosts(DB),
     getResume(DB),
   ]);

@@ -5,7 +5,7 @@ import Illustration from '../components/Illustration.astro';
 import SectionSep from '../components/SectionSep.astro';
 import PathLine from '../components/PathLine.astro';
 import ContactTerminal from '../components/ContactTerminal.astro';
-import { categoryLabel, getDeepDiveCaseStudies, getFeaturedProjects, getProjects } from '../lib/content';
+import { getFeaturedProjects, getProjects } from '../lib/content';
 import { site } from '../lib/site';
 
 /* Reads content from D1 per request — see the note in `src/lib/content.ts`.
@@ -17,15 +17,6 @@ const { DB } = Astro.locals.runtime.env;
 
 const allProjects = await getProjects(DB);
 const featured = await getFeaturedProjects(DB, 6);
-/* The line-up is the author's call, not `date DESC`'s — the admin picks and
-   orders these, and an empty or absent pick falls back to newest first. */
-const caseStudies = await getDeepDiveCaseStudies(DB);
-
-/* Case studies carry neither category nor year — both come from the project
-   that links to the study, the same way the case-study page's eyebrow does. */
-const linkedProject = new Map(
-  allProjects.filter(p => p.data.caseStudySlug).map(p => [p.data.caseStudySlug!, p])
-);
 
 const skillSet = new Set<string>();
 allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
@@ -95,40 +86,6 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
       />
     </div>
   </header>
-
-  <SectionSep />
-
-  <section class="container home-section" data-reveal>
-    <div class="section-head">
-      <div>
-        <p class="eyebrow">Case Studies</p>
-        <h2>Deep dives</h2>
-      </div>
-      <hr class="rule section-line" />
-    </div>
-    <div class="grid-3 cs-grid">
-      {caseStudies.map((cs, i) => {
-        const project = linkedProject.get(cs.slug);
-        const year = project?.data.year ?? new Date(cs.data.date).getFullYear();
-        return (
-          <a
-            href={`/case-studies/${encodeURIComponent(cs.slug)}`}
-            class:list={['card', 'elev-sm', 'cs-card', { 'cs-lead': i === 0 && caseStudies.length >= 3 }]}
-          >
-            <span class="card-kicker">{year} · {project ? categoryLabel(project.data.category) : 'Case study'}</span>
-            <h3 class="card-title">{cs.data.title}</h3>
-            <p class="card-body">{cs.data.subtitle}</p>
-            {/* A span, not an anchor — the whole card already links to the
-                study, and a button inside a link is the one nesting browsers
-                refuse to render. Dressed as the same primary action the
-                project cards below use, so both sections answer "where do I
-                click" identically. */}
-            <span class="btn btn-primary btn-sm cs-card-cta">Read case study</span>
-          </a>
-        );
-      })}
-    </div>
-  </section>
 
   <SectionSep />
 
@@ -231,8 +188,46 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
   .nowrap { white-space: nowrap; }
   .hero-desc { font-size: 17px; max-width: 52ch; opacity: 0.85; margin-bottom: var(--space-4); }
   .hero-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
-  .hero-figure { border-left: 2px solid var(--color-divider); padding-left: var(--space-6); }
-  .hero-photo { width: 100%; aspect-ratio: 1; object-fit: cover; object-position: center 20%; }
+  .hero-figure {
+    border-left: 2px solid var(--color-divider);
+    padding-left: var(--space-6);
+    /* The vignette below hangs off this. Geometry replaces the whole figure
+       with the orbit and sets its own; both are `relative` either way. */
+    position: relative;
+  }
+
+  /* 4:5 rather than square, and the eyeline a little higher.
+
+     A head-and-shoulders portrait in a 1:1 crop loses one of the two — at 480
+     square this one was cut across the top of the head and again across the
+     chest. Geometry overrides both of these to make the disc, so this is the
+     shape every *other* theme gets. */
+  .hero-photo {
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+    object-position: center 15%;
+  }
+
+  /* The bottom edge, landed on the page ground rather than cut off at it.
+
+     The shirt in this photograph is near-white and half the themes here have a
+     near-black ground, so the frame's bottom was a hard horizontal line that
+     reads as an image that failed to finish loading. A gradient in
+     `--color-bg` resolves to the theme's own ground, which on the light themes
+     is near-invisible and correctly does nothing. */
+  .hero-figure::after {
+    content: '';
+    position: absolute;
+    inset: 0 0 0 var(--space-6);
+    pointer-events: none;
+    background: linear-gradient(
+      to top,
+      color-mix(in srgb, var(--color-bg) 78%, transparent) 0%,
+      color-mix(in srgb, var(--color-bg) 20%, transparent) 20%,
+      transparent 42%
+    );
+  }
 
   /* — sections —
      Padded on both ends now that a separator band sits between them: the
@@ -250,38 +245,6 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
   /* The rule runs from the heading out to the section action. */
   .section-line { flex: 1; min-width: 40px; align-self: center; }
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
-  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
-
-  /* Case studies are not three equal tiles. The lead study takes a double
-     column and the taller type; the rest stack in the remaining lane. One
-     card is allowed to be more important than the others because one of
-     them is — the newest, deepest dive is the argument for reading any. */
-  .cs-grid.cs-grid { grid-template-areas: 'lead lead b' 'lead lead c'; grid-template-columns: 1fr 1fr 1fr; }
-  .cs-grid .cs-card:nth-child(1) { grid-area: lead; }
-  .cs-grid .cs-card:nth-child(2) { grid-area: b; }
-  .cs-grid .cs-card:nth-child(3) { grid-area: c; }
-  /* Fewer than three studies: no hierarchy to draw, so the flat grid stays. */
-  @media (min-width: 761px) {
-    .cs-grid:not(:has(.cs-card:nth-child(3))) { grid-template-areas: none; grid-template-columns: repeat(3, 1fr); }
-    .cs-grid:not(:has(.cs-card:nth-child(3))) .cs-card { grid-area: auto; }
-  }
-
-  .cs-card { text-decoration: none; color: inherit; }
-  /* The lead card earns larger type with its double column; the stack cards
-     keep the shared scale so the hierarchy reads as chosen, not noisy. */
-  .cs-lead .card-title { font-size: clamp(24px, 2.6vw, 34px); max-width: 30ch; }
-  .cs-lead .card-body { font-size: 15px; opacity: 0.85; max-width: 52ch; }
-  .cs-card:hover,
-  .cs-card:focus-visible { color: inherit; }
-  .cs-card:hover .card-title,
-  .cs-card:focus-visible .card-title { color: var(--color-accent); }
-  /* The card's action wears the project cards' primary button. A flex-column
-     `.card` stretches its children, so the button is pulled back to its label;
-     the top margin parks it after the body copy on every card height. */
-  .cs-card-cta {
-    align-self: flex-start;
-    margin-top: var(--space-2);
-  }
 
   .skills-title { margin-bottom: var(--space-3); }
   .tag-row { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -312,16 +275,8 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
     margin: 0;
   }
 
-  @media (max-width: 900px) {
-    .grid-3 { grid-template-columns: repeat(2, 1fr); }
-    /* The lead keeps its dominance at two columns; the stack cards sit
-       beneath it in a pair rather than losing the hierarchy entirely. */
-    .cs-grid.cs-grid { grid-template-areas: 'lead lead' 'b c'; }
-  }
   @media (max-width: 760px) {
     .hero { grid-template-columns: 1fr; gap: var(--space-6); }
-    .cs-grid.cs-grid { grid-template-areas: 'lead' 'b' 'c'; grid-template-columns: 1fr; }
-    .cs-lead .card-title { font-size: 24px; }
     .hero-figure {
       border-left: 0;
       border-top: 2px solid var(--color-divider);
@@ -329,6 +284,8 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
       padding-top: var(--space-6);
       max-width: 320px;
     }
-    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    /* The inset followed the padding, which has moved to the top edge. */
+    .hero-figure::after { inset: var(--space-6) 0 0; }
+    .grid-2 { grid-template-columns: 1fr; }
   }
 </style>

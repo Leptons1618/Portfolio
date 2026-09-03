@@ -1,0 +1,752 @@
+---
+/**
+ * How this site is built, with the screens it is describing.
+ *
+ * Prerendered like every other page that does not read a row — there is
+ * nothing here from the database, and the whole point of the arrangement it
+ * describes is that a page with no query in it never wakes the Worker.
+ *
+ * ## The article is the page; the blocks inside it are the columns
+ *
+ * Decision 50, and this page broke it on its first draft. `SectionSep` is
+ * full-bleed by construction — its rules run to the viewport and its cell is
+ * `--wrap-wide` — so a band nested inside a `.container` is a boundary drawn
+ * across the middle of the page, and one nested inside a *`container-prose`*
+ * is a 688px fragment with its corner nodes hanging in the text column. Which
+ * is exactly what it rendered as. The `<article>` therefore carries no width
+ * at all: it holds three `.container` blocks with the bands between them as
+ * siblings, the same shape a case study has.
+ *
+ * The reading measure comes from the split instead. Each section is a 4/8 grid
+ * — the number and the heading on the left, the prose and its figures on the
+ * right — which lands the body text at roughly 690px inside a 1120px column,
+ * and gives the page the numbered-specification voice the case studies use.
+ *
+ * ## What may be on this page
+ *
+ * The repository is public, so nothing here is a disclosure: the architecture
+ * is readable in full at `site.repo`, and saying it in prose is a summary of
+ * something already published. What is *not* here, and must not arrive later,
+ * is anything that is a credential or points at one — the D1 database id, the
+ * OAuth client id and Worker origin, the shape of the admin's session, the
+ * owner's email, phone or address, and above all the provider API key, which
+ * this site is careful never to render on a screen it owns either. The
+ * screenshots are taken signed out for the same reason: the admin surfaces
+ * below are showing their empty state because there is no session in them, not
+ * because anything was painted over.
+ *
+ * Every screen is here twice, light and dark, and CSS picks — a page whose
+ * argument is that a theme is a layer of tokens cannot illustrate itself in one
+ * palette and leave half its readers looking at somebody else's site. The
+ * `.col-plate-*` rules at the foot of this file are the switch, and the comment
+ * there says why it is not a `<picture>`.
+ *
+ * The capability sections describe the *choices* — what an authoring surface or
+ * an assistant may be given, what each setting buys and costs, and which one is
+ * recommended. They deliberately do not read as an inventory of what this
+ * deployment has switched on: a page that names the live configuration is a
+ * page that tells a stranger which door to try, and the architecture is the
+ * interesting half anyway.
+ *
+ * The numbers in `FACTS` are counted from the repository by hand and will go
+ * stale. That is a deliberate trade against generating them at build time:
+ * counting files in `astro.config.mjs` would make the build read the source
+ * tree, and this is a page about the site rather than a dashboard of it.
+ */
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PathLine from '../components/PathLine.astro';
+import SectionSep from '../components/SectionSep.astro';
+import { site } from '../lib/site';
+
+const FACTS: [string, string][] = [
+  ['runtime', 'Astro 5 · Cloudflare Workers'],
+  ['rendering', 'Static, with an adapter'],
+  ['database', 'Cloudflare D1 — 9 tables'],
+  ['migrations', '10, applied before each deploy'],
+  ['images', 'BLOBs in D1, one route serves them'],
+  ['styling', 'Plain CSS · 3 themes × light/dark'],
+  ['client js', 'No framework'],
+  ['dependencies', '15 runtime · 3 dev'],
+];
+
+const TABLES: [string, string][] = [
+  ['projects', 'The index. Drives the home page, /projects and each detail page. Fields only — nothing renders a project body, so there is no body column.'],
+  ['case_studies', 'Long-form write-ups. A project points at one; nothing points back.'],
+  ['journal', 'Posts, with a three-state status. A draft is visible to the author and in development; an unpublished post 404s rather than lingering.'],
+  ['documents', 'Singletons keyed by slug — the resume, the assistant settings, the daily schedule, the projects page’s line-up. One JSON column each.'],
+  ['media', 'Uploaded images as BLOBs. Nothing else reads this table, which is what keeps “where do the bytes live” a one-file decision.'],
+  ['ai_providers', 'One row per endpoint the site may call, and the one API key this system stores. The admin listing gets a fingerprint of it and never the key.'],
+  ['ai_rate', 'Request counters for the public assistant. No visitor text, no readable IP.'],
+  ['ai_chats · ai_messages', 'The authoring assistant’s saved conversations. Owner-only, read by nothing public.'],
+];
+
+/**
+ * Every screen twice — the dark plate and the light one.
+ *
+ * A page arguing that a theme is a layer of tokens cannot illustrate itself
+ * with eight dark plates and leave a reader in the light theme looking at
+ * somebody else's site. Both are in the markup and CSS picks; `display: none`
+ * takes the unused one out of the render tree, so a screen reader announces
+ * exactly one and (in every engine that implements lazy loading against the
+ * viewport) only one is ever fetched.
+ *
+ * `shot()` builds the pair from a stem so a file can never be listed under the
+ * wrong name — the light plate is the dark one's name with a suffix, and that
+ * is a rule rather than sixteen strings to keep in step.
+ */
+const shot = (stem: string) => ({
+  dark: `/images/colophon/${stem}.webp`,
+  light: `/images/colophon/${stem}-light.webp`,
+});
+
+const SHOTS = {
+  home: shot('home'),
+  projects: shot('projects-assistant'),
+  post: shot('journal-post'),
+  resume: shot('resume'),
+  editor: shot('journal-editor'),
+  ai: shot('admin-ai'),
+  daily: shot('admin-daily-journal'),
+  dashboard: shot('admin-dashboard'),
+};
+---
+<BaseLayout
+  title="Colophon"
+  description="How this site is built: Astro on Cloudflare Workers, content in D1, and an authoring surface that saves without a deploy."
+>
+  <article class="colophon">
+    {/* — the cover — */}
+    <div class="container col-cover">
+      <header class="col-head" data-reveal>
+        <PathLine path="colophon" cmd="cat ARCHITECTURE.md" />
+        <p class="eyebrow">Colophon</p>
+        <h1 class="col-title">How this site is built</h1>
+        <p class="col-lead">
+          A portfolio is a claim about how someone builds things, so this page is
+          the evidence for it. Everything below is running at this domain right
+          now, and the source is
+          <a href={site.repo} target="_blank" rel="noopener">public in full</a>.
+        </p>
+      </header>
+
+      {/* The spec sheet. A real `<dl>` because it is pairs, and it runs the
+          full width of the cover because it is the one block on this page that
+          is scanned rather than read. */}
+      <dl class="col-facts" data-reveal style="--reveal-delay: 120ms">
+        {FACTS.map(([key, value]) => (
+          <div class="col-fact">
+            <dt>{key}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+
+    <SectionSep />
+
+    {/* — the first movement: how a page is served — */}
+    <div class="container col-main">
+      <section class="col-split" data-reveal>
+        <div class="col-split-head">
+          <span class="col-split-num"></span>
+          <h2>Static, with an adapter</h2>
+          <p class="col-split-hint">Most pages never wake the Worker.</p>
+        </div>
+        <div class="prose col-split-body">
+          <p>
+            The build output is <code>static</code>, and most pages really are files
+            on disk — <code>/about</code>, this page, the whole admin shell.
+            Cloudflare serves those from its asset store without starting the Worker
+            at all.
+          </p>
+          <p>
+            The routes that show content are the exception. They declare
+            <code>export const prerender = false</code> and query D1 per request,
+            which buys one specific thing: <strong>a content change is live the
+            moment it is saved</strong>, with no build in between. The cost is a
+            Worker invocation on those routes, and the trade is deliberate — an
+            author who has to wait two minutes and watch a CI badge to fix a typo
+            stops fixing typos.
+          </p>
+          <p>
+            Forgetting that one line is the failure this architecture has that
+            nothing else catches: the page would be prerendered at deploy time, with
+            no database bound, and either crash the build or freeze. So a check
+            script greps every route for the binding and refuses to build if one
+            reads it without opting out.
+          </p>
+          <figure class="col-shot">
+            <img class="col-plate col-plate-dark" src={SHOTS.home.dark} alt="The home page: a hero with a wireframe orbit around the portrait, above a grid of featured projects." width="1200" height="750" loading="lazy" />
+            <img class="col-plate col-plate-light" src={SHOTS.home.light} alt="The home page: a hero with a wireframe orbit around the portrait, above a grid of featured projects." width="1200" height="750" loading="lazy" />
+            <figcaption>The home page. The orbit and the disc are one theme’s reading of the same markup — see §07.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="col-split" data-reveal>
+        <div class="col-split-head">
+          <span class="col-split-num"></span>
+          <h2>Content is rows, not files</h2>
+          <p class="col-split-hint">Nine tables, and the schema is the validation.</p>
+        </div>
+        <div class="prose col-split-body">
+          <p>
+            There is no <code>src/content/</code>. Nine tables in D1 hold everything
+            the site renders, and the schema is the validation —
+            <code>NOT NULL</code>, <code>CHECK</code> constraints and one foreign key
+            refuse a bad write when the author presses save, which is the job a
+            build-time schema used to do two minutes too late.
+          </p>
+          <dl class="col-tables">
+            {TABLES.map(([name, what]) => (
+              <div class="col-table">
+                <dt><code>{name}</code></dt>
+                <dd>{what}</dd>
+              </div>
+            ))}
+          </dl>
+          <p>
+            Bodies are stored twice, as markdown and as HTML. The markdown is the
+            source of truth and the HTML is derived from it <em>on write</em>, by
+            Astro’s own processor, so nothing has to render markdown per request.
+            That processor runs with its syntax highlighter switched off, and it has
+            to: the highlighter instantiates a WebAssembly module on first use and
+            the Workers runtime refuses to compile one, so every save of a post with
+            a body threw — in production only. Code listings are coloured in the
+            browser instead, by a small lexer this repo owns rather than a
+            dependency.
+          </p>
+          <figure class="col-shot">
+            <img class="col-plate col-plate-dark" src={SHOTS.post.dark} alt="A journal post rendering a long TypeScript listing with syntax colouring." width="1200" height="750" loading="lazy" />
+            <img class="col-plate col-plate-light" src={SHOTS.post.light} alt="A journal post rendering a long TypeScript listing with syntax colouring." width="1200" height="750" loading="lazy" />
+            <figcaption>A post. The colouring happened after the HTML arrived; the text of every token is the source text, so copy and find-in-page still get the program.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="col-split" data-reveal>
+        <div class="col-split-head">
+          <span class="col-split-num"></span>
+          <h2>One write path, and it is the boundary</h2>
+          <p class="col-split-hint">Two rules, and neither is negotiable.</p>
+        </div>
+        <div class="prose col-split-body">
+          <p>Every save on this site is a <code>POST</code> to a single endpoint.</p>
+          <ul>
+            <li>
+              <strong>Identity is checked before the body is parsed.</strong> The
+              browser presents the GitHub token it already holds, the Worker asks
+              GitHub whose it is, and only one login gets through. No credential is
+              minted or stored for this — revocation is GitHub’s, and the check fails
+              closed, including when GitHub is unreachable.
+            </li>
+            <li>
+              <strong>No caller-supplied string ever becomes a SQL identifier.</strong>
+              A table or column name cannot be a bound parameter, so every identifier
+              that reaches a statement originates in one source module and is looked
+              up, never derived. An unknown key is refused rather than dropped — a
+              save that silently discards a field reports success and loses work.
+            </li>
+          </ul>
+          <p>
+            That module is tested by a plain Node script with no framework, which is
+            the one test here that is genuinely about security: it proves an unknown
+            field is <em>refused</em>, that no caller key can become an identifier,
+            and that no directory-and-name pair can climb out of its folder on the
+            upload path.
+          </p>
+        </div>
+      </section>
+    </div>
+
+    <SectionSep />
+
+    {/* — the second movement: what it is like to write here — */}
+    <div class="container col-main">
+      <section class="col-split" data-reveal>
+        <div class="col-split-head">
+          <span class="col-split-num"></span>
+          <h2>The authoring surface</h2>
+          <p class="col-split-hint">Part of the site, not a second application.</p>
+        </div>
+        <div class="prose col-split-body">
+          <p>
+            <code>/admin</code> is the same Worker, the same origin, the same write
+            endpoint — an authoring surface built <em>into</em> the site rather than
+            beside it. The alternative is a second application with its own
+            deployment, its own session story and its own copy of every model; this
+            way there is one of each, and the editors are ordinary pages of the site
+            they edit.
+          </p>
+          <div class="col-choice">
+            <p class="col-choice-title">Where should an authoring surface be guarded?</p>
+            <ul>
+              <li>
+                <strong>At the page.</strong> Gate the screens — a redirect, a
+                middleware, a separate host. Reads well, and it is the layer people
+                reach for first, but it protects a <em>view</em>: the interesting
+                verbs live behind the API the view calls, and anything that talks to
+                that API directly has not met the gate.
+              </li>
+              <li>
+                <strong>At the endpoint.</strong> Gate the writes, and treat the
+                screens as what they are — markup. Harder to get wrong, because there
+                is exactly one place to be right, and it holds however a request
+                arrives: a fetch from a console is checked the same as a click.
+              </li>
+            </ul>
+            <p class="col-choice-rec">
+              <strong>Recommended:</strong> both, and in that order of importance.
+              The endpoint check is the one that has to be correct — identity
+              resolved before a body is parsed, failing closed, and never trusting
+              anything the caller said about itself. The page gate is worth having on
+              top for the ordinary reason that people should not land on an editor
+              they cannot use, and it should be designed as a courtesy rather than
+              relied on as a boundary. Build the screens as though they will be read,
+              because eventually they are.
+            </p>
+          </div>
+          <figure class="col-shot">
+            <img class="col-plate col-plate-dark" src={SHOTS.dashboard.dark} alt="The admin dashboard: counts for projects, case studies and journal entries, over a list of recent content." width="1200" height="750" loading="lazy" />
+            <img class="col-plate col-plate-light" src={SHOTS.dashboard.light} alt="The admin dashboard: counts for projects, case studies and journal entries, over a list of recent content." width="1200" height="750" loading="lazy" />
+            <figcaption>Signed out, which is why the rail reads “local · export only”. Every screenshot on this page was taken with no session.</figcaption>
+          </figure>
+          <p>
+            A save returns the <em>live URL</em>, not a commit URL — there is no
+            commit and no build to wait for. Deleting is the one thing that does not
+            come back, and the copy on those buttons says so: there is no git history
+            holding a copy any more. Hiding a project and unpublishing a post are the
+            reversible versions, and they are what the switches actually do.
+          </p>
+          <figure class="col-shot">
+            <img class="col-plate col-plate-dark" src={SHOTS.editor.dark} alt="The journal editor: a title field, a markdown pane with a preview tab, and a metadata rail." width="1200" height="750" loading="lazy" />
+            <img class="col-plate col-plate-light" src={SHOTS.editor.light} alt="The journal editor: a title field, a markdown pane with a preview tab, and a metadata rail." width="1200" height="750" loading="lazy" />
+            <figcaption>The journal editor. Which post is open is the route, not a variable — so a rename cannot orphan a live URL.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="col-split" data-reveal>
+        <div class="col-split-head">
+          <span class="col-split-num"></span>
+          <h2>Two assistants, one credential</h2>
+          <p class="col-split-hint">One model, two endpoints, almost nothing shared.</p>
+        </div>
+        <div class="prose col-split-body">
+          <p>
+            The <strong>public assistant</strong> answers visitors’ questions and is
+            the only unauthenticated thing here that spends money, so its checks run
+            cheapest-first — switch, request shape, budget, provider, and only then
+            the model. It is rate-limited per visitor and per day, and the limiter
+            charges before the call and does not refund: the thing being defended
+            against is a loop, and a loop that fails upstream is still a loop.
+          </p>
+          <p>
+            What an assistant may <em>know</em> is a separate question from what it
+            may be <em>asked</em>, and separate again from what it may <em>do</em>.
+            The grounding is assembled by one builder that re-applies the site’s own
+            visibility filters on whatever it is handed rather than trusting the
+            caller — so “is this row publishable” is answered in one place instead of
+            at every call site, which is the difference between a rule and a habit.
+          </p>
+          <div class="col-choice">
+            <p class="col-choice-title">How much should an assistant be able to do?</p>
+            <p>
+              A model wired into a content system can be given anything from a
+              read-only view to a key on the write path, and the choice is a real one
+              with a real trade on each side.
+            </p>
+            <ul>
+              <li>
+                <strong>Reading only.</strong> The assistant answers and drafts;
+                every change is still a person pressing a button. Cheap to reason
+                about — the worst a compromised session buys is a look at pages that
+                are already public — and the cost is that routine edits stay manual.
+              </li>
+              <li>
+                <strong>Reading and writing.</strong> The assistant can file its own
+                drafts, fix its own typos, keep a changelog current. Genuinely
+                useful, and the thing it buys is the thing it risks: a prompt is now
+                an instruction that can reach a table, so prompt injection stops
+                being a content problem and becomes a data problem, and the blast
+                radius of a leaked key is the database rather than a bill.
+              </li>
+            </ul>
+            <p class="col-choice-rec">
+              <strong>Recommended:</strong> write access is worth having, and it is
+              worth <em>fencing</em> rather than granting. Point it at one table and
+              one status — a draft is reviewable, a published row is live — take
+              every identifier from source rather than from the model, keep deletion
+              out of its reach entirely, and make the audit trail a row the job
+              writes rather than a log nobody reads. The general rule is that an
+              agent should be able to <em>propose</em> at machine speed and
+              <em>publish</em> only at human speed; where a capability lands on that
+              line is a per-site decision, and it belongs in configuration rather
+              than in a page like this one.
+            </p>
+          </div>
+          <figure class="col-shot">
+            <img class="col-plate col-plate-dark" src={SHOTS.projects.dark} alt="The projects index: a filter bar, the deep dives section, and the public assistant panel open at the right." width="1200" height="750" loading="lazy" />
+            <img class="col-plate col-plate-light" src={SHOTS.projects.light} alt="The projects index: a filter bar, the deep dives section, and the public assistant panel open at the right." width="1200" height="750" loading="lazy" />
+            <figcaption>Retrieval is a small set of named lookups rather than a query the model composes — the surface is enumerable, which is what makes “what can this reach” a question with an answer.</figcaption>
+          </figure>
+          <p>
+            The <strong>writing assistant</strong> is behind the sign-in and takes a
+            <em>task name</em>, never a prompt. The task table is closed, and each
+            entry carries its own temperature, token ceiling, output contract and an
+            allowlist of which editor fields are sent. An authenticated endpoint that
+            forwarded an arbitrary prompt would be a general-purpose model on someone’s
+            billing account, one stolen session away from being someone else’s; a
+            closed table bounds what a stolen session is worth, and it costs nothing
+            to keep closed because the surface is a fixed set of editor commands
+            anyway.
+          </p>
+          <p>
+            A model’s reasoning is separated from its answer at the protocol level and
+            travels in its own channel, which is what lets every surface show the
+            thinking behind a disclosure and write only the answer into a field. It is
+            not cosmetic: before it existed, eight hundred words of deliberation went
+            into a post body.
+          </p>
+          <figure class="col-shot">
+            <img class="col-plate col-plate-dark" src={SHOTS.ai.dark} alt="The AI settings screen: a switch for the public assistant, house style notes, and a column of spending limits." width="1200" height="750" loading="lazy" />
+            <img class="col-plate col-plate-light" src={SHOTS.ai.light} alt="The AI settings screen: a switch for the public assistant, house style notes, and a column of spending limits." width="1200" height="750" loading="lazy" />
+            <figcaption>The limits are clamped again on the server on every read, so the form cannot lift its own ceilings however it is edited.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="col-split" data-reveal>
+        <div class="col-split-head">
+          <span class="col-split-num"></span>
+          <h2>A post a day, if you want one</h2>
+          <p class="col-split-hint">A schedule that drafts, and never publishes.</p>
+        </div>
+        <div class="prose col-split-body">
+          <p>
+            Once a day, at an hour chosen at random inside a configured window, the
+            assistant drafts a whole post and saves it as a <strong>draft</strong>.
+            Never published — an unattended model does not get a byline on a live
+            page, which is the same rule the rest of this surface follows for the
+            same reason.
+          </p>
+          <p>
+            The clock is an hourly job that asks the site whether it is time yet. The
+            hour that writes is <em>derived from the date</em> rather than rolled and
+            stored, so all twenty-four ticks agree on it without a lock or a scheduled
+            row; twenty-three of them answer “not yet” after one database read and no
+            tokens at all. A tick that fails leaves the day unwritten and the next
+            hour tries again, up to a configured number of attempts — which is the
+            ceiling on what a bad day costs.
+          </p>
+          <div class="col-choice">
+            <p class="col-choice-title">What should a scheduled writer be allowed to ship?</p>
+            <ul>
+              <li>
+                <strong>Straight to published.</strong> The feed keeps itself alive
+                with nobody in the loop. It is also the arrangement where the first
+                reader of a bad day’s output is a stranger, and “undo” is a
+                correction to something that has already been seen.
+              </li>
+              <li>
+                <strong>Into a draft.</strong> The work is done and waiting; the last
+                step is a person reading it. Costs a click a day, and the failure
+                mode is a queue that grows rather than a mistake that ships.
+              </li>
+            </ul>
+            <p class="col-choice-rec">
+              <strong>Recommended:</strong> drafts, with a real review step and no
+              timer that turns one into the other. Auto-publishing after a grace
+              period sounds like the compromise and is the worst of both — a second
+              piece of scheduled state, guarding a decision that takes one click, and
+              a machine’s draft going live precisely because nobody looked. If a
+              schedule ever should publish on its own, the sane shape is a narrow
+              class of post the author has pre-approved by template, not a general
+              permission to speak.
+            </p>
+          </div>
+          <figure class="col-shot">
+            <img class="col-plate col-plate-dark" src={SHOTS.daily.dark} alt="The daily journal settings: a switch, a topic list, a standing instruction, and a UTC window with an attempt limit." width="1200" height="750" loading="lazy" />
+            <img class="col-plate col-plate-light" src={SHOTS.daily.light} alt="The daily journal settings: a switch, a topic list, a standing instruction, and a UTC window with an attempt limit." width="1200" height="750" loading="lazy" />
+            <figcaption>Topics rotate one per day. Left empty, the model is told to find its own angle out of the index and to write the part an existing post left out.</figcaption>
+          </figure>
+        </div>
+      </section>
+    </div>
+
+    <SectionSep />
+
+    {/* — the third movement: what holds it together — */}
+    <div class="container col-main">
+      <section class="col-split" data-reveal>
+        <div class="col-split-head">
+          <span class="col-split-num"></span>
+          <h2>Three themes, one component layer</h2>
+          <p class="col-split-hint">A theme is tokens, never a second stylesheet.</p>
+        </div>
+        <div class="prose col-split-body">
+          <p>
+            A theme here is a file of token overrides plus the few signature rules
+            tokens cannot express — never a second component layer, and never a
+            branch in a page. Nothing outside the theme layer names a colour, a font
+            or a spacing value; a page that hard-codes a hex is a page that stops
+            working on the next theme.
+          </p>
+          <p>
+            Two consequences worth stating because both have bitten. An SVG written as
+            a <code>data:</code> URI cannot read a custom property, so an icon drawn
+            that way is a hex code that survives every theme switch unchanged — the
+            chevrons and sweeps here are built from hard-stop gradients instead,
+            because a gradient resolves <code>currentColor</code> and a data URI does
+            not. And a bare <code>max-width</code> breakpoint fires on paper as well
+            as on a phone, because an A4 page at 14&nbsp;mm margins is 688&nbsp;px
+            wide — which is how the resume once printed into a narrow rail across
+            three pages.
+          </p>
+          <figure class="col-shot">
+            <img class="col-plate col-plate-dark" src={SHOTS.resume.dark} alt="The resume page, set as a single-column sheet with a summary, experience and skills." width="1200" height="750" loading="lazy" />
+            <img class="col-plate col-plate-light" src={SHOTS.resume.light} alt="The resume page, set as a single-column sheet with a summary, experience and skills." width="1200" height="750" loading="lazy" />
+            <figcaption>The resume is one JSON row and three sheet layouts. A layout is an attribute and a block of CSS, never a branch in the renderer — a test renders every sheet and asserts the markup is identical apart from that one attribute.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="col-split" data-reveal>
+        <div class="col-split-head">
+          <span class="col-split-num"></span>
+          <h2>What holds it together</h2>
+          <p class="col-split-hint">No framework. Five scripts and fifty-four decisions.</p>
+        </div>
+        <div class="prose col-split-body">
+          <p>
+            There is no test framework. There are five scripts, each pinning something
+            that would otherwise fail silently and in production:
+          </p>
+          <ul>
+            <li><strong>The type gate.</strong> The build transpiles rather than typechecks, so this is the only thing validating types across page frontmatter, browser scripts and the shared modules.</li>
+            <li><strong>The route gate.</strong> Every route that reads the database must opt out of prerendering; it also holds the live origin equal in the three files that name it, and refuses a markdown processor with its highlighter on.</li>
+            <li><strong>The write-boundary test.</strong> The column allowlist and the upload path validator, proving refusal rather than silent dropping.</li>
+            <li><strong>The assistant test.</strong> That the API key cannot reach a response, that hidden content cannot enter the corpus, that the spending ceilings hold, and — the one that costs money if it regresses — that the tool loop always terminates, including against a model that asks forever.</li>
+            <li><strong>The OAuth Worker test.</strong> The origin allowlist, the pinned redirect, and that a six-month refresh token is dropped rather than handed to a browser tab.</li>
+          </ul>
+          <p>
+            Everything non-obvious has a written reason. Fifty-four numbered decisions
+            record why each arrangement is what it is and what the alternative broke —
+            which is the actual deliverable of a project like this, and the part that
+            survives being read a year later.
+          </p>
+        </div>
+      </section>
+
+      <section class="col-split" data-reveal>
+        <div class="col-split-head">
+          <span class="col-split-num"></span>
+          <h2>What is deliberately not here</h2>
+          <p class="col-split-hint">The absences are decisions too.</p>
+        </div>
+        <div class="prose col-split-body">
+          <ul>
+            <li><strong>No analytics, no cookies, no third-party scripts.</strong> Nothing on a public page phones anywhere except the assistant, and only when a visitor asks it something.</li>
+            <li><strong>No UI framework.</strong> Tailwind is installed and contributes essentially only its preflight; the components are global classes plus a page-scoped block.</li>
+            <li><strong>No agent framework.</strong> The retrieval loop is one function with three bounds, and the bounds are the design rather than defensive extras.</li>
+            <li><strong>No commit path.</strong> The GitHub App is read-only. Nothing in the admin writes to the repository, and the permission that used to allow it is gone.</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+
+    <SectionSep />
+
+    <div class="container col-foot">
+      <p class="col-foot-line">The whole of it is readable, and most of it is commented.</p>
+      <div class="col-links">
+        <a href={site.repo} class="btn btn-primary" target="_blank" rel="noopener">Read the source ↗</a>
+        <a href="/projects" class="btn btn-secondary">Projects</a>
+        <a href="/journal" class="btn btn-secondary">Journal</a>
+      </div>
+    </div>
+  </article>
+</BaseLayout>
+
+<style>
+  /* The article is the page, and the columns are the `.container` blocks
+     inside it — so it carries no width and no padding of its own. Vertical
+     rhythm belongs to the blocks for the same reason: padding on the article
+     would put space *outside* the first band and none inside it. Decision 50,
+     which this page got wrong on its first draft by nesting the bands inside a
+     `container-prose`, where they rendered as a 688px fragment with their
+     corner nodes hanging in the text column. */
+  .colophon { counter-reset: colsec; }
+
+  .col-cover { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  .col-main { padding-top: var(--space-8); padding-bottom: var(--space-6); }
+  .col-foot { padding-top: var(--space-8); padding-bottom: var(--space-8); }
+
+  /* The cover's own text keeps a reading measure inside the wide column;
+     the spec sheet under it does not, because it is scanned rather than read. */
+  .col-head { max-width: var(--wrap-prose); }
+  .eyebrow { margin-bottom: var(--space-2); }
+  .col-title { margin-bottom: var(--space-3); }
+  .col-lead { font-size: 18px; line-height: 1.65; opacity: 0.85; margin-bottom: 0; }
+
+  /* The spec sheet: a grid of hairline cells, one gap wide, so the rules
+     between them are the frame's own ink rather than borders that double up. */
+  .col-facts {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1px;
+    margin: var(--space-6) 0 0;
+    background: var(--sep-ink);
+    border: 1px var(--rule-style) var(--sep-ink);
+  }
+  .col-fact { background: var(--color-bg); padding: var(--space-3) var(--space-4); }
+  .col-fact dt {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-text-faint);
+    margin-bottom: 4px;
+  }
+  .col-fact dd { margin: 0; font-size: 13px; line-height: 1.5; }
+
+  /* Each section is a numbered specification: the mark and the heading on the
+     left, the argument on the right. Same 4/8 split a case study uses, which
+     is also what lands the prose at a readable measure inside a wide column
+     without a second container. */
+  .col-split {
+    display: grid;
+    grid-template-columns: 4fr 8fr;
+    gap: var(--space-6);
+    margin-bottom: var(--space-8);
+  }
+  .col-split:last-child { margin-bottom: 0; }
+
+  /* The number is a counter rather than typed out, so inserting a section
+     cannot leave the page numbered 1, 2, 2, 4. */
+  .col-split-num::before {
+    counter-increment: colsec;
+    content: '§' counter(colsec, decimal-leading-zero);
+  }
+  .col-split-num {
+    display: block;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    color: var(--color-accent);
+    margin-bottom: 4px;
+  }
+  .col-split-head h2 { margin: 0 0 var(--space-2); }
+  .col-split-hint {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--color-text-muted);
+  }
+  .col-split-body > :first-child { margin-top: 0; }
+
+  /* The table list, as a run of ruled entries rather than a second grid: the
+     terms are code and the descriptions are sentences, and a two-column layout
+     at this measure gives the sentence about four words a line. */
+  .col-tables { margin: var(--space-4) 0; display: grid; gap: var(--space-3); }
+  .col-table { border-left: 2px solid var(--sep-ink); padding-left: var(--space-3); }
+  .col-table dt { margin-bottom: 2px; }
+  .col-table dd { margin: 0; font-size: 14px; line-height: 1.6; color: var(--color-text-muted); }
+
+  /* The screenshots are 1200px wide so a retina display has something to
+     resample from; the intrinsic size is on the tag so the page does not jump
+     as they load. */
+  .col-shot { margin: var(--space-6) 0; }
+  .col-shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px var(--rule-style) var(--sep-ink);
+  }
+  .col-shot figcaption {
+    margin-top: var(--space-2);
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--color-text-muted);
+  }
+
+  /* — the plate that matches the page —
+
+     `data-mode` has three states and only two of them are an attribute:
+     `light`, `dark`, and *absent*, which means "follow the OS" and is what a
+     first-time visitor gets (see `src/lib/theme.ts`). So the OS is asked in a
+     media query, and the explicit choice is written after it at equal
+     specificity, where source order lets a person's toggle beat their system —
+     which is the whole reason this is CSS and not a `<picture>` element, since
+     `<picture>` can read `prefers-color-scheme` and cannot read an attribute.
+
+     `display: none` rather than `visibility` or opacity: it takes the unused
+     plate out of the render tree, so a screen reader announces one alt text
+     rather than two, and a lazy image with no box is one the browser has no
+     reason to fetch. */
+  /* — a choice, laid out as one —
+
+     Three sections describe a capability that could reasonably be configured
+     more than one way, and each ends in the same block: the question, the two
+     honest positions, then the recommendation. A rule on the inline-start edge
+     rather than a card, because this is an aside inside the prose and a second
+     box inside a column of boxes reads as a different kind of content than it
+     is. `--space-5` is not a token this system defines, so the fallback is
+     written out — a bare `var()` on a missing custom property discards the whole
+     declaration. */
+  .col-choice {
+    margin: var(--space-6) 0;
+    padding: var(--space-4) 0 var(--space-4) var(--space-4);
+    border-inline-start: 2px var(--rule-style) var(--sep-ink);
+  }
+  .col-choice > :first-child { margin-top: 0; }
+  .col-choice > :last-child { margin-bottom: 0; }
+  .col-choice-title {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-3);
+  }
+  /* The recommendation is the half a reader came for, so it is set apart from
+     the two positions above it by a hairline rather than by weight — the page
+     already spends bold on the lead-in of every list item. */
+  .col-choice-rec {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px var(--rule-style) var(--color-divider);
+  }
+
+  .col-shot .col-plate-light { display: none; }
+
+  @media (prefers-color-scheme: light) {
+    html:not([data-mode='dark']) .col-shot .col-plate-dark { display: none; }
+    html:not([data-mode='dark']) .col-shot .col-plate-light { display: block; }
+  }
+
+  html[data-mode='light'] .col-shot .col-plate-dark { display: none; }
+  html[data-mode='light'] .col-shot .col-plate-light { display: block; }
+  html[data-mode='dark'] .col-shot .col-plate-dark { display: block; }
+  html[data-mode='dark'] .col-shot .col-plate-light { display: none; }
+
+  .col-foot-line {
+    margin: 0 0 var(--space-4);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-text-muted);
+  }
+  .col-links { display: flex; gap: var(--space-3); flex-wrap: wrap; }
+
+  /* `screen` on every one of these. A printed page is 688px wide, so a bare
+     `max-width` at or above that fires on paper as well as on a phone. */
+  @media screen and (max-width: 900px) {
+    .col-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .col-split { grid-template-columns: 1fr; gap: var(--space-3); margin-bottom: var(--space-6); }
+  }
+
+  @media screen and (max-width: 520px) {
+    .col-facts { grid-template-columns: 1fr; }
+  }
+</style>

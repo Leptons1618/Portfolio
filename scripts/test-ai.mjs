@@ -62,6 +62,7 @@ const {
   callChat,
   agentStream,
   effectiveMaxTokens,
+  thinkingBudget,
   THINKING_HEADROOM,
   ProviderError,
   DEFAULTS,
@@ -103,6 +104,19 @@ const {
   supportsCacheControl,
 } = await load('src/lib/ai-catalog.ts');
 const { extractMermaid, diagramName, diagramMarkdown } = await load('src/lib/diagram.ts');
+const {
+  AUTO_DEFAULTS,
+  AUTO_LIMITS,
+  EMPTY_RUN,
+  autoInstruction,
+  clampAutoRun,
+  clampAutoSettings,
+  decide,
+  hourFor,
+  slugify,
+  topicFor,
+} = await load('src/lib/journal-auto.ts');
+const { SLUG } = await load('src/lib/content-schema.ts');
 
 let checks = 0;
 function check(name, run) {
@@ -1304,17 +1318,27 @@ await checkAsync('a first frame carrying no content does not stall the stream', 
 });
 
 await checkAsync('a reasoning model that never emits content still terminates', async () => {
-  /* `delta.reasoning` is not content and its text is never forwarded — but a
-     run made entirely of it still has to end in `{"done":true}`, so the caller
-     can say "the model wrote nothing" instead of waiting for ever. The one
-     thing that does cross is the bare `thinking` status, so a UI can say what
-     is happening; note it carries no thought text. */
+  /* `delta.reasoning` is not content and it never reaches the answer channel —
+     but a run made entirely of it still has to end in `{"done":true}`, so the
+     caller stops waiting rather than hanging.
+
+     It also has to end in an *account of itself*. A round of nothing but
+     deliberation used to be reported as a completed answer of zero characters,
+     which reads on every surface exactly like a dead key or a retired model id;
+     the error frame between the thinking and the `done` is what tells those
+     apart. */
   const out = await drain([
     'data: {"choices":[{"delta":{"content":"","reasoning":"thinking"}}]}\n\n',
     'data: {"choices":[{"delta":{"content":"","reasoning":" harder"}}]}\n\n',
     'data: [DONE]\n\n',
   ]);
-  assert.equal(out, '{"thinking":"thinking"}\n{"thinking":" harder"}\n{"done":true}\n');
+  const frames = out.trim().split('\n').map(JSON.parse);
+  assert.deepEqual(
+    frames.filter(f => f.thinking).map(f => f.thinking),
+    ['thinking', ' harder'],
+  );
+  assert.match(frames.find(f => f.error)?.error ?? '', /whole run thinking/);
+  assert.deepEqual(frames[frames.length - 1], { done: true });
 });
 
 await checkAsync('a keep-alive comment and a torn payload both survive', async () => {
@@ -1753,8 +1777,10 @@ await checkAsync('the stored parameters reach the request body, and nothing else
      reading of a knob on the provider row. */
   assert.equal(sent.temperature, 0.15);
   assert.equal(sent.top_k, 40);
-  /* And the ceiling is still the site's. */
-  assert.equal(sent.max_tokens, 64);
+  /* And the ceiling is still the site's: 64 for the answer, 64 more to think
+     in, and `max_tokens: 999999` in the row is not a sampling parameter and
+     never reaches the body. */
+  assert.equal(sent.max_tokens, 128);
 });
 
 await checkAsync('nothing is sent to suppress reasoning', async () => {
@@ -2123,34 +2149,57 @@ check('a stored output ceiling is clamped, and blank means unset', () => {
   assert.equal(clampOutputCeiling(1e9), MAX_OUTPUT_CEILING);
 });
 
-check('a provider ceiling raises a task ceiling to the headroom and no further', () => {
-  const at = n => effectiveMaxTokens(row({ maxOutputTokens: n }), 1200);
-  /* Unset: the task's own number, exactly as before this field existed. */
-  assert.equal(effectiveMaxTokens(row({ maxOutputTokens: null }), 1200), 1200);
-  /* Set higher: the raise happens, because a reasoning model spends the ceiling
-     before it writes and a ceiling sized to the answer is a task that streams
-     nothing. But it stops at the headroom rather than going all the way to the
-     model's maximum — the row says what the model *accepts*, and a 32k model
-     lifting a visitor's two-line answer to 32k made the settings screen's
-     Answer length field decorative on the one endpoint strangers can reach. */
-  assert.equal(at(8000), THINKING_HEADROOM);
-  assert.equal(at(THINKING_HEADROOM + 1), THINKING_HEADROOM);
-  /* A row *below* the headroom raises only as far as it says it can take. */
-  assert.equal(effectiveMaxTokens(row({ maxOutputTokens: 3000 }), 900), 3000);
-  /* Set lower than the task: the task still gets what it asked for. A row
-     holding 512 must not silently truncate a task that needs 1,200 — that is
-     the failure this whole mechanism exists to end, from the other direction. */
-  assert.equal(at(512), 1200);
-  /* A task that genuinely wants a long answer says so and is never trimmed to
-     the headroom: `/write-whole-post` asks for what it asks for. */
-  assert.equal(effectiveMaxTokens(row({ maxOutputTokens: MAX_OUTPUT_CEILING }), 12_000), 12_000);
+check('a task ceiling is the answer it asked for plus room to think in', () => {
+  /* The failure this shape exists to end: the old rule was
+     `max(requested, min(row, HEADROOM))`, which for any task asking for
+     `THINKING_HEADROOM` or more collapses to `requested` — so `/write-whole-post`
+     at 4,000 was given 4,000 for the deliberation *and* the post, and the model
+     narrated a plan until the ceiling ran out. The bigger the task, the less
+     room it had. Decision 51. */
+  assert.equal(effectiveMaxTokens(row({ maxOutputTokens: null }), 4000), 8000);
+  assert.equal(effectiveMaxTokens(row({ maxOutputTokens: null }), 3000), 6000);
+
+  /* Thinking never gets more room than the answer it is thinking about, so a
+     six-word tag suggestion is not handed four thousand tokens to deliberate
+     in. Under the headroom the raise is the request itself; over it, the
+     headroom is the cap. */
+  assert.equal(effectiveMaxTokens(row({ maxOutputTokens: null }), 1200), 2400);
+  assert.equal(
+    effectiveMaxTokens(row({ maxOutputTokens: null }), 12_000),
+    12_000 + THINKING_HEADROOM,
+  );
+
+  /* A row that names what the model accepts caps the total, because asking a
+     model for more than its maximum is a 400 from several vendors. */
+  assert.equal(effectiveMaxTokens(row({ maxOutputTokens: 5000 }), 4000), 5000);
+  assert.equal(effectiveMaxTokens(row({ maxOutputTokens: 9000 }), 4000), 8000);
+
+  /* But never below what the caller asked for. A row holding 512 must not
+     silently truncate a task that needs 1,200 — that is this mechanism's own
+     failure, reintroduced from the other direction. */
+  assert.equal(effectiveMaxTokens(row({ maxOutputTokens: 512 }), 1200), 1200);
+
   /* And never past the hard cap, whatever anything says. */
   assert.equal(
     effectiveMaxTokens(row({ maxOutputTokens: MAX_OUTPUT_CEILING }), MAX_OUTPUT_CEILING * 2),
     MAX_OUTPUT_CEILING,
   );
+
   /* The headroom is a real ceiling and not an accidental no-op. */
   assert.ok(THINKING_HEADROOM > 1200 && THINKING_HEADROOM < MAX_OUTPUT_CEILING);
+});
+
+check('the thinking budget is exactly the room the answer did not take', () => {
+  /* What the stream watchdog holds a model to. It is a derived number rather
+     than a constant precisely so it cannot drift from the ceiling that is
+     actually sent: overspending it means the answer cannot fit in what is
+     left. */
+  assert.equal(thinkingBudget(row({ maxOutputTokens: null }), 4000), 4000);
+  assert.equal(thinkingBudget(row({ maxOutputTokens: null }), 1200), 1200);
+  assert.equal(thinkingBudget(row({ maxOutputTokens: 5000 }), 4000), 1000);
+  /* A row too small to grant any headroom disables the watchdog rather than
+     going negative — there was never room to overspend. */
+  assert.equal(thinkingBudget(row({ maxOutputTokens: 512 }), 1200), 0);
 });
 
 check('the public assistant ships asking for as little thinking as it can', () => {
@@ -2244,9 +2293,11 @@ await checkAsync('the ceiling that reaches max_tokens is the effective one', asy
   /* Not the row's number and not the task's — what `effectiveMaxTokens` makes
      of the pair. Asserted against the *body*, because that is the only place
      the rule can be wrong in a way that costs money. */
-  assert.equal((await sent(row({ maxOutputTokens: 9000 }), {})).max_tokens, THINKING_HEADROOM);
-  assert.equal((await sent(row({ maxOutputTokens: null }), {})).max_tokens, 1000);
-  assert.equal((await sent(row({ maxOutputTokens: 2500 }), {})).max_tokens, 2500);
+  assert.equal((await sent(row({ maxOutputTokens: 9000 }), {})).max_tokens, 2000);
+  assert.equal((await sent(row({ maxOutputTokens: null }), {})).max_tokens, 2000);
+  /* Capped by what the row says the model accepts, but only where that is
+     lower than the answer-plus-headroom the task earned. */
+  assert.equal((await sent(row({ maxOutputTokens: 1500 }), {})).max_tokens, 1500);
 });
 
 await checkAsync('tools are sent only when there are some', async () => {
@@ -2676,6 +2727,253 @@ await checkAsync('reasoning is still separated inside the loop', async () => {
   ]);
   assert.equal(frames.filter(f => f.thinking).map(f => f.thinking).join(''), 'I should look this up.');
   assert.equal(frames.filter(f => f.delta).map(f => f.delta).join(''), 'Here it is.');
+});
+
+/* ---------- 19. the run that was all thinking ---------- */
+
+/*
+ * The other half of the ceiling rule. `effectiveMaxTokens` gives the answer room
+ * to exist in; this is what is said when a model spends that room deliberating
+ * anyway. Before it, such a run streamed nothing and every surface rendered an
+ * empty answer — indistinguishable, from the author's chair, from a dead API key
+ * or a retired model id. What is asserted here is that the report is *precise*:
+ * it fires on a round that produced nothing but thinking, and on nothing else.
+ */
+
+/** A frame of separated reasoning, `n` characters of it. */
+const thinks = n => ({ choices: [{ delta: { reasoning: 'x'.repeat(n) } }] });
+
+await checkAsync('a run that was nothing but thinking says so', async () => {
+  const { frames } = await runAgent([
+    [thinks(400), thinks(400), { choices: [{ finish_reason: 'length' }] }],
+  ]);
+
+  const error = frames.find(f => f.error);
+  assert.ok(error, 'a run that produced no answer was reported as an ordinary one');
+  /* Actionable, because the author has all three levers: the run toolbar's
+     Effort picker, its model, and the AI screen's ceiling. */
+  assert.match(error.error, /whole run thinking/);
+  assert.match(error.error, /Effort/);
+  /* Quantified from what actually arrived, not from a guess. 800 characters of
+     deliberation at four characters to the token. */
+  assert.match(error.error, /about 200 tokens/);
+
+  /* And the answer channel stayed clean throughout — the deliberation was never
+     at risk of being written into a field. Decision 29 holds through the
+     report. */
+  assert.equal(frames.filter(f => f.delta).length, 0);
+});
+
+await checkAsync('thinking that leads somewhere is never reported as a failure', async () => {
+  /* Two ways a round proves it worked, and both have to disarm the report or it
+     would be firing on retrieval and on long answers rather than on the failure
+     it names. */
+
+  /* One: it thought hard and then asked to read something. A watchdog that cut
+     the stream at a budget could not tell this from a runaway, which is why the
+     report waits for the end of the round instead. */
+  const viaTool = await runAgent([
+    [thinks(4000), wantsTool('c1', 'read_post', '{"slug":"live"}')],
+    [text('It is about queues.'), { choices: [{ finish_reason: 'stop' }] }],
+  ]);
+  assert.equal(viaTool.calls.length, 1, 'a lookup after long thinking was cut off');
+  assert.ok(!viaTool.frames.some(f => f.error), 'a working round was reported as a failure');
+
+  /* Two: it thought hard and then answered, which is the whole point of the
+     headroom. */
+  const viaAnswer = await runAgent([
+    [thinks(4000), text('Here goes. '), text('The rest.'), { choices: [{ finish_reason: 'stop' }] }],
+  ]);
+  assert.ok(!viaAnswer.frames.some(f => f.error), 'an answer after long thinking was reported');
+  assert.equal(
+    viaAnswer.frames.filter(f => f.delta).map(f => f.delta).join(''),
+    'Here goes. The rest.',
+  );
+});
+
+await checkAsync('a round that produced nothing at all is not blamed on thinking', async () => {
+  /* An empty response is its own failure with its own message, and saying "it
+     spent the run thinking" about a round that thought nothing would send the
+     author to the wrong three settings. */
+  const out = await drain(['data: [DONE]\n\n']);
+  const frames = out.trim().split('\n').map(JSON.parse);
+  assert.ok(!frames.some(f => f.error), 'an empty stream was reported as runaway thinking');
+});
+
+/* ---------- 20. the daily journal ---------- */
+
+/*
+ * The one thing on this site that spends money with nobody watching, which
+ * makes its schedule the part worth pinning: it has to be *off* by default, it
+ * has to agree with itself across the twenty-four ticks of a day, and it has to
+ * stop after a bounded number of failures rather than retrying a broken
+ * provider until the month's budget is gone.
+ *
+ * All of it is a pure function of a clock and two rows, which is the only
+ * reason a once-a-day behaviour is testable at all.
+ */
+
+const settings = fields => clampAutoSettings({ enabled: true, ...fields });
+const at = (day, hour) => new Date(`${day}T${String(hour).padStart(2, '0')}:30:00Z`);
+
+check('an unconfigured site writes nothing', () => {
+  /* The default that matters. Everything else here is about a feature someone
+     switched on; this is about the ones who never did. */
+  assert.equal(AUTO_DEFAULTS.enabled, false);
+  assert.equal(clampAutoSettings({}).enabled, false);
+  /* And `enabled` is compared to `true`, never taken for truthy — `'false'` is
+     a truthy string, and a schedule that cannot be switched off is the worst
+     bug this screen could have. */
+  assert.equal(clampAutoSettings({ enabled: 'false' }).enabled, false);
+  assert.equal(clampAutoSettings({ enabled: 1 }).enabled, false);
+
+  const off = decide(at('2026-03-04', 12), clampAutoSettings({}), EMPTY_RUN);
+  assert.equal(off.act, false);
+  assert.match(off.reason, /switched off/);
+});
+
+check('a window always has an hour in it', () => {
+  /* A window whose end is at or before its start has no hours, and the hash
+     below would divide by zero and schedule the post at `NaN` — which is never,
+     silently, with every setting on screen looking correct. */
+  assert.equal(settings({ windowStart: 9, windowEnd: 9 }).windowEnd, 10);
+  assert.equal(settings({ windowStart: 20, windowEnd: 3 }).windowEnd, 21);
+  assert.equal(settings({ windowStart: 99, windowEnd: 0 }).windowStart, 23);
+  assert.equal(settings({ windowStart: -5 }).windowStart, 0);
+  assert.equal(settings({ windowStart: 'x', windowEnd: 'y' }).windowStart, AUTO_DEFAULTS.windowStart);
+});
+
+check('the hour is random across days and identical within one', () => {
+  const config = settings({ windowStart: 8, windowEnd: 20 });
+
+  /* Identical within a day is the property the whole design turns on: the
+     endpoint is stateless and is asked twenty-four times, and a fresh roll each
+     time would post at whichever hour the last tick happened to like. */
+  assert.equal(hourFor('2026-03-04', config), hourFor('2026-03-04', config));
+
+  const days = Array.from({ length: 60 }, (_, i) =>
+    new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10),
+  );
+  const hours = days.map(day => hourFor(day, config));
+
+  /* Always inside the window. */
+  for (const [i, hour] of hours.entries()) {
+    assert.ok(hour >= 8 && hour < 20, `${days[i]} scheduled at ${hour}, outside 08–20`);
+  }
+  /* And spread across it rather than landing on one hour — a "random time"
+     that is the same time every day is the feature not working. */
+  assert.ok(new Set(hours).size >= 6, `sixty days used only ${new Set(hours).size} hours`);
+});
+
+check('the topic rotates and an empty list is a supported state', () => {
+  const withTopics = settings({ topics: ['caching', 'type systems', 'cameras'] });
+  const picked = new Set(
+    Array.from({ length: 40 }, (_, i) =>
+      topicFor(new Date(Date.UTC(2026, 0, 1 + i)).toISOString().slice(0, 10), withTopics),
+    ),
+  );
+  assert.equal(picked.size, 3, 'the rotation settled on fewer topics than were configured');
+
+  /* No list is not a broken configuration: the model is told to find its own
+     angle out of the index, which is what a vague steer does on the panel. */
+  assert.equal(topicFor('2026-03-04', settings({})), '');
+  assert.match(autoInstruction('2026-03-04', settings({})), /Choose the subject yourself/);
+  assert.match(autoInstruction('2026-03-04', withTopics), /Today's subject is: /);
+
+  /* The owner's standing steer rides along with every day's prompt. */
+  assert.match(
+    autoInstruction('2026-03-04', settings({ instruction: 'Keep them under 800 words.' })),
+    /under 800 words/,
+  );
+});
+
+check('the schedule waits, writes once, and gives up after a bounded number of tries', () => {
+  const config = settings({ windowStart: 8, windowEnd: 20, maxAttempts: 3 });
+  const day = '2026-03-04';
+  const hour = hourFor(day, config);
+
+  /* Before the hour: nothing, and the reason says when. */
+  const early = decide(at(day, hour - 1), config, EMPTY_RUN);
+  assert.equal(early.act, false);
+  assert.match(early.reason, /Due at/);
+
+  /* At it: go. */
+  assert.equal(decide(at(day, hour), config, EMPTY_RUN).act, true);
+  /* And every hour after it, which is the retry: a provider that was
+     rate-limited at the appointed hour is usually fine an hour later. */
+  assert.equal(decide(at(day, 23), config, { ...EMPTY_RUN, day, attempts: 2 }).act, true);
+
+  /* Once a post has landed, the rest of the day is quiet. */
+  const done = decide(at(day, 23), config, { ...EMPTY_RUN, day, slug: 'a-post', attempts: 1 });
+  assert.equal(done.act, false);
+  assert.match(done.reason, /Already written today/);
+
+  /* And a day of failures stops rather than spending the budget. */
+  const spent = decide(at(day, 23), config, { ...EMPTY_RUN, day, attempts: 3 });
+  assert.equal(spent.act, false);
+  assert.match(spent.reason, /next one is tomorrow/);
+
+  /* Yesterday's record does not bind today. The endpoint compares the day
+     rather than trusting the counter, so a run that ended badly on the 4th
+     leaves the 5th with a full allowance. */
+  assert.equal(
+    decide(at('2026-03-05', 23), config, { ...EMPTY_RUN, day, attempts: 9, slug: 'a-post' }).act,
+    true,
+  );
+});
+
+check('what a day may cost is bounded by the stored settings', () => {
+  /* Each attempt is a whole post's worth of generation, so this number is the
+     ceiling on what a bad day is billed. */
+  assert.equal(settings({ maxAttempts: 999 }).maxAttempts, AUTO_LIMITS.maxAttempts);
+  assert.equal(settings({ maxAttempts: 0 }).maxAttempts, 1);
+  assert.equal(settings({ maxAttempts: 'lots' }).maxAttempts, AUTO_DEFAULTS.maxAttempts);
+  /* And the prompt cannot grow without bound either — it is sent on every
+     attempt of every day. */
+  assert.equal(settings({ topics: Array(200).fill('x') }).topics.length, AUTO_LIMITS.topics);
+  assert.equal(settings({ topics: ['y'.repeat(9999)] }).topics[0].length, AUTO_LIMITS.topicChars);
+  assert.equal(
+    settings({ instruction: 'z'.repeat(9999) }).instruction.length,
+    AUTO_LIMITS.instructionChars,
+  );
+  /* Junk in the list is dropped rather than stringified into the prompt. */
+  assert.deepEqual(settings({ topics: ['ok', '', '  ', 7, null, {}] }).topics, ['ok']);
+});
+
+check('a run record that is nonsense reads as a fresh day', () => {
+  /* The row is written by an endpoint on a schedule, so nobody sees it go
+     wrong. Anything unreadable has to mean "nothing has happened yet" rather
+     than taking the job down. */
+  assert.deepEqual(clampAutoRun(null), EMPTY_RUN);
+  assert.deepEqual(clampAutoRun('a string'), EMPTY_RUN);
+  assert.equal(clampAutoRun({ attempts: -4 }).attempts, 0);
+  assert.equal(clampAutoRun({ attempts: 'many' }).attempts, 0);
+  assert.equal(clampAutoRun({ note: 'x'.repeat(9999) }).note.length, 500);
+});
+
+check('a generated title becomes a slug the write path accepts', () => {
+  /* The slug is a primary key *and* the public URL, and it is derived from text
+     a model wrote. Anything `SLUG` refuses would be an insert that fails after
+     the generation has already been paid for. */
+  const titles = [
+    'Why caching is hard',
+    "The compiler's opinion — and mine",
+    'Rust, Go & TypeScript: three takes',
+    '  Leading and trailing  ',
+    'Numbers 123 and “smart quotes”',
+    'Hyphen--heavy---title',
+  ];
+  for (const title of titles) {
+    const slug = slugify(title);
+    assert.ok(SLUG.test(slug), `"${title}" produced "${slug}", which the write path refuses`);
+  }
+  assert.equal(slugify('Why caching is hard'), 'why-caching-is-hard');
+  /* A title of nothing but punctuation has no slug in it, and the endpoint
+     treats that as a failed attempt rather than inserting an empty key. */
+  assert.equal(slugify('!!! ???'), '');
+  /* And a very long title is cut without leaving a trailing hyphen, which
+     `SLUG` would also refuse. */
+  assert.ok(SLUG.test(slugify(`${'word '.repeat(40)}end`)));
 });
 
 process.stdout.write(`\nai: ${checks} checks passed\n`);

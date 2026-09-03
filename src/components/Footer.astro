@@ -40,7 +40,7 @@ const links = [
     <span class="footer-copy text-muted">
       <span class="footer-key">host</span>{host}
       <span class="footer-sep">·</span>
-      <span class="footer-key">stack</span>astro · cloudflare workers · d1
+      <span class="footer-key">stack</span><a href="/colophon">astro · cloudflare workers · d1</a>
       <span class="footer-sep">·</span>
       <span class="footer-key">tz</span>{site.timezone}
     </span>
@@ -81,6 +81,20 @@ const links = [
   .footer-links { display: flex; gap: var(--space-3); font-size: 12px; flex-wrap: wrap; }
   .footer-links a { text-decoration: none; color: var(--color-text-muted); transition: color var(--dur-fast) ease; }
   .footer-links a:hover { color: var(--color-accent); }
+
+  /* The stack line is the one place the architecture names itself to a
+     visitor, so it is also the way to the page that explains it. Underlined
+     on the dotted rule rather than coloured, because the row it sits in is
+     muted status text and a coloured word in it reads as an alert. */
+  .footer-sys .footer-copy a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
+    transition: color var(--dur-fast) ease;
+  }
+  .footer-sys .footer-copy a:hover,
+  .footer-sys .footer-copy a:focus-visible { color: var(--color-accent); }
   .footer-sys { font-size: 11px; }
   .footer-top { font-size: 11px; text-decoration: none; color: var(--color-text-faint); }
   .footer-top:hover { color: var(--color-accent); }

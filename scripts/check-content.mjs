@@ -358,9 +358,11 @@ function check() {
      where the instantiation is allowed, and `astro build` never renders
      markdown at all now that content lives in D1.
 
-     A text match on the one module that renders markdown at request time. If a
-     second one ever appears, it is caught here on the same rule. */
-  for (const file of pages) {
+     A text match on every module that could render markdown at request time —
+     `src/lib` as well as `src/pages`, because the processor moved into
+     `src/lib/markdown.ts` the moment a second caller wanted it, and a gate that
+     only watched routes would have stopped watching it on the way past. */
+  for (const file of [...pages, ...walk('src/lib').filter(f => /\.ts$/.test(f))]) {
     const source = readFileSync(p(file), 'utf8');
     if (!source.includes('createMarkdownProcessor')) continue;
     if (!hasHighlightingOff(source)) {

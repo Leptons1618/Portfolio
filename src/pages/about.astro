@@ -11,9 +11,33 @@ import { site } from '../lib/site';
     <p class="about-lead">I'm {site.name}, a software engineer focused on machine learning, computer vision, and full-stack development.</p>
 
     <div class="about-profile">
-      <div class="grayscale about-photo">
-        <img src={site.photo} alt={site.name} loading="lazy" width="440" height="440" />
-      </div>
+      {/* A framed plate rather than a bare square.
+
+          It was an unmarked 220px crop sitting straight on the page ground,
+          and two things were wrong with it that no amount of size fixes. The
+          square aspect cut the head at the top and the shoulders at the
+          bottom — a portrait wants to be taller than it is wide — and the
+          white shirt ran into a hard horizontal edge against a dark ground,
+          which reads as an image that failed to load the rest of itself.
+
+          So it gets the drafting frame every other boundary on this site uses:
+          a hairline in `--sep-ink`, a node at two opposite corners, and a
+          caption rule under it. The marks are real `<span>`s rather than
+          pseudo-elements because the plate already spends its `::after` on the
+          vignette, and nothing here is an image — a data URI cannot read a
+          custom property, so a drawn corner would be a hex code that survives
+          every theme switch unchanged. */}
+      <figure class="about-photo">
+        <div class="about-plate">
+          <img class="grayscale" src={site.photo} alt={site.name} loading="lazy" width="440" height="550" />
+          <span class="about-mark about-mark-tl" aria-hidden="true"></span>
+          <span class="about-mark about-mark-br" aria-hidden="true"></span>
+        </div>
+        <figcaption class="about-caption">
+          <span class="about-caption-name">{site.name}</span>
+          <span class="about-caption-role">{site.role}</span>
+        </figcaption>
+      </figure>
       <p>I build systems at the intersection of data, inference, and user experience. My work spans research prototypes to production systems, with a bias towards clean code and measurable results.</p>
     </div>
     <hr class="rule about-rule" />
@@ -32,6 +56,9 @@ import { site } from '../lib/site';
 
       <h3>Beyond Work</h3>
       <p>I like building and sharing projects publicly, learning through experimentation, and continuously improving engineering quality through better tooling and workflows.</p>
+
+      <h3>This Site</h3>
+      <p>This one is a project too. It runs on Astro and Cloudflare Workers with its content in a D1 database, no framework in the browser, and an authoring surface behind a GitHub sign-in. The <a href="/colophon">colophon</a> is the full account — the tables, the boundaries, and screenshots of every screen it describes.</p>
     </div>
 
     <hr class="rule about-rule" />
@@ -40,6 +67,7 @@ import { site } from '../lib/site';
       <a href={site.github} class="btn btn-primary" target="_blank" rel="noopener">GitHub ↗</a>
       <a href="/resume" class="btn btn-secondary">Resume</a>
       <a href="/projects" class="btn btn-secondary">Projects</a>
+      <a href="/colophon" class="btn btn-secondary">Colophon</a>
     </div>
   </article>
 </BaseLayout>
@@ -56,13 +84,105 @@ import { site } from '../lib/site';
     align-items: start;
   }
   .about-rule { margin: var(--space-6) 0; }
-  .about-photo img { width: 100%; aspect-ratio: 1; object-fit: cover; object-position: center 20%; }
   .about-profile p { font-size: 16px; line-height: 1.7; opacity: 0.9; margin: 0; }
+
+  /* — the portrait — */
+
+  .about-photo { margin: 0; display: grid; gap: var(--space-3); }
+
+  /* The plate. `position: relative` is what the corner marks hang off, and the
+     hairline is `--sep-ink` rather than `--color-divider` for the reason the
+     drafting frame is: this is a boundary to be read, not a rule between two
+     lines of text. */
+  .about-plate {
+    position: relative;
+    border: 1px var(--rule-style) var(--sep-ink);
+    background: var(--color-bg);
+  }
+
+  /* 4:5, because a head-and-shoulders portrait in a square is a crop that
+     loses one of the two. `18%` puts the eyeline on the upper third instead of
+     at the very top edge. */
+  .about-plate img {
+    display: block;
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+    object-position: center 18%;
+  }
+
+  /* The vignette, and it is doing a specific job: the shirt is near-white and
+     the ground on half these themes is near-black, so the bottom of the frame
+     was a hard horizontal line that read as a broken image. A gradient in
+     `--color-bg` lands the photograph on whatever ground the theme has,
+     including the light ones, where it resolves to near-nothing and correctly
+     does nothing. `inset: 1px` keeps it inside the hairline rather than over
+     it. */
+  .about-plate::after {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    pointer-events: none;
+    background: linear-gradient(
+      to top,
+      color-mix(in srgb, var(--color-bg) 72%, transparent) 0%,
+      color-mix(in srgb, var(--color-bg) 18%, transparent) 22%,
+      transparent 45%
+    );
+  }
+
+  /* Two nodes rather than four. The frame's own language is a mark where a
+     line begins and a mark where it ends, and a square at every corner reads
+     as a decoration rather than as a measurement. */
+  .about-mark {
+    position: absolute;
+    width: var(--node-size);
+    height: var(--node-size);
+    box-sizing: border-box;
+    background: var(--color-bg);
+    border: 1px solid var(--sep-ink);
+    border-radius: var(--node-radius);
+    z-index: 1;
+  }
+  .about-mark-tl { top: calc(var(--node-size) / -2); left: calc(var(--node-size) / -2); }
+  .about-mark-br { bottom: calc(var(--node-size) / -2); right: calc(var(--node-size) / -2); }
+
+  .about-caption {
+    display: grid;
+    gap: 2px;
+    padding-top: var(--space-2);
+    border-top: 1px var(--rule-style) var(--sep-ink);
+  }
+  .about-caption-name { font-size: 13px; font-weight: 600; letter-spacing: 0.01em; }
+  .about-caption-role {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  /* Colour when the figure is engaged — the same rule `ProjectCard` and the
+     journal already apply to photographs, so every photograph on this site
+     behaves one way. Under `hover: hover` so a touch tap does not leave it
+     stuck in colour, and `:focus-within` is deliberately absent: there is
+     nothing focusable in here, and a rule for a state that cannot occur is a
+     rule nobody can check. */
+  @media (hover: hover) {
+    .about-photo:hover .grayscale { filter: none; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .about-plate img { transition: filter 0.4s var(--ease-soft); }
+  }
 
   .about-links { display: flex; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-6); }
 
-  @media (max-width: 640px) {
-    .about-profile { grid-template-columns: 1fr; gap: var(--space-4); }
-    .about-photo { max-width: 200px; }
+  /* `screen`, deliberately. A printed page is 688px wide, so every bare
+     `max-width` at or above that fires on paper too — the rule in
+     `resume.css` that printed the whole sheet into a 52mm rail was exactly
+     this shape. */
+  @media screen and (max-width: 640px) {
+    .about-profile { grid-template-columns: 1fr; gap: var(--space-6); }
+    .about-photo { max-width: 240px; }
   }
 </style>

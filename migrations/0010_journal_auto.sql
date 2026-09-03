@@ -1,0 +1,20 @@
+-- The daily journal's settings row.
+--
+-- `POST /api/content` with `op: 'patch'` is an `UPDATE`, and an UPDATE that
+-- matches nothing is a 404 — so without this row the *first* press of "Save
+-- schedule" on `/admin/ai` would fail with "No documents row with slug
+-- journal-auto", and every press after it would work. The `ai-assistant`
+-- settings row is seeded by `0004_ai.sql` for exactly this reason; this is the
+-- same shape of row with the same writer.
+--
+-- The value is `{}` deliberately, and not a copy of `AUTO_DEFAULTS`.
+-- `clampAutoSettings()` re-derives every field on read, so an empty object *is*
+-- the defaults — off, an 08:00–20:00 UTC window, three attempts — and a JSON
+-- literal here would be a second copy of those numbers, free to drift from the
+-- one in `src/lib/journal-auto.ts` the first time one of them changes.
+--
+-- The *run* record (`journal-auto-run`) is deliberately not seeded: it is
+-- written by `/api/ai/daily` with an upsert, so it creates itself on the first
+-- tick, and an empty row would only assert that nothing has happened yet —
+-- which is what its absence already says.
+INSERT OR IGNORE INTO documents (slug, json) VALUES ('journal-auto', '{}');

@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
-import { createMarkdownProcessor } from '@astrojs/markdown-remark';
 import { json, refusal, requireOwner } from '../../lib/authorize';
 import { BadRequest, SLUG, TABLES, bind, explainConstraint, isTable } from '../../lib/content-schema';
+import { renderBody } from '../../lib/markdown';
 
 /**
  * The write end of the content tables.
@@ -27,47 +27,6 @@ import { BadRequest, SLUG, TABLES, bind, explainConstraint, isTable } from '../.
  */
 
 export const prerender = false;
-
-/**
- * Astro's own markdown processor, built once per isolate.
- *
- * The same one that rendered the migrated rows in
- * `migrations/0002_seed_from_content.sql`, so a post written today renders
- * exactly like one written before the move: same GFM, same smartypants, same
- * heading slugs. (The script that produced them is gone along with
- * `src/content/`; the migration is its frozen output.) Rendering happens here
- * rather than in the browser so `body_html` stays a function of `body_md` — the
- * markdown is the source of truth, and the HTML beside it is derived, never
- * authored.
- */
-let processor: ReturnType<typeof createMarkdownProcessor> | null = null;
-const render = async (markdown: string): Promise<string> => {
-  if (!markdown.trim()) return '';
-  /* `syntaxHighlight: false` is not a preference, it is what makes this run on
-     Workers at all. Astro's default highlighter is Shiki, Shiki's default regex
-     engine is Oniguruma, and Oniguruma is a WebAssembly module instantiated
-     from bytes at runtime — which the Workers runtime refuses outright:
-
-       Failed to parse Markdown file "undefined":
-       WebAssembly.instantiate(): Wasm code generation disallowed by embedder
-
-     `rehypeShiki` builds that highlighter on the first tree it is handed
-     whether or not the markdown contains a code block, so *every* save of a
-     post or a case study with a body threw — in production only, because
-     `astro dev` renders this in Node where the instantiation is allowed.
-
-     Nothing is lost that this site was using: no stylesheet here has ever had
-     a rule for Shiki's output, `.prose pre` in `global.css` styles code blocks
-     from the theme tokens, and the seeded rows contain no highlighted markup
-     to be inconsistent with.
-
-     ponytail: plain `<pre><code class="language-…">`. If highlighting is
-     wanted later it is Shiki's JavaScript regex engine
-     (`shiki/engine/javascript`), which needs its own rehype plugin — Astro's
-     `shikiConfig` has no `engine` key to pass it through. */
-  processor ??= createMarkdownProcessor({ syntaxHighlight: false });
-  return (await (await processor).render(markdown)).code;
-};
 
 interface WriteBody {
   table?: string;
@@ -116,7 +75,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (payload.body !== undefined) {
       if (!TABLES[table].rendersBody) throw new BadRequest(`${table} has no body.`);
       columns.push('body_md', 'body_html');
-      values.push(payload.body, await render(payload.body));
+      values.push(payload.body, await renderBody(payload.body));
     }
 
     if (!columns.length) throw new BadRequest('Nothing to write.');

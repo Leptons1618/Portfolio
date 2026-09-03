@@ -1,0 +1,73 @@
+name: Daily journal
+
+# The clock behind the daily draft.
+#
+# The site runs on Astro's Cloudflare adapter, which emits a Worker exporting
+# `fetch` and nothing else. A Cloudflare Cron Trigger needs a `scheduled` export
+# beside it, and adding one means wrapping the adapter's generated
+# `dist/_worker.js/index.js` with an entry of our own — an unsupported build
+# step that a future adapter release breaks silently. This is the same schedule
+# without touching the Worker's shape: a tick an hour, and
+# `src/lib/journal-auto.ts` decides which of them is the one that writes.
+#
+# Hourly rather than daily *because* the post lands at a random hour. The
+# endpoint hashes the date into the owner's configured window, so twenty-three
+# of these ticks answer `skipped` after one D1 read and no tokens at all, and
+# the twenty-fourth writes. It is also the retry: a tick that fails leaves the
+# day unwritten, and the next hour tries again up to the configured limit.
+#
+# GitHub runs scheduled workflows late under load — often five to twenty
+# minutes. That is immaterial here: the schedule's resolution is an hour and
+# nothing downstream cares which minute of it this ran in.
+on:
+  schedule:
+    # :17 rather than :00. The top of the hour is when every cron on the
+    # platform fires at once, and a queued run is a delayed run.
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  # Two ticks generating at once would be two posts for one day. The endpoint
+  # records its attempt before it generates, so the second would in fact skip —
+  # this makes it not happen in the first place.
+  group: daily-journal
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    # Without the secret there is nothing to present, and the endpoint would
+    # refuse every call. Skipping is quieter than a red cross every hour on a
+    # repository that has not set the feature up.
+    if: ${{ github.event_name == 'workflow_dispatch' || vars.DAILY_JOURNAL == 'on' }}
+    steps:
+      - name: Ask the site whether it is time
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          # The live origin. A repository variable so a fork can point this at
+          # its own deployment without editing the workflow.
+          SITE_URL: ${{ vars.SITE_URL || 'https://anishgiri.dev' }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "No CRON_SECRET secret is set; nothing to present. See docs/DECISIONS.md 52."
+            exit 1
+          fi
+
+          # `--fail-with-body` so a 502 from the endpoint is a failed step *and*
+          # still prints the reason it gave. Without the body half, a failure
+          # reads as "curl: (22)" and nothing else.
+          http_status=$(curl --silent --show-error --fail-with-body \
+            --max-time 300 \
+            --retry 2 --retry-delay 30 --retry-connrefused \
+            --write-out '\n%{http_code}' \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            --header 'Content-Type: application/json' \
+            --data '{}' \
+            "$SITE_URL/api/ai/daily" | tee /dev/stderr | tail -n1) || {
+              echo "The daily journal endpoint refused or failed." >&2
+              exit 1
+            }
+
+          echo "HTTP $http_status"

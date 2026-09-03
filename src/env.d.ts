@@ -45,6 +45,20 @@ interface D1Database {
 
 interface Env {
   DB: D1Database;
+  /**
+   * The shared secret the daily journal schedule presents.
+   *
+   * A Worker secret (`wrangler secret put CRON_SECRET`), and optional: unset is
+   * a supported state and means the schedule cannot reach `/api/ai/daily` at
+   * all, which is the safe way for an unconfigured site to behave. The owner's
+   * own "Run now" goes through `requireOwner()` like every other admin write
+   * and does not need it.
+   *
+   * It is not an identity. It authorises exactly one thing — asking the site
+   * whether it is time to write today's draft — and cannot force a run, name a
+   * model, or reach the write endpoint.
+   */
+  CRON_SECRET?: string;
 }
 
 /**

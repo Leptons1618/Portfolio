@@ -151,9 +151,9 @@ const LIVE_PATH: Record<Table, (slug: string) => string> = {
   journal: slug => `/journal/${encodeURIComponent(slug)}`,
   case_studies: slug => `/case-studies/${encodeURIComponent(slug)}`,
   projects: slug => `/projects/${encodeURIComponent(slug)}`,
-  // The resume is a singleton; its key is not part of its URL. So are the home
-  // page's deep-dive picks, whose "page" is the home page itself.
-  documents: slug => (slug === DEEP_DIVES_KEY ? '/' : '/resume'),
+  // The resume is a singleton; its key is not part of its URL. So are the
+  // projects page's deep-dive picks, whose "page" is the listing itself.
+  documents: slug => (slug === DEEP_DIVES_KEY ? '/projects' : '/resume'),
 };
 
 const liveUrl = (table: Table, slug: string): string => LIVE_PATH[table](slug);
@@ -362,12 +362,17 @@ export function saveResume(document: ResumeDocument): Promise<WriteResult> {
 }
 
 /**
- * Save the home page's deep-dive line-up.
+ * Save the projects page's deep-dive line-up.
  *
- * An ordered array of case-study slugs, written whole like the resume beside
+ * An ordered array of **project** slugs, written whole like the resume beside
  * it — there is no partial update of "third card down" worth expressing. An
- * empty array is the automatic line-up (newest first), which is what the read
- * side treats any empty list as.
+ * empty array is the automatic line-up, which the read side takes to mean the
+ * projects that have a case study behind them.
+ *
+ * Project slugs, not case-study slugs, and the key changed with them
+ * (`projects-deep-dives`) so the old row cannot be read as the new list. The
+ * section moved onto `/projects` because a line-up built out of `case_studies`
+ * could not see `projects.hidden` — see `getProjectSplit()`.
  *
  * Unlike `resume`, this row has no migration seeding it, and a patch on a row
  * that does not exist is refused — so the first save creates it instead. Every

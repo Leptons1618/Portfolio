@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getCaseStudies, getPosts, getProjects } from '../lib/content';
+import { getPosts, getProjects, getPublicCaseStudies } from '../lib/content';
 import { site as siteConfig } from '../lib/site';
 
 /**
@@ -25,7 +25,7 @@ export const GET: APIRoute = async ({ site, locals }) => {
 
   const [projects, caseStudies, posts] = await Promise.all([
     getProjects(DB),
-    getCaseStudies(DB),
+    getPublicCaseStudies(DB),
     getPosts(DB),
   ]);
 

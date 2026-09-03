@@ -321,13 +321,15 @@ await probe('a streamed answer splits thinking from prose', async () => {
 
 await probe('the ceiling rule holds against the vendor’s own numbers', async () => {
   /* Not a network call — an assertion about what the two previous ones imply.
-     A model reporting a 64k completion must not lift a 600-token task to 64k,
-     and this is the arithmetic that says so. */
+     A model reporting a 32k completion must not lift a 600-token task to 32k,
+     and a 4,000-token task must not have to write its answer out of the same
+     budget it deliberated with. This is the arithmetic that says so. */
   const rich = { ...provider, maxOutputTokens: 32_000 };
-  assert.equal(effectiveMaxTokens(rich, 600), THINKING_HEADROOM);
-  assert.equal(effectiveMaxTokens(rich, 12_000), 12_000);
-  assert.equal(effectiveMaxTokens({ ...provider, maxOutputTokens: null }, 600), 600);
-  ok(`a row naming a large model raises a small task to ${THINKING_HEADROOM} and no further`);
+  assert.equal(effectiveMaxTokens(rich, 600), 1200);
+  assert.equal(effectiveMaxTokens(rich, 4000), 4000 + THINKING_HEADROOM);
+  assert.equal(effectiveMaxTokens(rich, 12_000), 12_000 + THINKING_HEADROOM);
+  assert.equal(effectiveMaxTokens({ ...provider, maxOutputTokens: null }, 600), 1200);
+  ok(`a task keeps its answer budget and gets up to ${THINKING_HEADROOM} more to think in`);
 });
 
 process.stdout.write(

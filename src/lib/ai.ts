@@ -549,15 +549,15 @@ const CHAT_TIMEOUT_MS = 30_000;
 export const asciiHeader = (value: string) => value.replace(/[^ -~]+/g, ' ').trim();
 
 /**
- * What a model may be given for thinking *and* answering, over and above what
- * the caller asked for.
+ * What a model may be given for thinking, over and above the answer it was
+ * asked for.
  *
  * A reasoning model spends `max_tokens` before it writes anything, so a ceiling
- * sized to the answer is a task that streams nothing — that is the failure
- * `ai_providers.max_output_tokens` was added to end, and this is how much
- * headroom ending it actually takes. Roughly a thousand tokens of deliberation
- * and three thousand of prose: enough for a model that narrates its way into a
- * long answer, and nowhere near a model's own maximum.
+ * sized to the answer alone is a task that streams nothing — that is the
+ * failure `ai_providers.max_output_tokens` was added to end, and this is how
+ * much headroom ending it actually takes. Roughly a thousand tokens of
+ * deliberation and three thousand of prose: enough for a model that narrates
+ * its way into a long answer, and nowhere near a model's own maximum.
  *
  * The number matters because the raise used to go all the way to whatever the
  * vendor's listing reported. That made the Answer length field on the AI screen
@@ -570,29 +570,67 @@ export const asciiHeader = (value: string) => value.replace(/[^ -~]+/g, ' ').tri
 export const THINKING_HEADROOM = 4000;
 
 /**
- * The ceiling one call actually gets.
+ * The ceiling one call actually gets: the answer's budget, plus room to think.
  *
- * Three rules, in this order:
+ * This used to read `max(requested, min(row, HEADROOM))`, and that shape has a
+ * hole in it exactly where the expensive tasks are. For anything asking for
+ * `THINKING_HEADROOM` or more the expression collapses to `requested` — so
+ * `/write-whole-post`, which asks for 4,000, was given 4,000 for the thinking
+ * *and* the post together. A model that deliberated for three thousand tokens
+ * wrote a thousand tokens of post and stopped mid-sentence, and the larger the
+ * task the less room it had: `/write-frontmatter` and `/write-case-study` at
+ * 3,000 were in the same position. Reported as "it spends all its tokens
+ * thinking", which is exactly what it did. Decision 51.
  *
- *   1. **The caller's number wins when it is larger.** A row holding 512 must
- *      not quietly shrink a task that needs 2,000 — that is the silent
- *      truncation this whole mechanism exists to end, reintroduced from the
- *      other direction.
- *   2. **A provider row raises a ceiling that is too small to work**, up to
- *      `THINKING_HEADROOM` and no further. The row says the model *accepts*
- *      more; it has never said the owner wants to pay for more.
- *   3. **Never past `MAX_OUTPUT_CEILING`**, whatever anything says.
+ * So the headroom is *added* rather than maxed in, under four rules:
  *
- * A task that genuinely needs a long answer says so in its own `maxTokens` and
- * gets it — `/write-whole-post` still asks for what it asks for. What no longer
- * happens is a two-line answer to a visitor being given a novel's worth of
- * budget to think in.
+ *   1. **The answer keeps the whole of what the caller asked for.** A task's
+ *      own `maxTokens` is the size of the output it wants, and nothing here
+ *      spends any of it on deliberation.
+ *   2. **Thinking gets its own room on top** — up to `THINKING_HEADROOM`, and
+ *      never more than the answer budget itself, so a six-word tag suggestion
+ *      is not handed four thousand tokens to deliberate in.
+ *   3. **A provider row caps the total where it names one**, because that is
+ *      what the model will actually accept — but never below `requested`, or a
+ *      row holding 512 would silently truncate a task that needs 1,200, which
+ *      is this mechanism's own failure reintroduced from the other direction.
+ *   4. **Never past `MAX_OUTPUT_CEILING`**, whatever anything says.
  */
 export const effectiveMaxTokens = (provider: Provider, requested: number): number =>
   Math.min(
-    Math.max(requested, Math.min(provider.maxOutputTokens ?? 0, THINKING_HEADROOM)),
+    requested + Math.min(requested, THINKING_HEADROOM),
+    Math.max(provider.maxOutputTokens ?? MAX_OUTPUT_CEILING, requested),
     MAX_OUTPUT_CEILING,
   );
+
+/**
+ * How much of that ceiling is room to think in rather than to answer with.
+ *
+ * The difference between the two numbers above, and it **gates nothing**: a
+ * model that spends all of it and then answers is a model using the headroom
+ * for exactly what it is there for. It exists to put a number in the report
+ * `sseEvents` emits when a round produced deliberation and nothing else — "it
+ * spent about 3,000 tokens thinking, against a 4,000-token allowance" is a
+ * sentence an author can act on, where "the model returned nothing" is not.
+ *
+ * Rule 3 above can leave it at zero on a row whose ceiling is below the task's.
+ * That is not a special case to handle: there was no headroom to talk about, so
+ * the report simply does not mention one.
+ */
+export const thinkingBudget = (provider: Provider, requested: number): number =>
+  Math.max(0, effectiveMaxTokens(provider, requested) - requested);
+
+/**
+ * Characters per token, for the watchdog and for nothing else.
+ *
+ * Deliberately crude. Nothing here needs a tokeniser — shipping one to a Worker
+ * to decide when a model has narrated for too long would cost more than the
+ * thing it is measuring — and the number only has to be wrong in the safe
+ * direction. English prose runs about four characters to the token across every
+ * vendor's tokeniser, so a budget measured this way is generous where the text
+ * is dense and roughly right everywhere else.
+ */
+const CHARS_PER_TOKEN = 4;
 
 /**
  * The messages, in the shape this particular provider wants them.
@@ -1134,7 +1172,11 @@ export function thinkStripper() {
  * read sits in a loop that returns only once a line has been queued or upstream
  * has ended.
  */
-export function ndjsonFromSSE(upstream: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
+export function ndjsonFromSSE(
+  upstream: ReadableStream<Uint8Array>,
+  /** The round's thinking allowance, quoted in the report below. Not a gate. */
+  thinkBudget = 0,
+): ReadableStream<Uint8Array> {
   return linesToStream(
     (async function* () {
       /* Carried to the end rather than emitted where it arrives. `length` is
@@ -1143,7 +1185,7 @@ export function ndjsonFromSSE(upstream: ReadableStream<Uint8Array>): ReadableStr
          can tell those apart — so it rides on the `done` frame, which is the
          one every reader already waits for. */
       let stopReason = '';
-      for await (const event of sseEvents(upstream)) {
+      for await (const event of sseEvents(upstream, thinkBudget)) {
         if (event.kind === 'stop') {
           stopReason = event.reason;
           continue;
@@ -1201,11 +1243,22 @@ function frameFor(event: SseEvent): Record<string, unknown> | null {
  * reading stops the tokens. That is the same guarantee the old `cancel()` gave
  * and it is the one that costs money to lose.
  */
-async function* sseEvents(upstream: ReadableStream<Uint8Array>): AsyncGenerator<SseEvent> {
+async function* sseEvents(
+  upstream: ReadableStream<Uint8Array>,
+  thinkBudget = 0,
+): AsyncGenerator<SseEvent> {
   const decoder = new TextDecoder();
   const reader = upstream.getReader();
   const thoughts = thinkStripper();
   let buffer = '';
+  /* The two counters behind the end-of-round report. `thought` is characters
+     of deliberation; `produced` goes true the moment the model emits anything
+     that is not deliberation — a word of answer, or a fragment of a tool call,
+     either of which means it stopped narrating and started working. Only the
+     run-up is counted, because deliberation *beside* an answer is a model
+     spending the budget the answer was given, which is fine. */
+  let thought = 0;
+  let produced = false;
   /* The last non-empty `finish_reason` upstream sent. `length` is the one worth
      carrying: it is the difference between "the model had nothing more to add"
      and "the ceiling cut it off mid-sentence", and nothing else on either
@@ -1279,6 +1332,10 @@ async function* sseEvents(upstream: ReadableStream<Uint8Array>): AsyncGenerator<
           if (fragment.function?.name) call.name = fragment.function.name;
           if (fragment.function?.arguments) call.arguments += fragment.function.arguments;
           calls.set(index, call);
+          /* A lookup is work, not narration: a round that thinks hard and then
+             asks to read a post is the loop doing its job, and stopping it
+             would be the watchdog breaking retrieval. */
+          produced = true;
         }
 
         /* Reasoning arrives three ways and all three land in the same channel:
@@ -1291,19 +1348,71 @@ async function* sseEvents(upstream: ReadableStream<Uint8Array>): AsyncGenerator<
         const split = thoughts.split(typeof content === 'string' ? content : '');
         const thinking = `${separated}${split.reasoning}`;
 
-        if (thinking) yield { kind: 'thinking', text: thinking };
-        if (split.text) yield { kind: 'delta', text: split.text };
+        if (thinking) {
+          if (!produced) thought += thinking.length;
+          yield { kind: 'thinking', text: thinking };
+        }
+        if (split.text) {
+          produced = true;
+          yield { kind: 'delta', text: split.text };
+        }
       }
     }
 
     /* Whatever the tag guard was still holding back. A response that ends
        mid-`<thi` is not a tag, it is those four characters. */
     const tail = thoughts.flush();
-    if (tail.reasoning) yield { kind: 'thinking', text: tail.reasoning };
-    if (tail.text) yield { kind: 'delta', text: tail.text };
+    if (tail.reasoning) {
+      if (!produced) thought += tail.reasoning.length;
+      yield { kind: 'thinking', text: tail.reasoning };
+    }
+    /* `produced` has to be set here too, and forgetting it is not a corner
+       case: the narration classifier holds the opening of a response back
+       until a newline or ninety characters, so *every* answer shorter than
+       that arrives only from this flush. Without the flag a two-line summary
+       is a round that produced nothing. */
+    if (tail.text) {
+      produced = true;
+      yield { kind: 'delta', text: tail.text };
+    }
 
     const asked = [...calls.values()].filter(call => call.name);
-    if (asked.length) yield { kind: 'tools', calls: asked };
+    if (asked.length) {
+      produced = true;
+      yield { kind: 'tools', calls: asked };
+    }
+
+    /* The round deliberated and never did anything else.
+     *
+     * This is the failure the author reports as "it thinks for a minute and
+     * nothing appears", and every surface used to render it as an empty answer
+     * — indistinguishable, from the editor, from a dead API key or a model id
+     * that no longer exists. `max_tokens` bounds reasoning and answer together,
+     * so a model that spends the whole ceiling narrating has nothing left to
+     * write with, and what arrives is a `content` of zero characters.
+     *
+     * Reported at the *end* rather than cut off partway through, deliberately.
+     * A round that thinks hard and then asks to read a post is the retrieval
+     * loop working, and a watchdog firing mid-stream on the deliberation could
+     * not tell that apart from a runaway — it would break the feature it was
+     * added to protect. By here the round is over and the question is settled:
+     * no answer, no lookup, nothing but thinking.
+     *
+     * `thinkBudget` only quantifies the message. The budget is not the trigger
+     * — spending it and then answering is fine, and is what the headroom is
+     * there for. */
+    if (!produced && thought > 0) {
+      const spent = Math.round(thought / CHARS_PER_TOKEN);
+      yield {
+        kind: 'error',
+        message:
+          `The model spent this whole run thinking — about ${spent} tokens of deliberation ` +
+          `and no answer${thinkBudget > 0 ? `, against a ${thinkBudget}-token allowance` : ''}. ` +
+          'Set Effort to Low in the run toolbar, pick a model that does not deliberate, or ' +
+          'raise the output ceiling on the AI screen.',
+      };
+    }
+
     if (stopReason) yield { kind: 'stop', reason: stopReason };
   } finally {
     /* The visitor closed the panel or navigated away. Releasing the upstream
@@ -1411,7 +1520,10 @@ export function agentStream(options: AgentOptions): ReadableStream<Uint8Array> {
      it is what says out loud that the loop exists *only* for lookups, and it
      keeps `ndjsonFromSSE` the thing both paths agree the frame protocol is. */
   if (!options.call.tools?.length && options.first.response.body) {
-    return ndjsonFromSSE(options.first.response.body);
+    return ndjsonFromSSE(
+      options.first.response.body,
+      thinkingBudget(options.first.provider, options.call.maxTokens),
+    );
   }
   return linesToStream(agentLines(options));
 }
@@ -1422,6 +1534,10 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
   const maxCalls = options.maxCalls ?? 8;
 
   const messages = [...options.messages];
+  /* Pinned to the provider that answered, like the rounds themselves are: the
+     headroom a call was granted is a property of the row it went out on, and
+     later rounds do not go back to the list. */
+  const thinkBudget = thinkingBudget(first.provider, options.call.maxTokens);
   let response = first.response;
   let spent = 0;
   let stopReason = '';
@@ -1446,7 +1562,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
     let said = '';
     let asked: ToolCall[] = [];
 
-    for await (const event of sseEvents(response.body)) {
+    for await (const event of sseEvents(response.body, thinkBudget)) {
       if (event.kind === 'delta') said += event.text;
       if (event.kind === 'stop') {
         stopReason = event.reason;

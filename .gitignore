@@ -146,3 +146,6 @@ mockups/
 # Generated from wrangler.example.jsonc by `npm run config` — it carries the
 # D1 database id, which is per-account. Edit the template, not this.
 /wrangler.jsonc
+
+# Local Worker secrets for `astro dev` / `wrangler dev`. Never committed.
+.dev.vars

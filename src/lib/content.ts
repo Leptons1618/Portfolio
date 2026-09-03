@@ -241,24 +241,68 @@ export async function getFeaturedProjects(db: D1Database, limit?: number): Promi
   return limit === undefined ? ranked : ranked.slice(0, limit);
 }
 
-/** Every case study, newest first. */
+/**
+ * Every case study, newest first — including the ones a visitor cannot reach.
+ *
+ * This is the admin's set, and the AI's when it is answering the owner. The
+ * public pages want `getPublicCaseStudies()`.
+ */
 export async function getCaseStudies(db: D1Database, limit?: number): Promise<CaseStudy[]> {
   const sorted = (await all(db, 'case_studies')).map(toCaseStudy).sort(byDateDesc);
   return limit === undefined ? sorted : sorted.slice(0, limit);
 }
 
-/* ---------- the home page's deep dives ---------- */
+/**
+ * The case studies a visitor may read.
+ *
+ * `hidden` is a flag on a *project*, and `case_studies` has no equivalent — a
+ * study is written up work, and the work is the project. So retiring a project
+ * has to retire its write-up with it, or hiding one takes the card off every
+ * listing and 404s the detail page while leaving the long version live for
+ * anyone holding the link. That is the whole of the bug `getProjectSplit()`
+ * fixes on the listing side, one page further in.
+ *
+ * A study **nothing** links to is not retired: it is unlinked, which the
+ * dashboard already flags, and it is reachable on purpose. Only a study whose
+ * every linking project is hidden goes — the `every` matters because two
+ * projects may point at one study, and one of them still being live is still a
+ * reason to read it.
+ */
+export async function getPublicCaseStudies(db: D1Database): Promise<CaseStudy[]> {
+  const [studies, everyProject] = [await getCaseStudies(db), await getProjects(db, true)];
+  const linked = (hidden: boolean) =>
+    new Set(
+      everyProject
+        .filter(p => p.data.caseStudySlug && p.data.hidden === hidden)
+        .map(p => p.data.caseStudySlug!),
+    );
+  const [retired, live] = [linked(true), linked(false)];
+  return studies.filter(cs => !retired.has(cs.slug) || live.has(cs.slug));
+}
+
+/* ---------- the projects page's deep dives ---------- */
 
 /**
- * The home page leads with a handful of case studies, and which ones — and in
- * what order — is an authoring decision, not something `date DESC` should keep
- * deciding. The decision is stored as a singleton row in `documents`, the same
- * shape of fact as the resume and the AI settings: one record, no table of its
- * own, holding `{ "slugs": ["querypilot", …] }` top-to-bottom.
+ * `/projects` opens with the work that has been written up at length, and the
+ * rest of the index below it. Which projects lead — and in what order — is an
+ * authoring decision, not something `featuredRank` should keep deciding on the
+ * projects page as well as everywhere else. The decision is stored as a
+ * singleton row in `documents`, the same shape of fact as the resume and the AI
+ * settings: one record, no table of its own, holding
+ * `{ "slugs": ["querypilot", …] }` top-to-bottom.
+ *
+ * The list holds **project** slugs, and that is the fix for the bug this
+ * arrangement had. The section used to be on the home page and used to be a
+ * list of *case studies*, read straight out of `case_studies` — which knows
+ * nothing about `projects.hidden`. Retiring a project therefore took it off
+ * `/projects`, 404'd its detail page, and left its case study leading the front
+ * door. Sourcing the line-up from `getProjects()` makes that impossible by
+ * construction: hidden rows are gone before the selection is applied, so there
+ * is no second place for the flag to be honoured or forgotten.
  *
  * The admin writes through `saveDeepDives()` in `content-store.ts`.
  */
-export const DEEP_DIVES_KEY = 'home-deep-dives';
+export const DEEP_DIVES_KEY = 'projects-deep-dives';
 
 /** Whatever the row held, as an ordered list of real slugs, duplicates gone. */
 function clampSlugs(raw: unknown): string[] {
@@ -271,7 +315,7 @@ function clampSlugs(raw: unknown): string[] {
  * The saved selection, top-to-bottom. Empty means automatic: no row yet, an
  * emptied list, or a row of JSON that does not parse all read as "the site
  * chooses" rather than as an error — the same tolerance `clampSettings`
- * extends the AI settings, because a hand-edited row must never take the home
+ * extends the AI settings, because a hand-edited row must never take a listing
  * page down with it.
  */
 export async function getDeepDiveSelection(db: D1Database): Promise<string[]> {
@@ -287,23 +331,44 @@ export async function getDeepDiveSelection(db: D1Database): Promise<string[]> {
   }
 }
 
+/** The projects page's two halves. Together they are exactly `getProjects()`. */
+export interface ProjectSplit {
+  /** The line-up, in the saved order. */
+  deep: Project[];
+  /** Everything the line-up leaves out, in the site's canonical order. */
+  rest: Project[];
+}
+
 /**
- * The case studies the home page shows, in order.
+ * Every visible project, split into the two sections `/projects` renders.
  *
- * The saved list is intersected with what actually exists at read time, so a
- * deleted study drops out of the line-up instead of leaving a hole in the grid
- * — and a selection whose every slug has since been deleted falls back to
- * automatic rather than rendering an empty section.
+ * The saved list is intersected with what actually exists *and is visible* at
+ * read time, so a deleted or retired project drops out of the line-up instead
+ * of leaving a hole in the grid — and a selection whose every slug has since
+ * gone falls back to automatic rather than rendering an empty section.
+ *
+ * Automatic is "the ones with a write-up": a project pointing at a case study
+ * is a project there is more to read about, which is what the section means.
+ * With no case studies anywhere, `deep` is empty and the page renders as the
+ * single grid it always was.
  */
-export async function getDeepDiveCaseStudies(db: D1Database): Promise<CaseStudy[]> {
-  const [all, selected] = [await getCaseStudies(db), await getDeepDiveSelection(db)];
-  if (!selected.length) return all;
-  const bySlug = new Map(all.map(cs => [cs.slug, cs]));
+export async function getProjectSplit(db: D1Database): Promise<ProjectSplit> {
+  const [visible, selected] = [await getProjects(db), await getDeepDiveSelection(db)];
+  const bySlug = new Map(visible.map(project => [project.slug, project]));
+
   const picked = selected.flatMap(slug => {
     const found = bySlug.get(slug);
     return found ? [found] : [];
   });
-  return picked.length > 0 ? picked : all;
+  if (!picked.length) {
+    return {
+      deep: visible.filter(project => project.data.caseStudySlug),
+      rest: visible.filter(project => !project.data.caseStudySlug),
+    };
+  }
+
+  const chosen = new Set(picked.map(project => project.slug));
+  return { deep: picked, rest: visible.filter(project => !chosen.has(project.slug)) };
 }
 
 /**
@@ -385,7 +450,7 @@ export async function getProject(
 }
 
 export async function getCaseStudy(db: D1Database, slug: string): Promise<CaseStudy | undefined> {
-  return (await getCaseStudies(db)).find(cs => cs.slug === slug);
+  return (await getPublicCaseStudies(db)).find(cs => cs.slug === slug);
 }
 
 export async function getPost(
@@ -404,9 +469,14 @@ export async function projectForCaseStudy(
   return (await getProjects(db)).find(p => p.data.caseStudySlug === slug);
 }
 
-/** Previous/next links for the case-study footer, in publication order. */
+/**
+ * Previous/next links for the case-study footer, in publication order.
+ *
+ * The public set, so a footer arrow never points at a page that 404s — the
+ * neighbour of a retired study is the next one a reader can actually open.
+ */
 export async function caseStudyNeighbours(db: D1Database, slug: string) {
-  const sorted = await getCaseStudies(db);
+  const sorted = await getPublicCaseStudies(db);
   const i = sorted.findIndex(cs => cs.slug === slug);
   return { prev: sorted[i + 1] ?? null, next: sorted[i - 1] ?? null };
 }

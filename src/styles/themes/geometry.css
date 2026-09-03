@@ -593,6 +593,15 @@ html[data-theme='geometry'] .hero-figure {
   padding-left: 0;
 }
 
+/* The page lands its portrait's bottom edge on the ground with a gradient,
+   because on every other theme the photograph is a rectangle whose lower edge
+   would otherwise be a hard line across a near-white shirt. Here it is a disc
+   inside an orbit — there is no edge to land, and a veil over the figure would
+   sit on top of the ring. */
+html[data-theme='geometry'] .hero-figure::after {
+  content: none;
+}
+
 html[data-theme='geometry'] .hero-visual {
   display: block;
   grid-area: 1 / 1;

@@ -77,7 +77,7 @@ interface AssistBody {
    * expensive one.
    */
   model?: unknown;
-  /** `low` / `medium` / `high`, or anything else for "use the row's setting". */
+  /** `low` / `medium` / `high`, or anything else to fall through — see below. */
   effort?: unknown;
   /** `false` turns the lookup tools off for this run. */
   tools?: unknown;
@@ -189,7 +189,29 @@ export const POST: APIRoute = async ({ request, locals }) => {
   });
 
   const model = pickModel(providers, payload.model);
-  const effort = clampEffort(payload.effort);
+
+  /* The run's effort, and it is always sent.
+   *
+   * This route used to send the field only when the panel's picker named a
+   * level, and the picker ships on "Auto" — so the normal case was no
+   * `reasoning_effort` at all, which is not "no thinking" but "whatever the
+   * vendor defaults to", and the vendors that default to anything default to
+   * more. On a reasoning model that meant `/write-whole-post` narrating a plan
+   * until the ceiling ran out. `/api/ai/chat` has passed its setting explicitly
+   * since decision 29 for exactly this reason; the authoring surface, which is
+   * where the long generations are, was the half still leaving it to chance.
+   *
+   * Four levels, most specific first: what the author picked for this run, the
+   * AI screen's own setting, the provider row's column, and then `low` —
+   * because a writing assistant is being asked to write, and every token spent
+   * deliberating is a token the post does not get. Nothing here can be raised
+   * by a caller: `clampEffort` answers `null` for anything that is not one of
+   * the three levels. */
+  const effort =
+    clampEffort(payload.effort) ??
+    settings.reasoningEffort ??
+    providers[0]?.reasoningEffort ??
+    'low';
 
   const call = {
     maxTokens: task.maxTokens,
@@ -201,9 +223,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     timeoutMs: 60_000,
     ...(tools.length ? { tools } : {}),
     ...(model ? { model } : {}),
-    /* `undefined` leaves the provider row's setting alone; a value the panel
-       sent replaces it for this run only. */
-    ...(effort ? { effort } : {}),
+    effort,
   };
 
   try {

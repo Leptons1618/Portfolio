@@ -5,7 +5,7 @@ import Illustration from '../components/Illustration.astro';
 import MathVisual from '../components/MathVisual.astro';
 import PathLine from '../components/PathLine.astro';
 import SectionSep from '../components/SectionSep.astro';
-import { CATEGORY_LABELS, categoryLabel, getProjects, topTags } from '../lib/content';
+import { CATEGORY_LABELS, categoryLabel, getProjectSplit, topTags } from '../lib/content';
 
 /* Reads content from D1 per request — see the note in `src/lib/content.ts`.
    Prerendering this page would freeze the listing at deploy time, which is the
@@ -14,7 +14,13 @@ export const prerender = false;
 
 const { DB } = Astro.locals.runtime.env;
 
-const allProjects = await getProjects(DB);
+/* The index in two halves — the written-up work, then everything else.
+   `getProjectSplit` starts from `getProjects()`, so a hidden project is gone
+   from both before the line-up is applied; the deep-dive list used to be a
+   list of case studies read straight out of their own table, which is how a
+   retired project kept a card on the site after it was retired. */
+const { deep, rest } = await getProjectSplit(DB);
+const allProjects = [...deep, ...rest];
 
 /* "Featured" is a pseudo-category: it filters on featuredRank, not on the
    schema's category field, so it is prepended rather than derived. */
@@ -27,7 +33,7 @@ const categories = [
     .map(([key, label]) => ({ key, label })),
 ];
 
-const projectsData = allProjects.map(p => ({
+const cardData = (p: (typeof allProjects)[number]) => ({
   title: p.data.title,
   slug: p.slug,
   summary: p.data.summary,
@@ -41,7 +47,29 @@ const projectsData = allProjects.map(p => ({
   demoUrl: p.data.demoUrl,
   caseStudySlug: p.data.caseStudySlug,
   featuredRank: p.data.featuredRank,
-}));
+});
+
+/* Two sections, one card. The band between them is a sibling of the columns
+   rather than a child of one — `SectionSep` is full-bleed by construction, so
+   a band inside a `.container` draws a boundary across the middle of the page
+   (decision 50). It is wrapped in a plain div only so the filter can take it
+   away when one of the two sections has nothing left to show. */
+const groups = [
+  {
+    key: 'deep',
+    eyebrow: 'Deep dives',
+    title: 'Written up in full',
+    hint: 'Projects with a case study behind them — the problem, the architecture, and what it cost.',
+    items: deep.map(cardData),
+  },
+  {
+    key: 'rest',
+    eyebrow: 'Index',
+    title: 'Everything else',
+    hint: 'The rest of the work, newest first. Every card links to its own page and its repository.',
+    items: rest.map(cardData),
+  },
+];
 ---
 <BaseLayout title="Projects" description="All projects — filterable by category, tag, and stack.">
   <header class="container page-header" data-reveal>
@@ -64,38 +92,64 @@ const projectsData = allProjects.map(p => ({
     <FilterBar categories={categories} topTags={topTags(allProjects)} />
   </div>
 
-  <section class="container results" data-reveal style="--reveal-delay: 140ms">
-    <div class="project-grid" id="project-grid">
-      {projectsData.map(project => (
-        <article
-          class="card elev-sm project-card"
-          data-title={project.title.toLowerCase()}
-          data-summary={project.summary.toLowerCase()}
-          data-category={project.category}
-          data-tags={project.tags.join(',')}
-          data-stack={project.stack.join(',').toLowerCase()}
-          data-year={project.year}
-          data-featured-rank={project.featuredRank ?? 9999}
-        >
-          <div class="card-top">
-            <span class="card-year">{project.year}</span>
-            <span class="tag tag-accent-2">{project.categoryLabel}</span>
+  {groups.map((group, index) => (
+    <Fragment>
+      {index > 0 && (
+        <div class="group-sep" data-sep={group.key} hidden={groups[index - 1].items.length === 0 || group.items.length === 0}>
+          <SectionSep />
+        </div>
+      )}
+      <section
+        class="container results"
+        data-group={group.key}
+        data-reveal
+        style="--reveal-delay: 140ms"
+        hidden={group.items.length === 0}
+      >
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">{group.eyebrow}</p>
+            <h2 class="group-title">{group.title}</h2>
+            <p class="group-hint text-muted">{group.hint}</p>
           </div>
-          <h2 class="card-title"><a href={`/projects/${project.slug}`}>{project.title}</a></h2>
-          <p class="card-body">{project.summary}</p>
-          <hr class="rule" />
-          <div class="card-stack">
-            {project.stack.slice(0, 5).map(s => <span class="tag tag-neutral">{s}</span>)}
-          </div>
-          <div class="card-actions">
-            <a class="btn btn-primary btn-sm" href={project.caseStudySlug ? `/case-studies/${project.caseStudySlug}` : `/projects/${project.slug}`}>
-              {project.caseStudySlug ? 'Case study' : 'Details'}
-            </a>
-            <a class="btn btn-secondary btn-sm" href={project.repoUrl} target="_blank" rel="noopener">Repo ↗</a>
-          </div>
-        </article>
-      ))}
-    </div>
+          <hr class="rule section-line" />
+        </div>
+        <div class:list={['project-grid', { 'project-grid-lead': group.key === 'deep' }]}>
+          {group.items.map(project => (
+            <article
+              class="card elev-sm project-card"
+              data-title={project.title.toLowerCase()}
+              data-summary={project.summary.toLowerCase()}
+              data-category={project.category}
+              data-tags={project.tags.join(',')}
+              data-stack={project.stack.join(',').toLowerCase()}
+              data-year={project.year}
+              data-featured-rank={project.featuredRank ?? 9999}
+            >
+              <div class="card-top">
+                <span class="card-year">{project.year}</span>
+                <span class="tag tag-accent-2">{project.categoryLabel}</span>
+              </div>
+              <h3 class="card-title"><a href={`/projects/${project.slug}`}>{project.title}</a></h3>
+              <p class="card-body">{project.summary}</p>
+              <hr class="rule" />
+              <div class="card-stack">
+                {project.stack.slice(0, 5).map(s => <span class="tag tag-neutral">{s}</span>)}
+              </div>
+              <div class="card-actions">
+                <a class="btn btn-primary btn-sm" href={project.caseStudySlug ? `/case-studies/${project.caseStudySlug}` : `/projects/${project.slug}`}>
+                  {project.caseStudySlug ? 'Case study' : 'Details'}
+                </a>
+                <a class="btn btn-secondary btn-sm" href={project.repoUrl} target="_blank" rel="noopener">Repo ↗</a>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    </Fragment>
+  ))}
+
+  <div class="container results-foot">
     <div id="no-results" class="empty-state hidden">
       <div class="empty-state-art"><Illustration name="no-data" /></div>
       <p class="empty-state-copy">No projects match your filters.</p>
@@ -104,7 +158,7 @@ const projectsData = allProjects.map(p => ({
       <p class="empty-state-hint">Try a broader search, or clear a category or tag chip.</p>
       <button type="button" class="btn btn-secondary" id="clear-filters">Clear filters</button>
     </div>
-  </section>
+  </div>
 </BaseLayout>
 
 <script>
@@ -115,8 +169,18 @@ const projectsData = allProjects.map(p => ({
   import { mountSelects } from '../lib/select';
   mountSelects();
 
-  const grid = document.getElementById('project-grid')!;
-  const cards = Array.from(grid.querySelectorAll<HTMLElement>('.project-card'));
+  /* The page is two grids now, and a card never moves between them: which
+     section it is in is an authoring decision, and the filter's job is only to
+     say which of them still match. So the state is one array of *groups*, each
+     with its own grid to sort inside and its own head to take away when it
+     empties — plus, for the second one, the band above it, which has to go
+     with it or the page ends on a boundary with nothing under it. */
+  const groups = Array.from(document.querySelectorAll<HTMLElement>('[data-group]')).map(section => ({
+    section,
+    grid: section.querySelector<HTMLElement>('.project-grid')!,
+    cards: Array.from(section.querySelectorAll<HTMLElement>('.project-card')),
+    sep: document.querySelector<HTMLElement>(`[data-sep="${section.dataset.group}"]`),
+  }));
   const searchInput = document.getElementById('filter-search') as HTMLInputElement;
   const sortSelect = document.getElementById('filter-sort') as HTMLSelectElement;
   const categoryChips = document.querySelectorAll<HTMLElement>('[data-filter="category"]');
@@ -160,49 +224,66 @@ const projectsData = allProjects.map(p => ({
   }
 
   function applyFilters() {
-    const visible: HTMLElement[] = [];
     const returning: HTMLElement[] = [];
     const q = query.trim().toLowerCase();
-    for (const card of cards) {
-      const title = card.dataset.title || '';
-      const summary = card.dataset.summary || '';
-      const category = card.dataset.category || '';
-      const stack = card.dataset.stack || '';
-      const tags = card.dataset.tags?.split(',') || [];
-      const isFeatured = (card.dataset.featuredRank || '9999') !== '9999';
+    let total = 0;
+    /* Whether anything above this group survived the filter. The band before a
+       group is a boundary *between* two things, so it belongs on screen only
+       when there are two. */
+    let shownAbove = false;
 
-      const matchesQ = !q || title.includes(q) || summary.includes(q) || stack.includes(q) || tags.some(t => t.toLowerCase().includes(q));
-      const matchesCat =
-        activeCategory === 'all' ||
-        (activeCategory === 'featured' ? isFeatured : category === activeCategory);
-      const matchesTags = activeTags.length === 0 || activeTags.every(t => tags.includes(t));
+    for (const group of groups) {
+      const visible: HTMLElement[] = [];
 
-      /* A card coming back from `display: none` is the one thing here worth
-         animating: the change has to read as "these match now", not as a
-         spreadsheet quietly repopulating. First paint skips this — the page
-         reveal already owns arrival. */
-      const wasHidden = card.style.display === 'none';
-      if (matchesQ && matchesCat && matchesTags) {
-        card.style.display = '';
-        visible.push(card);
-        if (wasHidden && initialised) returning.push(card);
-      } else {
-        card.style.display = 'none';
+      for (const card of group.cards) {
+        const title = card.dataset.title || '';
+        const summary = card.dataset.summary || '';
+        const category = card.dataset.category || '';
+        const stack = card.dataset.stack || '';
+        const tags = card.dataset.tags?.split(',') || [];
+        const isFeatured = (card.dataset.featuredRank || '9999') !== '9999';
+
+        const matchesQ = !q || title.includes(q) || summary.includes(q) || stack.includes(q) || tags.some(t => t.toLowerCase().includes(q));
+        const matchesCat =
+          activeCategory === 'all' ||
+          (activeCategory === 'featured' ? isFeatured : category === activeCategory);
+        const matchesTags = activeTags.length === 0 || activeTags.every(t => tags.includes(t));
+
+        /* A card coming back from `display: none` is the one thing here worth
+           animating: the change has to read as "these match now", not as a
+           spreadsheet quietly repopulating. First paint skips this — the page
+           reveal already owns arrival. */
+        const wasHidden = card.style.display === 'none';
+        if (matchesQ && matchesCat && matchesTags) {
+          card.style.display = '';
+          visible.push(card);
+          if (wasHidden && initialised) returning.push(card);
+        } else {
+          card.style.display = 'none';
+        }
       }
+
+      visible.sort((a, b) => {
+        const ya = parseInt(a.dataset.year || '0');
+        const yb = parseInt(b.dataset.year || '0');
+        if (sort === 'oldest') return ya - yb;
+        if (sort === 'featured') {
+          const fa = parseInt(a.dataset.featuredRank || '9999');
+          const fb = parseInt(b.dataset.featuredRank || '9999');
+          if (fa !== fb) return fa - fb;
+        }
+        return yb - ya;
+      });
+      visible.forEach(card => group.grid.appendChild(card));
+
+      /* The attribute, not a class: `global.css` asserts `[hidden]` with
+         `!important` because a `display` in the component layer outranks
+         Tailwind's preflight otherwise — decision 26. */
+      group.section.hidden = visible.length === 0;
+      if (group.sep) group.sep.hidden = visible.length === 0 || !shownAbove;
+      if (visible.length > 0) shownAbove = true;
+      total += visible.length;
     }
-
-    visible.sort((a, b) => {
-      const ya = parseInt(a.dataset.year || '0');
-      const yb = parseInt(b.dataset.year || '0');
-      if (sort === 'oldest') return ya - yb;
-      if (sort === 'featured') {
-        const fa = parseInt(a.dataset.featuredRank || '9999');
-        const fb = parseInt(b.dataset.featuredRank || '9999');
-        if (fa !== fb) return fa - fb;
-      }
-      return yb - ya;
-    });
-    visible.forEach(card => grid.appendChild(card));
 
     /* Staggered by rank in the visible set, capped so a large result set
        never makes the last card wait out a long queue. */
@@ -213,8 +294,8 @@ const projectsData = allProjects.map(p => ({
       card.classList.add('is-entering');
     });
 
-    noResults.classList.toggle('hidden', visible.length > 0);
-    resultsCount.textContent = `Showing ${visible.length} project${visible.length === 1 ? '' : 's'}`;
+    noResults.classList.toggle('hidden', total > 0);
+    resultsCount.textContent = `Showing ${total} project${total === 1 ? '' : 's'}`;
     categoryChips.forEach(chip => setChipState(chip, chip.dataset.value === activeCategory, 'tag-accent'));
     tagChips.forEach(chip => setChipState(chip, activeTags.includes(chip.dataset.value || ''), 'tag-accent-2'));
   }
@@ -268,8 +349,38 @@ const projectsData = allProjects.map(p => ({
   .filter-row { padding-top: var(--space-6); }
 
   .page-desc { opacity: 0.8; max-width: 60ch; margin: 0; }
-  .results { padding-bottom: var(--space-8); }
+
+  /* Two sections between bands, so each one is padded on both ends the way the
+     home page's are: the band's rule is the boundary, and the content under it
+     needs the same room it has above the next one. */
+  .results { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  .results-foot { padding-bottom: var(--space-8); }
+
+  /* The same head the home page's sections carry — eyebrow, heading, and a
+     rule running out to the edge of the column. The hint under it is what
+     tells a visitor why there are two grids rather than one. */
+  .section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-4);
+    margin-bottom: var(--space-5, 20px);
+    flex-wrap: wrap;
+  }
+  .section-line { flex: 1; min-width: 40px; align-self: center; }
+  .group-title { margin-bottom: var(--space-2); }
+  .group-hint { max-width: 62ch; margin: 0; font-size: 14px; }
+
   .project-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+
+  /* The deep dives are two across rather than three, and that is the whole of
+     the hierarchy between the sections: same card, more room. A card that has
+     a case study behind it has more to say on its face — a longer summary and
+     a second action — and giving it half a row instead of a third of one is
+     what says so without a second card component to keep in step. */
+  .project-grid-lead { grid-template-columns: repeat(2, 1fr); }
+  .project-grid-lead .card-title { font-size: 22px; }
+  .project-grid-lead .card-body { max-width: 56ch; }
   .card-top { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
   .card-year { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-muted); }
   .card-title a { color: inherit; text-decoration: none; }
@@ -302,11 +413,15 @@ const projectsData = allProjects.map(p => ({
     .empty-state:not(.hidden) { animation: empty-in var(--dur-base) var(--ease-out) backwards; }
   }
 
-  @media (max-width: 900px) {
+  /* `screen and`, because a printed page is 688px wide and a bare
+     `max-width` fires on paper as well as on a phone. */
+  @media screen and (max-width: 900px) {
     .project-grid { grid-template-columns: repeat(2, 1fr); }
   }
-  @media (max-width: 640px) {
-    .project-grid { grid-template-columns: 1fr; }
+  @media screen and (max-width: 640px) {
+    .project-grid,
+    .project-grid-lead { grid-template-columns: 1fr; }
+    .project-grid-lead .card-title { font-size: 20px; }
     .page-header { grid-template-columns: 1fr; gap: var(--space-4); }
     .page-header-art { width: 200px; }
   }
