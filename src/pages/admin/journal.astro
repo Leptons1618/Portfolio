@@ -322,7 +322,7 @@ const SORTS = [
     const rowBySlug = new Map(rows.map(row => [row.dataset.slug!, row]));
 
     /* — reordering —
-       Same shape as the dashboard's deep-dives editor: the DOM order inside
+       Same shape as the projects manifest's deep-dives regions: the DOM order inside
        each shelf is the state, dragging or arrow keys move the row, and Save
        reads the whole order back out of the DOM. The saved list is global, not
        per-shelf: a slug keeps its position whether it sits under Active or

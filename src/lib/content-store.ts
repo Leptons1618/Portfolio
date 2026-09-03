@@ -362,7 +362,7 @@ export function saveResume(document: ResumeDocument): Promise<WriteResult> {
 }
 
 /**
- * Save the projects page's deep-dive line-up.
+ * Save the home page's deep-dive line-up.
  *
  * An ordered array of **project** slugs, written whole like the resume beside
  * it — there is no partial update of "third card down" worth expressing. An
@@ -370,9 +370,9 @@ export function saveResume(document: ResumeDocument): Promise<WriteResult> {
  * projects that have a case study behind them.
  *
  * Project slugs, not case-study slugs, and the key changed with them
- * (`projects-deep-dives`) so the old row cannot be read as the new list. The
- * section moved onto `/projects` because a line-up built out of `case_studies`
- * could not see `projects.hidden` — see `getProjectSplit()`.
+ * (`projects-deep-dives`) so the old row cannot be read as the new list. A
+ * line-up built out of `case_studies` could not see `projects.hidden` — see
+ * `getDeepDiveProjects()`.
  *
  * Unlike `resume`, this row has no migration seeding it, and a patch on a row
  * that does not exist is refused — so the first save creates it instead. Every

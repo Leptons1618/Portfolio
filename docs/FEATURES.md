@@ -24,8 +24,8 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 | Feature | State | Notes |
 | --- | --- | --- |
 | Home, projects, project detail, case studies, journal, about, resume | ✅ | All prerendered; `npm run build` prints the count |
-| Projects filter bar (category, tag chips, "Featured" pseudo-category) | ✅ | `src/components/FilterBar.astro`. Runs across both sections of `/projects` and takes a section — and the band above it — off the screen when nothing in it matches |
-| `/projects` leads with the deep dives, then everything else | ✅ | Two grids with a `SectionSep` between them, two across then three. The line-up is an ordered list of *project* slugs in a `documents` singleton, curated on the dashboard; empty means the projects that have a case study. Read through `getProjectSplit()`, which starts from `getProjects()` — so a hidden project cannot be in either half. Decision 53 |
+| Projects filter bar (category, tag chips, "Featured" pseudo-category) | ✅ | `src/components/FilterBar.astro`. One grid of every visible project, filtered client-side |
+| Home page leads with the deep dives | ✅ | One double-column lead card and the rest stacked beside it. The line-up is an ordered list of *project* slugs in a `documents` singleton, arranged on `/admin/projects` by dragging cards across the band; empty means the projects that have a case study. Read through `getDeepDiveProjects()`, which starts from `getProjects()` — so a hidden project cannot be in it. Decisions 53 and 55 |
 | Hiding a project retires its write-up too | ✅ | `getPublicCaseStudies()` drops a study whose *every* linking project is hidden, and it is what the case-study page, its prev/next arrows, the sitemap and the public assistant's index read. A study nothing links to is unlinked, not retired, and stays reachable — decision 53 |
 | Project → case-study link | ✅ | One-way; `check-content.mjs` fails a dangling `caseStudySlug` |
 | Journal listing + post pages | ✅ | Published posts only in production |

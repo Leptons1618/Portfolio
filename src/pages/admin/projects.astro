@@ -1,9 +1,10 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
+import AdminProjectCard from '../../components/AdminProjectCard.astro';
 import AssistPanel from '../../components/AssistPanel.astro';
 import Illustration from '../../components/Illustration.astro';
 import { Icon } from 'astro-icon/components';
-import { getCaseStudies, getProjects } from '../../lib/content';
+import { getCaseStudies, getDeepDiveSelection, getProjects } from '../../lib/content';
 import {
   PROJECT_CATEGORIES,
   PROJECT_STATUSES,
@@ -55,15 +56,47 @@ const seed = {
 };
 const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
 
-const STATUS_VARIANT: Record<string, string> = {
-  active: 'tag-accent-2',
-  stable: 'tag-accent-2',
-  wip: 'tag-accent',
-  archived: 'tag-neutral',
-};
-
 const hiddenCount = rows.filter(row => row.data.hidden).length;
 const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
+
+/* — the line-up —
+
+    Which projects lead the home page's Deep dives section, and in what order.
+
+    It is edited here rather than on the dashboard because the flag it has to
+    agree with is the visibility switch on these very cards — two screens apart,
+    the two were easy to leave disagreeing (decision 55). And it is edited *on
+    the manifest itself* rather than behind a tab beside it: there is one card
+    per project on this screen, the cards above the line are the line-up in
+    order, the cards below it are everything else, and dragging one across is
+    the whole interaction. A tab would have been a second list of the same
+    projects, which is a second place for the same fact to be wrong.
+
+    Rows are **projects**, and they used to be case studies. That is the fix for
+    a real bug and not a refactor: the section read straight out of
+    `case_studies`, which has no idea a project is hidden, so retiring a project
+    took it off `/projects` and 404'd its page while leaving its study leading
+    the home page. Decision 53. */
+const deepDiveSelection = await getDeepDiveSelection(DB);
+const rowBySlug = new Map(rows.map(row => [row.slug, row]));
+
+/* What the read side does with an empty selection, and what Automatic
+   restores: the projects there is a write-up to read. */
+const automatic = rows.filter(row => !row.data.hidden && row.data.caseStudySlug).map(row => row.slug);
+
+/* Hidden projects cannot lead. A retired project cannot head a section it is
+   not on, so the saved list is intersected with what is visible before it is
+   drawn — the same intersection `getDeepDiveProjects()` does on the read side,
+   which is what keeps the preview and the page from disagreeing. */
+const picked = deepDiveSelection.filter(slug => rowBySlug.get(slug) && !rowBySlug.get(slug)!.data.hidden);
+const lineUp = picked.length > 0 ? picked : automatic;
+const inLineUp = new Set(lineUp);
+
+/* The line-up in its saved order, then everything else in the site's canonical
+   order — hidden projects included, because this screen is where one is
+   brought back. */
+const leadRows = lineUp.map(slug => rowBySlug.get(slug)!);
+const restRows = rows.filter(row => !inLineUp.has(row.slug));
 ---
 <AdminLayout title="Project Manager">
   <div class="admin-main-wide" id="admin-projects">
@@ -111,14 +144,24 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       </div>
     </section>
 
-    <div class="section-head-rule pm-grid-head">
-      <p class="admin-eyebrow">Repository Sync ({rows.length})</p>
-      <hr class="rule" />
-    </div>
+    {/* — the manifest, in two regions —
+
+        One card per project, in one of two places: above the line it leads the
+        home page's Deep dives section, below it it does not. Drag a card across
+        to change that. Order inside the top region is the order the section
+        renders in, and Save writes it as one document.
+
+        The boundary is `.pm-band`, this surface's own: a rule at the tab
+        bar's weight, which is what the admin already uses to say "a section
+        ends here". `SectionSep` — the hatched, full-bleed band with corner
+        nodes — is a *public page* mark. It was tried here and was wrong twice
+        over: nothing else on the admin draws it, and its hatch is a hairline in
+        `--hatch-ink`, which on the light themes reads as a rendering artifact
+        rather than as a boundary. */}
 
     {/* Search and filter, client-side against the cards already on the page —
         there is no pagination here, so there is nothing to ask the server
-        for. */}
+        for. It runs across both regions. */}
     {rows.length > 0 && (
       <div class="pm-filter-bar">
         <input
@@ -164,88 +207,76 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
       </div>
     )}
 
-    <div class="pm-grid">
-      {rows.map(row => (
-        <article
-          class="card elev-sm pm-card"
-          data-slug={row.slug}
-          data-path={row.path}
-          data-owner={row.owner}
-          data-repo={row.repoName}
-          data-title={row.data.title.toLowerCase()}
-          data-category={row.data.category}
-          data-hidden={row.data.hidden ? '1' : '0'}
-        >
-          <div class="pm-card-head">
-            <div class="pm-card-id">
-              <h3 class="pm-card-title">{row.data.title}</h3>
-              <p class="pm-card-meta">
-                <span class="pm-branch">branch: —</span> · <span class="pm-sync">last sync: not fetched</span>
+    {rows.length > 0 && (
+      <Fragment>
+        <section class="pm-zone" data-zone="lead" aria-labelledby="pm-zone-lead-title">
+          <div class="pm-zone-head">
+            <div class="pm-zone-copy">
+              <p class="admin-eyebrow" id="pm-zone-lead-title">
+                Deep dives (<span data-role="zone-count">{leadRows.length}</span>)
+              </p>
+              <p class="text-muted admin-note pm-zone-hint">
+                These lead the home page, in this order. Which side of the line a card is
+                on is the whole of that decision — there is no switch for it. Nothing here
+                hides anything: a project below the line is still on <code>/projects</code>
+                and still has its own page. An empty region falls back to the projects that
+                have a case study, and a hidden project cannot lead, so retiring one sends
+                its card down.
               </p>
             </div>
-            <div class="pm-visibility">
-              <span class="pm-field-label">Visibility</span>
-              <button
-                type="button"
-                class="toggle"
-                role="switch"
-                data-slug={row.slug}
-                aria-checked={row.data.hidden ? 'false' : 'true'}
-                aria-label={`Toggle visibility for ${row.data.title}`}
-              ><span></span></button>
+            <div class="dd-controls">
+              <div class="admin-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="dd-reset">Automatic</button>
+                <button type="button" class="btn btn-primary btn-sm" id="dd-save">Save layout</button>
+              </div>
+              <p class="text-muted admin-note dd-status" id="dd-status"></p>
             </div>
           </div>
-
           <hr class="rule" />
+          <div class="pm-grid pm-zone-grid" id="pm-grid-lead" data-default={automatic.join(',')}>
+            {leadRows.map(row => (
+              <AdminProjectCard
+                slug={row.slug}
+                path={row.path}
+                owner={row.owner}
+                repoName={row.repoName}
+                data={row.data}
+              />
+            ))}
+          </div>
+          <p class="text-muted admin-note pm-zone-empty" id="pm-lead-empty" hidden></p>
+        </section>
 
-          <div class="pm-fields">
-            <div>
-              <span class="pm-field-label">Mapped Repository</span>
-              <a class="pm-field-value" href={row.data.repoUrl} target="_blank" rel="noopener">
-                {row.owner}/{row.repoName} ↗
-              </a>
-            </div>
-            <div>
-              <span class="pm-field-label">Year · Status</span>
-              <span class="pm-field-value">
-                {row.data.year}
-                <span class={`tag ${STATUS_VARIANT[row.data.status] ?? 'tag-neutral'}`}>{row.data.status}</span>
-              </span>
-            </div>
-            <div>
-              <span class="pm-field-label">Slug</span>
-              <a class="pm-field-value" href={`/projects/${row.slug}`}>/{row.slug}</a>
-            </div>
-            <div>
-              <span class="pm-field-label">Case Study</span>
-              <span class="pm-field-value" data-role="case-study">
-                {row.data.caseStudySlug
-                  ? <a href={`/case-studies/${row.data.caseStudySlug}`}>linked · {row.data.caseStudySlug}</a>
-                  : <span class="text-muted">none</span>}
-              </span>
+        <hr class="pm-band" />
+
+        <section class="pm-zone" data-zone="rest" aria-labelledby="pm-zone-rest-title">
+          <div class="pm-zone-head">
+            <div class="pm-zone-copy">
+              <p class="admin-eyebrow" id="pm-zone-rest-title">
+                Everything else (<span data-role="zone-count">{restRows.length}</span>)
+              </p>
+              <p class="text-muted admin-note pm-zone-hint">
+                The rest of the index, and every hidden project. Drag a card above the
+                line to make it lead — or focus its grip and press Enter.
+              </p>
             </div>
           </div>
-
-          <p class="text-muted admin-note pm-status" data-role="status"></p>
-
-          <div class="pm-actions">
-            {/* A link, not a button: editing a project that already exists is a
-                whole screen — every field, the repository's live state and the
-                case study in one place — and this card is a manifest row. The
-                modal below is what an *import* opens. */}
-            <a class="btn btn-secondary btn-sm" href={`/admin/projects/${row.slug}`}>
-              <Icon name="lucide:pencil" class="admin-nav-icon" />Edit
-            </a>
-            <button type="button" class="btn btn-secondary btn-sm" data-action="fetch">
-              <Icon name="lucide:refresh-cw" class="admin-nav-icon" />Fetch
-            </button>
-            <button type="button" class="btn btn-secondary btn-sm pm-danger" data-action="delete">
-              <Icon name="lucide:trash-2" class="admin-nav-icon" />Delete
-            </button>
+          <hr class="rule" />
+          <div class="pm-grid pm-zone-grid" id="pm-grid-rest">
+            {restRows.map(row => (
+              <AdminProjectCard
+                slug={row.slug}
+                path={row.path}
+                owner={row.owner}
+                repoName={row.repoName}
+                data={row.data}
+              />
+            ))}
           </div>
-        </article>
-      ))}
-    </div>
+          <p class="text-muted admin-note pm-zone-empty" id="pm-rest-empty" hidden></p>
+        </section>
+      </Fragment>
+    )}
 
     <div class="admin-empty" id="pm-no-results" hidden>
       <div class="admin-empty-art admin-empty-art-sm"><Illustration name="no-data" /></div>
@@ -253,8 +284,8 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     </div>
 
     <p class="text-muted admin-note visibility-note" id="write-note">
-      Signed out, this screen is read-only — visibility, editing and delete all need a
-      GitHub session, because each one writes to the live database.
+      Signed out, this screen is read-only — visibility, the line-up, editing and delete
+      all need a GitHub session, because each one writes to the live database.
     </p>
   </div>
 
@@ -467,6 +498,7 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     patchProject,
     projectPath,
     removeProject,
+    saveDeepDives,
     slugify,
     type ProjectFields,
   } from '../../lib/content-store';
@@ -596,8 +628,15 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
 
     // ---------------------------------------------------------------- cards
 
+    const root = document.getElementById('admin-projects')!;
     const cards = Array.from(document.querySelectorAll<HTMLElement>('.pm-card'));
     const statusOf = (card: HTMLElement) => card.querySelector<HTMLElement>('[data-role="status"]')!;
+
+    /* What the line-up editor below needs to know when a project is retired or
+       brought back. It is assigned there rather than called from there because
+       the visibility switch is wired first and has to keep working on a screen
+       with no line-up on it — an empty manifest. */
+    let onHidden: (slug: string, hidden: boolean) => void = () => applyPmFilters();
 
     // ------------------------------------------------------ search & filter
 
@@ -608,6 +647,23 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     const pmCategoryFilter = document.getElementById('pm-category-filter') as HTMLSelectElement | null;
     const pmResultsCount = document.getElementById('pm-results-count');
     const pmNoResults = document.getElementById('pm-no-results') as HTMLElement | null;
+
+    /* A region has to keep its box when it empties — it is a drop target, and a
+       target that disappears when the last card leaves it is one that cannot be
+       dropped into. The note inside it says which kind of empty it is: nothing
+       put there, or nothing left after a filter. */
+    const zoneNotes = [
+      {
+        grid: document.getElementById('pm-grid-lead'),
+        note: document.getElementById('pm-lead-empty'),
+        bare: 'Nothing leads the home page yet — drag a project up here, or focus its grip and press Enter.',
+      },
+      {
+        grid: document.getElementById('pm-grid-rest'),
+        note: document.getElementById('pm-rest-empty'),
+        bare: 'Every project leads the home page, so there is nothing below the line.',
+      },
+    ];
 
     function applyPmFilters() {
       const term = (pmSearch?.value ?? '').trim().toLowerCase();
@@ -623,6 +679,17 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         const shown = matchesTerm && matchesStatus && matchesCategory;
         card.style.display = shown ? '' : 'none';
         if (shown) visible += 1;
+      }
+
+      for (const zone of zoneNotes) {
+        if (!zone.grid || !zone.note) continue;
+        const held = Array.from(zone.grid.querySelectorAll<HTMLElement>('.pm-card'));
+        const shown = held.filter(card => card.style.display !== 'none').length;
+        zone.note.textContent = held.length === 0 ? zone.bare : 'No project in this section matches that search and filter.';
+        /* The attribute, not a class: `global.css` asserts `[hidden]` with
+           `!important` because a `display` in the component layer outranks
+           Tailwind's preflight otherwise — decision 26. */
+        zone.note.hidden = shown > 0;
       }
 
       if (pmResultsCount) {
@@ -684,12 +751,20 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     }
 
     /* A project has a switch on its card and, once the modal has been opened,
-       another one in the import list. Both show the same field. */
+       another one in the import list. Both show the same field.
+
+       `data-hidden` on the card is that same field a third time — read by the
+       visibility filter above, and by the rule that a hidden project cannot
+       lead the home page. It is written here so the three cannot drift apart. */
     function syncToggles(slug: string, visible: boolean) {
       document
         .querySelectorAll<HTMLButtonElement>(`.toggle[data-slug="${CSS.escape(slug)}"]`)
         .forEach(toggle => toggle.setAttribute('aria-checked', String(visible)));
+      cards
+        .filter(card => card.dataset.slug === slug)
+        .forEach(card => { card.dataset.hidden = visible ? '0' : '1'; });
       if (seed.projects[slug]) seed.projects[slug].hidden = !visible;
+      onHidden(slug, !visible);
     }
 
     cards.forEach(card => {
@@ -1559,6 +1634,204 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
         if (event.target === modal) modal.close();
       });
     });
+
+    // -------------------------------------------------- the deep dives line-up
+
+    /* The two regions *are* the state: which grid holds a card is whether that
+       project leads the home page, and DOM order inside the top grid is the
+       order the section renders in. Every action moves a card and lets Save
+       read the truth back out of the page — there is no second copy of the
+       order to keep honest, and no second list of the same projects. */
+    const leadGrid = document.getElementById('pm-grid-lead');
+    if (leadGrid) {
+      const restGrid = document.getElementById('pm-grid-rest')!;
+      const ddStatus = document.getElementById('dd-status')!;
+      const ddSave = document.getElementById('dd-save') as HTMLButtonElement;
+      const ddReset = document.getElementById('dd-reset') as HTMLButtonElement;
+
+      const cardsIn = (zone: HTMLElement) => Array.from(zone.querySelectorAll<HTMLElement>('.pm-card'));
+
+      /* The counts in the two headings are the line-up's size and the index's,
+         so they move with the cards rather than with the page load. */
+      const zoneHeads = [
+        { grid: leadGrid, count: document.querySelector<HTMLElement>('[data-zone="lead"] [data-role="zone-count"]') },
+        { grid: restGrid, count: document.querySelector<HTMLElement>('[data-zone="rest"] [data-role="zone-count"]') },
+      ];
+
+      /* There is nothing to sync a card *to*: which grid holds it is the only
+         record of whether it leads, which is why it carries no switch saying so
+         as well. Redrawing after a move is the region headings and the empty
+         notes, both of which `applyPmFilters` already owns. */
+      function syncLead() {
+        for (const zone of zoneHeads) {
+          if (zone.count) zone.count.textContent = String(cardsIn(zone.grid).length);
+        }
+        applyPmFilters();
+      }
+
+      async function ddCommit(slugs: string[], note: string) {
+        setBusy(ddSave, true, 'Saving…');
+        try {
+          await saveDeepDives(slugs);
+          say(ddStatus, note);
+          toast('Deep dives updated.', { tone: 'success' });
+        } catch (error) {
+          say(ddStatus, message(error), 'error');
+          toast(message(error), { tone: 'error' });
+        } finally {
+          setBusy(ddSave, false);
+        }
+      }
+
+      if (!signedIn) {
+        for (const button of [ddSave, ddReset]) {
+          button.disabled = true;
+          button.title = 'Sign in with GitHub to change the home page.';
+        }
+      }
+
+      ddSave.addEventListener('click', () => {
+        if (!signedIn) return;
+        const slugs = cardsIn(leadGrid).map(card => card.dataset.slug!);
+        void ddCommit(
+          slugs,
+          slugs.length
+            ? `Saved — ${slugs.length} ${slugs.length === 1 ? 'project leads' : 'projects lead'} the home page, in the order laid out above.`
+            : 'Saved — nothing picked, so the section falls back to the projects with a case study.',
+        );
+      });
+
+      ddReset.addEventListener('click', () => {
+        if (!signedIn) return;
+        /* Restore what the read side does with an empty selection — the
+           projects that have a case study lead, in the site's canonical order,
+           and everything else goes below the line — then save the empty list,
+           which is what "automatic" is stored as.
+
+           Both regions, not just the top one. A card left above the line
+           because nothing moved it down would be a manifest disagreeing with
+           the empty selection just saved. */
+        const held = new Map([...cardsIn(leadGrid), ...cardsIn(restGrid)].map(card => [card.dataset.slug!, card]));
+        const wanted = (leadGrid.dataset.default ?? '').split(',').filter(Boolean);
+        wanted.forEach(slug => {
+          const card = held.get(slug);
+          if (card) leadGrid.append(card);
+        });
+        for (const [slug, card] of held) {
+          if (!wanted.includes(slug)) restGrid.append(card);
+        }
+        syncLead();
+        void ddCommit([], 'Automatic — the projects with a case study lead, the rest follow.');
+      });
+
+      /* Moving a card between regions, by whichever route. A hidden project is
+         refused the top region outright: it cannot head a section it is not on,
+         and letting one up here is the disagreement the line-up was moved onto
+         this screen to end. */
+      function moveTo(card: HTMLElement, lead: boolean) {
+        const allowed = lead && card.dataset.hidden !== '1';
+        if (lead && !allowed) say(statusOf(card), 'A hidden project cannot lead the home page.', 'error');
+        const target = allowed ? leadGrid! : restGrid;
+        /* Only when the region actually changes. `append` on the parent a card
+           is already in moves it to the end, which would throw away the
+           position a drop inside one region had just chosen. */
+        if (card.parentElement !== target) target.append(card);
+        syncLead();
+      }
+      /* Retiring a project takes it out of the line-up in the same gesture,
+         rather than leaving a card above the line that the read side drops. */
+      onHidden = (slug, hidden) => {
+        const card = [...cardsIn(leadGrid), ...cardsIn(restGrid)].find(c => c.dataset.slug === slug);
+        if (card && hidden && card.parentElement === leadGrid) moveTo(card, false);
+        else applyPmFilters();
+      };
+
+      /* Dragging, and everything that has to exist for it to be fair: a
+         keyboard path through the grip's arrow keys, and a switch that makes
+         the same move for anyone not using a pointer. */
+      if (signedIn) {
+        let dragged: HTMLElement | null = null;
+
+        for (const card of [...cardsIn(leadGrid), ...cardsIn(restGrid)]) {
+          card.classList.add('is-draggable');
+          card.draggable = true;
+
+          card.addEventListener('dragstart', event => {
+            dragged = card;
+            card.classList.add('is-dragging');
+            root.classList.add('is-reordering');
+            event.dataTransfer?.setData('text/plain', card.dataset.slug ?? '');
+            if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
+          });
+          card.addEventListener('dragend', () => {
+            card.classList.remove('is-dragging');
+            root.classList.remove('is-reordering');
+            dragged = null;
+            /* The drop already moved the node; a hidden project dragged up is
+               sent straight back down, with the reason on its own status line. */
+            moveTo(card, card.parentElement === leadGrid);
+          });
+
+          /* The keyboard's whole path through this, since there is no switch:
+             the arrows reorder inside a region and Enter crosses the line. */
+          card.querySelector<HTMLButtonElement>('.pm-grip')?.addEventListener('keydown', event => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              moveTo(card, card.parentElement !== leadGrid);
+              card.querySelector<HTMLButtonElement>('.pm-grip')?.focus();
+              return;
+            }
+            const delta =
+              event.key === 'ArrowUp' || event.key === 'ArrowLeft'
+                ? -1
+                : event.key === 'ArrowDown' || event.key === 'ArrowRight'
+                  ? 1
+                  : 0;
+            if (!delta) return;
+            event.preventDefault();
+            const zone = card.parentElement!;
+            const siblings = cardsIn(zone);
+            const neighbour = siblings[siblings.indexOf(card) + delta];
+            if (!neighbour) return;
+            if (delta < 0) neighbour.before(card);
+            else neighbour.after(card);
+            syncLead();
+          });
+        }
+
+        /* Live reorder: the dragged card moves as the pointer crosses a
+           neighbour, so the layout *is* the drop preview. The pointer's offset
+           from a card's centre picks before/after on whichever axis dominates,
+           which is what makes a card in a wide track behave like every other
+           slot. An empty region takes the card whole. */
+        function bindZone(grid: HTMLElement) {
+          const surface = grid.closest<HTMLElement>('.pm-zone') ?? grid;
+          surface.addEventListener('dragover', event => {
+            if (!dragged) return;
+            event.preventDefault();
+            if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+            const card = (event.target as HTMLElement).closest<HTMLElement>('.pm-card');
+            if (!card) {
+              if (!cardsIn(grid).length && dragged.parentElement !== grid) grid.append(dragged);
+              return;
+            }
+            if (card === dragged || card.parentElement !== grid) return;
+            const box = card.getBoundingClientRect();
+            const dx = event.clientX - (box.left + box.width / 2);
+            const dy = event.clientY - (box.top + box.height / 2);
+            const after = Math.abs(dx) > Math.abs(dy) ? dx > 0 : dy > 0;
+            if (after ? dragged.nextElementSibling === card : dragged.previousElementSibling === card) return;
+            if (after) card.after(dragged);
+            else card.before(dragged);
+          });
+          surface.addEventListener('drop', event => event.preventDefault());
+        }
+        bindZone(leadGrid);
+        bindZone(restGrid);
+      }
+
+      syncLead();
+    }
   });
 </script>
 
@@ -1575,9 +1848,6 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
   .source-avatar { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--color-divider); flex: none; }
   .source-account { margin: 0; font-weight: 600; font-size: 14px; }
   .source-tags { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
-
-  .pm-grid-head { margin-bottom: var(--space-3); }
-  .pm-grid-head h6 { margin: 0; }
 
   .pm-filter-bar {
     display: flex;
@@ -1613,17 +1883,10 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
     gap: var(--space-4);
   }
 
-  .pm-card.is-removed { opacity: 0.5; }
-  .pm-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
-  .pm-card-title { font-size: 18px; margin: 0 0 4px; }
-  .pm-card-meta { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); margin: 0; }
-
-  .pm-fields { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
-
-  .pm-status { min-height: 16px; }
-  .pm-status[data-tone='error'] { color: var(--color-accent-700); }
-
-  .pm-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+  /* The card's own layout lives in `AdminProjectCard.astro`, and it has to:
+     the component root does not carry this page's `data-astro-cid`, so a
+     `.pm-card` rule written here would silently match nothing. What is left
+     here is the grid it sits in. */
 
   .visibility-note { margin-top: var(--space-6); max-width: 70ch; }
   .visibility-note code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
@@ -1694,7 +1957,73 @@ const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
   }
 
   @media (max-width: 640px) {
-    .pm-fields { grid-template-columns: 1fr; }
     #import-list :global(.repo-row) { grid-template-columns: minmax(0, 1fr); }
   }
+
+  /* — the two regions —
+
+     Not a panel and not a tray: two runs of the same grid with the site's own
+     section band between them. The band is what says these are two halves of
+     one list rather than two lists, which is the whole reason the line-up is
+     edited on the manifest instead of beside it. */
+  .pm-zone { position: relative; }
+  .pm-zone-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-2);
+  }
+  .pm-zone-copy { min-width: 0; }
+  .pm-zone-hint { max-width: 72ch; margin-top: 4px; }
+  .pm-zone-grid { margin-top: var(--space-4); }
+
+  /* A region keeps its box when it empties, because an empty region is still a
+     drop target. `min-height` is roughly a card, so the target is somewhere a
+     card can plausibly be aimed at. */
+  .pm-zone-grid:empty { min-height: 120px; }
+  .pm-zone-empty {
+    margin-top: var(--space-3);
+    text-align: center;
+    padding: var(--space-4) 0;
+    border: 1px dashed var(--color-divider);
+    border-radius: var(--radius-md);
+  }
+  .pm-zone-empty[hidden] { display: none; }
+
+  /* Both regions light up while a card is in the air — the one being left as
+     much as the one being aimed at, because either is a legal drop and a target
+     that only appears under the pointer is one you have to discover. */
+  .is-reordering .pm-zone-grid,
+  .is-reordering .pm-zone-empty {
+    outline: 2px dashed color-mix(in srgb, var(--color-accent) 55%, transparent);
+    outline-offset: 6px;
+    border-radius: var(--radius-md);
+  }
+
+  /* The boundary between the two regions, in this surface's own grammar: a
+     rule at the weight `.tab-bar` uses to close a section, not the public
+     pages' hatched full-bleed `SectionSep` — nothing else on the admin draws
+     that, and its hatch is a hairline that reads as an artifact here.
+
+     `--sep-ink` and `--rule-style`, not `--color-divider` and `solid`. That
+     pair is the theme's *section boundary*, raised to a mid-ramp step by every
+     theme precisely because a divider between two rows of text wants to be
+     barely there and a boundary between two sections wants to be read — at
+     `--color-divider` this line was the same weight as the card edges either
+     side of it, which is the way it disappears. */
+  .pm-band {
+    border: 0;
+    border-top: 2px var(--rule-style) var(--sep-ink);
+    margin: var(--space-8) 0;
+  }
+
+  /* Save reports beside its own button, and takes no room until it has
+     something to say — an empty status line here would push the divider away
+     from the grid it is meant to be the edge of. */
+  .dd-controls { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+  .dd-status { margin: 0; text-align: right; max-width: 46ch; }
+  .dd-status:empty { display: none; }
+  .dd-status[data-tone='error'] { color: var(--color-accent-700); }
 </style>

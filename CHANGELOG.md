@@ -30,13 +30,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `.github/workflows/daily-journal.yml`; it needs a `CRON_SECRET` secret and a
   `DAILY_JOURNAL` repository variable set to `on`. Decision 52.
 
-- **Deep dives, and the rest, on `/projects`.** The listing opens with the
-  projects there is a case study to read, then a band, then everything else.
-  Which projects lead — and in what order — is still the admin's call; the
-  editor moved with the section, arranges projects instead of case studies,
-  and previews the two-across grid the page actually draws. The filter runs
-  across both sections and takes a section, and the band above it, off the
-  screen when nothing in it matches. Decision 53.
+- **Deep dives lead the home page, and the line-up is a list of projects.**
+  The section opens with a double-column lead card and stacks the rest beside
+  it. It is sourced from **projects** rather than case studies now, so a
+  retired project cannot go on leading the front door after its own page has
+  started to 404 — which is what it used to do. Which projects lead, and in
+  what order, is the admin's call; empty means the ones that have a case study
+  behind them. Decisions 53 and 55.
 
 - **The colophon has a way in from the page about the work.** `/about` closes
   with a "This Site" paragraph and a Colophon button; the footer's stack line
@@ -128,6 +128,34 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   panels take the theme's radius.
 
 ### Changed
+
+- **`/projects` is one grid again, and the deep-dives editor is the projects
+  manifest itself.** The public listing had become two grids with a band
+  between them; someone looking for a project should not have to read the
+  answer twice, so the argument about which work matters most went back to the
+  home page and the index went back to being an index.
+
+  The editor followed the same reasoning inwards. It was a tab on the
+  dashboard, then a tab beside Repository Sync, and is now **no tab at all**:
+  `/admin/projects` renders one card per project in one of two regions with a
+  rule between them — above the line it leads the home page, below it it does
+  not — and dragging a card across is the whole interaction. There is
+  deliberately no deep-dive switch on the card, because which side it is on
+  already says that and a switch beside it is the same fact written twice. The
+  grip is the keyboard path: arrows reorder inside a region, Enter crosses the
+  line. The boundary is the admin's own 2px rule at `--sep-ink`, not the public
+  pages' hatched `SectionSep`: nothing else on this surface draws that band,
+  and at `--color-divider` a boundary is the same weight as the card edges
+  either side of it and disappears. The visibility switch and the line-up now sit on the same card, a
+  hidden project is refused the top region with the reason on its own status
+  line, and retiring a card that is up there sends it down in the same
+  gesture. The region headings carry counts that move with the cards.
+  Decision 55.
+
+- **The manifest card is `AdminProjectCard.astro`.** It is rendered from two
+  regions, so it is a component — and its styles moved into it, because a
+  component root does not carry the caller's `data-astro-cid` and the
+  `.pm-card` rules left behind in the page would have matched nothing.
 
 - **A token ceiling is the answer *plus* room to think, not the two fighting
   over one number.** `effectiveMaxTokens()` was

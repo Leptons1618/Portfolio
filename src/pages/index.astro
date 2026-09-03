@@ -5,7 +5,7 @@ import Illustration from '../components/Illustration.astro';
 import SectionSep from '../components/SectionSep.astro';
 import PathLine from '../components/PathLine.astro';
 import ContactTerminal from '../components/ContactTerminal.astro';
-import { getFeaturedProjects, getProjects } from '../lib/content';
+import { categoryLabel, getDeepDiveProjects, getFeaturedProjects, getProjects } from '../lib/content';
 import { site } from '../lib/site';
 
 /* Reads content from D1 per request — see the note in `src/lib/content.ts`.
@@ -17,6 +17,17 @@ const { DB } = Astro.locals.runtime.env;
 
 const allProjects = await getProjects(DB);
 const featured = await getFeaturedProjects(DB, 6);
+/* The line-up is the author's call, not `date DESC`'s — the admin picks and
+   orders these on `/admin/projects`, and an empty or absent pick falls back to
+   the projects that have a case study behind them.
+
+   Projects, not case studies. A card here is the *work*, and `hidden` is a flag
+   on the work: reading the line-up out of `case_studies` is what let a retired
+   project go on leading the front door after its own page had started to 404
+   — decision 53. The card links to the write-up when there is one and to the
+   project's own page when there is not, which is the same pair `/projects`
+   offers. */
+const deepDives = await getDeepDiveProjects(DB);
 
 const skillSet = new Set<string>();
 allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
@@ -88,6 +99,44 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
   </header>
 
   <SectionSep />
+
+  {deepDives.length > 0 && (
+    <Fragment>
+      <section class="container home-section" data-reveal>
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Selected Work</p>
+            <h2>Deep dives</h2>
+          </div>
+          <hr class="rule section-line" />
+        </div>
+        <div class="grid-3 cs-grid">
+          {deepDives.map((project, i) => (
+            <a
+              href={project.data.caseStudySlug
+                ? `/case-studies/${encodeURIComponent(project.data.caseStudySlug)}`
+                : `/projects/${encodeURIComponent(project.slug)}`}
+              class:list={['card', 'elev-sm', 'cs-card', { 'cs-lead': i === 0 && deepDives.length >= 3 }]}
+            >
+              <span class="card-kicker">{project.data.year} · {categoryLabel(project.data.category)}</span>
+              <h3 class="card-title">{project.data.title}</h3>
+              <p class="card-body">{project.data.summary}</p>
+              {/* A span, not an anchor — the whole card already links to the
+                  write-up, and a button inside a link is the one nesting
+                  browsers refuse to render. Dressed as the same primary action
+                  the project cards below use, so both sections answer "where do
+                  I click" identically. */}
+              <span class="btn btn-primary btn-sm cs-card-cta">
+                {project.data.caseStudySlug ? 'Read case study' : 'Details'}
+              </span>
+            </a>
+          ))}
+        </div>
+      </section>
+
+      <SectionSep />
+    </Fragment>
+  )}
 
   <section class="container home-section" data-reveal>
     <div class="section-head">
@@ -245,6 +294,38 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
   /* The rule runs from the heading out to the section action. */
   .section-line { flex: 1; min-width: 40px; align-self: center; }
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+
+  /* The deep dives are not three equal tiles. The lead takes a double column
+     and the taller type; the rest stack in the remaining lane. One card is
+     allowed to be more important than the others because one of them is — the
+     newest, deepest dive is the argument for reading any. */
+  .cs-grid.cs-grid { grid-template-areas: 'lead lead b' 'lead lead c'; grid-template-columns: 1fr 1fr 1fr; }
+  .cs-grid .cs-card:nth-child(1) { grid-area: lead; }
+  .cs-grid .cs-card:nth-child(2) { grid-area: b; }
+  .cs-grid .cs-card:nth-child(3) { grid-area: c; }
+  /* Fewer than three: no hierarchy to draw, so the flat grid stays. */
+  @media (min-width: 761px) {
+    .cs-grid:not(:has(.cs-card:nth-child(3))) { grid-template-areas: none; grid-template-columns: repeat(3, 1fr); }
+    .cs-grid:not(:has(.cs-card:nth-child(3))) .cs-card { grid-area: auto; }
+  }
+
+  .cs-card { text-decoration: none; color: inherit; }
+  /* The lead card earns larger type with its double column; the stack cards
+     keep the shared scale so the hierarchy reads as chosen, not noisy. */
+  .cs-lead .card-title { font-size: clamp(24px, 2.6vw, 34px); max-width: 30ch; }
+  .cs-lead .card-body { font-size: 15px; opacity: 0.85; max-width: 52ch; }
+  .cs-card:hover,
+  .cs-card:focus-visible { color: inherit; }
+  .cs-card:hover .card-title,
+  .cs-card:focus-visible .card-title { color: var(--color-accent); }
+  /* The card's action wears the project cards' primary button. A flex-column
+     `.card` stretches its children, so the button is pulled back to its label;
+     the top margin parks it after the body copy on every card height. */
+  .cs-card-cta {
+    align-self: flex-start;
+    margin-top: var(--space-2);
+  }
 
   .skills-title { margin-bottom: var(--space-3); }
   .tag-row { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -275,8 +356,16 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
     margin: 0;
   }
 
+  @media (max-width: 900px) {
+    .grid-3 { grid-template-columns: repeat(2, 1fr); }
+    /* The lead keeps its dominance at two columns; the stack cards sit
+       beneath it in a pair rather than losing the hierarchy entirely. */
+    .cs-grid.cs-grid { grid-template-areas: 'lead lead' 'b c'; }
+  }
   @media (max-width: 760px) {
     .hero { grid-template-columns: 1fr; gap: var(--space-6); }
+    .cs-grid.cs-grid { grid-template-areas: 'lead' 'b' 'c'; grid-template-columns: 1fr; }
+    .cs-lead .card-title { font-size: 24px; }
     .hero-figure {
       border-left: 0;
       border-top: 2px solid var(--color-divider);
@@ -286,6 +375,6 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
     }
     /* The inset followed the padding, which has moved to the top edge. */
     .hero-figure::after { inset: var(--space-6) 0 0; }
-    .grid-2 { grid-template-columns: 1fr; }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
   }
 </style>

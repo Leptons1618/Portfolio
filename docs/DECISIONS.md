@@ -1228,9 +1228,9 @@ That is a genuinely different kind of endpoint, and it raises three questions th
 
 ---
 
-## 53. Retiring a project retires the write-up with it, and the line-up lives on `/projects`
+## 53. Retiring a project retires the write-up with it, and the line-up is a list of projects
 
-**Status:** accepted
+**Status:** accepted. What the line-up is *made of* is still this; where it renders and where it is edited moved again in decision 55, and `getProjectSplit()` became `getDeepDiveProjects()` with it. Read the two together.
 
 **Context.** `projects.hidden` is the flag the admin's visibility switch writes, and it means *this is not part of the portfolio any more*. `getProjects()` honours it, so a hidden project leaves every listing, and `/projects/<slug>` 404s rather than staying reachable by anyone who kept the link. That was believed to be the whole of it.
 
@@ -1273,3 +1273,35 @@ The mechanisms stay, in full: identity resolved before a body is parsed, no call
 **Also here: every screen is shown twice.** Eight dark plates on a page whose §07 argues that a theme is a layer of tokens is the page contradicting itself for any reader in the light theme. Each figure now carries a light plate and a dark one and CSS picks. Not `<picture>`: it resolves `prefers-color-scheme` and cannot read an attribute, and this site's mode is three states — `light`, `dark`, and *absent*, meaning follow the OS. So the OS is asked in a media query and the explicit choice is written after it at equal specificity, where source order lets a person's toggle beat their system. `display: none` rather than opacity, so the unused plate leaves the render tree: one alt text is announced instead of two, and a lazy image with no box is one the browser has no reason to fetch. Every selector carries `.col-shot`, and the base one has to — the figure's own `.col-shot img` is (0,1,1) and outranks a bare `.col-plate-light` at (0,1,0), which showed *both* plates to the reader who had set nothing.
 
 **Rejected.** Dropping the security paragraphs entirely — they are the reason the page is worth reading, and vagueness is not the same as discretion. A single "recommended configuration" line with no alternatives — a recommendation with nothing to compare it against is an assertion, and the trade is the content.
+
+---
+
+## 55. The line-up is the manifest, split by a band
+
+**Status:** accepted. Moves the Deep Dives editor off `/admin/dashboard` and then out of its own tab entirely; moves the section itself back to the home page. Extends decision 53.
+
+**Context.** Decision 53 fixed *what* the line-up is made of — projects, not case studies — because the previous arrangement let a retired project keep a card on the site. It also moved the section it drives from the home page onto `/projects`, and left its editor where it had been built: a tab on the dashboard.
+
+Two things were wrong with what that left.
+
+On the public side, `/projects` had become two grids with a band between them, deep dives then everything else. That is a hierarchy the *index* does not want. Someone on `/projects` is looking for a project, and a page that answers by splitting the answer in two and putting a boundary through it is a page that has to be read twice. The place an argument about which work matters most belongs is the front door, which is where it had been.
+
+On the authoring side, the editor was two screens from the switch it had to agree with. Whether a project is visible is a switch on its card on `/admin/projects`; whether a visible project leads was a tab on the overview. Moving it to a tab *beside* the manifest closed most of that distance and left the rest: a tab is still a second list of the same twenty-one projects, with a switch on each row saying what the other list's switch already said. Decision 53's bug was two rules reading two tables about one fact. A second list of the same projects with its own membership switch is that shape again, in the interface.
+
+**Decision.**
+
+**The section goes back to the home page**, as one double-column lead card and the rest stacked beside it. `/projects` is a single filterable grid of everything again. `getProjectSplit()` — which returned both halves — becomes `getDeepDiveProjects()`, which returns the line-up, because only one half is now read.
+
+**The editor is the manifest itself.** `/admin/projects` renders one card per project in one of two regions, separated by a rule. Above the line, the card leads the home page. Below it, it does not. Dragging it across is the whole interaction.
+
+**The boundary is `.pm-band`, not `SectionSep`.** The public pages' hatched, full-bleed band with corner nodes was tried here first and was wrong twice over: nothing else on the admin draws it, and its hatch is a hairline in `--hatch-ink` that on the light themes reads as a rendering artifact rather than as a boundary. What is left is a 2px rule at the weight `.tab-bar` uses to close a section — and it takes **`--sep-ink` and `--rule-style`**, not `--color-divider` and `solid`. That pair is the theme's *section boundary*, raised to a mid-ramp step by every theme for exactly this reason: a divider between two rows of text wants to be barely there, and a boundary between two sections wants to be read. At `--color-divider` the line was the same weight as the card edges either side of it, which is the way it disappears.
+
+**There is no deep-dive switch on the card**, and that is the load-bearing part. Which side of the line a card is on already records the membership; a switch beside it is the same fact written twice, and two ways to write one fact is what decision 53 was about. The grip carries the keyboard equivalent — arrows reorder inside a region, Enter crosses the line — so nothing is lost with no pointer.
+
+**Consequences.** There is one card per project on the whole screen, and the visibility switch and the line-up are now on the *same card* rather than a tab or a screen apart. The tab bar is gone, and with it the `Repository Sync (N)` heading it had displaced; the two region headings carry live counts instead, updated as cards move. `moveTo()` refuses a hidden project the top region and says so on that card's own status line, and retiring a card that is up there sends it down in the same gesture — the rule that a retired project cannot lead is now enforced where the two controls sit together.
+
+The card moved into `AdminProjectCard.astro` because it is rendered from two places, and its styles moved with it: a component root does not carry the caller's `data-astro-cid`, so `.pm-card` rules left in the page would have silently matched nothing.
+
+The dashboard stays what decision 55's first draft made it — an overview: stats, activity, quick actions, one column, nothing on it that writes.
+
+**Rejected.** `SectionSep` as the boundary — a public-page mark on an authoring surface, and invisible on half the themes at that. A Deep Dives tab beside Repository Sync — closer than the dashboard, still a second list of the same rows with its own switch, which is the duplication rather than a smaller amount of it. Keeping the split on `/projects` as well as the home page — two curated line-ups of the same rows is two places to edit and two to go stale, which decision 53 had already rejected in the other direction. A separate preview of the home-page cards inside the editor — the manifest card is the thing being arranged; a second rendering of it is a second thing that can disagree with the page.

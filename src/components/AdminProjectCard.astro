@@ -1,0 +1,172 @@
+---
+/**
+ * One project on the manifest at `/admin/projects` — the card that is both the
+ * row and the thing being arranged.
+ *
+ * It exists as a component because the manifest renders it in **two** places:
+ * above the band, where the cards are the home page's Deep dives line-up in
+ * order, and below it, where they are everything else. One card in two regions
+ * is the whole of that editor (decision 55), and two copies of sixty lines of
+ * markup is how the two regions start to differ.
+ *
+ * There is **no** deep-dive switch on it, and that is the point of the
+ * arrangement: which side of the band the card is on already says whether the
+ * project leads the home page, and a switch beside it would be the same fact
+ * written twice, with two ways to disagree. The card is moved; nothing is
+ * ticked. The grip carries the keyboard equivalent.
+ */
+import { Icon } from 'astro-icon/components';
+import type { ProjectFields } from '../lib/content-store';
+
+interface Props {
+  slug: string;
+  /** The `projects` row every action on this card writes to. */
+  path: string;
+  owner: string;
+  repoName: string;
+  data: ProjectFields;
+}
+
+const { slug, path, owner, repoName, data } = Astro.props;
+
+const STATUS_VARIANT: Record<string, string> = {
+  active: 'tag-accent-2',
+  stable: 'tag-accent-2',
+  wip: 'tag-accent',
+  archived: 'tag-neutral',
+};
+---
+<article
+  class="card elev-sm pm-card"
+  data-slug={slug}
+  data-path={path}
+  data-owner={owner}
+  data-repo={repoName}
+  data-title={data.title.toLowerCase()}
+  data-category={data.category}
+  data-hidden={data.hidden ? '1' : '0'}
+>
+  <div class="pm-card-head">
+    {/* The keyboard path through the drag, and the only one there is: arrow
+        keys move the card inside its region, Enter sends it across the band. */}
+    <button
+      type="button"
+      class="pm-grip"
+      aria-label={`Move ${data.title}. Drag, or use the arrow keys to reorder and Enter to cross the band.`}
+    >
+      <Icon name="lucide:grip-vertical" class="admin-nav-icon" />
+    </button>
+    <div class="pm-card-id">
+      <h3 class="pm-card-title">{data.title}</h3>
+      <p class="pm-card-meta">
+        <span class="pm-branch">branch: —</span> · <span class="pm-sync">last sync: not fetched</span>
+      </p>
+    </div>
+    <div class="pm-visibility">
+      <span class="pm-field-label">Visibility</span>
+      <button
+        type="button"
+        class="toggle"
+        role="switch"
+        data-slug={slug}
+        aria-checked={data.hidden ? 'false' : 'true'}
+        aria-label={`Toggle visibility for ${data.title}`}
+      ><span></span></button>
+    </div>
+  </div>
+
+  <hr class="rule" />
+
+  <div class="pm-fields">
+    <div>
+      <span class="pm-field-label">Mapped Repository</span>
+      <a class="pm-field-value" href={data.repoUrl} target="_blank" rel="noopener">
+        {owner}/{repoName} ↗
+      </a>
+    </div>
+    <div>
+      <span class="pm-field-label">Year · Status</span>
+      <span class="pm-field-value">
+        {data.year}
+        <span class={`tag ${STATUS_VARIANT[data.status] ?? 'tag-neutral'}`}>{data.status}</span>
+      </span>
+    </div>
+    <div>
+      <span class="pm-field-label">Slug</span>
+      <a class="pm-field-value" href={`/projects/${slug}`}>/{slug}</a>
+    </div>
+    <div>
+      <span class="pm-field-label">Case Study</span>
+      <span class="pm-field-value" data-role="case-study">
+        {data.caseStudySlug
+          ? <a href={`/case-studies/${data.caseStudySlug}`}>linked · {data.caseStudySlug}</a>
+          : <span class="text-muted">none</span>}
+      </span>
+    </div>
+  </div>
+
+  <p class="text-muted admin-note pm-status" data-role="status"></p>
+
+  <div class="pm-actions">
+    {/* A link, not a button: editing a project that already exists is a whole
+        screen — every field, the repository's live state and the case study in
+        one place — and this card is a manifest row. The modal on the manifest
+        is what an *import* opens. */}
+    <a class="btn btn-secondary btn-sm" href={`/admin/projects/${slug}`}>
+      <Icon name="lucide:pencil" class="admin-nav-icon" />Edit
+    </a>
+    <button type="button" class="btn btn-secondary btn-sm" data-action="fetch">
+      <Icon name="lucide:refresh-cw" class="admin-nav-icon" />Fetch
+    </button>
+    <button type="button" class="btn btn-secondary btn-sm pm-danger" data-action="delete">
+      <Icon name="lucide:trash-2" class="admin-nav-icon" />Delete
+    </button>
+  </div>
+</article>
+
+<style>
+  /* The card's own layout travels with the card. It is rendered from two
+     regions on `/admin/projects` and neither of them can style it: a component
+     root does not carry the caller's `data-astro-cid`, so a page-scoped
+     `.pm-card` rule would match nothing. The field grid, the switch caption and
+     `.pm-danger` are `admin.css`'s, shared with a project's own page. */
+  .pm-card.is-removed { opacity: 0.5; }
+  .pm-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
+  .pm-card-id { min-width: 0; flex: 1; }
+  .pm-card-title { font-size: 18px; margin: 0 0 4px; }
+  .pm-card-meta { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); margin: 0; }
+
+  /* Editing affordances exist only where editing does: signed out, this screen
+     is a manifest and the cards do not move. The class is put on by script. */
+  .pm-card:not(.is-draggable) .pm-grip { display: none; }
+  .pm-grip {
+    display: inline-flex;
+    padding: 2px;
+    margin: -2px 0 0 -4px;
+    border: 0;
+    background: none;
+    border-radius: 7px;
+    color: var(--color-text-faint);
+    cursor: grab;
+    flex: none;
+  }
+  .pm-grip:hover { color: var(--color-text); }
+  .pm-grip:active { cursor: grabbing; }
+
+  .pm-card.is-dragging { opacity: 0.45; }
+  @media (prefers-reduced-motion: no-preference) {
+    .pm-card.is-draggable { transition: box-shadow var(--dur-base) var(--ease-out); }
+  }
+  .pm-card.is-draggable:hover { box-shadow: var(--shadow-md); }
+
+  .pm-fields { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+
+  .pm-status { min-height: 16px; }
+  .pm-status[data-tone='error'] { color: var(--color-accent-700); }
+
+  .pm-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+  @media (max-width: 640px) {
+    .pm-fields { grid-template-columns: 1fr; }
+  }
+</style>
