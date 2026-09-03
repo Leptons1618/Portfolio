@@ -1,9 +1,11 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+import PathLine from '../components/PathLine.astro';
 import { site } from '../lib/site';
 ---
 <BaseLayout title="About" description={`About ${site.name} — ML/CV engineer and full-stack developer.`}>
   <article class="container container-prose about" data-reveal>
+    <PathLine path="about" cmd="cat README.md" />
     <p class="eyebrow">About</p>
     <h1 class="about-title">About Me</h1>
     <p class="about-lead">I'm {site.name}, a software engineer focused on machine learning, computer vision, and full-stack development.</p>

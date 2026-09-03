@@ -1,0 +1,47 @@
+<svg viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    geometry-orbit — the hero wireframe. Concentric rings, a dashed orbit
+    carrying nodes, and crosshair ticks: the reference's line-art voice. Every
+    stroke and fill reads a theme token, so the drawing recolors with the
+    active theme. `geo-spin` and `geo-dash` are the hooks the Motion theme
+    animates; without it the drawing is still.
+  -->
+  <defs>
+    <linearGradient id="geo-sweep" x1="0" y1="0" x2="400" y2="400" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="var(--color-accent)"/>
+      <stop offset="1" stop-color="var(--color-accent-2)"/>
+    </linearGradient>
+  </defs>
+
+  <!-- outer frame ticks: the technical-drawing margin -->
+  <g stroke="var(--color-divider)" stroke-width="1">
+    <path d="M200 8v16M200 376v16M8 200h16M376 200h16"/>
+    <path d="M60 8v10M340 8v10M60 382v10M340 382v10M8 60h10M8 340h10M382 60h10M382 340h10"/>
+  </g>
+
+  <!-- concentric wireframe -->
+  <circle cx="200" cy="200" r="176" stroke="var(--color-divider)" stroke-width="1"/>
+  <circle cx="200" cy="200" r="128" stroke="var(--color-neutral-400)" stroke-width="1"/>
+  <circle cx="200" cy="200" r="80" stroke="var(--color-divider)" stroke-width="1"/>
+
+  <!-- the dashed orbit: node-bearing, spins under the Motion theme -->
+  <g class="geo-spin">
+    <circle cx="200" cy="200" r="152" stroke="var(--color-accent)" stroke-width="1.25" stroke-dasharray="3 9" class="geo-dash"/>
+    <circle cx="200" cy="48" r="5" fill="var(--color-bg)" stroke="var(--color-accent)" stroke-width="1.5"/>
+    <circle cx="331.7" cy="276" r="5" fill="var(--color-bg)" stroke="var(--color-accent-2)" stroke-width="1.5"/>
+    <circle cx="68.3" cy="276" r="3" fill="var(--color-accent-2)"/>
+  </g>
+
+  <!-- the sweep: one gradient arc, the theme's single flourish -->
+  <path d="M200 72a128 128 0 0 1 110.85 64" stroke="url(#geo-sweep)" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- inner polygon + centre: the "core" -->
+  <rect x="146" y="146" width="108" height="108" transform="rotate(45 200 200)" stroke="var(--color-neutral-400)" stroke-width="1"/>
+  <rect x="163" y="163" width="74" height="74" transform="rotate(45 200 200)" fill="var(--color-surface)" stroke="var(--color-accent)" stroke-width="1.5"/>
+  <circle cx="200" cy="200" r="4" fill="url(#geo-sweep)"/>
+
+  <!-- radiating hairlines -->
+  <g stroke="var(--color-neutral-300)" stroke-width="1">
+    <path d="M200 24v40M200 336v40M24 200h40M336 200h40M85.4 85.4l28.3 28.3M286.3 286.3l28.3 28.3M314.6 85.4l-28.3 28.3M113.7 286.3l-28.3 28.3"/>
+  </g>
+</svg>

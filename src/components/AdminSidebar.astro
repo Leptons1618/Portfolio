@@ -57,8 +57,14 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
     {/* Identity sits at the top, where an avatar reads as "who am I signed in
         as". Seeded from `site.ts`, replaced with the GitHub login below once a
         session exists. */}
-    <span class="admin-whoami">
-      <img class="admin-avatar" id="admin-avatar" alt="" width="28" height="28" src={site.photo} />
+    <span class="admin-whoami" id="admin-whoami">
+      {/* The ring around the avatar is the session: a conic sweep that
+          empties as the eight-hour token runs down, written to
+          `--session-left` by the script below. Signed out it is a plain
+          hairline. */}
+      <span class="admin-avatar-ring" id="admin-avatar-ring">
+        <img class="admin-avatar" id="admin-avatar" alt="" width="28" height="28" src={site.photo} />
+      </span>
       <span class="admin-whoami-text collapsible">
         <span class="admin-whoami-name" id="admin-identity">{site.name}</span>
         <span class="admin-whoami-role" id="admin-session">signed out</span>
@@ -70,6 +76,7 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
       id="admin-collapse"
       aria-label="Collapse sidebar"
       aria-expanded="true"
+      title="Collapse sidebar (Ctrl+B)"
     >
       <Icon name="lucide:chevrons-left" class="admin-nav-icon" />
     </button>
@@ -83,7 +90,7 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
           <a
             href={item.href}
             class="admin-nav-link"
-            title={item.label}
+            data-label={item.label}
             aria-current={isCurrent(item.href) ? 'page' : undefined}
           >
             <Icon name={item.icon} class="admin-nav-icon" />
@@ -95,7 +102,7 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
   </nav>
 
   <div class="admin-sidebar-foot">
-    <a class="btn btn-primary btn-block admin-new-post" href="/admin/journal/new" title="New Post">
+    <a class="btn btn-primary btn-block admin-new-post" href="/admin/journal/new" data-label="New Post">
       <Icon name="lucide:plus" class="admin-nav-icon" /><span class="collapsible">New Post</span>
     </a>
     <span class="collapsible admin-foot-actions">
@@ -161,6 +168,23 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
     const avatar = document.getElementById('admin-avatar') as HTMLImageElement;
     avatar.src = user.avatarUrl;
     avatar.alt = `@${user.login}`;
+
+    /* The ring: what fraction of the eight-hour token is left, as a custom
+       property the stylesheet sweeps a conic gradient with. Repainted every
+       minute — the number in the text line is rounded to the hour, and a ring
+       that only moved hourly would look stuck. */
+    const whoami = document.getElementById('admin-whoami')!;
+    const ring = document.getElementById('admin-avatar-ring')!;
+    whoami.dataset.signed = '';
+    const SESSION_HOURS = 8;
+    const paintRing = () => {
+      if (expiresAt === null) return;
+      const left = Math.max(0, Math.min(1, (expiresAt - Date.now()) / (SESSION_HOURS * 36e5)));
+      ring.style.setProperty('--session-left', left.toFixed(3));
+      if (left < 0.125) ring.dataset.low = '';
+    };
+    paintRing();
+    setInterval(paintRing, 60_000);
   } else if (!isConfigured()) {
     /* No client ID in this build — a fork, or a local checkout with no `.env`.
        The screens stay reachable so the repository is usable without secrets,
@@ -190,10 +214,25 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
 
   markCollapsed(localStorage.getItem(SIDEBAR_KEY) === '1');
 
-  collapseButton.addEventListener('click', () => {
+  function toggleCollapsed() {
     const next = root.dataset.adminCollapsed !== '1';
     localStorage.setItem(SIDEBAR_KEY, next ? '1' : '0');
     markCollapsed(next);
+  }
+
+  collapseButton.addEventListener('click', toggleCollapsed);
+
+  /* Ctrl/⌘+B, the editor convention for the side rail. Bound once, at module
+     scope, like everything else in this persisted element — and never while
+     typing, where the browser's own Ctrl+B (bold, in a rich field) or a
+     terminal-style shortcut the editor may own must win. */
+  document.addEventListener('keydown', event => {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+    if (event.key.toLowerCase() !== 'b') return;
+    const target = event.target as HTMLElement | null;
+    if (target && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return;
+    event.preventDefault();
+    toggleCollapsed();
   });
 
   /* — resize —

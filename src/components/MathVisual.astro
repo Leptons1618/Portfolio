@@ -1,0 +1,257 @@
+---
+/**
+ * A rotation, shown as the arithmetic that makes it.
+ *
+ * A unit cube turns under R = Rₓ(φ)·Rᵧ(θ), projected orthographically into an
+ * SVG, and beside it the nine cells of R and the coordinates of one tracked
+ * vertex are rewritten every frame from the same numbers that placed the
+ * lines. Nothing is faked: the readout *is* the transform.
+ *
+ * Theme-agnostic by construction — every stroke is `currentColor` or a token,
+ * so Geometry's violet, Blueprint's rust and Paper's sepia each get their own
+ * cube without a rule of their own. The frame is paused while off screen and
+ * never runs under reduced motion (a single static pose is drawn instead), so
+ * it costs nothing on a page a reader is not looking at.
+ *
+ * The edges, vertices and matrix cells are built in script, so their rules
+ * below hang off the server-rendered `.mathviz-*` ancestors through
+ * `:global()` — the same seam every script-built control on this site uses.
+ */
+interface Props {
+  /** Accessible summary; the figure is decorative but says what it draws. */
+  label?: string;
+}
+const { label = 'A wireframe cube rotating, with its rotation matrix updating live.' } = Astro.props;
+---
+<figure class="mathviz" data-mathviz aria-label={label} role="img">
+  <svg class="mathviz-svg" viewBox="0 0 320 320" aria-hidden="true" focusable="false">
+    {/* Reference axes, fixed — the frame the rotation happens inside. */}
+    <g class="mathviz-axes">
+      <line x1="160" y1="8" x2="160" y2="312" />
+      <line x1="8" y1="160" x2="312" y2="160" />
+      <circle cx="160" cy="160" r="112" />
+      <circle cx="160" cy="160" r="3" class="mathviz-origin" />
+    </g>
+    <g class="mathviz-edges"></g>
+    <g class="mathviz-verts"></g>
+    <g class="mathviz-track">
+      <line class="mathviz-track-line" x1="160" y1="160" x2="160" y2="160" />
+      <circle class="mathviz-track-dot" cx="160" cy="160" r="4" />
+    </g>
+  </svg>
+
+  <figcaption class="mathviz-readout" aria-hidden="true">
+    <div class="mathviz-eq">
+      <span class="mathviz-sym">v′</span> = <span class="mathviz-sym">R<sub>x</sub>(φ)</span>·<span class="mathviz-sym">R<sub>y</sub>(θ)</span>·<span class="mathviz-sym">v</span>
+    </div>
+    <div class="mathviz-matrix" data-matrix>
+      <span>+1.00</span><span>+0.00</span><span>+0.00</span>
+      <span>+0.00</span><span>+1.00</span><span>+0.00</span>
+      <span>+0.00</span><span>+0.00</span><span>+1.00</span>
+    </div>
+    <div class="mathviz-vars">
+      <span>θ = <b data-theta>0.000</b></span>
+      <span>φ = <b data-phi>0.000</b></span>
+      <span>v′ = (<b data-vx>+1.00</b>, <b data-vy>+1.00</b>, <b data-vz>+1.00</b>)</span>
+    </div>
+  </figcaption>
+</figure>
+
+<script>
+  /* One loop per figure. Public pages are plain MPA, so this runs once per
+     document and there is nothing to unmount. */
+  const CUBE: [number, number, number][] = [
+    [-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+    [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1],
+  ];
+  const EDGES: [number, number][] = [
+    [0, 1], [1, 2], [2, 3], [3, 0],
+    [4, 5], [5, 6], [6, 7], [7, 4],
+    [0, 4], [1, 5], [2, 6], [3, 7],
+  ];
+  const TRACKED = 6; // the (+1, +1, +1) corner
+  const SCALE = 62;
+  const C = 160;
+  const NS = 'http://www.w3.org/2000/svg';
+
+  const fmt = (n: number) => (n < 0 ? '−' : '+') + Math.abs(n).toFixed(2);
+
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  document.querySelectorAll<HTMLElement>('[data-mathviz]').forEach(figure => {
+    const edgesG = figure.querySelector<SVGGElement>('.mathviz-edges')!;
+    const vertsG = figure.querySelector<SVGGElement>('.mathviz-verts')!;
+    const trackLine = figure.querySelector<SVGLineElement>('.mathviz-track-line')!;
+    const trackDot = figure.querySelector<SVGCircleElement>('.mathviz-track-dot')!;
+    const cells = Array.from(figure.querySelectorAll<HTMLElement>('[data-matrix] > span'));
+    const thetaEl = figure.querySelector<HTMLElement>('[data-theta]')!;
+    const phiEl = figure.querySelector<HTMLElement>('[data-phi]')!;
+    const vx = figure.querySelector<HTMLElement>('[data-vx]')!;
+    const vy = figure.querySelector<HTMLElement>('[data-vy]')!;
+    const vz = figure.querySelector<HTMLElement>('[data-vz]')!;
+
+    const lines = EDGES.map(() => {
+      const line = document.createElementNS(NS, 'line');
+      edgesG.append(line);
+      return line;
+    });
+    const dots = CUBE.map(() => {
+      const dot = document.createElementNS(NS, 'circle');
+      dot.setAttribute('r', '2');
+      vertsG.append(dot);
+      return dot;
+    });
+
+    /* Rₓ(φ)·Rᵧ(θ), written out — the nine cells the readout shows. */
+    function matrix(theta: number, phi: number): number[] {
+      const cy = Math.cos(theta), sy = Math.sin(theta);
+      const cx = Math.cos(phi), sx = Math.sin(phi);
+      return [
+        cy, 0, sy,
+        sx * sy, cx, -sx * cy,
+        -cx * sy, sx, cx * cy,
+      ];
+    }
+
+    function apply(m: number[], [x, y, z]: [number, number, number]): [number, number, number] {
+      return [
+        m[0] * x + m[1] * y + m[2] * z,
+        m[3] * x + m[4] * y + m[5] * z,
+        m[6] * x + m[7] * y + m[8] * z,
+      ];
+    }
+
+    function draw(theta: number, phi: number) {
+      const m = matrix(theta, phi);
+      const pts = CUBE.map(v => apply(m, v));
+      /* Orthographic: drop z for position, keep it for depth (opacity). */
+      const px = pts.map(([x]) => C + x * SCALE);
+      const py = pts.map(([, y]) => C - y * SCALE);
+
+      EDGES.forEach(([a, b], i) => {
+        const line = lines[i];
+        line.setAttribute('x1', px[a].toFixed(1));
+        line.setAttribute('y1', py[a].toFixed(1));
+        line.setAttribute('x2', px[b].toFixed(1));
+        line.setAttribute('y2', py[b].toFixed(1));
+        /* Edges further back fade — the depth cue a wireframe needs. */
+        const depth = (pts[a][2] + pts[b][2]) / 2; // −√3..√3
+        line.style.opacity = (0.35 + 0.65 * (depth + 1.75) / 3.5).toFixed(2);
+      });
+      pts.forEach((p, i) => {
+        dots[i].setAttribute('cx', px[i].toFixed(1));
+        dots[i].setAttribute('cy', py[i].toFixed(1));
+        dots[i].style.opacity = (0.3 + 0.7 * (p[2] + 1.75) / 3.5).toFixed(2);
+      });
+
+      trackLine.setAttribute('x2', px[TRACKED].toFixed(1));
+      trackLine.setAttribute('y2', py[TRACKED].toFixed(1));
+      trackDot.setAttribute('cx', px[TRACKED].toFixed(1));
+      trackDot.setAttribute('cy', py[TRACKED].toFixed(1));
+
+      m.forEach((n, i) => { cells[i].textContent = fmt(n); });
+      thetaEl.textContent = theta.toFixed(3);
+      phiEl.textContent = phi.toFixed(3);
+      const [tx, ty, tz] = pts[TRACKED];
+      vx.textContent = fmt(tx);
+      vy.textContent = fmt(ty);
+      vz.textContent = fmt(tz);
+    }
+
+    if (reduced) {
+      /* One honest pose, no loop. */
+      draw(0.62, 0.41);
+      return;
+    }
+
+    let running = false;
+    let raf = 0;
+    const t0 = performance.now();
+
+    const frame = (now: number) => {
+      const t = (now - t0) / 1000;
+      /* θ turns steadily; φ breathes so the cube never settles into a
+         two-dimensional pose. */
+      draw((t * 0.45) % (Math.PI * 2), 0.42 + Math.sin(t * 0.35) * 0.28);
+      raf = requestAnimationFrame(frame);
+    };
+
+    const start = () => { if (!running) { running = true; raf = requestAnimationFrame(frame); } };
+    const stop = () => { if (running) { running = false; cancelAnimationFrame(raf); } };
+
+    /* Only while on screen. */
+    new IntersectionObserver(entries => {
+      entries.forEach(entry => (entry.isIntersecting ? start() : stop()));
+    }, { threshold: 0.1 }).observe(figure);
+
+    draw(0, 0.42);
+  });
+</script>
+
+<style>
+  .mathviz {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+    margin: 0;
+    color: var(--color-text);
+  }
+
+  .mathviz-svg {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    overflow: visible;
+  }
+
+  .mathviz-axes line,
+  .mathviz-axes circle {
+    fill: none;
+    stroke: var(--color-divider);
+    stroke-width: 1;
+  }
+  .mathviz-axes .mathviz-origin { fill: var(--color-text-faint); stroke: none; }
+
+  /* Built in script — hence `:global()` off the server-rendered groups. */
+  .mathviz-edges :global(line) {
+    stroke: currentColor;
+    stroke-width: 1.25;
+    stroke-linecap: round;
+  }
+  .mathviz-verts :global(circle) { fill: currentColor; }
+
+  .mathviz-track-line { stroke: var(--color-accent); stroke-width: 1.5; stroke-dasharray: 3 4; }
+  .mathviz-track-dot { fill: var(--color-bg); stroke: var(--color-accent); stroke-width: 2; }
+
+  .mathviz-readout {
+    display: grid;
+    gap: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .mathviz-eq { letter-spacing: 0.02em; }
+  .mathviz-sym { color: var(--color-text); }
+  .mathviz-sym sub { font-size: 0.75em; }
+
+  /* Nine cells, tabular so the columns hold as the signs flip. A bracket on
+     either side drawn with borders — a matrix, not a table. */
+  .mathviz-matrix {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 2px var(--space-2);
+    width: fit-content;
+    padding: 4px var(--space-2);
+    border-left: 1.5px solid var(--color-text-muted);
+    border-right: 1.5px solid var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text);
+  }
+  .mathviz-matrix > span { text-align: right; }
+
+  .mathviz-vars { display: flex; flex-wrap: wrap; gap: 2px var(--space-3); font-variant-numeric: tabular-nums; }
+  .mathviz-vars b { font-weight: 500; color: var(--color-accent-700); }
+</style>

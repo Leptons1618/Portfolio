@@ -1,8 +1,10 @@
 @import './theme.css';
-/* Alternate themes. Each file is inert until `<html>` carries its
-   `data-theme`, and each wins on specificity rather than on source order. */
+/* The three themes. Each file is inert until `<html>` carries its
+   `data-theme` — which it always does; see `src/lib/theme.ts` — and each wins
+   on specificity rather than on source order. Geometry is the default. */
+@import './themes/geometry.css';
 @import './themes/blueprint.css';
-@import './themes/nocturne.css';
+@import './themes/paper.css';
 /* The resume sheet. Global rather than page-scoped because three surfaces
    render the same markup — the public page, the admin preview and the printed
    PDF — and a stylesheet only one of them could see is how the preview drifted
@@ -287,10 +289,11 @@ pre {
    family. The transition lives in each variant's own list — a `transition`
    on `.btn` alone would be overwritten by `.btn-primary`'s sweep list two
    rules down, leaving the press an instant snap. Guarded by `no-preference`
-   so the static sheet stays the default, and scoped off Blueprint, whose
-   press is a conserved 2px offset translate that added scale would deepen. */
+   so the static sheet stays the default, and scoped off the two drafting
+   themes, whose press is a conserved 2px offset (the hard shadow collapses,
+   the button moves the same distance) that added scale would deepen. */
 @media (prefers-reduced-motion: no-preference) {
-  html:not([data-theme='blueprint']) .btn:not(:disabled):active { scale: 0.98; }
+  html:not([data-theme='blueprint']):not([data-theme='paper']) .btn:not(:disabled):active { scale: 0.98; }
 }
 
 .btn:disabled {
@@ -751,7 +754,7 @@ select.input.is-auto {
      the keyboard gets the same arrival the pointer does. The pointer half
      also asks for `hover: hover` — on touch, a tap-and-hold would otherwise
      leave the card floating until something else took focus. */
-  html:not([data-theme='blueprint']) a.card {
+  html:not([data-theme='blueprint']):not([data-theme='paper']) a.card {
     transition:
       box-shadow var(--dur-base) var(--ease-out),
       transform var(--dur-base) var(--ease-out);
@@ -759,14 +762,14 @@ select.input.is-auto {
 }
 
 @media (prefers-reduced-motion: no-preference) and (hover: hover) {
-  html:not([data-theme='blueprint']) a.card:hover {
+  html:not([data-theme='blueprint']):not([data-theme='paper']) a.card:hover {
     transform: translateY(-2px);
     box-shadow: var(--shadow-md);
   }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  html:not([data-theme='blueprint']) a.card:focus-visible {
+  html:not([data-theme='blueprint']):not([data-theme='paper']) a.card:focus-visible {
     transform: translateY(-2px);
     box-shadow: var(--shadow-md);
   }
@@ -844,11 +847,46 @@ select.input.is-auto {
   border-bottom: 2px solid var(--color-divider);
 }
 
+/* The wordmark is a path: `~/` in the faint step, the name, then a short bar
+   that blinks on a shell's cadence — a prompt, a cwd, and a cursor. It used to
+   be Geometry's alone and the other two themes bracketed the name instead;
+   the terminal voice is now the site's, and a theme only decides what the
+   cursor is painted with through `--brand-bar` (Geometry hands it the sweep,
+   the drafting themes their single accent). */
 .nav-brand {
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: 18px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: -0.01em;
   margin-right: auto;
+}
+
+.nav-brand::before {
+  content: '~/';
+  color: var(--color-text-faint);
+  font-weight: 400;
+}
+
+.nav-brand::after {
+  content: '';
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--brand-bar, var(--color-accent));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nav-brand::after { animation: brand-caret 1.1s steps(1, end) infinite; }
+  /* The bar holds steady under the pointer — a cursor stops blinking while
+     you are typing at it. */
+  .nav-brand:hover::after { animation: none; }
+}
+
+@keyframes brand-caret {
+  50% { opacity: 0; }
 }
 
 .nav a {
@@ -892,6 +930,240 @@ select.input.is-auto {
 .container-mid { max-width: var(--wrap-mid); }
 .container-resume { max-width: var(--wrap-resume); }
 .container-prose { max-width: var(--wrap-prose); }
+
+/* ==========================================================================
+   Section geometry — the drafting frame.
+
+   Borrowed from the reference launch page: the content column is a strip
+   drawn on the sheet, with two hairline rails running its full height, a
+   hatched band separating one section from the next, and a small node wherever
+   a rail crosses a rule — the way a technical drawing marks the points it was
+   measured from. Three parts:
+
+   1. The rails, drawn once on `<main>` as two zero-width pseudo-elements at
+      the column's edges. `main` rather than `.container` because the column
+      has to be continuous through every section a page stacks, and a border
+      on each wrapper would break at every margin and shift content by a pixel.
+      Zero layout cost: they are absolutely positioned and painted *under* the
+      children (`z-index: -1` inside the stacking context `body > *` opens), so
+      a full-bleed banner covers them rather than being crossed by them.
+   2. The band, `.section-sep`: full-bleed top and bottom rules with a
+      column-width cell inside, filled with a 45° hatch. Placed by pages
+      between sections through `SectionSep.astro`; the page says *where* a
+      boundary is, the theme says what a boundary *looks like*.
+   3. The nodes: four per band, one on each corner of the cell, centred on the
+      intersection. Two are the cell's own pseudo-elements (top corners) and
+      two are the band's (bottom corners), positioned by the same arithmetic
+      the rails use. They are the ground colour with a hairline, so they read
+      as cuts in the lines rather than as dots on them.
+
+   Every visual decision is a token (`--rule-style`, `--rail-ink`,
+   `--hatch-ink`, `--hatch-step`, `--node-size`, `--node-radius`,
+   `--sep-height`, all in `theme.css`), so the three themes share one frame
+   and none of them has to redraw it. The column edge is
+   `calc(50% - min(50%, var(--wrap-wide) / 2))`: half the viewport minus half
+   the column, clamped so a viewport narrower than the column puts the edge at
+   0 rather than off-screen.
+
+   Below `--wrap-wide` the rails coincide with the viewport edge and the nodes
+   would hang half off it, so both the rails and the nodes stand down there —
+   the band keeps its rules and hatch, which is the part that still separates.
+   ========================================================================== */
+
+body > main {
+  --column-edge: calc(50% - min(50%, var(--wrap-wide) / 2));
+}
+
+body > main::before,
+body > main::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  z-index: -1;
+  pointer-events: none;
+  border-left: 1px var(--rule-style) var(--rail-ink);
+}
+
+body > main::before { left: var(--column-edge); }
+/* `right` rather than a second `left`, so the two rails stay symmetric to
+   the pixel when the column edge lands on a half-pixel. The 1px pull-back
+   puts the stroke *inside* the column edge, where the cell's own right
+   border falls, so rail and cell meet as one line. */
+body > main::after { right: var(--column-edge); translate: -1px 0; }
+
+.section-sep {
+  position: relative;
+  height: var(--sep-height);
+  border-top: 1px var(--rule-style) var(--sep-ink);
+  border-bottom: 1px var(--rule-style) var(--sep-ink);
+  /* The nodes overhang the band on every side by half their size. Clipping
+     the x-axis alone stops a node at the viewport edge from widening the page
+     — `clip` is the one overflow value that leaves the other axis `visible`,
+     which is what lets the top and bottom nodes straddle the rules. */
+  overflow-x: clip;
+}
+
+.section-sep-inner {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  max-width: var(--wrap-wide);
+  margin: 0 auto;
+  border-left: 1px var(--rule-style) var(--rail-ink);
+  border-right: 1px var(--rule-style) var(--rail-ink);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--hatch-ink) 0 1px,
+    transparent 1px var(--hatch-step)
+  );
+}
+
+.section-sep::before,
+.section-sep::after,
+.section-sep-inner::before,
+.section-sep-inner::after {
+  content: '';
+  position: absolute;
+  width: var(--node-size);
+  height: var(--node-size);
+  box-sizing: border-box;
+  background: var(--color-bg);
+  border: 1px solid var(--sep-ink);
+  border-radius: var(--node-radius);
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* Top corners belong to the cell: its edges are the rails. */
+.section-sep-inner::before { top: 0; left: 0; translate: calc(-50% - 0.5px) calc(-50% - 0.5px); }
+.section-sep-inner::after { top: 0; right: 0; translate: calc(50% + 0.5px) calc(-50% - 0.5px); }
+
+/* Bottom corners belong to the band, whose bottom rule they sit on; their
+   x is the same column edge the rails use. */
+.section-sep::before,
+.section-sep::after {
+  bottom: 0;
+}
+.section-sep::before {
+  left: calc(50% - min(50%, var(--wrap-wide) / 2));
+  margin-left: calc(var(--node-size) / -2);
+  translate: 0.5px calc(50% + 0.5px);
+}
+.section-sep::after {
+  right: calc(50% - min(50%, var(--wrap-wide) / 2));
+  margin-right: calc(var(--node-size) / -2);
+  translate: -0.5px calc(50% + 0.5px);
+}
+
+/* 1160, not 1120: a node straddles the column edge, so it needs half its own
+   width of viewport outside `--wrap-wide` to be a whole square. Between 1121
+   and 1160 the rails were still drawn and the nodes were sliced in half by the
+   band's own `overflow-x: clip` — the frame's own edge cutting its own marks.
+   The number is `--wrap-wide` plus `--node-size` plus a little air; a media
+   query cannot read a custom property, which is the only reason it is spelled
+   out here. */
+@media screen and (max-width: 1160px) {
+  body > main::before,
+  body > main::after,
+  .section-sep::before,
+  .section-sep::after,
+  .section-sep-inner::before,
+  .section-sep-inner::after {
+    display: none;
+  }
+  .section-sep-inner {
+    border-left: 0;
+    border-right: 0;
+  }
+}
+
+/* A 72px band is a section boundary on a desktop and a third of the first
+   screenful on a phone. The gesture survives at two-thirds the depth; the
+   content gets the rest back. */
+@media screen and (max-width: 640px) {
+  .section-sep { height: calc(var(--sep-height) * 0.7); }
+}
+
+@media print {
+  body > main::before,
+  body > main::after { display: none; }
+  .section-sep { height: 0; border-bottom: 0; }
+  .section-sep-inner { display: none; }
+}
+
+/* — the prompt eyebrow —
+
+   `PathLine.astro`: `user@host:~/cwd $ cmd`. The command is typed in by
+   `src/lib/text-fx.ts`, which builds the caret and the two spans in script, so
+   these rules are global for the usual reason — script-built DOM carries no
+   `data-astro-cid`. Mono throughout, the prompt glyph in the accent, the
+   caret a 2:1 block blinking on the wordmark's cadence. */
+.pathline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.5ch;
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+
+.pathline-who { color: var(--color-text-faint); }
+.pathline-at { color: var(--color-accent-2); }
+.pathline-colon { color: var(--color-text-faint); }
+.pathline-cwd { color: var(--color-text); font-weight: 500; }
+.pathline-prompt { color: var(--color-accent); font-weight: 600; }
+.pathline-cmd { color: var(--color-text); }
+
+/* The caret follows a typed command; before typing begins there is none. The
+   `fx-visual` span is the frame the effect writes into; the visually-hidden
+   twin holds the real string for everything that reads rather than looks. */
+.fx-caret {
+  display: inline-block;
+  width: 0.55em;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -0.15em;
+  background: var(--color-accent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .fx-caret { animation: brand-caret 1s steps(1, end) infinite; }
+  /* While decoding, the noise glyphs read in the faint step so the settled
+     letters stand out as they land. */
+  [data-fx-state='running'] .fx-visual { color: inherit; }
+}
+
+/* Once typed, the caret stays a beat, then goes — a finished command has no
+   cursor sitting after it. */
+[data-fx-state='done'] .fx-caret { animation: fx-caret-out 400ms 1.2s ease forwards; }
+
+@keyframes fx-caret-out { to { opacity: 0; } }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* — figure numbers —
+
+   Every card on a page is counted, and each theme decides whether and how to
+   say the number: Geometry prefixes the kicker `01 /`, Blueprint `FIG. 01 ·`,
+   Paper `fig. 1 ·`. Counted here, in the shared layer, because the counter has
+   to be reset once per document and incremented once per card regardless of
+   which theme is reading it — a theme that only *displays* the count cannot
+   also own it without every theme repeating the reset. */
+body > main { counter-reset: figure section; }
+.card { counter-increment: figure; }
+.eyebrow { counter-increment: section; }
 
 /* ==========================================================================
    Long-form copy — the design's article body treatment, shared by the case
@@ -964,6 +1236,156 @@ select.input.is-auto {
 
 .prose img {
   margin-bottom: var(--space-4);
+}
+
+/* — fenced code —
+
+   `src/lib/code-fx.ts` frames every `<pre>` in a `.code-block`, colours its
+   tokens and wraps each line in a `.cl` so the listing can be dealt in when
+   it arrives. Global rules, for the usual reason: none of those nodes exists
+   until a script builds it, so none of them carries a page's
+   `data-astro-cid`.
+
+   Everything here is written so the *unenhanced* block is still correct — a
+   reader with no JavaScript gets `.prose pre` above and each theme's own
+   `pre::before` chrome, and nothing below this comment ever matches. */
+
+.code-block {
+  margin: 0 0 var(--space-4);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  /* The bar is a filled strip against the block's top corners; without this
+     its square corners paint over the round ones. */
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.code-block > pre {
+  /* The frame owns the border, the radius and the ground now. The `<pre>` is
+     just the body inside it, and keeps only its own scroll. */
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.code-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+  background: color-mix(in srgb, var(--color-text) 4%, var(--color-surface));
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+/* Three discs in the neutral ramp rather than three traffic lights: a window
+   control that is red, amber and green is somebody else's operating system,
+   and these have to be at home on all three palettes. */
+.code-dots {
+  display: flex;
+  gap: 5px;
+  flex: none;
+}
+
+.code-dots i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-neutral-500);
+}
+
+.code-name {
+  color: var(--color-text-faint);
+  /* A long fence label must not push the copy button off the bar. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-copy {
+  margin-left: auto;
+  flex: none;
+  padding: 4px var(--space-2);
+  /* `font` only — a button's face comes from the UA sheet and has to be
+     overridden; `letter-spacing` is inherited and already the bar's. */
+  font: inherit;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+
+.code-copy:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+
+.code-copy[data-state='done'] {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* — the tokens —
+
+   `.tk` carries nothing but the colour: weight, size and family are the
+   `<pre>`'s, so a listing stays one texture and the colour is the only thing
+   saying what a word is. */
+.tk-com { color: var(--code-comment); font-style: italic; }
+.tk-kw { color: var(--code-keyword); font-weight: 600; }
+.tk-ty { color: var(--code-type); }
+.tk-str { color: var(--code-string); }
+.tk-num { color: var(--code-number); }
+.tk-at { color: var(--code-atom); }
+.tk-fn { color: var(--code-fn); font-weight: 600; }
+
+/* — the entrance —
+
+   One line per row, dealt top to bottom when the block arrives. `data-lit` is
+   set by the observer and never by the server, and it is never set at all
+   under `prefers-reduced-motion` — so the default state of this rule is a
+   listing that is simply *there*, which is also what a failed bundle leaves
+   behind. Nothing is hidden until the script has proved it can show it again.
+
+   `--cl-i` is the row's index, capped by the module: past the first screenful
+   the stagger stops, because a 300-line listing should not take nine seconds
+   to finish arriving. */
+.code-block .cl {
+  display: block;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .code-block[data-lit] .cl {
+    animation: code-line-in 420ms var(--ease-out) both;
+    animation-delay: calc(var(--cl-i, 18) * 24ms);
+  }
+}
+
+@keyframes code-line-in {
+  from {
+    opacity: 0;
+    /* Along the line, not up it: a listing arrives the way it is typed. */
+    translate: -6px 0;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+/* A printed listing is a listing. The bar is a control surface and the
+   entrance is motion; neither survives the page leaving the screen. */
+@media print {
+  .code-bar { display: none; }
+  .code-block { break-inside: avoid; }
+  .code-block .cl { animation: none; }
 }
 
 /* A wide table — dependency matrices, benchmark numbers — is genuinely

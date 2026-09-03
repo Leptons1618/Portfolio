@@ -4,9 +4,14 @@
  * There are two independent choices, and keeping them independent is the whole
  * design:
  *
- *   - **Which palette family**, written to `data-theme` on `<html>`. Classic is
- *     the default and needs no attribute; every other theme keys its token
- *     overrides off its own id in `src/styles/themes/*.css`.
+ *   - **Which palette family**, written to `data-theme` on `<html>`. Every
+ *     theme keys its token overrides off its own id in
+ *     `src/styles/themes/*.css`, and the attribute is *always* present: the
+ *     layouts render `DEFAULT_THEME` into the `<html>` tag, the pre-paint
+ *     script overwrites it from storage, and `applyTheme` never deletes it.
+ *     There used to be an attribute-less default (Classic, whose palette was
+ *     `:root` itself); with three peer themes and no "base" one, an absent
+ *     attribute would be a page with no palette at all.
  *   - **Light or dark within it**, written to `data-mode`. Three states, not
  *     two: `light`, `dark`, and *unset*, which means "follow the OS" and is
  *     what a first-time visitor gets. Unset is an absent attribute rather than
@@ -34,15 +39,19 @@ export const MODE_KEY = 'om-mode';
  * not by the CSS engine.
  */
 export const THEMES = [
-  { id: 'classic', label: 'Classic', themeColor: { light: '#fcfbf8', dark: '#0c0b09' } },
+  { id: 'geometry', label: 'Geometry', themeColor: { light: '#fafafa', dark: '#0a0a0c' } },
   { id: 'blueprint', label: 'Blueprint', themeColor: { light: '#f9f9ff', dark: '#0a111e' } },
-  { id: 'nocturne', label: 'Nocturne', themeColor: { light: '#fafafa', dark: '#0a0a0c' } },
+  { id: 'paper', label: 'Paper', themeColor: { light: '#f7f2e9', dark: '#16110c' } },
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]['id'];
 
-/** The theme that renders when nothing is stored — no `data-theme` attribute. */
-export const DEFAULT_THEME: ThemeId = 'classic';
+/**
+ * The theme that renders when nothing is stored. Listed first in `THEMES` so
+ * the header toggle's server-rendered label ("next theme") is right before any
+ * script runs. Change this one constant to change the site's default.
+ */
+export const DEFAULT_THEME: ThemeId = 'geometry';
 
 /** What a person can choose. `system` is stored; it is never an attribute. */
 export const MODES = ['system', 'light', 'dark'] as const;
@@ -98,10 +107,11 @@ function paintChrome(): void {
  * do the first without the second: the pre-paint script has already set the
  * attribute from storage, but not the `<meta>`, and correcting that should not
  * write a preference nobody expressed.
+ *
+ * The attribute is always written, default included — see the header comment.
  */
 export function applyTheme(id: ThemeId): void {
-  if (id === DEFAULT_THEME) delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = id;
+  document.documentElement.dataset.theme = id;
 
   paintChrome();
   document.dispatchEvent(new CustomEvent(THEME_EVENT, { detail: id }));

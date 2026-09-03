@@ -1,0 +1,37 @@
+<svg viewBox="0 0 400 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    geometry-grid — an isometric stack of plates: the theme's ground motif,
+    drawn. Token strokes throughout; `geo-dash` marks the one dashed edge the
+    Motion theme sets marching.
+  -->
+  <defs>
+    <linearGradient id="geo-sweep-2" x1="80" y1="40" x2="320" y2="260" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="var(--color-accent)"/>
+      <stop offset="1" stop-color="var(--color-accent-2)"/>
+    </linearGradient>
+  </defs>
+
+  <!-- bottom plate -->
+  <g stroke="var(--color-neutral-400)" stroke-width="1" fill="var(--color-surface)">
+    <path d="M200 250 60 190l140-60 140 60-140 60Z"/>
+    <path d="M60 190v18l140 60v-18M340 190v18l-140 60v-18" fill="none"/>
+  </g>
+
+  <!-- middle plate -->
+  <g stroke="var(--color-neutral-500)" stroke-width="1" fill="var(--color-surface)">
+    <path d="M200 196 92 150l108-46 108 46-108 46Z"/>
+    <path d="M92 150v18l108 46v-18M308 150v18l-108 46v-18" fill="none"/>
+  </g>
+
+  <!-- top plate: the accent -->
+  <g stroke="var(--color-accent)" stroke-width="1.5" fill="var(--color-bg)">
+    <path d="M200 142 124 110l76-32 76 32-76 32Z"/>
+    <path d="M124 110v18l76 32v-18M276 110v18l-76 32v-18" fill="none"/>
+  </g>
+  <path d="M124 128v-18l76-32 76 32v18" stroke="url(#geo-sweep-2)" stroke-width="2" class="geo-dash" stroke-dasharray="4 6"/>
+
+  <!-- plumb line and node -->
+  <path d="M200 78v-46" stroke="var(--color-divider)" stroke-width="1"/>
+  <circle cx="200" cy="26" r="4" fill="var(--color-accent-2)"/>
+  <path d="M192 20h16M200 12v16" stroke="var(--color-accent-2)" stroke-width="1"/>
+</svg>
