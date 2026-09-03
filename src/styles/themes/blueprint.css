@@ -67,8 +67,16 @@
 
   --font-heading: 'Space Grotesk Variable', 'Space Grotesk', system-ui, sans-serif;
   --font-heading-weight: 700;
-  --font-body: 'Manrope Variable', 'Manrope', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-body: 'Manrope Variable', 'Manrope', 'Manrope Fallback Win', 'Manrope Fallback', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'JB Mono Fallback', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* The nav bar's face: the default theme's body face, named here rather than
+     left to each theme's body. The bar's layout has to be identical under
+     every theme — Geometry is the default, so a page resolving into this one
+     must not shift the link row by a single pixel — and this is the only face
+     the three themes agree on measuring. Declared by every layout, so using
+     it here costs nothing extra. */
+  --font-nav: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
 
   --radius-sm: 0;
   --radius-md: 0;
@@ -328,9 +336,8 @@ html[data-theme='blueprint'] .footer-copy,
   border-top-style: dashed;
 }
 
-[data-theme='blueprint'] .nav {
-  border-bottom: 1px dashed var(--color-divider);
-}
+/* The header rule lives on `.site-header` in the shared layer now, in the
+   separator's dashed grammar — this override stood down with it. */
 
 /* Where you are, in the same dashed grammar as every other rule here. */
 [data-theme='blueprint'] .nav a[aria-current='page'] {

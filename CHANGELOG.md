@@ -113,8 +113,26 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   instant colour snap — so the bar measured differently per theme and every
   hover arrived as a flicker. The link box (padding, border, transition) is
   the shared layer's now and identical everywhere; a theme only dresses it.
-  The theme toggle's label also keeps a fixed width, so the script
+  The   theme toggle's label also keeps a fixed width, so the script
   correcting it to the stored theme after paint no longer resizes the bar.
+- **The nav no longer jumps while the webfonts arrive.** Every family ships
+  `font-display: swap`, and nothing held the bar's shape meanwhile — so the
+  brand, links and CTA rendered in the fallback face first and the whole row
+  changed position and size when the real faces landed, on every MPA
+  navigation. The four latin files are preloaded at head priority now, and
+  the bar keeps a locked 67px floor (the CTA inside the bar's own padding,
+  measured once) so a late swap has nowhere to go.
+- **The nav no longer walks right while Manrope arrives.** The preloads and
+  the floor held the bar's height, but the fallback's *widths* still differed
+  from the webfont's — Manrope's nav text sets 6.5% wider than the Segoe UI
+  it falls back to on Windows — so each link widened after paint and the row
+  drifted right on Blueprint and Paper with every page change. Three
+  `size-adjust` fallback faces in the shared layer hold the fallback to the
+  webfont's measured advances — Manrope on Segoe UI, Manrope on Arial, and
+  JetBrains Mono on Consolas for the wordmark and the toggle label — each
+  sitting in its stack ahead of the generic it tunes. Measured end to end in
+  the browser: the nav string sets 0.00% wider with remote fonts blocked than
+  with them loaded.
 
 ### Changed
 
@@ -132,6 +150,23 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   primary gets its registration ticks back, sitting inside the corner they
   were hidden from. Dots stay dots: status lights, portraits and window
   controls were never corners.
+- **The header joins the drafting frame.** The nav's rule ran only as wide
+  as the column; now `.site-header` draws it full-bleed in the separator's
+  own ink and style, with a square node straddling each bottom corner of the
+  column — the same marks the bands draw where a rail crosses a rule. The
+  per-theme `.nav` border overrides stood down with it. The nodes stand down
+  below 1160px and in print, with all the others.
+- **The frame runs the page's full height.** The rails used to start at
+  `main` and the footer was a column-width border; now the header and the
+  footer draw their own rail segments — empty `.frame-rail` spans, one per
+  side — each squaring both of its ends, with full-bleed rules closing the
+  sheet at the very top and the very bottom. One continuous line, corner to
+  corner, in the separator's own grammar.
+- **The sheet's top edge stays open.** The header's rails squared both ends,
+  marking the very top of the page; now the top ends terminate at the top
+  rule without a mark, and the first squares a visitor meets are the joints
+  where the header meets `main`. The footer's bottom nodes stay as drawn —
+  closing the sheet or opening that edge too is still an open call.
 
 ### Removed
 

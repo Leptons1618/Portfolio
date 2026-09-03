@@ -974,11 +974,23 @@ const firstName = site.name.split(' ')[0];
           if (panel.hidden) {
             const f = footer.getBoundingClientRect();
             const l = launcher.getBoundingClientRect();
+            /* `l` includes whatever lift a previous pass wrote — undo it
+               before deciding anything. Deciding on the *lifted* rect is what
+               made the launcher flicker over the footer: settled 8px above the
+               footer's top rule, it no longer overlapped the footer, so the
+               next scroll frame dropped it back into the overlap and the frame
+               after lifted it again — a strobe for as long as the scroll
+               lasted. The resting rect makes the decision a pure function of
+               where the footer is, so a scroll at a fixed offset converges on
+               one state instead of oscillating between two. */
+            const applied = parseFloat(root.style.getPropertyValue('--ask-lift')) || 0;
+            const restBottom = l.bottom + applied;
+            const restTop = l.top - applied;
             const overlaps =
-              l.left < f.right && l.right > f.left && l.bottom > f.top && l.top < f.bottom;
+              l.left < f.right && l.right > f.left && restBottom > f.top && restTop < f.bottom;
             root.style.setProperty(
               '--ask-lift',
-              overlaps ? `${Math.ceil(l.bottom - Math.max(f.top, 0)) + 8}px` : '0px'
+              overlaps ? `${Math.ceil(restBottom - Math.max(f.top, 0)) + 8}px` : '0px'
             );
           }
         };

@@ -3,6 +3,13 @@ import '@fontsource-variable/inter';
 import '@fontsource-variable/space-grotesk';
 import '@fontsource-variable/manrope';
 import '@fontsource-variable/jetbrains-mono';
+/* Same preloads as `BaseLayout`: the admin is client-routed so it pays the
+   webfont swap once per session rather than once per page, but it still
+   pays it. */
+import spaceGroteskLatin from '@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2?url';
+import interLatin from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
+import manropeLatin from '@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2?url';
+import jetbrainsMonoLatin from '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url';
 import '../styles/global.css';
 import '../styles/admin.css';
 import { ClientRouter } from 'astro:transitions';
@@ -31,6 +38,10 @@ const { title } = Astro.props;
   <title>{title} | Admin</title>
   <meta name="robots" content="noindex, nofollow" />
   <link rel="icon" type="image/png" href="/favicon.png" />
+  <link rel="preload" href={spaceGroteskLatin} as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href={interLatin} as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href={manropeLatin} as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href={jetbrainsMonoLatin} as="font" type="font/woff2" crossorigin />
   <ThemeHead />
   {/* Client-side routing between admin screens, so the sidebar can persist
       rather than being rebuilt on every navigation. Public pages stay plain

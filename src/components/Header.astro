@@ -13,6 +13,12 @@ const currentPath = Astro.url.pathname.replace(/(.)\/$/, '$1');
 const isCurrent = (href: string) =>
   href === '/' ? currentPath === '/' : currentPath === href || currentPath.startsWith(`${href}/`);
 ---
+<header class="site-header">
+  {/* The frame's rails, running the header's full height with a square node
+      at each end — the same marks the separator bands draw. Empty spans,
+      hidden from assistive technology with the header's own aria. */}
+  <span class="frame-rail frame-rail-l" aria-hidden="true"></span>
+  <span class="frame-rail frame-rail-r" aria-hidden="true"></span>
 <nav class="nav container" aria-label="Main navigation">
   <a class="nav-brand" href="/">{site.name}</a>
   <div class="nav-links">
@@ -23,6 +29,7 @@ const isCurrent = (href: string) =>
   <ThemeToggle />
   <a class="btn btn-primary nav-cta" href={`mailto:${site.email}`}>Hire me</a>
 </nav>
+</header>
 <style>
   .nav-brand { text-decoration: none; color: inherit; }
   .nav-links { display: flex; align-items: center; gap: var(--space-4); }

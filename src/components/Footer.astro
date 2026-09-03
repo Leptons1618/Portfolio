@@ -19,7 +19,15 @@ const links = [
   { label: 'source', href: site.repo },
 ];
 ---
-<footer class="site-footer container">
+<footer class="site-footer">
+  {/* The frame's rails, closing the sheet: the same spans the header
+      carries, squaring the footer's top corners where `main`'s rails end.
+      The bottom edge stays open like the header's top — the shared layer
+      suppresses this rail's bottom node, so the sheet leaves unmarked the
+      way it arrived. */}
+  <span class="frame-rail frame-rail-l" aria-hidden="true"></span>
+  <span class="frame-rail frame-rail-r" aria-hidden="true"></span>
+  <div class="container footer-col">
   <div class="footer-row">
     <span class="text-muted footer-copy"><span class="footer-prompt" aria-hidden="true">$</span> © {year} {site.name} <span class="footer-sep">//</span> built with precision</span>
     <nav class="footer-links" aria-label="Profiles">
@@ -38,16 +46,25 @@ const links = [
     </span>
     <a class="footer-top" href="#main">↑ top</a>
   </div>
+  </div>
 </footer>
 <style>
+  /* The frame's foot: full-bleed rules top and bottom in the separator's
+     ink and style, mirroring `.site-header`, with the rails running between
+     them. The column inside is what pages used to put the border on. */
   .site-footer {
+    position: relative;
+    border-top: 1px var(--rule-style) var(--sep-ink);
+    border-bottom: 1px var(--rule-style) var(--sep-ink);
+    padding-top: var(--space-4);
+    padding-bottom: var(--space-6);
+    font-family: var(--font-mono);
+    transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+  }
+  .footer-col {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
-    padding-top: var(--space-4);
-    padding-bottom: var(--space-6);
-    border-top: 1px solid var(--color-divider);
-    font-family: var(--font-mono);
   }
   .footer-row {
     display: flex;

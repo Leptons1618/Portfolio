@@ -15,6 +15,56 @@
 @tailwind utilities;
 
 /* ==========================================================================
+   Metric-compatible fallbacks — the swap you cannot see.
+
+   Every family here ships `font-display: swap`, and the layouts preload the
+   latin files — but a preload is a head start, not a guarantee: in dev the
+   files serve uncached on every MPA navigation, in production every first
+   view still paints the fallback first. The fallback's advances then differ
+   from the webfont's (Manrope's nav text runs 6.5% wider than the Segoe UI
+   it falls back to on Windows), so each link widens after paint and the row
+   walks right — on the drafting themes, whose body face is Manrope.
+
+   Each face below is the local fallback with `size-adjust` scaled to the
+   webfont's measured advances (see the ratios in the comment on each rule),
+   and each sits in its stack *before* the generic it tunes, so a machine
+   without that local simply falls through to today's behaviour. `size-adjust`
+   scales the glyphs as well as the widths — the x-heights land within a
+   percent, so the swap is colour-deep rather than layout-deep. No
+   ascent/descent overrides: the bar's 67px floor already owns the vertical,
+   and invented vertical metrics would be a second bug, not a fix.
+   ========================================================================== */
+
+/* Manrope as Segoe UI paints it on Windows: the nav string measures 106.47%
+   of the fallback at the same size, so the fallback runs scaled to match. */
+@font-face {
+  font-family: 'Manrope Fallback Win';
+  src: local('Segoe UI');
+  size-adjust: 106.47%;
+  font-weight: 200 800;
+}
+
+/* The same tuning for machines without Segoe UI: Arial carries the nav
+   string at 104.00% of Manrope — and its x-height lands at 103.85%, so one
+   scale serves both the widths and the size. */
+@font-face {
+  font-family: 'Manrope Fallback';
+  src: local('Arial');
+  size-adjust: 104%;
+  font-weight: 200 800;
+}
+
+/* JetBrains Mono as Consolas paints it: the fixed advance is 109.13% of the
+   fallback's, which is what holds the wordmark, the 9ch toggle label and
+   every other mono run in place while the webfont travels. */
+@font-face {
+  font-family: 'JB Mono Fallback';
+  src: local('Consolas');
+  size-adjust: 109.13%;
+  font-weight: 200 800;
+}
+
+/* ==========================================================================
    `hidden` actually hides.
 
    Tailwind 3's preflight asserts `[hidden] { display: none }` with no weight
@@ -839,18 +889,100 @@ select.input.is-auto {
 }
 
 /* — navigation — */
-.nav {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 2px solid var(--color-divider);
+
+/* The header is the frame's top edge: full-bleed rules in the separator's
+   own ink and style, top and bottom, with the rails running between them —
+   `.frame-rail` spans below — so the column arrives on the page already
+   drawn, and `main`'s rails continue the same lines. Below the frame's
+   breakpoint the rails and their nodes stand down with all the others (see
+   the 1160px query and the print block); the rules stay, because a header
+   without one is a page without a top. */
+.site-header {
+  position: relative;
+  border-top: 1px var(--rule-style) var(--sep-ink);
+  border-bottom: 1px var(--rule-style) var(--sep-ink);
   /* The bar repaints on every MPA navigation and repaints recoloured on
      every theme switch. An instant snap of the rule reads as a flash;
      a short fade reads as a transition. Colour-only, so reduced motion
      keeps it. */
   transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
 }
+
+/* The rails, where `main` cannot draw them: through the header and the
+   footer, so one continuous line runs the page's full height. `main` draws
+   its own segment as pseudo-elements; the header and footer cannot — their
+   pseudos are spent — so each carries two empty `.frame-rail` spans, one per
+   side, positioned by the same column-edge arithmetic the shared layer uses.
+   Each span draws its rail and squares both of its ends: the top node
+   straddles the block's top rule, the bottom node its bottom rule, exactly
+   where the next segment continues. The half-pixel fudge centres the square
+   on the 1px rule, the way the separator's own nodes do. */
+.frame-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px var(--rule-style) var(--rail-ink);
+  pointer-events: none;
+}
+
+.frame-rail-l { left: calc(50% - min(50%, var(--wrap-wide) / 2)); }
+/* `right` rather than a second `left`, the way `main`'s own rails do it, so
+   the two stay symmetric to the pixel on half-pixel edges. */
+.frame-rail-r { right: calc(50% - min(50%, var(--wrap-wide) / 2)); }
+
+.frame-rail::before,
+.frame-rail::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  width: var(--node-size);
+  height: var(--node-size);
+  box-sizing: border-box;
+  background: var(--color-bg);
+  border: 1px solid var(--sep-ink);
+  border-radius: var(--node-radius);
+  pointer-events: none;
+}
+
+.frame-rail::before {
+  top: calc(var(--node-size) / -2 - 0.5px);
+  translate: -50% 0;
+}
+
+.frame-rail::after {
+  bottom: calc(var(--node-size) / -2 - 0.5px);
+  translate: -50% 0;
+}
+
+/* Both outer edges of the sheet stay open: the header's rails terminate at
+   the top rule without a node, and the footer's at the bottom rule the same
+   way — the page arrives unmarked and leaves unmarked, and the first squares
+   a visitor meets are the junctions where the header and the footer meet
+   `main`. Those junction nodes stay; they are the joints the rails continue
+   from. */
+.site-header .frame-rail::before,
+.site-footer .frame-rail::after {
+  display: none;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  /* Locked floor, so the webfont arriving after first paint (every family
+     here ships `font-display: swap`) cannot change the bar's height: brand,
+     links, toggles and the CTA all swap inside a box that is already the
+     right size. 67px is the CTA (13px caps at 1.2 + 2×12px padding + 2px of
+     border) inside the bar's own 2×12px padding, plus the rule. A floor, not
+     a height — the wrapped two-row bar below 960px grows past it. */
+  min-height: 67px;
+  box-sizing: border-box;
+}
+
+/* (The nav's own corners carry no nodes: the header rails above square
+   both ends of each side already, at these same points.) */
 
 /* The wordmark is a path: `~/` in the faint step, the name, then a short bar
    that blinks on a shell's cadence — a prompt, a cwd, and a cursor. It used to
@@ -908,8 +1040,15 @@ select.input.is-auto {
    the border live here now, identical everywhere; a theme only dresses the
    box (Geometry fills it, Blueprint and Paper underline beside it). The
    transition lives here too, for the same reason: Geometry faded its hover
-   while the other two snapped theirs, which is the flicker. */
+   while the other two snapped theirs, which is the flicker.
+
+   The face is a token, not an inheritance, for the same reason: the bar's
+   links used to resolve to each theme's body face, and the bar re-laid-out
+   whenever the theme attribute or a webfont landed late. Every theme now
+   declares the same `--font-nav`, so the links measure the same everywhere —
+   see the themes. */
 .nav a:not(.btn):not(.nav-brand) {
+  font-family: var(--font-nav, var(--font-body));
   padding: 5px 12px;
   border: 1px solid transparent;
   transition:
@@ -937,6 +1076,20 @@ select.input.is-auto {
 .nav a.btn-primary,
 .nav a.btn-primary:hover {
   color: var(--color-bg);
+}
+
+/* The CTA is the other width every theme has to agree on. Geometry set its
+   primary label in the mono face; the drafting themes left `.btn-primary` on
+   the body face, so the bar's right cluster measured wider here than there —
+   and with Geometry the default, a page resolving into Paper or Blueprint
+   shifted the whole link row as its narrower button landed. The nav's button
+   wears Geometry's metrics everywhere (the themes' own `.btn-primary` rules
+   still dress every other button); the `ch`-reserved toggle beside it is
+   already theme-invariant. */
+.nav-cta {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  letter-spacing: 0.08em;
 }
 
 /* ==========================================================================
@@ -970,7 +1123,10 @@ select.input.is-auto {
       on each wrapper would break at every margin and shift content by a pixel.
       Zero layout cost: they are absolutely positioned and painted *under* the
       children (`z-index: -1` inside the stacking context `body > *` opens), so
-      a full-bleed banner covers them rather than being crossed by them.
+      a full-bleed banner covers them rather than being crossed by them. The
+      header and the footer draw their own segments the same way — empty
+      `.frame-rail` spans, one per side, squaring both ends — so one
+      continuous line runs the page's full height, corner to corner.
    2. The band, `.section-sep`: full-bleed top and bottom rules with a
       column-width cell inside, filled with a 45° hatch. Placed by pages
       between sections through `SectionSep.astro`; the page says *where* a
@@ -979,7 +1135,10 @@ select.input.is-auto {
       intersection. Two are the cell's own pseudo-elements (top corners) and
       two are the band's (bottom corners), positioned by the same arithmetic
       the rails use. They are the ground colour with a hairline, so they read
-      as cuts in the lines rather than as dots on them.
+      as cuts in the lines rather than as dots on them. The header carries
+      the same grammar at the top of the page: `.site-header` draws the
+      full-bleed rule and `.nav` — the column-width cell inside it — squares
+      its two bottom corners, where the rails below begin.
 
    Every visual decision is a token (`--rule-style`, `--rail-ink`,
    `--hatch-ink`, `--hatch-step`, `--node-size`, `--node-radius`,
@@ -1002,7 +1161,14 @@ body > main::before,
 body > main::after {
   content: '';
   position: absolute;
-  top: 0;
+  /* Not 0: the header's bottom node straddles the header's bottom rule by
+     half a node, so its lower half hangs into `main` — and this stacking
+     context paints after the header's, so a rail starting at 0 would overprint
+     that lower half, a dashed line cutting through the square. Starting at the
+     node's bottom border keeps the junction a whole node and the line
+     continuous out of it. `main` always follows the header in every layout
+     that draws the frame, so this offset always lands on that node. */
+  top: calc(var(--node-size) / 2 - 0.5px);
   bottom: 0;
   width: 0;
   z-index: -1;
@@ -1094,7 +1260,10 @@ body > main::after { right: var(--column-edge); translate: -1px 0; }
   .section-sep::before,
   .section-sep::after,
   .section-sep-inner::before,
-  .section-sep-inner::after {
+  .section-sep-inner::after,
+  .frame-rail,
+  .frame-rail::before,
+  .frame-rail::after {
     display: none;
   }
   .section-sep-inner {
@@ -1113,6 +1282,7 @@ body > main::after { right: var(--column-edge); translate: -1px 0; }
 @media print {
   body > main::before,
   body > main::after { display: none; }
+  .frame-rail { display: none; }
   .section-sep { height: 0; border-bottom: 0; }
   .section-sep-inner { display: none; }
 }

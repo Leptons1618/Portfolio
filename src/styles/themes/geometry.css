@@ -76,7 +76,13 @@
   --font-heading: 'Space Grotesk Variable', 'Space Grotesk', system-ui, sans-serif;
   --font-heading-weight: 700;
   --font-body: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono: 'JetBrains Mono Variable', 'JB Mono Fallback', ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* The nav bar's face. Same stack as the body face — stated rather than
+     inherited so the rule in `global.css` reads as the contract it is: the
+     bar's links measure identically under every theme, so a theme switch or
+     a late-resolving attribute can never re-lay-out the bar. */
+  --font-nav: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
 
   /* Square, like the section frame's nodes: cards, tags, buttons and code
      windows all keep sharp corners, so the separator's squares read as the
@@ -457,9 +463,8 @@ html[data-theme='geometry'] .nav a[aria-current='page'] {
   border-color: var(--color-divider);
 }
 
-html[data-theme='geometry'] .nav {
-  border-bottom-width: 1px;
-}
+/* The header's full-bleed rule is the shared layer's now (`.site-header`),
+   in the separator's ink on every theme — this override stood down with it. */
 
 /* The wordmark's cursor is the sweep here — the shared layer draws the
    `~/` path and the bar; this theme only paints it. */
