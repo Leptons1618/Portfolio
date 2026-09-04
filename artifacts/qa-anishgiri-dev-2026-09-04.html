@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QA Audit — anishgiri.dev (2026-09-04)</title>
+<style>
+:root{--ink:#111;--sub:#666;--line:#ddd;--paper:#fff;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 -apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1120px;margin-inline:auto;padding:0 24px}
+@media(max-width:640px){.wrap{padding:0 20px}}
+header.report{padding:64px 0 0}.kicker{font:12px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--sub)}
+h1{font-size:32px;line-height:1.2;margin:8px 0}h2{font-size:22px;margin:0 0 8px}
+.meta{font:13px var(--mono);color:var(--sub)}
+.sep{display:flex;align-items:center;gap:12px;margin:56px 0 24px;color:var(--sub)}
+.sep::before{content:"§";font-family:var(--mono)}
+.sep::after{content:"";flex:1;border-top:1px dashed var(--sub)}
+.card{border:1px solid var(--ink);padding:24px;margin:0 0 16px}
+.card-head{margin:0 0 12px}.card-id{font:12px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--sub)}
+.card-title{font-size:18px;margin:4px 0}
+.cut{border:0;border-top:1px dashed var(--sub);margin:12px 0}
+.evidence{font:13px/1.6 var(--mono);background:#f6f6f6;border:1px solid var(--line);padding:12px;white-space:pre-wrap;word-break:break-word}
+.sev{font:12px var(--mono);letter-spacing:.1em}
+.toc{list-style:none;padding:0}.toc a{color:inherit}
+.ok{font-family:var(--mono);font-size:13px}
+footer{padding:0 0 64px;color:var(--sub);font:13px var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="report">
+<div class="kicker">Report · QA Audit</div>
+<h1>anishgiri.dev — browser QA audit</h1>
+<p class="meta">DATE 2026-09-04 · SCOPE https://anishgiri.dev (home, projects + filters, project detail, case-studies, journal + post, about, resume, colophon, GitHub repo links, 404 probe) · METHOD Obscura browser, read-only, exploratory pass · CONSOLE ERRORS 0 · FAILED REQUESTS 0</p>
+</header>
+
+<div class="sep" aria-hidden="true"></div>
+<section id="summary">
+<h2>Summary</h2>
+<div class="card"><div class="card-head"><div class="card-id">Summary</div></div><hr class="cut">
+<ul>
+<li>Site is healthy at the transport level: all content routes return 200, zero console errors, zero failed requests.</li>
+<li>Top defect (new, MAJOR): the /projects filter bar is completely non-functional — search, sort, category and tag buttons render but no script drives them.</li>
+<li>New (MAJOR): 3 dead GitHub repo links — AXCAD, ignition-copilot-designer, QueryPilot all 404; the other 21 repo links resolve.</li>
+<li>New (MINOR): resume "Share" button does nothing (no share sheet, no clipboard write, no feedback); "Download PDF" is wired (window.print()).</li>
+<li>Carried over: mobile header breaks at 390px (F-01, not re-verifiable this pass); hero text concatenation reproduced (F-02).</li>
+<li>Improved since last pass: colophon screenshots now lazy-load; Ask dialog Esc-close and focus return verified working.</li>
+<li>Weight notes: ~20 font subsets per page, 1.1 MB journal hero unscaled, four 0B JS requests per page.</li>
+</ul>
+</div>
+</section>
+
+<div class="sep" aria-hidden="true"></div>
+<section id="contents">
+<h2>Contents</h2>
+<ul class="toc">
+<li><a href="#functional">§1 Functional</a></li>
+<li><a href="#console-network">§2 Console / Network</a></li>
+<li><a href="#seo">§3 SEO</a></li>
+<li><a href="#accessibility">§4 Accessibility</a></li>
+<li><a href="#performance">§5 Performance</a></li>
+<li><a href="#fixes">§6 Suggested fixes</a></li>
+<li><a href="#verified">§7 Verified working</a></li>
+<li><a href="#exploratory">§8 Exploratory pass log</a></li>
+</ul>
+</section>
+
+<div class="sep" aria-hidden="true"></div>
+<section id="functional">
+<h2>§1 Functional</h2>
+
+<div class="card" id="F-01"><div class="card-head"><div class="card-id">F-01</div><div class="card-title">Mobile header breaks at 390px</div><span class="sev">SEVERITY: MAJOR</span></div><hr class="cut">
+<p><b>Observation:</b> At 390px width the header nav wraps to two rows and HIRE ME overlaps the brand zone; BLUEPRINT label clips.</p>
+<div class="evidence">390×800 screenshot on /projects: HIRE ME button overlapping logo area; nav rows "Home Projects Journal About" / "Resume"; BLUEPRINT appears clipped. Desktop check at 1280px: scrollWidth == innerWidth, overflow false, offenders [].</div>
+<p><b>Location:</b> site header, viewports ≤ 400px</p>
+</div>
+
+<div class="card" id="F-02"><div class="card-head"><div class="card-id">F-02</div><div class="card-title">Hero terminal text concatenates in DOM</div><span class="sev">SEVERITY: MINOR</span></div><hr class="cut">
+<p><b>Observation:</b> Adjacent hero nodes have no whitespace separator, so innerText merges words screen readers announce as one.</p>
+<div class="evidence">hero_snip: "...leptons1618@anishgiri.dev:~ $ whoamiwhoami  Software EngineerSoftware Engineer Building ML systems, full-stack apps &amp; dev tools..."</div>
+<p><b>Location:</b> / hero terminal + role line</p>
+</div>
+
+<div class="card" id="F-03"><div class="card-head"><div class="card-id">F-03</div><div class="card-title">Ping readout is a static placeholder</div><span class="sev">SEVERITY: NOTE</span></div><hr class="cut">
+<p><b>Observation:</b> The terminal ping block shows em-dash latencies, not measured values. Acceptable as theater, reads as a metric.</p>
+<div class="evidence">64 bytes from edge: icmp_seq=0 ttl=57 time=— ms (×3, identical)</div>
+<p><b>Location:</b> / contact terminal</p>
+</div>
+
+<div class="card" id="F-04"><div class="card-head"><div class="card-id">F-04</div><div class="card-title">Contact form submits via mailto: GET</div><span class="sev">SEVERITY: NOTE</span></div><hr class="cut">
+<p><b>Observation:</b> Submit opens the visitor's mail client; no server validation or storage (UI discloses "Nothing is stored here"). Fill verified, never submitted.</p>
+<div class="evidence">action: mailto:anishgiri163@gmail.com | method: get | labels: [name, email, subject, message] | fill test: name_val "QA Test" OK</div>
+<p><b>Location:</b> / #contact-form</p>
+</div>
+
+<div class="card" id="F-09"><div class="card-head"><div class="card-id">F-09</div><div class="card-title">Projects filter bar is completely non-functional</div><span class="sev">SEVERITY: MAJOR</span></div><hr class="cut">
+<p><b>Observation:</b> On /projects every filter control renders — search input, sort select, "Sort projects" button, 8 category buttons, 15 tag buttons — but none responds. Typing "AXCAD" in search leaves all 24 articles visible; real clicks on "Featured" and "Computer Vision" produce no state change (class stays <code>tag-neutral</code>, <code>aria-pressed</code> null, URL unchanged). No filter script exists on the page: the only inline scripts are theme, scroll-reveal and a hero-canvas routine, and no FilterBar island/script is ever requested.</p>
+<div class="evidence">inline scripts on /projects: THEME_KEY/om-mode (1056B) · scroll reveal arming (661B) · vertex/canvas (2321B)
+island js requested: ThemeToggle 0B, AskWidget 0B, BaseLayout 0B — no FilterBar
+search input → dispatch input: visibleArticles 24/24, searchVal "AXCAD"
+real click "Featured": class tag-neutral, aria-pressed null, 24/24 visible
+empty-state div present (class "empty-state hidden") with "Clear filters" button — can never appear because filter state never changes</div>
+<p><b>Location:</b> /projects filter bar (client-side behavior missing — regression vs earlier review passes that observed live filtering)</p>
+</div>
+
+<div class="card" id="F-10"><div class="card-head"><div class="card-id">F-10</div><div class="card-title">Three GitHub repo links 404</div><span class="sev">SEVERITY: MAJOR</span></div><hr class="cut">
+<p><b>Observation:</b> Following "Repo ↗" from project cards lands on GitHub's "Page not found" for three projects: AXCAD (linked from projects list, /projects/axcad detail, and /case-studies/axcad), Ignition Copilot Designer, and QueryPilot. The remaining 21 repo links resolve 200. Likely renamed, deleted or made private.</p>
+<div class="evidence">404 https://github.com/Leptons1618/AXCAD
+404 https://github.com/Leptons1618/ignition-copilot-designer
+404 https://github.com/Leptons1618/QueryPilot
+200 ×21 (Markov-Chain-Lab, menu-ocr, EchoScript, StreamSQL, agent-workbench, Ingesta, LocalRAG, MLEvaluation, NiceChatAI, sia-proto, VisionID, Comic-Sudoku, dwg2svg, EchoNode, metastream-mobile, ssh-key-gui, streamfusion, TrustNet, vehicle_speed_estimation, VisionPlay, Portfolio)</div>
+<p><b>Location:</b> /projects cards, /projects/axcad, /case-studies/axcad (repo hrefs site-wide)</p>
+</div>
+
+<div class="card" id="F-11"><div class="card-head"><div class="card-id">F-11</div><div class="card-title">Resume "Share" button does not respond</div><span class="sev">SEVERITY: MINOR</span></div><hr class="cut">
+<p><b>Observation:</b> Clicking Share (#resume-share) produces nothing: no share sheet, no clipboard write, no toast, no console error, no visual feedback. Sibling "Download PDF" (#resume-export) is wired (see F-12), so Share appears to have lost or never received its handler.</p>
+<div class="evidence">click #resume-share → no navigation, no [role=status]/toast element, console silent
+stubbed navigator.share/clipboard.writeText/window.print then click → stubbedCalls: [] (none invoked)</div>
+<p><b>Location:</b> /resume toolbar</p>
+</div>
+
+<div class="card" id="F-12"><div class="card-head"><div class="card-id">F-12</div><div class="card-title">"Download PDF" is a print shortcut, not a PDF</div><span class="sev">SEVERITY: NOTE</span></div><hr class="cut">
+<p><b>Observation:</b> The primary button calls window.print() — desktop users get the browser print dialog (save as PDF), mobile users get nothing useful. Verified wired via stub; no PDF asset is served.</p>
+<div class="evidence">stubbed window.print, click #resume-export → stubbedCalls: ["print"] · no /resume.pdf or media request</div>
+<p><b>Location:</b> /resume toolbar</p>
+</div>
+</section>
+
+<div class="sep" aria-hidden="true"></div>
+<section id="console-network">
+<h2>§2 Console / Network</h2>
+<div class="card" id="F-05"><div class="card-head"><div class="card-id">F-05</div><div class="card-title">Four empty JS requests on every page</div><span class="sev">SEVERITY: MINOR</span></div><hr class="cut">
+<p><b>Observation:</b> Each navigation fetches 4 island scripts with 0B bodies — pure round-trip overhead.</p>
+<div class="evidence">[200] GET .../ThemeToggle...Dg9D9d7u.js (0B)
+[200] GET .../ContactTerminal...TZJFfmMX.js (0B)
+[200] GET .../AskWidget...H4MWFH2x.js (0B)
+[200] GET .../BaseLayout...BvGeGz7e.js (0B)</div>
+<p><b>Location:</b> all pages (+ resume...9KaQXx1y.js 0B on /resume)</p>
+</div>
+<div class="card"><div class="card-head"><div class="card-id">Baseline</div></div><hr class="cut">
+<p class="ok">Console: "No console messages." on /, /projects, /journal, /about, /resume, /case-studies/axcad, /projects/axcad, /colophon, 404 probe. Network: all 200 except intentional [404] probe. No 4xx/5xx, no blocked assets.</p>
+</div>
+</section>
+
+<div class="sep" aria-hidden="true"></div>
+<section id="seo">
+<h2>§3 SEO</h2>
+<div class="card" id="F-06"><div class="card-head"><div class="card-id">F-06</div><div class="card-title">Meta description short and generic</div><span class="sev">SEVERITY: MINOR</span></div><hr class="cut">
+<p><b>Observation:</b> Description is ~47 characters with no role proof, keywords, or CTA.</p>
+<div class="evidence">title: Home | Anish Giri Portfolio
+desc: ML/CV engineer and full-stack developer portfolio.
+canonical: https://anishgiri.dev/ | lang: en | h1: ["Building ML systems, full-stack apps &amp; dev tools"] (single) | h2 ×4, h3 ×16
+og:image: https://anishgiri.dev/images/ui/og-default.png (present in DOM)</div>
+<p><b>Location:</b> / head</p>
+</div>
+<div class="card"><div class="card-head"><div class="card-id">Crawlable</div></div><hr class="cut">
+<p class="ok">robots.txt 200 (1920B): Allow /, Disallow /admin, Sitemap → /sitemap.xml, Cloudflare ai-train=no. sitemap.xml 200: 44 URLs (/, /about, /projects, /journal, /resume, 24 projects, 11 case-studies, 4 journal posts). viewport + OG/Twitter summary_large_image complete.</p>
+</div>
+</section>
+
+<div class="sep" aria-hidden="true"></div>
+<section id="accessibility">
+<h2>§4 Accessibility</h2>
+<div class="card" id="F-07"><div class="card-head"><div class="card-id">F-07</div><div class="card-title">Two icon buttons expose no name in element list</div><span class="sev">SEVERITY: NOTE</span></div><hr class="cut">
+<p><b>Observation:</b> Interactive-element dump shows two unnamed buttons; DOM-wide filter found none, so names may come from icon children only — confirm with a screen reader. <b>Update (exploratory pass):</b> dialog behavior verified healthy — Esc closes the panel and focus returns to the launcher; the close control exposes an aria-label; no unnamed buttons found in a DOM-wide re-scan. Downgrade to residual: confirm announced names with a screen reader.</p>
+<div class="evidence">ref=e61 button[button] "" | ref=e62 button[button] "" | buttons_no_name (innerText/aria-label filter): []
+update: unnamedButtons [] (DOM-wide) · panelAfterEsc "ask-panel is-closing" · focus returned to "Ask about Anish" launcher · close btn has aria-label</div>
+<p><b>Location:</b> / Ask-widget panel controls</p>
+</div>
+<div class="card"><div class="card-head"><div class="card-id">Landmarks</div><div class="card-title">Three header elements</div><span class="sev">SEVERITY: NOTE</span></div><hr class="cut">
+<p><b>Observation:</b> More than one banner-level header; verify only one is the page banner.</p>
+<div class="evidence">landmarks: main 1, nav 2, header 3, footer 1 | skip link: a.skip-link[href="#main"] present | imgs_missing_alt: 0 | dup_ids: [] | anchors_no_text: 0 (52 links, 35 internal)</div>
+<p><b>Location:</b> / landmarks</p>
+</div>
+</section>
+
+<div class="sep" aria-hidden="true"></div>
+<section id="performance">
+<h2>§5 Performance</h2>
+<div class="card" id="F-08"><div class="card-head"><div class="card-id">F-08</div><div class="card-title">Font subsets and heavy hero dominate weight</div><span class="sev">SEVERITY: MINOR</span></div><hr class="cut">
+<p><b>Observation:</b> ~25 variable-font subsets load per page; journal hero is 1.1 MB; colophon loads ~1 MB of screenshots in one go. <b>Update (exploratory pass):</b> colophon screenshots now use loading="lazy" (fixed), but still serve full-size 1200px files; journal hero still unscaled at 1.1 MB.</p>
+<div class="evidence">document.fonts.size: 25 | inter-latin-ext 85068B (largest subset)
+journal hero: ...tradition-hero.jpg (1147165B)
+homepage portrait: portrait.webp (20920B) — lean
+colophon: 17× webp ≈ 45–87KB each · update: all colophon imgs loading="lazy", naturalWidth 1200</div>
+<p><b>Location:</b> site-wide (fonts/CSS), /journal, /colophon</p>
+</div>
+</section>
+
+<div class="sep" aria-hidden="true"></div>
+<section id="fixes">
+<h2>§6 Suggested fixes</h2>
+<div class="card"><div class="card-head"><div class="card-id">Fixes</div></div><hr class="cut">
+<ol>
+<li>F-09 (top priority): restore the /projects filter island — search, sort, category and tag handlers are absent from the page; verify the island script is generated and hydrates on the deployed branch.</li>
+<li>F-10: fix or repoint the three dead repo links (AXCAD, ignition-copilot-designer, QueryPilot) — rename in content collection or update hrefs.</li>
+<li>F-01: collapse nav to hamburger or scroll-row under 640px; re-screenshot 360/390/768px (not re-verifiable from this session's tooling).</li>
+<li>F-02: add whitespace/text node between hero prompt spans; label the terminal line.</li>
+<li>F-11: wire #resume-share (navigator.share with clipboard fallback + visible confirmation).</li>
+<li>F-05: remove or bundle the four 0B island scripts.</li>
+<li>F-08: subset fonts to latin + fallback with preload; compress journal hero to ~1600px AVIF/WebP + srcset (colophon lazy-loading already fixed).</li>
+<li>F-06: expand meta description to ~150 chars with role + proof + CTA.</li>
+<li>F-07: confirm Ask-dialog control names with a screen reader; reduce to one banner header.</li>
+</ol>
+</div>
+</section>
+
+<div class="sep" aria-hidden="true"></div>
+<section id="verified">
+<h2>§7 Verified working</h2>
+<div class="card"><div class="card-head"><div class="card-id">Passing checks</div></div><hr class="cut">
+<ul class="ok">
+<li>Nav click Projects (e4) → /projects, title "Projects | Anish Giri Portfolio", no console errors.</li>
+<li>Ask widget opens: role="dialog", aria-label="Ask about Anish Giri", aria-expanded true, class "ask-panel is-open", suggested prompts rendered.</li>
+<li>Theme toggle clicks with no console errors; cycles geometry/blueprint themes and light/dark (localStorage om-mode light↔dark, body bg 250,250,250 ↔ 10,10,12).</li>
+<li>Case-study prev/next present (← Previous EchoScript / Next → StreamSQL on /case-studies/axcad) and navigate correctly with correct titles.</li>
+<li>404 probe: title "404: Not Found", shows path, status [404], no console errors.</li>
+<li>Not submitted/clicked (read-only boundary): contact submit, external Ask question submit.</li>
+</ul>
+</div>
+</section>
+
+<div class="sep" aria-hidden="true"></div>
+<section id="exploratory">
+<h2>§8 Exploratory pass log</h2>
+<div class="card"><div class="card-head"><div class="card-id">Traversal</div></div><hr class="cut">
+<p>Real-user walkthrough, read-only. Route: / → theme toggle ×2 (geometry/blueprint, light/dark) → Ask widget open, prompts visible, Esc close, focus return → nav click /projects → filter probes (F-09) → project card AXCAD → /projects/axcad → "Repository ↗" (GitHub 404, F-10) → /case-studies/axcad → prev/next to /case-studies/streamsql → browser Back → Forward (titles correct, scroll reset) → /journal → post opened (hero 1.1 MB unscaled) → /about → /resume (Share dead F-11, Download PDF = print F-12) → /colophon (images lazy) → /#contact form fill (transient, cleared, never submitted) → 404 probe.</p>
+</div>
+<div class="card"><div class="card-head"><div class="card-id">Repo link sweep</div><div class="card-title">24 GitHub links probed</div></div><hr class="cut">
+<p>HEAD requests to all repo hrefs on /projects: 21 → 200, 3 → 404 (F-10). No other external navigation errors (github.com/Leptons1618, LinkedIn, X profiles resolve).</p>
+</div>
+<div class="card"><div class="card-head"><div class="card-id">Constraints</div></div><hr class="cut">
+<p class="ok">Zero console errors and zero failed network requests across the entire session (only intentional [404] probes). F-01 (mobile header at 390px) not re-verifiable: this session's tooling cannot change layout viewport, only capture size — carried over unchanged. Contact form never submitted; Ask question never submitted; nothing modified.</p>
+</div>
+</section>
+
+<footer>Generated 2026-09-04 (updated after exploratory pass) · method: Obscura browser, read-only, two passes · transient interactions only (theme/Ask/nav/filter probes, unsubmitted field fills, stubbed share/print APIs) · machine data in #report-data</footer>
+</div>
+
+<script type="application/json" id="report-data">
+{"title":"QA Audit — anishgiri.dev","date":"2026-09-04","scope":"https://anishgiri.dev","summary":["All content routes 200; 0 console errors; 0 failed requests (two passes)","Top defect (MAJOR): /projects filter bar completely non-functional — no filter script on page (F-09)","MAJOR: 3 dead GitHub repo links — AXCAD, ignition-copilot-designer, QueryPilot 404 (F-10)","MINOR: resume Share button does not respond; Download PDF = window.print() (F-11, F-12)","Mobile header breaks at 390px (F-01, carried over, not re-verifiable this pass)","Hero text concatenates in DOM (F-02, reproduced)","~25 font subsets/page, 1.1MB journal hero unscaled; colophon images now lazy (F-08 partial fix)","SEO base correct; meta description short (MINOR)"],"findings":[{"id":"F-01","severity":"MAJOR","section":"Functional","observation":"Mobile header breaks at 390px: nav wraps, HIRE ME overlaps brand.","evidence":"390x800 screenshot on /projects; desktop 1280px overflow false.","location":"site header, viewports <= 400px","status":"carried over, not re-verifiable this pass"},{"id":"F-02","severity":"MINOR","section":"Functional","observation":"Hero terminal text concatenates (whoamiwhoami).","evidence":"hero_snip contains 'whoamiwhoami' and 'Software EngineerSoftware Engineer'.","location":"/ hero","status":"reproduced this pass"},{"id":"F-03","severity":"NOTE","section":"Functional","observation":"Ping readout is a static placeholder (em-dash latencies).","evidence":"time=— ms x3 identical","location":"/ contact terminal"},{"id":"F-04","severity":"NOTE","section":"Functional","observation":"Contact form submits via mailto: GET; fill verified, never submitted.","evidence":"action mailto:anishgiri163@gmail.com, method get; fill OK, cleared","location":"/ #contact-form"},{"id":"F-05","severity":"MINOR","section":"Console/Network","observation":"Four 0B island JS requests on every page.","evidence":"ThemeToggle/AskWidget/BaseLayout js (0B); resume.js 0B on /resume","location":"all pages"},{"id":"F-06","severity":"MINOR","section":"SEO","observation":"Meta description short/generic (~47 chars).","evidence":"desc: ML/CV engineer and full-stack developer portfolio.","location":"/ head"},{"id":"F-07","severity":"NOTE","section":"Accessibility","observation":"Two icon buttons unnamed in element list; 3 header elements.","evidence":"e61 '', e62 ''; landmarks header 3; update: Esc close + focus return + named close btn verified; no unnamed buttons DOM-wide","location":"/ Ask panel, landmarks","status":"partially resolved"},{"id":"F-08","severity":"MINOR","section":"Performance","observation":"~25 font subsets/page; 1.1MB journal hero unscaled.","evidence":"fonts.size ~25; tradition-hero.jpg 1147165B; colophon imgs now loading=lazy (fixed)","location":"site-wide, /journal","status":"partially resolved"},{"id":"F-09","severity":"MAJOR","section":"Functional","observation":"Projects filter bar completely non-functional: search, sort, category and tag buttons render but no script drives them; empty state can never appear.","evidence":"only 3 inline scripts on /projects (theme, scroll-reveal, canvas); no FilterBar island/script; real clicks 'Featured'/'Computer Vision' no state change; search 'AXCAD' leaves 24/24 articles visible","location":"/projects filter bar","status":"new"},{"id":"F-10","severity":"MAJOR","section":"Links","observation":"Three GitHub repo links 404: AXCAD, ignition-copilot-designer, QueryPilot.","evidence":"HEAD sweep of 24 repo hrefs: 21x200, 404 github.com/Leptons1618/{AXCAD,ignition-copilot-designer,QueryPilot}","location":"/projects cards, /projects/axcad, /case-studies/axcad","status":"new"},{"id":"F-11","severity":"MINOR","section":"Functional","observation":"Resume Share button does not respond: no share sheet, no clipboard write, no feedback.","evidence":"click #resume-share: no effect; stubbed navigator.share/clipboard never invoked","location":"/resume toolbar","status":"new"},{"id":"F-12","severity":"NOTE","section":"Functional","observation":"'Download PDF' is a window.print() shortcut; no PDF asset served; weak on mobile.","evidence":"stubbed window.print invoked on click #resume-export; no media request","location":"/resume toolbar","status":"new"}],"stats":{"routes200":"all content routes","consoleErrors":0,"failedRequests":0,"repoLinksProbed":24,"deadRepoLinks":3,"sitemapUrls":44}}
+</script>
+</body>
+</html>
