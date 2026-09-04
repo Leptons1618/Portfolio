@@ -107,7 +107,9 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
   .post-meta { font-size: 13px; margin-bottom: var(--space-3); }
 
   .post-figure { position: relative; margin-bottom: var(--space-4); }
-  .post-figure img { width: 100%; height: 360px; object-fit: cover; }
+  /* Full image, not a crop: the hero is the author's chosen frame, and a
+     360px slice of it is not. Natural height, capped by the container. */
+  .post-figure img { width: 100%; height: auto; display: block; }
   .post-duration { position: absolute; bottom: 12px; left: 12px; font-family: var(--font-mono); }
 
   /* Capped rather than full-bleed: the block above runs to 1120px and a lead
@@ -145,8 +147,4 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
   }
   .share-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
   .share-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-
-  @media (max-width: 640px) {
-    .post-figure img { height: 220px; }
-  }
 </style>

@@ -120,7 +120,7 @@ const spec: [string, string][] = [
           <div class="card sidebar-card">
             <p class="eyebrow sidebar-label">Links</p>
             <div class="link-list">
-              <a href={repoUrl} class="btn btn-secondary btn-block" target="_blank" rel="noopener">Repository ↗</a>
+              {repoUrl && <a href={repoUrl} class="btn btn-secondary btn-block" target="_blank" rel="noopener">Repository ↗</a>}
               {demoUrl && <a href={demoUrl} class="btn btn-primary btn-block" target="_blank" rel="noopener">Live Demo ↗</a>}
               {caseStudySlug && <a href={`/case-studies/${caseStudySlug}`} class="btn btn-primary btn-block">Read case study →</a>}
             </div>

@@ -115,6 +115,12 @@ export const publicPosts = (posts: Post[]) => posts.filter(p => p.data.status ==
 function projectSection(projects: Project[]): string {
   if (!projects.length) return '';
   let out = heading('Projects');
+  /* Attribution guard. The resume also lives in this corpus, so a model can
+     see an employer's name and a list of projects on the same page — and the
+     natural thing for it to do is bridge the two. It may not: every project
+     here is personal or community work, and the sentence below is the fact it
+     should reach for instead of a plausible bridging story. */
+  out += 'Every project in this section is a personal or community project, built independently — none are employer or client work.\n';
   for (const { slug, data } of projects) {
     out += `\n### ${data.title}\n`;
     out += bullet('Page', `/projects/${slug}`);
@@ -292,6 +298,7 @@ export function buildIndex(input: CorpusInput): string {
 
   if (projects.length) {
     out += heading('Projects');
+    out += 'All projects listed here are personal or community projects, built independently — none are employer or client work.\n\n';
     out += 'slug — title · category · year · stack. Use read_project for the full record.\n\n';
     for (const { slug, data } of projects) {
       out += `- ${slug} — ${data.title} · ${CATEGORY_LABELS[data.category] ?? data.category} · ${data.year}`;

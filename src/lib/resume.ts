@@ -513,7 +513,7 @@ export interface ResumeSheet {
 /** What `resolveVariant` needs to know about a project, and no more. */
 export interface ProjectLike {
   slug: string;
-  data: { title: string; summary: string; repoUrl: string; demoUrl?: string; hidden: boolean };
+  data: { title: string; summary: string; repoUrl?: string; demoUrl?: string; hidden: boolean };
 }
 
 /**

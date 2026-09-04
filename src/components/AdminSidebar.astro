@@ -205,14 +205,52 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
      `textContent` on that button would delete the icon. */
   const collapseButton = document.getElementById('admin-collapse')!;
 
-  function markCollapsed(collapsed: boolean) {
+  /* — two phases, because one attribute made both directions glitch —
+
+     Collapsing: the width animates first; hiding the labels at the same
+     instant made the text vanish and the icons jump while the rail was still
+     wide. Expanding: labels appearing immediately reflowed inside a 64px rail
+     and wrapped into a scramble until the width caught up.
+
+     So the width answers to `data-admin-collapsed` (set now, either way) and
+     the text answers to `data-admin-labels-hidden`: set ~190ms *after* the
+     collapse starts — just past the 180ms width transition — and cleared
+     *before* the expand starts, so the labels slide back in behind the
+     growing width (clipped by the rail's `overflow-x: clip`) instead of
+     wrapping in it. */
+  const COLLAPSE_MS = 190;
+  let labelsTimer = 0;
+
+  /* The animation window carries its own attribute: while it is set the rail
+     clips its edge and the labels hold one line, so the text slides instead
+     of wrapping inside a rail that is still the wrong width. Collapsing, the
+     labels phase lands when the width has finished; expanding, the labels are
+     back at once and the clip holds until the width has caught up with them.
+     The window is cleared in both directions when the timer lands, because
+     the collapsed tooltips render outside the rail and a permanent clip would
+     cut them off. */
+  function setLabelsHidden(hidden: boolean) {
+    window.clearTimeout(labelsTimer);
+    root.dataset.adminAnimating = '1';
+    labelsTimer = window.setTimeout(() => {
+      if (hidden) root.dataset.adminLabelsHidden = '1';
+      else delete root.dataset.adminLabelsHidden;
+      delete root.dataset.adminAnimating;
+    }, COLLAPSE_MS);
+  }
+
+  function markCollapsed(collapsed: boolean, animate = true) {
     if (collapsed) root.dataset.adminCollapsed = '1';
     else delete root.dataset.adminCollapsed;
+    /* Restoring a saved state has nothing to animate — the pre-paint script
+       set the width and the labels phase together, so this only syncs the
+       button's state. A toggle goes through the timed two-phase path. */
+    if (animate) setLabelsHidden(collapsed);
     collapseButton.setAttribute('aria-expanded', String(!collapsed));
     collapseButton.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
   }
 
-  markCollapsed(localStorage.getItem(SIDEBAR_KEY) === '1');
+  markCollapsed(localStorage.getItem(SIDEBAR_KEY) === '1', false);
 
   function toggleCollapsed() {
     const next = root.dataset.adminCollapsed !== '1';

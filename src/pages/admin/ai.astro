@@ -269,10 +269,27 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
           </label>
           <p class="text-muted admin-note">
             Once a day, at a time picked at random inside the window below, the
-            assistant writes a whole post and saves it as a <strong>draft</strong>.
-            Drafts are never public — the entry 404s for visitors until you open it
-            in the journal editor and press publish. Nothing here can publish.
+            assistant writes a whole post and saves it as a <strong>draft</strong>
+            or — if you choose it below — publishes it directly.
           </p>
+          <div class="field">
+            <label>Create as</label>
+            <div class="seg" role="radiogroup" aria-label="Create as">
+              <label class="seg-opt">
+                <input type="radio" name="dj-publish" value="draft" checked />
+                Draft
+              </label>
+              <label class="seg-opt">
+                <input type="radio" name="dj-publish" value="published" />
+                Published
+              </label>
+            </div>
+            <p class="text-muted admin-note" id="dj-publish-help">
+              A draft is invisible to visitors until you open it in the journal
+              editor and publish. Published goes live the moment the job writes —
+              nobody reads it first. The default is a draft on purpose.
+            </p>
+          </div>
           <p class="text-muted admin-note">
             The clock is <code>.github/workflows/daily-journal.yml</code>, which
             calls this site once an hour; the hour that writes is derived from the
@@ -1493,6 +1510,12 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
       model: $<HTMLSelectElement>('dj-model'),
     };
 
+    const publishInputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[name="dj-publish"]'),
+    );
+    const currentPublish = (): 'draft' | 'published' =>
+      (publishInputs.find(i => i.checked)?.value ?? 'draft') as 'draft' | 'published';
+
     function readDaily(): AutoJournalSettings {
       /* Through the same clamp the server runs, so the form and the row cannot
          disagree about what a window of `20`–`3` means. It is not a second
@@ -1506,6 +1529,7 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
         model: dailyFields.model.value,
         instruction: dailyFields.instruction.value,
         topics: dailyFields.topics.value.split('\n'),
+        publish: currentPublish() === 'published',
       });
     }
 
@@ -1518,6 +1542,9 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
       dailyFields.windowEnd.value = String(settings.windowEnd);
       dailyFields.maxAttempts.value = String(settings.maxAttempts);
       dailyFields.model.value = settings.model;
+      for (const input of publishInputs) {
+        input.checked = (input.value === 'published') === settings.publish;
+      }
     }
 
     /* Same rule as the settings form: filled once, so re-reading the status
@@ -1681,9 +1708,11 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
       try {
         await saveAutoJournal(settings);
         say(
-          settings.enabled
-            ? 'Saved. A draft will be written each day inside the window.'
-            : 'Saved. The daily journal is off; nothing will be written.',
+          !settings.enabled
+            ? 'Saved. The daily journal is off; nothing will be written.'
+            : settings.publish
+              ? 'Saved. A post will be published directly each day inside the window.'
+              : 'Saved. A draft will be written each day inside the window.',
         );
         toast('Schedule saved.', { tone: 'success' });
         await refreshDaily();
@@ -1700,12 +1729,17 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
          so — there is no stream to watch here, unlike everywhere else the
          assistant runs. */
       setBusy(button, true, 'Writing…');
-      const pending = toast('Writing today\'s draft…', { tone: 'pending' });
+      const pending = toast(`Writing today's ${currentPublish() === 'published' ? 'post' : 'draft'}…`, { tone: 'pending' });
       try {
         const result = await runAutoJournalNow();
         if (result.status === 'written' && result.slug) {
-          say(`Drafted "${result.title}". It is a draft: open it to publish.`);
-          pending.update(`Drafted "${result.title}".`, { tone: 'success' });
+          if (currentPublish() === 'published' && result.live) {
+            say(`Published "${result.title}". It is live now.`);
+            pending.update(`Published "${result.title}".`, { tone: 'success', action: { label: 'view ↗', href: result.live } });
+          } else {
+            say(`Drafted "${result.title}". It is a draft: open it to publish.`);
+            pending.update(`Drafted "${result.title}".`, { tone: 'success' });
+          }
         } else {
           say(result.reason ?? 'Nothing was written.', 'error');
           pending.update(result.reason ?? 'Nothing was written.', { tone: 'error' });

@@ -469,6 +469,12 @@ check('the unmistakable misuse shapes are refused without a model call', () => {
     'give me a recipe for banana bread',
     'debug this code for me',
     '```js\nconsole.log(1)\n```',
+    /* Textbook computer science: the shapes a study question takes. */
+    'explain big-o notation',
+    'what is a linked list',
+    'define polymorphism',
+    'teach me dynamic programming',
+    'explain recursion',
   ];
 
   for (const text of misuse) {
@@ -505,6 +511,10 @@ check('questions about the author survive the filter', () => {
     'what problems has he solved at work?',
     'is he available for hire?',
     'what did he study?',
+    /* A concept noun that the sentence ties back to his work reaches the
+       model — the study-question rule only catches the concept on its own. */
+    'explain how recursion shows up in his projects',
+    'what is the automata content of his Markov Chain Lab about?',
   ];
 
   for (const text of legitimate) {

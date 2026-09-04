@@ -269,6 +269,7 @@ export async function runAutoJournalNow(): Promise<{
   slug?: string;
   title?: string;
   reason?: string;
+  live?: string;
 }> {
   return read('/api/ai/daily', { method: 'POST', body: JSON.stringify({ force: true }) });
 }

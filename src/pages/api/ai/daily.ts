@@ -11,7 +11,7 @@ import {
 } from '../../../lib/ai';
 import { buildIndex } from '../../../lib/ai-corpus';
 import { MAX_TOOL_CALLS, runTool, toolSummary, toolsFor } from '../../../lib/ai-tools';
-import { getCaseStudies, getPosts, getProjects } from '../../../lib/content';
+import { getCaseStudies, getPosts, getProjects, pinNewJournalPost } from '../../../lib/content';
 import { getResume } from '../../../lib/resume';
 import { ASSIST_TASKS, POST_KEYS, assistPrompt, parseFields } from '../../../lib/assist-tasks';
 import {
@@ -131,7 +131,8 @@ interface AutoPost {
 }
 
 /**
- * Insert the post as a draft.
+ * Insert the post, as a draft or — when the owner's settings say so —
+ * published.
  *
  * Written straight to D1 rather than through `POST /api/content`, because that
  * endpoint authenticates a *person* — it presents a GitHub token and asks whose
@@ -141,12 +142,12 @@ interface AutoPost {
  * value is a bound parameter. Nothing in the request reaches the statement at
  * all; the only inputs are the model's own text and the owner's settings row.
  */
-async function insertDraft(db: D1Database, post: AutoPost): Promise<void> {
+async function insertPost(db: D1Database, post: AutoPost, status: 'draft' | 'published'): Promise<void> {
   await db
     .prepare(
       `INSERT INTO journal
          (slug, title, summary, date, tags, read_time, status, body_md, body_html, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, datetime('now'))`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
     )
     .bind(
       post.slug,
@@ -155,10 +156,15 @@ async function insertDraft(db: D1Database, post: AutoPost): Promise<void> {
       post.day,
       JSON.stringify(post.tags),
       post.readTime || null,
+      status,
       post.body,
       await renderBody(post.body),
     )
     .run();
+  /* Same half of creation the editor's save gets: a generated post floats to
+     the top of the entries list, where the author reads first, rather than
+     under every post a saved order names. */
+  await pinNewJournalPost(db, post.slug);
 }
 
 /** A `documents` singleton, or `{}`. */
@@ -382,27 +388,30 @@ export const POST: APIRoute = async ({ request, locals }) => {
     const base = slugify(post.title);
     if (!base) throw new Error(`The title produced no usable slug: "${post.title}".`);
     const slug = await freeSlug(DB, base);
+    const status = settings.publish ? 'published' : 'draft';
 
-    await insertDraft(DB, { ...post, slug, day: verdict.day });
+    await insertPost(DB, { ...post, slug, day: verdict.day }, status);
 
     /* The slug is what stops tomorrow's first tick writing a second post today,
-       so it is written even for a forced run — a manual post still counts as
-       the day's post. */
+        so it is written even for a forced run — a manual post still counts as
+        the day's post. */
     await writeRun(DB, {
       day: verdict.day,
       attempts: force ? today.attempts : today.attempts + 1,
       slug,
-      note: `Drafted "${post.title}".`,
+      note: status === 'published' ? `Published "${post.title}".` : `Drafted "${post.title}".`,
       at: new Date().toISOString(),
     });
 
     return json({
       ok: true,
       status: 'written',
+      postStatus: status,
       slug,
       title: post.title,
       day: verdict.day,
       edit: `${site.url}/admin/journal/${slug}`,
+      ...(status === 'published' ? { live: `${site.url}/journal/${slug}` } : {}),
     });
   } catch (error) {
     const reason =

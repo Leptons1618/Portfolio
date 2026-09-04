@@ -67,6 +67,12 @@ const { title } = Astro.props;
         }
         if (localStorage.getItem(SIDEBAR_KEY) === '1') {
           document.documentElement.dataset.adminCollapsed = '1';
+          // Both halves of the collapsed state, set together: the width and
+          // the label-hiding phase. The sidebar's own script animates between
+          // them on a toggle, but a restored state has nothing to animate —
+          // the labels must be gone before first paint, or they wrap inside
+          // the 64px rail for a frame.
+          document.documentElement.dataset.adminLabelsHidden = '1';
         }
         // The rail's remembered width, applied as the same custom property the
         // stylesheet consumes — clamped here so a hand-edited value can only

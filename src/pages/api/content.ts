@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { json, refusal, requireOwner } from '../../lib/authorize';
 import { BadRequest, SLUG, TABLES, bind, explainConstraint, isTable } from '../../lib/content-schema';
+import { pinNewJournalPost } from '../../lib/content';
 import { renderBody } from '../../lib/markdown';
 
 /**
@@ -85,6 +86,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
       await DB.prepare(`INSERT INTO ${table} (slug, ${columns.join(', ')}) VALUES (?, ${placeholders})`)
         .bind(slug, ...values)
         .run();
+      /* A new journal post lands on top of the listing, not under every post
+         the saved order names. A no-op when no order is saved — see the
+         helper. Projects keep their own arrangement; nothing to do there. */
+      if (table === 'journal') await pinNewJournalPost(DB, slug);
       return json({ ok: true, slug, created: true }, 201);
     }
 

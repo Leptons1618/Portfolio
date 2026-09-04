@@ -77,7 +77,12 @@ export interface ProjectFields {
   category: Category;
   tags: string[];
   stack: string[];
-  repoUrl: string;
+  /**
+   * Optional: a private repository has no public URL to link, and `undefined`
+   * (or `''`) here is how the admin clears the button. The `projects.repo_url`
+   * column is nullable since migration 0011 for exactly this.
+   */
+  repoUrl?: string;
   demoUrl?: string;
   caseStudySlug?: string;
   featuredRank?: number;
