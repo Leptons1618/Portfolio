@@ -6,11 +6,13 @@
  * started by a clock, and that difference is the whole of what this file is
  * about. Three properties hold it together, and none of them is optional:
  *
- *   - **It writes a `draft`, never a `published` row.** Nothing an unattended
- *     model produces reaches a visitor with the owner's name on it until the
- *     owner has read it and pressed publish. That is decision 13's rule applied
- *     to a machine with a timer, and it is the same rule `/api/ai/assist`
- *     already follows by never writing at all.
+ *   - **It writes a `draft` unless the owner said otherwise.** Nothing an
+ *     unattended model produces reaches a visitor with the owner's name on it
+ *     until the owner has read it and pressed publish. That is decision 13's
+ *     rule applied to a machine with a timer, and it is the same rule
+ *     `/api/ai/assist` already follows by never writing at all. The `publish`
+ *     setting exists so the owner can lift the gate themselves — a deliberate
+ *     act on a screen that says what it skips — and the default stays closed.
  *   - **The hour is a function of the date, not a stored roll.** The job is
  *     driven by an hourly tick, so "post at a random time each day" needs a
  *     time that every tick of that day agrees on — otherwise two ticks roll two
@@ -75,6 +77,14 @@ export interface AutoJournalSettings {
   model: string;
   /** A standing steer appended to every day's prompt. Capped like a persona. */
   instruction: string;
+  /**
+   * What a generated post is created as. `false` (the default) keeps the
+   * review gate: the post is a draft, invisible to visitors until a person
+   * opens it and publishes. `true` skips that gate — the setting exists
+   * because the owner may want the post live without a morning trip to the
+   * editor, and they are the one who turns it on.
+   */
+  publish: boolean;
 }
 
 /** Off, with a sane window, so an unconfigured site does nothing at all. */
@@ -89,6 +99,7 @@ export const AUTO_DEFAULTS: AutoJournalSettings = {
   maxAttempts: 3,
   model: '',
   instruction: '',
+  publish: false,
 };
 
 /** What a saved setting cannot exceed. Same reasoning as `CEILINGS` in `ai.ts`. */
@@ -138,6 +149,7 @@ export function clampAutoSettings(raw: unknown): AutoJournalSettings {
       typeof source.instruction === 'string'
         ? source.instruction.slice(0, LIMITS.instructionChars)
         : '',
+    publish: source.publish === true,
   };
 }
 

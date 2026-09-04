@@ -80,9 +80,11 @@ const STATUS_VARIANT: Record<string, string> = {
   <div class="pm-fields">
     <div>
       <span class="pm-field-label">Mapped Repository</span>
-      <a class="pm-field-value" href={data.repoUrl} target="_blank" rel="noopener">
-        {owner}/{repoName} ↗
-      </a>
+      {data.repoUrl
+        ? <a class="pm-field-value" href={data.repoUrl} target="_blank" rel="noopener">
+            {owner}/{repoName} ↗
+          </a>
+        : <span class="pm-field-value text-muted">none · private or unmapped</span>}
     </div>
     <div>
       <span class="pm-field-label">Year · Status</span>

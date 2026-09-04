@@ -37,7 +37,12 @@ export interface ProjectData {
   category: Category;
   tags: string[];
   stack: string[];
-  repoUrl: string;
+  /**
+   * Absent means there is no public repository to link: a private repo is
+   * invisible to a visitor, and a button to a 404 is worse than no button.
+   * Every render site treats this the way `demoUrl` is treated.
+   */
+  repoUrl?: string;
   demoUrl?: string;
   caseStudySlug?: string;
   featuredRank?: number;
@@ -167,7 +172,7 @@ const toProject = (r: Row): Project => ({
     category: r.category,
     tags: list(r.tags),
     stack: list(r.stack),
-    repoUrl: r.repo_url,
+    repoUrl: opt(r.repo_url),
     demoUrl: opt(r.demo_url),
     caseStudySlug: opt(r.case_study_slug),
     featuredRank: opt(r.featured_rank),
@@ -377,6 +382,43 @@ export async function getJournalOrder(db: D1Database): Promise<string[]> {
   } catch {
     return [];
   }
+}
+
+/**
+ * Float a newly created post to the top of the saved listing order.
+ *
+ * The saved order is a position map: posts it names come first, posts it does
+ * not name follow by date — which puts a new post *beneath every named one*,
+ * in the archive section, no matter how fresh its date is. This is the missing
+ * half of creation, for both writers that make a post (the admin editor, the
+ * daily generator): read the saved order, if there is one, and put the new
+ * slug at its head.
+ *
+ * Deliberately a no-op when the row does not exist: absent and empty both mean
+ * the automatic date order, which already puts a new post first. Creating the
+ * row here would silently switch the listing from automatic to pinned for a
+ * single slug — the same list, but a different regime, and the admin screen
+ * would start offering to reorder.
+ */
+export async function pinNewJournalPost(db: D1Database, slug: string): Promise<void> {
+  const row = await db
+    .prepare('SELECT json FROM documents WHERE slug = ?')
+    .bind(JOURNAL_ORDER_KEY)
+    .first<{ json: string } | null>();
+  if (!row?.json) return;
+
+  let saved: string[];
+  try {
+    saved = clampSlugs((JSON.parse(row.json) as { slugs?: unknown }).slugs);
+  } catch {
+    /* An unreadable row is left alone rather than replaced with a guess. */
+    return;
+  }
+
+  await db
+    .prepare(`UPDATE documents SET json = ?, updated_at = datetime('now') WHERE slug = ?`)
+    .bind(JSON.stringify({ slugs: [slug, ...saved.filter(s => s !== slug)] }), JOURNAL_ORDER_KEY)
+    .run();
 }
 
 /**

@@ -42,7 +42,11 @@ if (!project) return new Response(null, { status: 404 });
 const caseStudies = await getCaseStudies(DB);
 const fields = project.data;
 
-const { owner, name: repoName } = parseRepoUrl(fields.repoUrl);
+/* No mapped URL when the repository is private — the page still renders, the
+   GitHub bits just have nothing to read. */
+const repo = fields.repoUrl ? parseRepoUrl(fields.repoUrl) : null;
+const owner = repo?.owner ?? '';
+const repoName = repo?.name ?? '';
 const linked = caseStudies.find(entry => entry.slug === fields.caseStudySlug);
 
 /* Both forms prefill from the real frontmatter rather than from what the page
@@ -108,9 +112,11 @@ const STATUS_VARIANT: Record<string, string> = {
           <button type="button" class="btn btn-secondary btn-sm" id="assist-open">
             <Icon name="lucide:sparkles" class="admin-nav-icon" />Assistant
           </button>
-          <a class="btn btn-secondary btn-sm" href={fields.repoUrl} target="_blank" rel="noopener">
-            <Icon name="lucide:github" class="admin-nav-icon" />{owner}/{repoName}
-          </a>
+          {fields.repoUrl && (
+            <a class="btn btn-secondary btn-sm" href={fields.repoUrl} target="_blank" rel="noopener">
+              <Icon name="lucide:github" class="admin-nav-icon" />{owner}/{repoName}
+            </a>
+          )}
           {/* A hidden project's public page 404s, so the link would be a dead
               one — say so instead of handing it out. */}
           {fields.hidden
@@ -234,7 +240,11 @@ const STATUS_VARIANT: Record<string, string> = {
         <section class="card elev-sm">
           <p class="admin-eyebrow">Repository</p>
           <dl class="pd-facts">
-            <div><dt>Mapped</dt><dd><a href={fields.repoUrl} target="_blank" rel="noopener">{owner}/{repoName} ↗</a></dd></div>
+            <div><dt>Mapped</dt><dd>
+              {fields.repoUrl
+                ? <a href={fields.repoUrl} target="_blank" rel="noopener">{owner}/{repoName} ↗</a>
+                : <span class="text-muted">none</span>}
+            </dd></div>
             <div><dt>Branch</dt><dd id="pd-branch">not fetched</dd></div>
             <div><dt>Last push</dt><dd id="pd-push">not fetched</dd></div>
             <div><dt>Stars</dt><dd id="pd-stars">—</dd></div>
@@ -570,10 +580,14 @@ const STATUS_VARIANT: Record<string, string> = {
 
       if (!title) return 'A title is required — it is the card heading and the page title.';
       if (!summary) return 'A summary is required: it is the card body and the meta description.';
-      try {
-        new URL(repoUrl);
-      } catch {
-        return 'The repository URL has to be an absolute URL.';
+      /* Empty is allowed — it is how a project whose repository is private
+         stops linking to a 404. Present, it has to parse. */
+      if (repoUrl) {
+        try {
+          new URL(repoUrl);
+        } catch {
+          return 'The repository URL has to be an absolute URL.';
+        }
       }
       if (!Number.isInteger(year)) return 'Year has to be a whole number.';
 
@@ -584,7 +598,7 @@ const STATUS_VARIANT: Record<string, string> = {
         category: project.category.value as ProjectFields['category'],
         tags: csv(project.tags.value),
         stack: csv(project.stack.value),
-        repoUrl,
+        repoUrl: repoUrl || undefined,
         demoUrl: project.demo.value.trim() || undefined,
         featuredRank: rank === '' ? undefined : Number(rank),
         status: project.status.value as ProjectFields['status'],
@@ -680,8 +694,14 @@ const STATUS_VARIANT: Record<string, string> = {
     fetchButton.addEventListener('click', async () => {
       setBusy(fetchButton, true, 'Reading…');
       say(pageMessage, 'Reading the repository…');
+      const mapped = project.repo.value.trim() || seed.project.repoUrl;
+      if (!mapped) {
+        say(pageMessage, 'No repository is mapped for this project — set a URL on the Project tab first.', 'error');
+        setBusy(fetchButton, false);
+        return;
+      }
       try {
-        const { owner, name } = parseRepoUrl(seed.project.repoUrl);
+        const { owner, name } = parseRepoUrl(mapped);
         const meta = await fetchRepoMeta(owner, name);
         $('pd-branch').textContent = meta.defaultBranch;
         $('pd-push').textContent = relativeTime(meta.pushedAt);
@@ -1196,7 +1216,11 @@ const STATUS_VARIANT: Record<string, string> = {
     let repoCache: { url: string; repo: string; readme: string } | null = null;
 
     async function repoContext(): Promise<{ repo: string; readme: string }> {
-      const url = project.repo.value.trim() || seed.project.repoUrl;
+      const url = project.repo.value.trim() || seed.project.repoUrl || '';
+      /* Unreachable in practice — `blockedBecause()` refuses a task whose
+         project has no mapped repository before one is ever run — but a
+         backstop that says something beats one that throws raw. */
+      if (!url) throw new Error('No repository is mapped for this project.');
       if (repoCache?.url === url) return repoCache;
 
       const { owner, name } = parseRepoUrl(url);
@@ -1250,7 +1274,7 @@ const STATUS_VARIANT: Record<string, string> = {
      */
     function blockedBecause(name: AssistTaskName): string | null {
       if (name === 'chat') return null;
-      const url = project.repo.value.trim() || seed.project.repoUrl;
+      const url = project.repo.value.trim() || seed.project.repoUrl || '';
       try {
         new URL(url);
       } catch {

@@ -29,15 +29,17 @@ const caseStudies = await getCaseStudies(DB);
 const GITHUB_USER = site.githubUser;
 
 const rows = projects.map(project => {
-  const { owner, name } = parseRepoUrl(project.data.repoUrl);
+  /* A project whose repository is private (or simply unmapped) has no URL to
+     parse — the row stays, with nothing to link to. */
+  const repo = project.data.repoUrl ? parseRepoUrl(project.data.repoUrl) : null;
   return {
     slug: project.slug,
     /* The row every action on this card writes to. Content is in D1, so this
        is a table and a primary key rather than a path in the repository —
        `projectPath()` is the one place that spelling is decided. */
     path: projectPath(project.slug),
-    owner,
-    repoName: name,
+    owner: repo?.owner ?? '',
+    repoName: repo?.name ?? '',
     data: project.data,
   };
 });
@@ -926,10 +928,15 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
 
       if (!title) return 'A title is required — it is also what the filename comes from.';
       if (!summary) return 'A summary is required: it is the card body and the meta description.';
-      try {
-        new URL(repoUrl);
-      } catch {
-        return 'The repository URL has to be an absolute URL.';
+      /* An empty URL is allowed: it is how a project whose repository is
+         private stops showing a Repo button that 404s. Present, it has to
+         parse. */
+      if (repoUrl) {
+        try {
+          new URL(repoUrl);
+        } catch {
+          return 'The repository URL has to be an absolute URL.';
+        }
       }
       if (!Number.isInteger(year)) return 'Year has to be a whole number.';
 
@@ -940,7 +947,7 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
         category: inputs.category.value as ProjectFields['category'],
         tags: csv(inputs.tags.value),
         stack: csv(inputs.stack.value),
-        repoUrl,
+        repoUrl: repoUrl || undefined,
         demoUrl: inputs.demo.value.trim() || undefined,
         featuredRank: rank === '' ? undefined : Number(rank),
         status: inputs.status.value as ProjectFields['status'],
@@ -1351,7 +1358,7 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
       /* Clearing the target disarms the button: clicking Create twice would
          come back with "already exists", which is true and useless. */
       target = null;
-      importState.slugByRepo.set(repoKey(fields.repoUrl), slug);
+      if (fields.repoUrl) importState.slugByRepo.set(repoKey(fields.repoUrl), slug);
       if (importState.loaded) renderImportList();
     }
 
@@ -1376,7 +1383,9 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
       repos: [] as RepoSummary[],
       loaded: false,
       slugByRepo: new Map(
-        Object.entries(seed.projects).map(([slug, project]) => [repoKey(project.repoUrl), slug])
+        Object.entries(seed.projects)
+          .map(([slug, project]) => (project.repoUrl ? [repoKey(project.repoUrl), slug] : null))
+          .filter(Boolean) as [string, string][],
       ),
     };
 

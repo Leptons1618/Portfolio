@@ -253,7 +253,11 @@ function markActive(instance: Enhanced, index: number, scroll: ScrollBehavior | 
 
 /** Paint the closed button from whatever the native select currently says. */
 function syncLabel(instance: Enhanced) {
-  const option = instance.select.selectedOptions[0];
+  /* `?.` is not decoration: one embed ran this module against an element whose
+     `selectedOptions` was undefined, and the throw aborted the whole module —
+     taking every listener it was about to attach with it. An undefined
+     selectedOptions and an empty one mean the same thing here: no label. */
+  const option = instance.select.selectedOptions?.[0];
   instance.label.textContent = option ? (option.textContent ?? option.value) : '';
   /* An empty choice — "— none —" — is a placeholder rather than a value, and
      should read like one. */

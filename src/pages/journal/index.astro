@@ -146,7 +146,12 @@ const [featured, ...archive] = posts;
   .archive-card:focus-visible { color: inherit; }
   .archive-card:hover .archive-title,
   .archive-card:focus-visible .archive-title { color: var(--color-accent); }
-  .archive-date { font-size: 12px; font-family: var(--font-mono); }
+  /* Date and title pinned to the bottom of the card, whichever cards the row
+     mixes: some posts carry a hero image and some do not, and without this the
+     text-only cards float to the top of their cell and the row reads as three
+     different layouts instead of one grid. */
+  .archive-card { display: flex; flex-direction: column; }
+  .archive-date { font-size: 12px; font-family: var(--font-mono); margin-top: auto; padding-top: var(--space-3); }
   .archive-title { font-size: 16px; }
 
   @media (max-width: 900px) {

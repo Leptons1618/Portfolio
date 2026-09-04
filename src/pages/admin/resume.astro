@@ -337,7 +337,7 @@ const seed = {
     summary: string;
     year: number;
     stack: string[];
-    repoUrl: string;
+    repoUrl?: string;
     demoUrl: string;
     hidden: boolean;
   }
@@ -1745,10 +1745,11 @@ const seed = {
 </script>
 
 <style>
-  /* Capped and centred, once, around the whole screen. A form is only as good
-     as its measure — but a cap with no `margin-inline` is a column pinned to
-     the left edge of a very wide screen. */
-  .re-wrap { max-width: var(--wrap-mid); margin-inline: auto; }
+  /* Capped and centred, once, around the whole screen — at the same width the
+     other editors use (`.admin-main-wide`). It used to sit at `--wrap-mid`
+     (900px), a prose measure, so this screen was visibly narrower than the
+     journal editor beside it. */
+  .re-wrap { max-width: 1240px; margin-inline: auto; }
 
   .editor-col { display: flex; flex-direction: column; gap: var(--space-4); }
   .re-hint { margin: 0 0 var(--space-1); }

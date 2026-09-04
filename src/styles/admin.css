@@ -72,18 +72,37 @@
   display: grid;
   grid-template-rows: auto 1fr auto;
   gap: var(--space-6);
-  transition: width 0.15s;
+  /* Padding animates with the width: it is the inset the collapsed rule
+     changes, and letting it jump while the width glides is exactly the kind
+     of half-animated seam that reads as a glitch. */
+  transition:
+    width 0.18s cubic-bezier(0.4, 0, 0.2, 1),
+    padding 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* Collapsed state lives on `<html>`, not on a class inside the rail: the
    pre-paint script in `AdminLayout` has to set it before the sidebar element
-   exists, and the same attribute is what `astro:after-swap` puts back. */
+   exists, and the same attribute is what `astro:after-swap` puts back.
+
+   It carries the *width* only. The labels answer to a second attribute,
+   `data-admin-labels-hidden`, which the script sets at the *end* of the
+   collapse and clears at the *start* of the expand — so the text never has to
+   reflow inside a rail that is still the wrong width, which is what the old
+   instant `display: none` flip did in both directions. */
 :root[data-admin-collapsed] .admin-sidebar {
   width: 64px;
   padding-inline: var(--space-2);
 }
 
-:root[data-admin-collapsed] .collapsible { display: none; }
+:root[data-admin-labels-hidden] .collapsible { display: none; }
+
+/* While the width is animating — and only then — the labels hold one line and
+   the rail clips what pokes out past its edge: the text slides rather than
+   scrambles. The clip is scoped to `data-admin-animating` because the
+   collapsed tooltips render *outside* the rail's box, and a permanent clip
+   would cut them off. */
+:root[data-admin-animating] .admin-sidebar { overflow-x: clip; }
+:root[data-admin-animating] .collapsible { white-space: nowrap; }
 
 /* Who you are is its own band, closed with a rule: the nav below is a list of
    destinations, and running the two together made the identity block read as a
@@ -99,14 +118,15 @@
 }
 
 /* At 64px the avatar and the chevron do not fit on one row — stacking them is
-   the difference between a rail and an overflowing one. */
-:root[data-admin-collapsed] .admin-sidebar-head {
+   the difference between a rail and an overflowing one. Same phase as the
+   labels: stacked only once the width animation has finished collapsing. */
+:root[data-admin-labels-hidden] .admin-sidebar-head {
   flex-direction: column;
   gap: 6px;
 }
 
-:root[data-admin-collapsed] .admin-nav-link,
-:root[data-admin-collapsed] .admin-new-post {
+:root[data-admin-labels-hidden] .admin-nav-link,
+:root[data-admin-labels-hidden] .admin-new-post {
   justify-content: center;
   padding-inline: 0;
 }
@@ -254,12 +274,16 @@
    string, drawn to the right of the rail on hover and focus, in the rail's
    own materials. The nav's scroll container has to let it out (`overflow`
    below), and the rail sits above the main column so the tip is never under
-   a card's edge. */
-:root[data-admin-collapsed] .admin-nav { overflow: visible; }
-:root[data-admin-collapsed] .admin-sidebar { z-index: 25; }
+   a card's edge.
 
-:root[data-admin-collapsed] .admin-nav-link::after,
-:root[data-admin-collapsed] .admin-new-post::after {
+   Same phase as the labels themselves: a tip over a label that is still
+   fading out mid-animation would read as two UIs at once, so the tooltips
+   come and go with `data-admin-labels-hidden`, not with the width. */
+:root[data-admin-labels-hidden] .admin-nav { overflow: visible; }
+:root[data-admin-labels-hidden] .admin-sidebar { z-index: 25; }
+
+:root[data-admin-labels-hidden] .admin-nav-link::after,
+:root[data-admin-labels-hidden] .admin-new-post::after {
   content: attr(data-label);
   display: block;
   position: absolute;
@@ -288,11 +312,11 @@
   pointer-events: none;
   transition: opacity var(--dur-fast) ease, translate var(--dur-fast) var(--ease-out);
 }
-:root[data-admin-collapsed] .admin-new-post { position: relative; }
-:root[data-admin-collapsed] .admin-nav-link:hover::after,
-:root[data-admin-collapsed] .admin-nav-link:focus-visible::after,
-:root[data-admin-collapsed] .admin-new-post:hover::after,
-:root[data-admin-collapsed] .admin-new-post:focus-visible::after {
+:root[data-admin-labels-hidden] .admin-new-post { position: relative; }
+:root[data-admin-labels-hidden] .admin-nav-link:hover::after,
+:root[data-admin-labels-hidden] .admin-nav-link:focus-visible::after,
+:root[data-admin-labels-hidden] .admin-new-post:hover::after,
+:root[data-admin-labels-hidden] .admin-new-post:focus-visible::after {
   opacity: 1;
   translate: 0 -50%;
 }
@@ -1219,8 +1243,8 @@ textarea[data-grow] { max-height: 60vh; }
   /* Stacked, the head is already separated from the nav by the banner's own
      flow — a second rule there is just a line across the page. */
   .admin-sidebar-head { padding-bottom: 0; border-bottom: 0; }
-  :root[data-admin-collapsed] .collapsible { display: revert; }
-  :root[data-admin-collapsed] .admin-sidebar-head { flex-direction: row; }
+  :root[data-admin-labels-hidden] .collapsible { display: revert; }
+  :root[data-admin-labels-hidden] .admin-sidebar-head { flex-direction: row; }
   .admin-collapse { display: none; }
   .admin-nav { flex-direction: row; flex-wrap: wrap; overflow: visible; }
   /* A horizontal banner has no edge to drag, and a run of chips does not

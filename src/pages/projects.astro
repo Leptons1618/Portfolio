@@ -91,7 +91,7 @@ const projectsData = allProjects.map(p => ({
             <a class="btn btn-primary btn-sm" href={project.caseStudySlug ? `/case-studies/${project.caseStudySlug}` : `/projects/${project.slug}`}>
               {project.caseStudySlug ? 'Case study' : 'Details'}
             </a>
-            <a class="btn btn-secondary btn-sm" href={project.repoUrl} target="_blank" rel="noopener">Repo ↗</a>
+            {project.repoUrl && <a class="btn btn-secondary btn-sm" href={project.repoUrl} target="_blank" rel="noopener">Repo ↗</a>}
           </div>
         </article>
       ))}
