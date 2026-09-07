@@ -1,0 +1,19 @@
+# Static-asset headers, served by Cloudflare ahead of the Worker.
+# Worker-rendered responses are owned by `src/middleware.ts`, not here.
+# Specific paths first; `/*` carries only the headers nothing above sets.
+
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+  X-Content-Type-Options: nosniff
+/images/*
+  Cache-Control: public, max-age=86400
+  X-Content-Type-Options: nosniff
+/favicon.svg
+  Cache-Control: public, max-age=86400
+/robots.txt
+  Cache-Control: public, max-age=86400
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  X-Frame-Options: SAMEORIGIN

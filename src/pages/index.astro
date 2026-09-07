@@ -85,15 +85,21 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
       </div>
       {/* The hero's LCP element. It is above the fold on every viewport, so it
           is fetched at high priority and never lazily — the browser's default
-          heuristics de-prioritise it behind the stylesheet otherwise. */}
+          heuristics de-prioritise it behind the stylesheet otherwise. The
+          320w variant serves phones and narrow slots at ~60% of the bytes;
+          `sync` decoding keeps the LCP paint off the async queue. Dimensions
+          match the about page and the 4:5 CSS box, so the reserve is exact. */}
       <img
         class="grayscale hero-photo"
         src={site.photo}
+        srcset="/images/ui/portrait-320.webp 320w, /images/ui/portrait.webp 439w"
+        sizes="(max-width: 760px) 320px, 400px"
         alt={site.name}
-        width="480"
-        height="480"
+        width="440"
+        height="550"
         fetchpriority="high"
-        decoding="async"
+        loading="eager"
+        decoding="sync"
       />
     </div>
   </header>

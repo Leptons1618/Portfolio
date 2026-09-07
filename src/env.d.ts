@@ -72,7 +72,7 @@ declare namespace App {
   interface Locals {
     runtime: {
       env: Env;
-      /** Present at runtime; nothing here uses it, so it stays unmodelled. */
+      /** `src/middleware.ts` hands the edge-cache write to `waitUntil`. */
       ctx: { waitUntil(promise: Promise<unknown>): void };
     };
   }

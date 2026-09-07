@@ -7,10 +7,11 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "check": "node scripts/wrangler-config.mjs --self-test && node scripts/check-content.mjs && node scripts/test-content-schema.mjs && node scripts/test-resume.mjs && node scripts/test-ai.mjs && node workers/github-oauth/test.mjs && astro check",
+    "check": "node scripts/wrangler-config.mjs --self-test && node scripts/check-content.mjs && node scripts/test-content-schema.mjs && node scripts/test-resume.mjs && node scripts/test-shiki-strip.mjs && node scripts/test-ai.mjs && node workers/github-oauth/test.mjs && astro check",
     "check:content": "node scripts/check-content.mjs",
     "check:schema": "node scripts/test-content-schema.mjs",
     "check:resume": "node scripts/test-resume.mjs",
+    "check:shiki": "node scripts/test-shiki-strip.mjs",
     "check:ai": "node scripts/test-ai.mjs",
     "probe:ai": "node scripts/probe-ai.mjs",
     "check:worker": "node workers/github-oauth/test.mjs",
