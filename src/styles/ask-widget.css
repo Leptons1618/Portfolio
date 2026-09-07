@@ -1,0 +1,778 @@
+/* The public assistant's styles, loaded lazily — see `src/lib/ask-widget.ts`.
+ *
+ * Moved verbatim out of `src/components/AskWidget.astro`, whose `<style>`
+ * block Astro folded into the one render-blocking stylesheet every public page
+ * loads — 13KB of it, built, for a widget that renders hidden and on most
+ * visits is never opened at all. Every selector here is rooted
+ * at `.ask`, which is what makes the move safe without Astro's scoping: no
+ * rule can reach outside the widget, and the global `[hidden]` correction in
+ * `global.css` still owns the hidden state. Tokens only, as before — a
+ * hard-coded colour here would strand the panel on one theme.
+ */
+  /* Everything here is tokens. A hard-coded colour in this component would be a
+     panel that stays Modernist-coloured under Blueprint — the launcher floats
+     over every page on the site, so it would be the most visible place on it
+     for that to go wrong. */
+  .ask {
+    position: fixed;
+    /* Safe-area aware: on a notched phone the env() insets are larger than
+       the token and win, so the launcher and the open panel never sit under
+       the home indicator or a rounded corner. On a plain rectangle both
+       env()s are 0 and the token holds. */
+    right: max(var(--space-4), env(safe-area-inset-right));
+    /* `--ask-lift` is written from script while the launcher overlaps the
+       footer's link row — the one place on every page where a fixed control
+       parks on real content. 0px at rest, so the safe-area `max()` above is
+       untouched until an intersection says otherwise. */
+    bottom: max(calc(var(--space-4) + var(--ask-lift, 0px)), env(safe-area-inset-bottom));
+    z-index: 40;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: var(--space-2);
+  }
+
+  /* The root and the chip row both ship `hidden` and are shown from script.
+     `display` above would otherwise outrank the attribute — see the `[hidden]`
+     correction at the top of `global.css`, which is what actually holds this
+     now. These stay as the local statement of intent, and because this
+     launcher floats over every page on the site: it is the worst place on it
+     for a control to appear that nothing has wired up. */
+  .ask[hidden],
+  .ask-suggestions[hidden] { display: none; }
+
+  .ask-launcher {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-divider);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 12px rgb(0 0 0 / 12%);
+  }
+
+  .ask-launcher:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  .ask-launcher-icon { width: 16px; height: 16px; }
+
+  /* Arrival, played whenever the launcher becomes displayed: the first time
+     the status fetch unhides it, and every time a closing panel hands the
+     corner back. A small rise, nothing more — it is an invitation, not an
+     entrance. */
+  @media (prefers-reduced-motion: no-preference) {
+    .ask-launcher { animation: ask-launcher-in var(--dur-base) var(--ease-out); }
+  }
+  @keyframes ask-launcher-in {
+    from { opacity: 0; translate: 0 6px; }
+  }
+
+  /* The launcher is redundant while the panel is open, and on a phone it sits
+     on top of it. */
+  .ask[data-open] .ask-launcher { display: none; }
+
+  /* `--ask-w` / `--ask-h` are written by the resize handle and read here. The
+     fallbacks are the size the panel ships at; the `max-*` pair is what keeps a
+     size chosen on a wide window from hanging off a narrow one. */
+  .ask-panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    width: var(--ask-w, 380px);
+    height: var(--ask-h, 560px);
+    max-width: calc(100vw - var(--space-4) * 2);
+    max-height: calc(100dvh - var(--space-8));
+    background: var(--color-bg);
+    border: 1px solid var(--color-divider);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .ask-panel[hidden] { display: none; }
+
+  /* — open and close —
+
+     The same three-state pattern the shared `.select-menu` uses: the resting
+     styles are the closed state, `.is-open` is the open one, and `.is-closing`
+     runs the exit so both directions transition. `hidden` is what actually
+     removes the panel; the classes only decide how it leaves and arrives.
+     Anchored bottom-right, so it grows from its corner — `transform-origin`
+     bottom right keeps the motion attached to the launcher that opened it.
+     The global reduced-motion kill switch collapses these to 0.01ms, so
+     `transitionend` still fires and the script's `hidden` swap is instant. */
+  @media (prefers-reduced-motion: no-preference) {
+    .ask-panel {
+      opacity: 0;
+      transform: translateY(6px) scale(0.98);
+      transform-origin: bottom right;
+      transition:
+        opacity var(--dur-base) var(--ease-out),
+        transform var(--dur-base) var(--ease-out);
+    }
+  }
+
+  .ask-panel.is-open { opacity: 1; transform: none; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .ask-panel.is-closing {
+      opacity: 0;
+      transform: translateY(4px) scale(0.99);
+      transition-duration: 150ms;
+    }
+  }
+
+  /* The resize handle, at the corner the panel actually grows from. Two rules
+     carry the affordance: the diagonal, drawn as a gradient rather than a data
+     URI so it follows `currentColor` through a theme change, and the cursor. */
+  .ask-grip {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    background: linear-gradient(
+      135deg,
+      var(--color-divider) 0 2px,
+      transparent 2px 5px,
+      var(--color-divider) 5px 7px,
+      transparent 7px
+    );
+    color: var(--color-text-muted);
+    cursor: nwse-resize;
+    touch-action: none;
+    z-index: 1;
+  }
+  .ask-grip:hover { background-color: var(--color-surface); }
+  .ask-grip:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+
+  /* A drag over a panel full of text selects the text unless this is set, and
+     an accidental selection under the cursor makes the resize look broken. */
+  .ask[data-resizing] .ask-panel { user-select: none; }
+
+  .ask-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    padding-left: var(--space-6);
+    border-bottom: 1px solid var(--color-divider);
+  }
+
+  .ask-title { margin: 0; font-size: 14px; font-weight: 700; }
+  .ask-sub { margin: 2px 0 0; font-size: 11px; color: var(--color-text-muted); }
+
+  .ask-head-actions { display: flex; gap: var(--space-1); flex: none; }
+
+  .ask-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: 0;
+    background: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    padding: 0;
+  }
+
+  /* The shared `.tap-target` utility carries the mechanics; the inset is
+     this control's own — vertical takes 26px to the floor, horizontal is
+     capped at half the header's 4px gap so the two buttons' expansions
+     never overlap. */
+  .ask-icon-btn.tap-target { --tap-expand: -9px -2px; }
+  .ask-icon-btn:hover { color: var(--color-accent); background: var(--color-surface); }
+  .ask-icon { width: 16px; height: 16px; }
+
+  .ask-log {
+    flex: 1;
+    overflow-y: auto;
+    /* A chat that has scrolled to its end must not then start scrolling the
+       article behind it — the panel floats over a page, not beside one. */
+    overscroll-behavior: contain;
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  /* Two turns, two different weights of chrome rather than two boxes. A
+     question is a short thing the visitor wrote, so it gets a filled block; an
+     answer is prose to be read, so it gets no box at all — only a rule down its
+     left edge to say where it starts. Bordering both was what made the log
+     read as a stack of receipts. */
+  /* — everything below is built by the script, and every selector still hangs
+     off `.ask-log` or `.ask-suggestions`, the two containers the markup
+     renders.
+
+     That is a house rule now rather than a compiler one. While these rules
+     lived in the component's scoped style block, Astro appended
+     `[data-astro-cid-…]` to every compound and only ever put that attribute on
+     elements it rendered itself — so a bare `.ask-bubble` shipped as
+     `.ask-bubble[data-astro-cid-…]` and matched nothing, and every turn, note
+     and chip in this panel was unstyled in production. A plain stylesheet
+     rewrites nothing, so a bare selector would work here; keeping the ancestor
+     is what keeps these rules provably confined to the widget, which is the
+     trade this file makes for leaving the scoping behind. Anything added to
+     `bubble()`, `note()` or `drawIntro()` belongs under one of those two. */
+
+  .ask-log .ask-turn { display: flex; }
+  .ask-log .ask-turn[data-role='user'] { justify-content: flex-end; }
+
+  .ask-log .ask-bubble {
+    max-width: 100%;
+    min-width: 0;
+    /* A pasted URL or a long identifier in an answer must wrap rather than
+       widen the panel past the size the visitor chose. */
+    overflow-wrap: anywhere;
+  }
+
+  .ask-log .ask-turn[data-role='user'] .ask-bubble {
+    max-width: 85%;
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-surface);
+    border-right: 2px solid var(--color-accent);
+  }
+
+  .ask-log .ask-turn[data-role='assistant'] .ask-bubble {
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--color-divider);
+  }
+
+  .ask-log .ask-bubble p { margin: 0 0 var(--space-2); }
+  .ask-log .ask-bubble p:last-child { margin-bottom: 0; }
+  .ask-log .ask-bubble ul { margin: 0 0 var(--space-2); padding-left: 18px; }
+  .ask-log .ask-bubble li { list-style: disc; }
+  .ask-log .ask-bubble a { color: var(--color-accent); text-underline-offset: 2px; }
+  .ask-log .ask-bubble code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--color-surface);
+    padding: 1px 4px;
+  }
+
+  /* — thinking —
+
+     A closed disclosure above the answer, and the *only* place a word of the
+     model's deliberation may appear. The answer is the bubble's prose; this is
+     the working behind it, in mono and muted so it never competes with what it
+     sits above. Collapsed by default because nobody opened this panel to read
+     a model reason with itself — but it is there, which is the difference
+     between an assistant that shows its work and one that hides a failure.
+
+     Everything here is script-built, so it comes through `.ask-log` like the
+     rest. */
+
+  .ask-log .ask-think {
+    margin-bottom: var(--space-2);
+    padding-bottom: var(--space-1);
+    border-bottom: 1px dashed var(--color-divider);
+  }
+
+  .ask-log .ask-think-summary {
+    cursor: pointer;
+    list-style: none;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  /* Safari still paints the default triangle without this. */
+  .ask-log .ask-think-summary::-webkit-details-marker { display: none; }
+
+  .ask-log .ask-think-summary::before {
+    content: '+ ';
+    font-weight: 600;
+  }
+  .ask-log .ask-think[open] .ask-think-summary::before { content: '− '; }
+
+  .ask-log .ask-think-body {
+    margin-top: var(--space-1);
+    /* The model's own line breaks are the only structure a thought has, and it
+       is not markdown — it is notes. `pre-wrap` keeps them without a parser. */
+    white-space: pre-wrap;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--color-text-muted);
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+
+  /* — lookups —
+
+     An answer is written from an index of this site plus whatever the model
+     fetched while writing, and these are the fetches. They sit between the
+     thinking disclosure and the prose, in the order things happened.
+
+     Quieter than either neighbour on purpose: this is provenance, not content.
+     A reader who wants to know where an answer came from can read it in a
+     glance; everyone else sees a two-line hint that something was looked up and
+     goes on reading the answer. */
+
+  .ask-log .ask-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: var(--space-2);
+  }
+
+  .ask-log .ask-tool {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+  }
+
+  .ask-log .ask-tool-name { flex: none; color: var(--color-text); }
+  .ask-log .ask-tool[data-status='error'] .ask-tool-name { color: var(--color-accent); }
+
+  /* One line. The value is a slug or a search phrase and both are short, but a
+     model can pass anything and a wrapped trace would push the answer down the
+     panel. */
+  .ask-log .ask-tool-args {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ask-log .ask-tool-state { flex: none; font-size: 10px; }
+  .ask-log .ask-tool[data-status='running'] .ask-tool-state {
+    color: var(--color-accent);
+    animation: ask-tool-pulse 1.2s ease-in-out infinite;
+  }
+
+  @keyframes ask-tool-pulse {
+    50% { opacity: 0.4; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ask-log .ask-tool[data-status='running'] .ask-tool-state { animation: none; }
+  }
+
+  /* — waiting —
+
+     Two different waits, and conflating them is what made the panel feel dead.
+     WAITING is "the request is out and nothing has come back". THINKING is the
+     same wait with a reason: `{"thinking":…}` frames are arriving, so the model
+     is deliberating rather than the network being slow, and the visitor is told
+     which one they are looking at. What it is thinking goes into the disclosure
+     above, never into the answer.
+
+     Squares, not a spinner and not circles: nothing else in this theme has a
+     border radius. */
+
+  .ask-log .ask-wait {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--color-text-muted);
+  }
+
+  .ask-log .ask-wait-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .ask-log .ask-dots { display: inline-flex; gap: 3px; }
+
+  .ask-log .ask-dots i {
+    width: 4px;
+    height: 4px;
+    background: currentColor;
+    animation: ask-pulse 1.1s ease-in-out infinite;
+  }
+  .ask-log .ask-dots i:nth-child(2) { animation-delay: 0.15s; }
+  .ask-log .ask-dots i:nth-child(3) { animation-delay: 0.3s; }
+
+  @keyframes ask-pulse {
+    0%, 65%, 100% { opacity: 0.2; }
+    30% { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ask-log .ask-dots i { animation: none; opacity: 0.55; }
+  }
+
+  /* — citations —
+
+     Every corpus entry carries its own `- Page: /projects/x` line and rule 7 of
+     the scope prompt asks for the path to be quoted, so an honest answer
+     already names where it came from. This lifts those paths out of the prose
+     and puts them under the answer as the thing a reader wants next: the page
+     itself, which is the record this panel's own footer defers to. */
+
+  .ask-log .ask-cites {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--color-divider);
+  }
+
+  .ask-log .ask-cites-label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .ask-log .ask-cite {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-accent);
+    border: 1px solid var(--color-divider);
+    padding: 2px 6px;
+    text-decoration: none;
+  }
+  .ask-log .ask-cite:hover { border-color: var(--color-accent); }
+
+  .ask-log .ask-note {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+    font-size: 12px;
+    color: var(--color-text-muted);
+  }
+  .ask-log .ask-note[data-tone='error'] { color: var(--color-accent-700); }
+
+  /* An error that offers no way forward is a dead end in a panel with no other
+     controls: the question has already been taken out of the field by the time
+     the note appears, so there is nothing left to press Enter on. */
+  .ask-log .ask-retry {
+    border: 1px solid currentColor;
+    background: none;
+    color: inherit;
+    font-family: var(--font-body);
+    font-size: 11px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .ask-log .ask-retry:hover { background: var(--color-surface); }
+
+  .ask-suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+    padding: 0 var(--space-3) var(--space-2);
+  }
+
+  /* Script-built, like everything in the log — through the server-rendered
+     `.ask-suggestions` for the reason given above. */
+  .ask-suggestions .ask-chip {
+    border: 1px solid var(--color-divider);
+    background: none;
+    color: var(--color-text-muted);
+    font-family: var(--font-body);
+    font-size: 11px;
+    padding: 4px 8px;
+    cursor: pointer;
+    text-align: left;
+  }
+  .ask-suggestions .ask-chip:hover {
+    border-color: var(--color-accent);
+    color: var(--color-accent);
+  }
+
+  .ask-form {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    border-top: 1px solid var(--color-divider);
+  }
+
+  .ask-input {
+    flex: 1;
+    resize: none;
+    border: 1px solid var(--color-divider);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 13px;
+    line-height: 1.5;
+    padding: var(--space-2);
+    max-height: 140px;
+  }
+  .ask-input:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -1px; }
+
+  /* Send and Stop are one button wearing two icons, so the swap is a
+     cross-fade rather than a visibility toggle: both icons live in the same
+     grid cell and hand over through opacity, scale and blur — the idle icon
+     shrinking out as the busy one arrives. Nothing is communicated by the
+     movement alone; `[data-busy]` also swaps the aria-label in script. */
+  .ask-send {
+    display: inline-grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    flex: none;
+    border: 1px solid var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-bg);
+    cursor: pointer;
+  }
+  /* The shared `.tap-target` utility carries the mechanics; the form's 8px
+     gap is what this 5px expansion stops inside. */
+  .ask-send.tap-target { --tap-expand: -5px; }
+  .ask-send:disabled { opacity: 0.5; cursor: default; }
+
+  .ask-send-icon {
+    grid-area: 1 / 1;
+    width: 16px;
+    height: 16px;
+    opacity: 1;
+    scale: 1;
+    filter: blur(0);
+    transition:
+      opacity var(--dur-fast) cubic-bezier(0.2, 0, 0, 1),
+      scale var(--dur-fast) cubic-bezier(0.2, 0, 0, 1),
+      filter var(--dur-fast) cubic-bezier(0.2, 0, 0, 1);
+  }
+
+  .ask-send-stop { opacity: 0; scale: 0.25; filter: blur(4px); }
+  .ask-send[data-busy] .ask-send-icon:not(.ask-send-stop) {
+    opacity: 0;
+    scale: 0.25;
+    filter: blur(4px);
+  }
+  .ask-send[data-busy] .ask-send-stop {
+    opacity: 1;
+    scale: 1;
+    filter: blur(0);
+  }
+
+  .ask-foot {
+    margin: 0;
+    padding: 0 var(--space-3) var(--space-3);
+    font-size: 10px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+  }
+
+  .ask-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* On a phone the panel is the screen. Anchoring it to all four insets rather
+     than sizing it means it cannot be pushed off by the address bar.
+
+     These win over the resized size because `--ask-w` is only an *input* to the
+     `width` declaration above, and this declaration is later and equally
+     specific. That is the whole reason the size is a custom property rather
+     than an inline style, which would have outranked this and left a panel
+     resized on a laptop hanging off the side of a phone. */
+  @media (max-width: 520px) {
+    .ask[data-open] {
+      /* Full-screen on its own terms, but inside the safe area: a landscape
+         phone would otherwise put the close button under the notch. */
+      top: env(safe-area-inset-top);
+      right: max(env(safe-area-inset-right), var(--space-1));
+      bottom: max(env(safe-area-inset-bottom), var(--space-1));
+      left: max(env(safe-area-inset-left), var(--space-1));
+    }
+    .ask[data-open] .ask-panel {
+      width: 100%;
+      height: 100%;
+      max-width: none;
+      max-height: none;
+    }
+    /* Nothing to resize when the panel is the whole screen. */
+    .ask-grip { display: none; }
+    .ask-head { padding-left: var(--space-3); }
+    /* Thumb-sized, because on a phone these are the only two controls in the
+       header and they sit right where the hand is. */
+    .ask-icon-btn { width: 36px; height: 36px; }
+    .ask-log { font-size: 14px; }
+  }
+
+  /* 16px under the phone breakpoint: iOS Safari zooms the viewport when a
+     smaller field takes focus. */
+  @media (max-width: 520px) {
+    .ask-input {
+      font-size: 16px;
+    }
+  }
+
+  /* A short window — a laptop in a split view, or a phone in landscape — has
+     no room for a 560px panel plus its launcher, and the `max-height` above
+     only stops it overflowing rather than making it usable. */
+  @media (max-height: 640px) and (min-width: 521px) {
+    .ask-panel { height: var(--ask-h, calc(100dvh - var(--space-8))); }
+    /* The disclaimer stays — it is the one line saying the answers can be
+       wrong, and a short window is not a reason to stop saying it. It gives up
+       its padding, not its place. */
+    .ask-foot { padding-bottom: var(--space-2); }
+    .ask-sub { display: none; }
+  }
+
+  /* ==========================================================================
+     Motion and feel. Everything below is additive — the layout above is the
+     panel; this is how it behaves. Opt-in on `no-preference` throughout, and
+     every script-built node comes through `.ask-log` / `.ask-suggestions`.
+     ========================================================================== */
+
+  /* The launcher lifts to meet the pointer, and on its first appearance a ring
+     leaves it three times — an invitation that then stops asking. */
+  .ask-launcher {
+    position: relative;
+    border-radius: var(--radius-md);
+    transition:
+      border-color var(--dur-fast) ease,
+      color var(--dur-fast) ease,
+      translate var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) ease;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .ask-launcher:hover { translate: 0 -2px; box-shadow: var(--shadow-md), 0 2px 12px rgb(0 0 0 / 12%); }
+    .ask-launcher::before {
+      content: '';
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      border: 1px solid var(--color-accent);
+      opacity: 0;
+      pointer-events: none;
+      animation: ask-ring 2.2s ease-out 0.6s 3;
+    }
+    .ask-launcher-icon { transition: rotate var(--dur-base) var(--ease-out); }
+    .ask-launcher:hover .ask-launcher-icon { rotate: -8deg; }
+  }
+  @keyframes ask-ring {
+    0% { opacity: 0.8; scale: 1; }
+    100% { opacity: 0; scale: 1.18; }
+  }
+
+  /* The header's title carries a live dot while an answer is in flight — the
+     one place the panel says "working" that is visible with the log scrolled.
+     `:has()` reads the send button's own busy state, so nothing new is
+     written from script. Browsers without `:has()` simply do not show it. */
+  .ask-title { display: inline-flex; align-items: center; gap: 8px; }
+  .ask-title::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-accent);
+    opacity: 0;
+    transition: opacity var(--dur-fast) ease;
+  }
+  .ask-panel:has(.ask-send[data-busy]) .ask-title::after { opacity: 1; }
+  @media (prefers-reduced-motion: no-preference) {
+    .ask-panel:has(.ask-send[data-busy]) .ask-title::after { animation: ask-tool-pulse 1.1s ease-in-out infinite; }
+  }
+
+  /* Each turn arrives: a short rise, the visitor's from the right, the
+     assistant's from the left — the side its rule is on. */
+  @media (prefers-reduced-motion: no-preference) {
+    .ask-log .ask-turn { animation: ask-turn-in var(--dur-base) var(--ease-out) both; }
+    .ask-log .ask-turn[data-role='user'] { animation-name: ask-turn-in-right; }
+  }
+  @keyframes ask-turn-in { from { opacity: 0; translate: -6px 4px; } }
+  @keyframes ask-turn-in-right { from { opacity: 0; translate: 6px 4px; } }
+
+  /* Bubbles take the theme's radius — a square-cornered chat reads as a log
+     file — and the visitor's gets a folded corner where its tail would be. */
+  .ask-log .ask-turn[data-role='user'] .ask-bubble {
+    border-radius: var(--radius-md) var(--radius-sm) var(--radius-md) var(--radius-md);
+  }
+
+  /* The assistant's rule answers state: divider while waiting, the accent
+     while text is arriving, and it settles back to the divider when done —
+     so a glance down the log shows which answer is still being written. */
+  .ask-log .ask-turn[data-role='assistant'] .ask-bubble {
+    transition: border-color var(--dur-base) ease;
+  }
+  .ask-log .ask-turn[data-role='assistant'] .ask-bubble[data-state='streaming'] {
+    border-left-color: var(--color-accent);
+  }
+
+  /* The streaming caret: a block cursor after the last glyph written, in the
+     wordmark's blink, gone the moment the answer is done. On the last block
+     of the answer — a paragraph, or the last item of a closing list. */
+  .ask-log .ask-bubble[data-state='streaming'] .ask-answer > :last-child:not(ul)::after,
+  .ask-log .ask-bubble[data-state='streaming'] .ask-answer > ul:last-child > li:last-child::after {
+    content: '';
+    display: inline-block;
+    width: 0.5em;
+    height: 1em;
+    margin-left: 2px;
+    vertical-align: -0.15em;
+    background: var(--color-accent);
+    animation: brand-caret 0.9s steps(1, end) infinite;
+  }
+
+  /* Suggestion chips land one after another, and lift under the pointer. */
+  @media (prefers-reduced-motion: no-preference) {
+    .ask-suggestions .ask-chip {
+      animation: ask-turn-in var(--dur-base) var(--ease-out) both;
+      transition: border-color var(--dur-fast) ease, color var(--dur-fast) ease, translate var(--dur-fast) var(--ease-out), background-color var(--dur-fast) ease;
+    }
+    .ask-suggestions .ask-chip:nth-child(2) { animation-delay: 60ms; }
+    .ask-suggestions .ask-chip:nth-child(3) { animation-delay: 120ms; }
+    .ask-suggestions .ask-chip:nth-child(4) { animation-delay: 180ms; }
+    .ask-suggestions .ask-chip:hover { translate: 0 -1px; background: color-mix(in srgb, var(--color-accent) 8%, transparent); }
+  }
+  .ask-suggestions .ask-chip { border-radius: var(--radius-sm); }
+  .ask-suggestions .ask-chip::before { content: '› '; color: var(--color-accent); }
+
+  /* Lookup rows slide in from the rule they hang off. */
+  @media (prefers-reduced-motion: no-preference) {
+    .ask-log .ask-tool { animation: ask-turn-in var(--dur-fast) var(--ease-out) both; }
+  }
+
+  /* The composer: the field takes the accent's hairline on focus rather than
+     only the ring, and the send arrow nudges upward before it goes. */
+  .ask-input { border-radius: var(--radius-sm); transition: border-color var(--dur-fast) ease; }
+  .ask-input:focus-visible { border-color: var(--color-accent); }
+  .ask-send { border-radius: var(--radius-sm); transition: background-color var(--dur-fast) ease, scale var(--dur-fast) var(--ease-out); }
+  @media (prefers-reduced-motion: no-preference) {
+    .ask-send:not(:disabled):hover .ask-send-icon:not(.ask-send-stop) { translate: 0 -1px; }
+    .ask-send:not(:disabled):active { scale: 0.94; }
+  }
+  .ask-send-icon { transition: opacity var(--dur-fast) cubic-bezier(0.2, 0, 0, 1), scale var(--dur-fast) cubic-bezier(0.2, 0, 0, 1), filter var(--dur-fast) cubic-bezier(0.2, 0, 0, 1), translate var(--dur-fast) var(--ease-out); }
+
+  /* Header buttons press. */
+  .ask-icon-btn { border-radius: var(--radius-sm); transition: color var(--dur-fast) ease, background-color var(--dur-fast) ease, scale var(--dur-fast) var(--ease-out); }
+  @media (prefers-reduced-motion: no-preference) {
+    .ask-icon-btn:active { scale: 0.9; }
+  }
+
+  /* The panel and its launcher share the theme's radius; the panel's log gets
+     a thin scrollbar so the rail never competes with the answers. */
+  .ask-panel { border-radius: var(--radius-md); }
+  .ask-log { scrollbar-width: thin; }
+  .ask-log::-webkit-scrollbar { width: 6px; }
+
+  @media print {
+    .ask { display: none; }
+  }

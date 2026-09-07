@@ -16,11 +16,13 @@ import '@fontsource-variable/jetbrains-mono';
    after first paint. Every family here ships `font-display: swap`: without
    the preload the fallback renders first and the whole nav re-lays-out when
    the webfont lands — on every MPA navigation while dev serves them
-   uncached, on every first view in production. Four files, ~136KB total. */
+   uncached, on every first view in production. Only the two faces the default
+   theme paints above the fold are preloaded (Space Grotesk headings + Inter
+   body/nav, ~70KB): Manrope and JetBrains Mono arrive via `swap` against the
+   size-adjusted fallbacks in `global.css`, which hold their layout while they
+   travel. Preloading all four held first paint on ~136KB of display faces. */
 import spaceGroteskLatin from '@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2?url';
 import interLatin from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
-import manropeLatin from '@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2?url';
-import jetbrainsMonoLatin from '@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2?url';
 import '../styles/global.css';
 import { site, absoluteUrl } from '../lib/site';
 import { DEFAULT_THEME } from '../lib/theme';
@@ -52,17 +54,24 @@ const imageURL = absoluteUrl(image, origin);
   <meta name="twitter:title" content={fullTitle} />
   <meta name="twitter:description" content={description} />
   <meta name="twitter:image" content={imageURL} />
-  {/* The portrait, cropped to the head — the same face the hero and the about
-      page show, so a pinned tab is recognisably this person rather than a
-      monogram that means nothing to anyone who has not been here before. */}
+  {/* The tab mark: a walking duck, fifteen frames at 64px with the sheet
+      behind it keyed out, so it reads on a light tab strip and a dark one.
+      9KB, fetched once and cached for a day by `public/_headers`. It was a
+      crop of the portrait, which at 16px was a grey smudge.
+
+      The GIF is listed first because a browser that animates one should get
+      it; the PNG is frame eight, for the agents that take no GIF and for the
+      home screen. Firefox animates a GIF favicon, Chrome and Safari paint a
+      single frame of it — which is the same duck, standing still. */}
+  <link rel="icon" type="image/gif" href="/favicon.gif" />
   <link rel="icon" type="image/png" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/favicon.png" />
   {/* The faces the first screen is set in, fetched at head priority — see
-      the `?url` imports above for why they are named here. */}
+      the `?url` imports above for why they are named here. Manrope and
+      JetBrains Mono deliberately have no preload: they swap in against the
+      size-adjusted fallbacks, and preloading them held first paint. */}
   <link rel="preload" href={spaceGroteskLatin} as="font" type="font/woff2" crossorigin />
   <link rel="preload" href={interLatin} as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href={manropeLatin} as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href={jetbrainsMonoLatin} as="font" type="font/woff2" crossorigin />
   <ThemeHead />
   <script is:inline>
     // Arm the scroll reveal before paint, not in the module script below:
@@ -103,7 +112,6 @@ const imageURL = absoluteUrl(image, origin);
        Public pages are plain MPA (decision 11), so this runs once per
        document and needs no view-transition handling. */
     import { mountTextFx } from '../lib/text-fx';
-    import { mountCode } from '../lib/code-fx';
 
     const STAGGER = 70;
 
@@ -113,10 +121,14 @@ const imageURL = absoluteUrl(image, origin);
 
     /* Fenced code: framed, coloured and dealt in a line at a time. Mounted
        here rather than on the two pages that render `.prose`, so a third
-       long-form surface gets it without a third import — and it returns on
-       the first query when a page has no listing on it, which is most of
-       them. Its own observer and its own reduced-motion check, again. */
-    mountCode();
+       long-form surface gets it without a third import. A dynamic import
+       behind a DOM query, so pages with no listing on them — most of them,
+       including `/` — never download the lexer at all; `mountCode` still
+       returns on the first query when there is nothing to light up. A failed
+       fetch leaves the static block, which is the designed fallback. */
+    if (document.querySelector('.prose pre')) {
+      void import('../lib/code-fx').then(module => module.mountCode()).catch(() => {});
+    }
 
     /* The head script armed the reveal; this module is the proof it loaded. */
     const fallback = (window as unknown as { __omRevealFallback?: number }).__omRevealFallback;

@@ -28,7 +28,12 @@
    ========================================================================== */
 
 :root[data-theme='geometry'] {
-  color-scheme: light;
+  /* `only`, not plain `light`: the palette here is explicit, so a browser
+     forced-dark mode (Chrome/Edge "auto dark") must not algorithmically
+     darken surfaces on top of it — which painted framed listings' bodies
+     black while the frame stayed light. When the visitor asks for dark, the
+     ramps below restate `color-scheme: dark` and the page is genuinely dark. */
+  color-scheme: only light;
 
   /* Cold paper — neutral grey, not ivory. The warmth is rationed to the
      ember accent and nothing else. */

@@ -11,7 +11,7 @@ const { title, slug, summary, tags, status, year, repoUrl, demoUrl, caseStudySlu
 ---
 <article class="card elev-sm project-card">
   {heroImage && (
-    <div class="grayscale card-image"><img src={heroImage} alt={title} loading="lazy" /></div>
+    <div class="grayscale card-image"><img src={heroImage} alt={title} loading="lazy" decoding="async" width="400" height="160" /></div>
   )}
   <span class="card-kicker">{year} · {status}</span>
   <h3 class="card-title"><a href={`/projects/${slug}`}>{title}</a></h3>

@@ -21,7 +21,9 @@
    ========================================================================== */
 
 :root[data-theme='blueprint'] {
-  color-scheme: light;
+  /* `only` keeps browser forced-dark modes off this explicit palette — see
+     the note on geometry's ramp. */
+  color-scheme: only light;
 
   --color-bg: #f9f9ff;
   --color-surface: #e7eeff;

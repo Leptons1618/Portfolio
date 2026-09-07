@@ -129,6 +129,39 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **The first screen carries less of the site with it.** Four things came off
+  the critical path and none of them changed what a page looks like. The
+  public assistant's markup still ships on every page, but its behaviour and
+  its 13KB of styles are now `src/lib/ask-widget.ts` and
+  `src/styles/ask-widget.css`, fetched on an idle main thread and only after
+  `/api/ai/status` says the assistant is switched on — they used to be part of
+  the one render-blocking stylesheet every page loads. `code-fx.ts` is a
+  dynamic import behind a `.prose pre` query, so a page with no listing on it
+  never downloads the lexer. Only the two faces the default theme paints above
+  the fold are preloaded; Manrope and JetBrains Mono swap in against the
+  size-adjusted fallbacks that were already holding their layout. And the
+  portrait has a 320w variant for phones, with explicit dimensions on it and
+  on the card images so nothing reserves its space twice.
+
+- **Worker-rendered pages are cached at the edge for a minute.** Every content
+  page was SSR with no `Cache-Control`, so each hit paid a Worker and a D1
+  round-trip. `src/middleware.ts` puts public HTML in `caches.default` for 60
+  seconds and answers the next hit from it — a header alone does nothing here,
+  because Cloudflare does not edge-cache a Worker's own responses from one.
+  Browsers still get `max-age=0`, so an admin edit shows on reload; `/admin`
+  and `/api` are never stored and never looked up. The same file sets the
+  hardening headers on what the Worker renders, and `public/_headers` sets
+  them — plus a year of immutable caching on `/_astro/*` — on the static
+  assets, which never reach the Worker at all.
+
+- **The tab mark is a walking duck rather than a crop of the portrait.** A
+  face at 16px is a grey smudge. `favicon.gif` is fifteen frames at 64px with
+  the sheet behind the duck flood-filled out, so it sits on a light tab strip
+  and a dark one; 9KB, cached for a day. `favicon.png` is one frame of it, for
+  agents that take no GIF and for the home screen. Firefox animates a GIF
+  favicon; Chrome and Safari paint a single frame, which is the same duck
+  standing still.
+
 - **`/projects` is one grid again, and the deep-dives editor is the projects
   manifest itself.** The public listing had become two grids with a band
   between them; someone looking for a project should not have to read the
@@ -204,6 +237,21 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   watching the thing it was written for.
 
 ### Fixed
+
+- **Code blocks saved before the highlighter was turned off rendered as a dark
+  slab.** A body written from `astro dev` — where the Worker's WebAssembly ban
+  does not apply — carries Shiki's `github-dark` render baked into `body_html`
+  as inline `background-color`/`color` styles, and an inline style outranks
+  every theme token, so the listing stayed dark in light mode. `content.ts`
+  strips them on read: it covers every existing row without a migration, and
+  the write path can no longer reintroduce it. `npm run check:shiki` pins it.
+
+- **Chrome and Edge's "auto dark" painted framed listings black.** The three
+  themes declared `color-scheme: light`, which lets a browser's forced-dark
+  mode darken surfaces algorithmically on top of an explicit palette — a body
+  went black while the frame around it stayed light. `only light` refuses it;
+  the dark ramps still restate `color-scheme: dark`, so a visitor who asks for
+  dark gets a page that is genuinely dark.
 
 - **Hiding a project left its case study leading the site.** `hidden` is a
   flag on a *project*, and the home page's Deep dives section was a list of

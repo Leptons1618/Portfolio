@@ -21,7 +21,9 @@
    ========================================================================== */
 
 :root[data-theme='paper'] {
-  color-scheme: light;
+  /* `only` keeps browser forced-dark modes off this explicit palette — see
+     the note on geometry's ramp. */
+  color-scheme: only light;
 
   /* Warm cream, not Blueprint's cool #f9f9ff — the paper is the point. */
   --color-bg: #f7f2e9;

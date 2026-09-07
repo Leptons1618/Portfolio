@@ -33,7 +33,7 @@ const [featured, ...archive] = posts;
       <a href={`/journal/${featured.slug}`} class="card elev-md featured-card">
         {featured.data.heroImage && (
           <div class="post-media featured-media">
-            <div class="grayscale media-frame"><img src={featured.data.heroImage} alt={featured.data.title} /></div>
+            <div class="grayscale media-frame"><img src={featured.data.heroImage} alt={featured.data.title} width="640" height="360" decoding="sync" /></div>
             {featured.data.videoDuration && <span class="tag tag-neutral media-duration">{featured.data.videoDuration}</span>}
           </div>
         )}
@@ -60,7 +60,7 @@ const [featured, ...archive] = posts;
           <a href={`/journal/${post.slug}`} class="card elev-sm archive-card">
             {post.data.heroImage && (
               <div class="post-media">
-                <div class="grayscale media-frame"><img src={post.data.heroImage} alt={post.data.title} loading="lazy" /></div>
+                <div class="grayscale media-frame"><img src={post.data.heroImage} alt={post.data.title} loading="lazy" decoding="async" width="640" height="360" /></div>
                 {(post.data.videoDuration ?? post.data.readTime) && (
                   <span class="tag tag-neutral media-duration">{post.data.videoDuration ?? post.data.readTime}</span>
                 )}

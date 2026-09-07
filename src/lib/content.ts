@@ -152,6 +152,36 @@ const list = (v: unknown): string[] => {
 const opt = <T>(v: T | null | undefined): T | undefined => (v === null ? undefined : v);
 
 /**
+ * Shiki's output, stripped out of a stored body.
+ *
+ * Rows saved from the admin before decision 45's flag landed — which is only
+ * possible where the Worker's WASM ban doesn't apply, i.e. saves made against
+ * `astro dev` — carry Shiki's `github-dark` render baked in: an `astro-code`
+ * class and inline `background-color`/`color` styles on the `<pre>`, with a
+ * `color:#…` style on every token span. Those inline styles outrank every
+ * theme token, so the block renders as a dark slab in light mode no matter
+ * what the themes say. Raw HTML pasted into the markdown can carry the same
+ * shapes.
+ *
+ * Stripped at read, here, rather than repaired in the database: it covers
+ * every existing row at once, needs no migration, and re-saving a post can
+ * never reintroduce the problem — the write path's processor runs with
+ * `syntaxHighlight: false` (guarded by `check:content`). Nothing inside a
+ * `<pre>` carries an inline style this site put there, so dropping every
+ * `style` in the block is safe: without JavaScript the listing inherits
+ * `.prose pre`'s theme colours; with it, `code-fx.ts` re-renders the tokens
+ * from `--code-*`.
+ *
+ * Lives in this module rather than in `markdown.ts` because the public pages
+ * read rows here and `markdown.ts` drags the markdown processor's dependency
+ * tree with it — this file is what client bundles are allowed to touch.
+ */
+export const stripShikiDark = (html: string): string =>
+  html.replace(/<pre\b[^>]*>[\s\S]*?<\/pre>/g, pre =>
+    pre.replace(/\sclass="[^"]*astro-code[^"]*"/g, '').replace(/\sstyle="[^"]*"/g, ''),
+  );
+
+/**
  * `updated_at` as something `Date` can read.
  *
  * SQLite writes `datetime('now')` as `2026-08-20 09:14:33` — UTC, but with a
@@ -187,7 +217,7 @@ const toProject = (r: Row): Project => ({
 const toCaseStudy = (r: Row): CaseStudy => ({
   slug: r.slug,
   body: r.body_md,
-  html: r.body_html,
+  html: stripShikiDark(r.body_html),
   data: {
     title: r.title,
     subtitle: r.subtitle,
@@ -208,7 +238,7 @@ const toCaseStudy = (r: Row): CaseStudy => ({
 const toPost = (r: Row): Post => ({
   slug: r.slug,
   body: r.body_md,
-  html: r.body_html,
+  html: stripShikiDark(r.body_html),
   data: {
     title: r.title,
     summary: r.summary,
