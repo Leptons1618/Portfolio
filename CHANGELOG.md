@@ -154,10 +154,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   them — plus a year of immutable caching on `/_astro/*` — on the static
   assets, which never reach the Worker at all.
 
-- **The tab mark is a drawn `A` rather than a crop of the portrait.** A face
-  at 16px is a grey smudge; the monogram is Geometry's own inks, hard-edged
-  like every other boundary here, and ships as a 285-byte `favicon.svg` with
-  the PNG kept at 2KB for legacy agents and the apple-touch icon.
+- **The tab mark is a walking duck rather than a crop of the portrait.** A
+  face at 16px is a grey smudge. `favicon.gif` is fifteen frames at 64px with
+  the sheet behind the duck flood-filled out, so it sits on a light tab strip
+  and a dark one; 9KB, cached for a day. `favicon.png` is one frame of it, for
+  agents that take no GIF and for the home screen. Firefox animates a GIF
+  favicon; Chrome and Safari paint a single frame, which is the same duck
+  standing still.
 
 - **`/projects` is one grid again, and the deep-dives editor is the projects
   manifest itself.** The public listing had become two grids with a band
