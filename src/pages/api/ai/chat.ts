@@ -9,6 +9,7 @@ import {
 } from '../../../lib/ai';
 import { buildIndex } from '../../../lib/ai-corpus';
 import { MAX_TOOL_CALLS, runTool, toolSummary, toolsFor } from '../../../lib/ai-tools';
+import { compressForModel } from '../../../lib/headroom';
 import {
   GuardError,
   boundTurns,
@@ -173,6 +174,27 @@ export const POST: APIRoute = async ({ request, locals }) => {
     ...turns,
   ];
 
+  /* Optional Headroom pass over the prompt — the index plus the transcript —
+     so a reasoning model spends the shared `max_tokens` ceiling on
+     deliberation *and* the answer rather than on reference material. Off
+     unless `HEADROOM_BASE_URL` is set, and a proxy fault still answers, just
+     uncompressed: see `src/lib/headroom.ts`. */
+  const { messages: finalMessages, stats: headroomStats } = await compressForModel(messages, {
+    baseUrl: locals.runtime.env.HEADROOM_BASE_URL,
+  });
+  /* Logged only when it moved tokens or failed usefully — a 0-token round
+     is the proxy correctly declining small or already-dense prompts, which
+     is the common case and not news. */
+  if (headroomStats.enabled && (headroomStats.tokensSaved > 0 || headroomStats.note)) {
+    console.log(
+      `[ai/chat] headroom: ${
+        headroomStats.compressed
+          ? `saved ${headroomStats.tokensSaved} tokens (${headroomStats.transformsApplied.join(', ') || 'compressed'})`
+          : (headroomStats.note ?? 'uncompressed fallback')
+      }`,
+    );
+  }
+
   const call = {
     maxTokens: settings.maxOutputTokens,
     /* Low, and not configurable. This endpoint answers from a reference
@@ -192,7 +214,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   };
 
   try {
-    const first = await callChat(providers, { ...call, messages });
+    const first = await callChat(providers, { ...call, messages: finalMessages });
 
     if (!first.response.body) return refuse('The model returned nothing.', 502);
 
@@ -201,7 +223,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
         first,
         which: 'chat',
         call,
-        messages,
+        messages: finalMessages,
+        headroom: {
+          baseUrl: locals.runtime.env.HEADROOM_BASE_URL,
+          model: providers[0]?.model,
+        },
         runTool: (name, args) => runTool(DB, name, args),
         /* Tighter than the authoring assistant's. A visitor's question is
            answered from an index and one or two pages; a model taking four

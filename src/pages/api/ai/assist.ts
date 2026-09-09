@@ -15,6 +15,7 @@ import { MAX_TOOL_CALLS, runTool, toolSummary, toolsFor } from '../../../lib/ai-
 import { getCaseStudies, getPosts, getProjects } from '../../../lib/content';
 import { getResume } from '../../../lib/resume';
 import { ASSIST_TASKS, assistPrompt, isAssistTask } from '../../../lib/assist-tasks';
+import { compressForModel } from '../../../lib/headroom';
 import { site } from '../../../lib/site';
 
 /**
@@ -190,6 +191,28 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const model = pickModel(providers, payload.model);
 
+  /* Optional Headroom pass over the prompt — index, README, transcript — so
+     a reasoning model spends the shared `max_tokens` ceiling on deliberation
+     *and* the answer rather than on reference material. Off unless
+     * `HEADROOM_BASE_URL` is set, and a proxy fault still answers, just
+     * uncompressed: see `src/lib/headroom.ts`. */
+  const { messages: finalMessages, stats: headroomStats } = await compressForModel(messages, {
+    model: model ?? providers[0]?.model,
+    baseUrl: locals.runtime.env.HEADROOM_BASE_URL,
+  });
+  /* Logged only when it moved tokens or failed usefully — a 0-token round
+     is the proxy correctly declining small or already-dense prompts, which
+     is the common case and not news. */
+  if (headroomStats.enabled && (headroomStats.tokensSaved > 0 || headroomStats.note)) {
+    console.log(
+      `[ai/assist] headroom: ${
+        headroomStats.compressed
+          ? `saved ${headroomStats.tokensSaved} tokens (${headroomStats.transformsApplied.join(', ') || 'compressed'})`
+          : (headroomStats.note ?? 'uncompressed fallback')
+      }`,
+    );
+  }
+
   /* The run's effort, and it is always sent.
    *
    * This route used to send the field only when the panel's picker named a
@@ -227,7 +250,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   };
 
   try {
-    const first = await callChat(providers, { ...call, messages }, 'assist');
+    const first = await callChat(providers, { ...call, messages: finalMessages }, 'assist');
 
     if (!first.response.body) return json({ error: 'The model returned nothing.' }, 502);
 
@@ -236,9 +259,15 @@ export const POST: APIRoute = async ({ request, locals }) => {
         first,
         which: 'assist',
         call,
-        messages,
+        messages: finalMessages,
         runTool: (name, args) => runTool(DB, name, args),
         maxCalls: MAX_TOOL_CALLS,
+        /* Later rounds re-send everything read so far — the case-study and
+           journal flows that fetch docs are where the transcript grows. */
+        headroom: {
+          baseUrl: locals.runtime.env.HEADROOM_BASE_URL,
+          model: model ?? providers[0]?.model,
+        },
       }),
       {
         headers: {

@@ -641,7 +641,7 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
 </AdminLayout>
 
 <script>
-  import { onAdminPage, setBusy, setLabel, toast, wireTabs } from '../../lib/admin';
+  import { onAdminPage, setBusy, setLabel, toast, trackDirty, wireTabs, type DirtyField } from '../../lib/admin';
   import {
     clearKey,
     createProvider,
@@ -671,6 +671,7 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
     type ModelInfo,
   } from '../../lib/ai-catalog';
   import { getToken } from '../../lib/github';
+  import { showAdminModal } from '../../lib/modal';
 
   onAdminPage('#admin-ai', () => {
     const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -772,6 +773,17 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
          on a select that has an empty option selects it. */
       settingsFields.reasoningEffort.value = settings.reasoningEffort ?? '';
     }
+
+    /* Save stays disabled until the form differs from the row. Guarded on a
+       session like every other screen: signed out, the buttons below already
+       say why they do nothing. Reset after the one fill and every good save. */
+    const settingsDirty = getToken()
+      ? trackDirty(
+          () => Object.values(settingsFields) as DirtyField[],
+          saveBtn,
+          'No changes to save yet.',
+        )
+      : null;
 
     /* — the provider rows —
 
@@ -977,9 +989,20 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
       PARAM_SPECS.map(spec => [spec.key, $<HTMLInputElement>(`ai-p-${spec.key}`)]),
     );
 
+    /* Save stays disabled until the dialog differs from the opened row. The
+       key field is always empty on open, so pasting a key is itself a change;
+       the preset dropdown is a field like any other. Reset on every open;
+       the dialog closes itself on a good save. */
+    const providerDirty = getToken()
+      ? trackDirty(
+          () => [...Object.values(dialogFields), ...paramFields.values()] as DirtyField[],
+          $<HTMLButtonElement>('ai-dialog-save'),
+          'No changes to save yet.',
+        )
+      : null;
+
     /** Only the knobs that were actually set. Blank means "send nothing". */
-    function readParams(): Record<string, number> {
-      const raw: Record<string, unknown> = {};
+    function readParams(): Record<string, number> {      const raw: Record<string, unknown> = {};
       for (const [key, input] of paramFields) {
         if (input.value.trim()) raw[key] = Number(input.value);
       }
@@ -1078,7 +1101,8 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
         ? `A key ending ${provider.keyHint} is stored. Leave this empty to keep it, or paste a new one to replace it.`
         : 'Stored in the database and never sent back to this screen.';
 
-      dialog.showModal();
+      providerDirty?.reset();
+      showAdminModal(dialog);
     }
 
     $<HTMLButtonElement>('ai-add').addEventListener('click', () => openDialog(null));
@@ -1326,7 +1350,7 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
       $('ai-models-title').textContent =
         target === 'fallbacks' ? 'Choose fallback models' : 'Choose a model';
 
-      modelsDialog.showModal();
+      showAdminModal(modelsDialog);
       modelStatus.hidden = false;
       modelStatus.dataset.tone = 'pending';
       modelStatus.textContent = 'Asking the provider what it serves…';
@@ -1408,6 +1432,8 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
         if (info) applyModelCeiling(info);
       }
       modelsDialog.close();
+      /* The picker writes programmatically, which fires no events. */
+      providerDirty?.check();
     });
 
     /**
@@ -1457,6 +1483,7 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
 
       field.value = String(ceiling);
       field.dataset.auto = '';
+      providerDirty?.check();
       ceilingHint(stated
         ? `${ceiling.toLocaleString()} tokens — the largest completion ${model.id} accepts, as its listing reports it.`
         : `${ceiling.toLocaleString()} tokens — a quarter of ${model.id}'s ${(model.contextLength ?? 0).toLocaleString()}-token context, because the listing does not state a completion limit. Lower it if the vendor refuses.`);
@@ -1489,6 +1516,7 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
         return;
       }
       setBusy(button, false);
+      settingsDirty?.reset();
     });
 
 
@@ -1550,6 +1578,16 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
     /* Same rule as the settings form: filled once, so re-reading the status
        does not discard what is half-typed. */
     let dailyFilled = false;
+
+    /* Save stays disabled until the form differs from the row — same
+       contract, and the publish radios ride along as fields. */
+    const dailyDirty = getToken()
+      ? trackDirty(
+          () => [...Object.values(dailyFields), ...publishInputs] as DirtyField[],
+          dailyBtn,
+          'No changes to save yet.',
+        )
+      : null;
 
     /* — the same schedule, on the reader's clock —
 
@@ -1648,6 +1686,7 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
         if (!dailyFilled) {
           fillDaily(data.settings);
           dailyFilled = true;
+          dailyDirty?.reset();
         }
 
         status.textContent = !data.scheduled
@@ -1721,6 +1760,7 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
         return;
       }
       setBusy(button, false);
+      dailyDirty?.reset();
     });
 
     $<HTMLButtonElement>('dj-run').addEventListener('click', async event => {
@@ -1776,6 +1816,7 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
       if (!settingsFilled) {
         fillSettings(data.settings);
         settingsFilled = true;
+        settingsDirty?.reset();
       }
       list.replaceChildren();
       if (!data.providers.length) {

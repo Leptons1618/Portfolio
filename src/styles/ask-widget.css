@@ -474,6 +474,119 @@
   }
   .ask-log .ask-retry:hover { background: var(--color-surface); }
 
+  /* — past conversations —
+
+     An overlay over the log rather than a second panel: the list is a pause
+     in the conversation, not a place. Covers the whole panel including the
+     header, so it carries its own way back. Rows are script-built into the
+     server-rendered `#ask-history-view`, the same door the log turns use. */
+
+  .ask-history {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-bg);
+  }
+
+  .ask-history[hidden] { display: none; }
+
+  .ask-history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    padding-left: var(--space-6);
+    border-bottom: 1px solid var(--color-divider);
+  }
+
+  .ask-history-title {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+  }
+
+  .ask-history-note {
+    margin: 0;
+    padding: var(--space-2) var(--space-3);
+    font-size: 11px;
+    color: var(--color-text-muted);
+    border-bottom: 1px solid var(--color-divider);
+  }
+
+  .ask-history-list {
+    flex: 1;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: var(--space-2) var(--space-3);
+  }
+
+  .ask-history-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-divider);
+  }
+
+  .ask-history-row[data-current] { box-shadow: inset 3px 0 0 var(--color-accent); padding-left: var(--space-2); }
+
+  .ask-history-open {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    text-align: left;
+    border: 0;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+    padding: 0;
+    font: inherit;
+  }
+
+  .ask-history-name {
+    font-size: 13px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ask-history-meta {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--color-text-muted);
+  }
+
+  .ask-history-delete {
+    flex: none;
+    border: 1px solid transparent;
+    background: none;
+    color: var(--color-text-muted);
+    font-family: var(--font-body);
+    font-size: 11px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+
+  .ask-history-delete:hover { border-color: var(--color-divider); color: var(--color-text); }
+  .ask-history-delete[data-armed] { border-color: var(--color-accent); color: var(--color-accent); }
+
+  .ask-history-empty {
+    margin: 0;
+    padding: var(--space-3) 0;
+    font-size: 12px;
+    color: var(--color-text-muted);
+  }
+
   .ask-suggestions {
     display: flex;
     flex-wrap: wrap;

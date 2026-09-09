@@ -338,16 +338,37 @@ const SORTS = [
         .map(row => row.dataset.slug!);
     }
 
+    /* Save stays disabled until the DOM order differs from the last save —
+       the same contract as the projects line-up. Drags, arrow keys, the sort
+       dropdown and status moves all funnel through a repaint below; the
+       snapshot moves only on a good save. */
+    let orderSaved = pinnedSlugs().join(',');
+    const paintOrder = () => {
+      if (!signedIn || orderSaveButton.hasAttribute('aria-busy')) return;
+      const dirty = pinnedSlugs().join(',') !== orderSaved;
+      orderSaveButton.disabled = !dirty;
+      if (dirty) orderSaveButton.removeAttribute('title');
+      else orderSaveButton.title = 'The order matches what is saved.';
+    };
+
     async function commitOrder(slugs: string[], note: string) {
       setBusy(orderSaveButton, true, 'Saving…');
+      let saved = false;
       try {
         await saveJournalOrder(slugs);
         toast(note, { tone: 'success' });
+        saved = true;
       } catch (error) {
         const text = error instanceof Error ? error.message : 'Save failed.';
         toast(text, { tone: 'error' });
       } finally {
         setBusy(orderSaveButton, false);
+      }
+      /* After the busy restore, so the fresh snapshot paints. Failures keep
+         their dirt. */
+      if (saved) {
+        orderSaved = pinnedSlugs().join(',');
+        paintOrder();
       }
     }
 
@@ -374,6 +395,7 @@ const SORTS = [
         });
         applySort();
         applyEntryFilters();
+        paintOrder();
         void commitOrder([], 'Automatic — every post in date order.');
       });
 
@@ -395,6 +417,7 @@ const SORTS = [
         row.addEventListener('dragend', () => {
           row.classList.remove('is-dragging');
           dragged = null;
+          paintOrder();
         });
 
         row.querySelector<HTMLButtonElement>('.row-grip')?.addEventListener('keydown', event => {
@@ -409,6 +432,7 @@ const SORTS = [
           if (!neighbour) return;
           if (delta < 0) neighbour.before(row);
           else neighbour.after(row);
+          paintOrder();
           row.querySelector<HTMLElement>('.row-grip')?.focus();
         });
       });
@@ -472,6 +496,7 @@ const SORTS = [
           .sort(order)
           .forEach(row => card.appendChild(row));
       });
+      paintOrder();
     }
 
     entrySearch?.addEventListener('input', applyEntryFilters);
@@ -501,6 +526,7 @@ const SORTS = [
         else item.removeAttribute('aria-current');
       });
       applyEntryFilters();
+      paintOrder();
     }
 
     /* One open menu at a time. `<details>` has no notion of a group, and two
@@ -646,6 +672,9 @@ const SORTS = [
         }
       });
     });
+    /* The server-rendered order is the saved one, so a fresh screen starts
+       with Save disabled. */
+    paintOrder();
   });
 </script>
 

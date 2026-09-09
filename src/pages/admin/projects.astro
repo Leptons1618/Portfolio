@@ -491,7 +491,8 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
 </AdminLayout>
 
 <script>
-  import { onAdminPage, setBusy, setLabel, toast } from '../../lib/admin';
+  import { onAdminPage, setBusy, setLabel, toast, trackDirty, type DirtyField } from '../../lib/admin';
+  import { showAdminModal } from '../../lib/modal';
   import { relativeTime } from '../../lib/format';
   import {
     createCaseStudy,
@@ -871,6 +872,16 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
       name: () => `${slugify(inputs.title.value)}-hero`,
     });
 
+    /* Create stays disabled until the form differs from what the last open
+       put there — an untouched import has nothing to write. Reset on every
+       open, checked on every streamed draft (whose assignments fire no
+       events), and the dialog closes itself on a good create. */
+    const formDirty = trackDirty(
+      () => Object.values(inputs) as DirtyField[],
+      saveButton,
+      'Fill in the form to create the project.',
+    );
+
     let target: ProjectFields | null = null;
 
     /**
@@ -915,7 +926,10 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
       inputs.highlights.value = (fields.highlights ?? []).join('\n');
       inputs.caseStudy.value = fields.caseStudySlug ?? '';
 
-      projectModal.showModal();
+      /* A fresh open is clean by definition — whatever the last import left
+         in these inputs is gone, so the snapshot goes with it. */
+      formDirty.reset();
+      showAdminModal(projectModal);
       inputs.title.focus();
     }
 
@@ -1033,6 +1047,10 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
           .filter(Boolean)
           .join('\n');
       }
+
+      /* Programmatic writes fire no events, so the streamed draft would leave
+         Create disabled without this. */
+      formDirty.check();
     }
 
     // ------------------------------------------------------- the assistant
@@ -1045,11 +1063,11 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
      * thinking, the lookups and the failures land where the author is already
      * looking rather than in a one-line status under the fields.
      *
-     * It opens *over* the import form, which is a modal `<dialog>`: `open()` in
-     * `assist-panel.ts` joins the top layer when it finds one, because no
-     * `z-index` reaches over it. The form behind it is inert while the panel is
-     * up, which is the trade — the fields still fill in as the answer streams,
-     * and closing the panel hands them back.
+     * It opens *beside* the import form and both stay usable: `open()` in
+     * `assist-panel.ts` steps any open modal down to modeless (see
+     * `src/lib/modal.ts`), because a modal panel in the top layer would make
+     * the form below it inert — the fields still fill in as the answer
+     * streams, and the form can be edited while it does.
      */
     let assisting: AbortController | null = null;
 
@@ -1340,6 +1358,9 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
           tone: 'success',
           action: { label: 'open its page →', href: `/admin/projects/${slug}`, external: false },
         });
+        /* The work is done and the toast carries the onward links, so the
+           form closes itself rather than sitting on a stale success. */
+        projectModal.close();
       } catch (error) {
         say(formMessage, message(error), 'error');
         pending.update(message(error), { tone: 'error' });
@@ -1625,7 +1646,7 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
     }
 
     function openImport() {
-      importModal.showModal();
+      showAdminModal(importModal);
       if (!importState.loaded) loadRepositories();
     }
 
@@ -1644,6 +1665,48 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
       });
     });
 
+    /* While the import form and the assistant are up together, the page
+       behind them stays frozen: only those two dialogs are interactive, and
+       the page says so by dimming (see admin.css). A lone modal freezes the
+       page for free, but their coexistence steps both down to modeless (see
+       `src/lib/modal.ts`) — so the freeze is re-applied here with `inert`
+       on this screen's own root plus the sidebar rail, which lives outside
+       the root and persists across pages. Everything else (dialogs, toasts)
+       lives outside both.
+       Either dialog closing lifts it: the form closing leaves the assistant
+       alone the way every other screen has it, and the assistant closing
+       steps the form back up to a real modal, which freezes the page by
+       itself.
+       Driven by events, not by watching attributes: the panel announces
+       itself (`asx-open` / `asx-close` from `assist-panel.ts`, since `show()`
+       fires nothing), and every dialog close — X, Escape, backdrop, or code —
+       fires `close`. The `isConnected` guard is what keeps a stale init from
+       a previous visit from touching the new page's `<body>`. */
+    const syncFreeze = () => {
+      if (!root.isConnected) return;
+      const panel = document.getElementById('assist-dialog');
+      const frozen = Boolean(
+        panel instanceof HTMLDialogElement && panel.open && (projectModal.open || importModal.open),
+      );
+      root.inert = frozen;
+      /* The rail lives outside this screen's root — it persists while pages
+         swap underneath it — so it freezes separately. Otherwise it stays
+         bright and clickable beside a dimmed page, which is exactly the
+         half-frozen look to avoid. */
+      const rail = document.querySelector('.admin-sidebar');
+      if (rail instanceof HTMLElement) rail.inert = frozen;
+      document.body.toggleAttribute('data-asx-freeze', frozen);
+      console.info('[freeze] import coexistence frozen:', frozen);
+    };
+    document.addEventListener('asx-open', syncFreeze);
+    document.addEventListener('asx-close', syncFreeze);
+    projectModal.addEventListener('close', syncFreeze);
+    importModal.addEventListener('close', syncFreeze);
+    /* A navigation away mid-draft swaps the page out from under a set freeze
+       while `<body>` — where the marker lives — persists. */
+    document.addEventListener('astro:page-load', () => document.body.removeAttribute('data-asx-freeze'));
+    syncFreeze();
+
     // -------------------------------------------------- the deep dives line-up
 
     /* The two regions *are* the state: which grid holds a card is whether that
@@ -1659,6 +1722,19 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
       const ddReset = document.getElementById('dd-reset') as HTMLButtonElement;
 
       const cardsIn = (zone: HTMLElement) => Array.from(zone.querySelectorAll<HTMLElement>('.pm-card'));
+
+      /* Save stays disabled until the lead region differs from the last save —
+         the same contract as the journal order. Every move funnels through
+         `syncLead()` below; the snapshot moves only on a good save. */
+      const ddOrder = () => cardsIn(leadGrid).map(card => card.dataset.slug!).join(',');
+      let ddSaved = ddOrder();
+      const paintDd = () => {
+        if (!signedIn || ddSave.hasAttribute('aria-busy')) return;
+        const dirty = ddOrder() !== ddSaved;
+        ddSave.disabled = !dirty;
+        if (dirty) ddSave.removeAttribute('title');
+        else ddSave.title = 'The line-up matches what is saved.';
+      };
 
       /* The counts in the two headings are the line-up's size and the index's,
          so they move with the cards rather than with the page load. */
@@ -1676,19 +1752,28 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
           if (zone.count) zone.count.textContent = String(cardsIn(zone.grid).length);
         }
         applyPmFilters();
+        paintDd();
       }
 
       async function ddCommit(slugs: string[], note: string) {
         setBusy(ddSave, true, 'Saving…');
+        let saved = false;
         try {
           await saveDeepDives(slugs);
           say(ddStatus, note);
           toast('Deep dives updated.', { tone: 'success' });
+          saved = true;
         } catch (error) {
           say(ddStatus, message(error), 'error');
           toast(message(error), { tone: 'error' });
         } finally {
           setBusy(ddSave, false);
+        }
+        /* After the busy restore, so the fresh snapshot paints. Failures
+           keep their dirt. */
+        if (saved) {
+          ddSaved = ddOrder();
+          paintDd();
         }
       }
 

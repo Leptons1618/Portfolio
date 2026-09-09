@@ -214,7 +214,7 @@ const idFor = (key: string) => `s-${key}`;
 </AdminLayout>
 
 <script>
-  import { ADMIN_KEYS, onAdminPage, toast } from '../../lib/admin';
+  import { ADMIN_KEYS, onAdminPage, toast, trackDirty, type DirtyField } from '../../lib/admin';
   import {
     THEME_EVENT,
     currentMode,
@@ -273,6 +273,15 @@ const idFor = (key: string) => `s-${key}`;
       /* ignore corrupt settings */
     }
 
+    /* Save stays disabled until the form differs from the held copy — a save
+       that only rewrites identical JSON is a click that changes nothing.
+       Reset after the restore above, after saves, and after reverts. */
+    const settingsDirty = trackDirty(
+      () => [...fields.values()] as DirtyField[],
+      $<HTMLButtonElement>('save-settings'),
+      'No changes to hold yet.',
+    );
+
     /* Neither switch is part of the identity snapshot — they are browser
        preferences the public site reads too, so they go through `theme.ts`
        rather than this screen's storage key. The rail's toggles can change
@@ -309,6 +318,7 @@ const idFor = (key: string) => `s-${key}`;
 
     $<HTMLButtonElement>('save-settings').addEventListener('click', () => {
       localStorage.setItem(KEY, JSON.stringify(snapshot()));
+      settingsDirty.reset();
       say('Saved to this browser. Export it, then merge into src/lib/site.ts.');
       /* Deliberately not a success tone: nothing about the site changed, and
          this is the one screen where "Saved" could be read as meaning it did. */
@@ -320,6 +330,7 @@ const idFor = (key: string) => `s-${key}`;
     $<HTMLButtonElement>('reset-settings').addEventListener('click', () => {
       localStorage.removeItem(KEY);
       for (const [key, input] of fields) input.value = published.get(key) ?? '';
+      settingsDirty.reset();
       say('Reverted to what src/lib/site.ts says, and cleared the browser copy.');
       toast('Reverted to what the site currently reads.', { tone: 'info' });
     });

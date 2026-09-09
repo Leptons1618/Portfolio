@@ -13,6 +13,21 @@
  * `mountAskWidget`, so nothing ever appears unwired or unstyled.
  */
 import askWidgetCssUrl from '../styles/ask-widget.css?url';
+import {
+  ago,
+  fileTurns,
+  forgetChat,
+  newChatId,
+  readChats,
+  readCurrent,
+  rememberCurrent,
+  titleFor,
+  upsertChat,
+  writeChats,
+  type AskStoredChat,
+  type AskStoredTurn,
+  type AskStore,
+} from './ask-history';
 
 /** What `/api/ai/status` reports: the switch, the greeting, and the limits. */
 export interface AskStatus {
@@ -427,14 +442,47 @@ export function mountAskWidget(status: AskStatus): void {
       target.append(row);
     }
 
+    /* — browser history —
+
+       Past conversations, kept in this browser and nowhere else — the shape
+       and the caps live in `src/lib/ask-history.ts`, which is also where the
+       tests pin them. What stays here is the shelf itself: `localStorage`
+       where the browser allows it, a `Map` for the page where it does not.
+       Referencing `localStorage` can itself throw where storage is blocked,
+       so even the reference sits behind the guard. */
+
+    const memory = new Map<string, string>();
+    const memoryStore: AskStore = {
+      getItem: key => memory.get(key) ?? null,
+      setItem: (key, value) => {
+        memory.set(key, value);
+      },
+      removeItem: key => {
+        memory.delete(key);
+      },
+    };
+    let store: AskStore = memoryStore;
+    try {
+      void localStorage.length;
+      store = localStorage;
+    } catch {
+      /* Memory-only for the page. Nothing else changes. */
+    }
+
     /* — conversation —
 
-       Held in memory only. Nothing about a visitor's questions is stored, here
-       or on the server; the rate-limit table counts requests against a salted
-       hash and holds no text at all. Closing the tab is the end of it. */
+       The live transcript, posted with every question. Filed per conversation
+       in the store above once an exchange completes, so threads survive pages
+       and reloads. The server holds no text at all — the rate-limit table
+       counts requests against a salted hash. */
     const history: { role: Role; content: string }[] = [];
+    let chatId: string | null = null;
     let busy = false;
     let inFlight: AbortController | null = null;
+    /* Which `ask()` run the in-flight request belongs to. Switching threads
+       aborts it, and the abort's own catch must then stand down rather than
+       popping a turn off the transcript just loaded — see `showTranscript`. */
+    let askSeq = 0;
     /* Whether the visitor stopped the answer or the panel closed under it. Both
        arrive as the same `AbortError` and they want opposite outcomes: a
        deliberate stop keeps what was written, a closed panel throws it away. */
@@ -444,6 +492,8 @@ export function mountAskWidget(status: AskStatus): void {
       if (busy || !question.trim()) return;
       busy = true;
       stopped = false;
+      askSeq += 1;
+      const seq = askSeq;
       /* Not `disabled`: while an answer streams this button is the Stop
           control, so it has to stay pressable. `data-busy` swaps which of its
           two inlined icons paints — cross-fading, not toggling — and names
@@ -597,6 +647,7 @@ export function mountAskWidget(status: AskStatus): void {
         target.dataset.state = 'done';
         citations(target, answer);
         history.push({ role: 'assistant', content: answer });
+        persistChat();
         /* After the citations, so it reads as a footnote on the answer rather
            than as part of it. A note rather than a toast: it qualifies what is
            on screen, and it has to stay beside it. */
@@ -604,6 +655,11 @@ export function mountAskWidget(status: AskStatus): void {
           note('That answer hit the length limit and stopped early — ask for a narrower slice of it and it will fit.');
         }
       } catch (error) {
+        /* Left for another thread while this was out — its transcript has
+           already been replaced, so there is nothing to settle. `finally`
+           below still runs, which is harmless: the new thread set the same
+           flags on its way in. */
+        if (seq !== askSeq) return;
         if (error instanceof DOMException && error.name === 'AbortError') {
           if (stopped && answer.trim()) {
             /* Stopped on purpose, with something already on screen. Keeping it
@@ -616,6 +672,7 @@ export function mountAskWidget(status: AskStatus): void {
             renderAnswer(answerEl, answer);
             citations(target, answer);
             history.push({ role: 'assistant', content: answer });
+            persistChat();
           } else {
             /* The panel closed under it, or nothing had arrived yet. The
                half-written bubble goes, and so does the question — leaving it
@@ -663,23 +720,168 @@ export function mountAskWidget(status: AskStatus): void {
     }
 
     /**
-     * Back to an empty conversation.
+     * File the live transcript under the current conversation.
+     *
+     * Once per completed exchange — a finished answer, or a stopped one the
+     * visitor kept — never mid-stream and never for a turn that produced
+     * nothing. A conversation is created on its first answer, so the store
+     * never fills with questions that went nowhere. The title is the first
+     * question unless the thread already had a name.
+     */
+    function persistChat(): void {
+      if (!history.length) return;
+      if (!chatId) {
+        chatId = newChatId();
+        rememberCurrent(store, chatId);
+      }
+      const chats = readChats(store);
+      const title = titleFor(history, chats.find(chat => chat.id === chatId)?.title);
+      writeChats(
+        store,
+        upsertChat(chats, { id: chatId, title, updatedAt: Date.now(), turns: fileTurns(history) }),
+      );
+      if (!historyView.hidden) paintHistory();
+    }
+
+    /** Draw turns as finished bubbles — the restore path, so no wait rows, no
+        thinking boxes, no retry notes. Citations recompute from the text,
+        which is where they came from the first time. */
+    function drawTranscript(turns: AskStoredTurn[]): void {
+      log.replaceChildren();
+      for (const turn of turns) {
+        if (turn.role === 'user') {
+          bubble('user').textContent = turn.content;
+        } else {
+          const target = bubble('assistant');
+          target.dataset.state = 'done';
+          const answerEl = document.createElement('div');
+          answerEl.className = 'ask-answer';
+          renderAnswer(answerEl, turn.content);
+          target.append(answerEl);
+          citations(target, turn.content);
+        }
+      }
+      log.scrollTop = log.scrollHeight;
+    }
+
+    /**
+     * Show a stored conversation, or a fresh one for `null`.
      *
      * The transcript is the *only* thing that carries a follow-up's meaning —
-     * `history` is what gets posted, and it grows until the tab is closed. So a
-     * visitor who has finished one subject and wants to ask about another is
+     * `history` is what gets posted, and it grows until the thread is left. So
+     * a visitor who has finished one subject and wants to ask about another is
      * paying for the first one on every question, and getting answers coloured
-     * by it. Clearing is one press, and it is the same press that undoes a
+     * by it. Switching is one press, and it is the same press that undoes a
      * conversation that has gone somewhere unhelpful.
+     *
+     * A switch aborts whatever is streaming: the in-flight turn belongs to the
+     * thread being left. Bumping `askSeq` first is what keeps its catch from
+     * popping a turn off the transcript just loaded.
      */
-    function newChat(status: AskStatus) {
+    function showTranscript(chat: AskStoredChat | null, status: AskStatus): void {
       inFlight?.abort();
+      askSeq += 1;
+      busy = false;
+      delete send.dataset.busy;
+      send.setAttribute('aria-label', 'Send');
+      inFlight = null;
       history.length = 0;
-      log.replaceChildren();
       input.value = '';
       input.style.height = '';
-      drawIntro(status);
+      log.replaceChildren();
+      if (chat && chat.turns.length) {
+        chatId = chat.id;
+        rememberCurrent(store, chat.id);
+        for (const turn of chat.turns) history.push({ role: turn.role, content: turn.content });
+        drawTranscript(chat.turns);
+        suggestions.hidden = true;
+      } else {
+        chatId = null;
+        rememberCurrent(store, null);
+        drawIntro(status);
+      }
+      historyView.hidden = true;
       input.focus();
+    }
+
+    /* — history view —
+
+       The list behind the header's history button: every stored thread with
+       its age and length, the current one marked, each selectable and each
+       deletable on its own two-click confirm. Repainted on open and after
+       every store write made while it is showing. */
+
+    const historyView = $('ask-history-view');
+    const historyList = $('ask-history-list');
+
+    function paintHistory(): void {
+      historyList.replaceChildren();
+      const chats = readChats(store);
+      if (!chats.length) {
+        const empty = document.createElement('p');
+        empty.className = 'ask-history-empty';
+        empty.textContent = 'Nothing yet. Whatever you ask is kept here, in this browser only.';
+        historyList.append(empty);
+        return;
+      }
+
+      let armed: HTMLButtonElement | null = null;
+      let disarm: number | undefined;
+
+      for (const chat of chats) {
+        const row = document.createElement('div');
+        row.className = 'ask-history-row';
+        if (chat.id === chatId) row.dataset.current = '';
+
+        const open = document.createElement('button');
+        open.type = 'button';
+        open.className = 'ask-history-open';
+        open.setAttribute('aria-label', `Open conversation: ${chat.title}`);
+        const name = document.createElement('span');
+        name.className = 'ask-history-name';
+        name.textContent = chat.title;
+        const meta = document.createElement('span');
+        meta.className = 'ask-history-meta';
+        meta.textContent =
+          [ago(chat.updatedAt), `${chat.turns.length} message${chat.turns.length === 1 ? '' : 's'}`]
+            .filter(Boolean)
+            .join(' · ');
+        open.append(name, meta);
+        open.addEventListener('click', () => showTranscript(chat, status));
+
+        /* Two-click confirm, the shape every other delete on this site uses.
+           Arming one row disarms nothing else; the timer puts the label back
+           if the second press never comes. */
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'ask-history-delete';
+        remove.textContent = 'Delete';
+        remove.setAttribute('aria-label', `Delete conversation: ${chat.title}`);
+        remove.addEventListener('click', () => {
+          if (armed !== remove) {
+            armed = remove;
+            remove.textContent = 'Confirm';
+            remove.dataset.armed = '';
+            window.clearTimeout(disarm);
+            disarm = window.setTimeout(() => {
+              if (armed === remove) {
+                armed = null;
+                remove.textContent = 'Delete';
+                delete remove.dataset.armed;
+              }
+            }, 4000);
+            return;
+          }
+          window.clearTimeout(disarm);
+          armed = null;
+          writeChats(store, forgetChat(readChats(store), chat.id));
+          if (chat.id === chatId) showTranscript(null, status);
+          else paintHistory();
+        });
+
+        row.append(open, remove);
+        historyList.append(row);
+      }
     }
 
     let opened = false;
@@ -704,7 +906,13 @@ export function mountAskWidget(status: AskStatus): void {
 
       if (!opened) {
         opened = true;
-        drawIntro(status);
+        /* Back to the thread left open — across pages and reloads, since
+           public navigation rebuilds this widget every time — or the
+           greeting when there is none. */
+        const previous = readCurrent(store);
+        const found = previous && readChats(store).find(chat => chat.id === previous);
+        if (found && found.turns.length) showTranscript(found, status);
+        else drawIntro(status);
       }
       input.focus();
     }
@@ -909,10 +1117,29 @@ export function mountAskWidget(status: AskStatus): void {
         panel.addEventListener('transitionend', syncLift);
       }
       $<HTMLButtonElement>('ask-close').addEventListener('click', closePanel);
-      $<HTMLButtonElement>('ask-new').addEventListener('click', () => newChat(status));
+      $<HTMLButtonElement>('ask-history').addEventListener('click', () => {
+        if (historyView.hidden) {
+          paintHistory();
+          historyView.hidden = false;
+        } else {
+          historyView.hidden = true;
+          input.focus();
+        }
+      });
+      $('ask-history-close').addEventListener('click', () => {
+        historyView.hidden = true;
+        input.focus();
+      });
 
       document.addEventListener('keydown', event => {
-        if (event.key === 'Escape' && !panel.hidden) closePanel();
+        if (event.key !== 'Escape' || panel.hidden) return;
+        /* The history list is the topmost thing while it is showing; Escape
+           steps back to the thread before it ever closes the panel. */
+        if (!historyView.hidden) {
+          historyView.hidden = true;
+          return;
+        }
+        closePanel();
       });
 
       form.addEventListener('submit', event => {

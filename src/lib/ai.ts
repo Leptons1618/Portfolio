@@ -77,6 +77,7 @@ import {
   type ReasoningEffort,
 } from './ai-catalog';
 import { site } from './site';
+import { compressForModel, sameToolLinkage } from './headroom';
 
 /* ---------- settings ---------- */
 
@@ -1481,6 +1482,17 @@ export interface AgentOptions {
   maxRounds?: number;
   /** How many tool calls one answer may make in total. */
   maxCalls?: number;
+  /**
+   * Compress the transcript before each follow-up round, through Headroom.
+   *
+   * A lookup-heavy answer re-sends everything it has read on every round —
+   * each tool result is up to 8,000 characters and there may be eight of
+   * them — so the rounds are where the input bill actually grows. Optional
+   * and off without a `baseUrl`; only structurally identical results are
+   * ever used (see `sameToolLinkage()` in `headroom.ts`), and anything else
+   * falls back to the transcript as built.
+   */
+  headroom?: { baseUrl?: string | null; model?: string };
 }
 
 /**
@@ -1534,6 +1546,36 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
   const maxCalls = options.maxCalls ?? 8;
 
   const messages = [...options.messages];
+  /** How many turns the first send carried — everything after is lookups. */
+  const fresh = messages.length;
+
+  /**
+   * The transcript as the next round should carry it.
+   *
+   * Unchanged unless the lookups since the first send are big enough for a
+   * proxy round trip to be worth it (about 500 tokens of new tool results).
+   * Small answers skip the request entirely rather than paying latency to
+   * save nothing.
+   */
+  async function sendable(): Promise<ChatMessage[]> {
+    if (!options.headroom?.baseUrl?.trim()) return messages;
+    const added = messages
+      .slice(fresh)
+      .reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0);
+    if (added < 2000) return messages;
+
+    const { messages: out, stats } = await compressForModel(messages, {
+      model: options.headroom.model ?? first.provider.model,
+      baseUrl: options.headroom.baseUrl,
+    });
+    if (!sameToolLinkage(messages, out)) return messages;
+    if (stats.compressed && stats.tokensSaved > 0) {
+      console.log(
+        `[ai] headroom round: saved ${stats.tokensSaved} tokens (${stats.transformsApplied.join(', ') || 'compressed'})`,
+      );
+    }
+    return out;
+  }
   /* Pinned to the provider that answered, like the rounds themselves are: the
      headroom a call was granted is a property of the row it went out on, and
      later rounds do not go back to the list. */
@@ -1617,7 +1659,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
       }
       const { tools, ...disarmed } = call;
       call = disarmed;
-      response = await nextRound(messages, which, call, first.provider);
+      response = await nextRound(await sendable(), which, call, first.provider);
       continue;
     }
 
@@ -1677,7 +1719,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
       });
     }
 
-    response = await nextRound(messages, which, call, first.provider);
+    response = await nextRound(await sendable(), which, call, first.provider);
   }
 
   yield stopReason ? { done: true, stopReason } : { done: true };

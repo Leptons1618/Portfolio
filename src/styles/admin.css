@@ -535,7 +535,12 @@ body.is-resizing-sidebar .admin-sidebar {
 .admin-main-wide { margin-inline: auto; }
 
 .admin-main-narrow { max-width: var(--wrap-prose); }
-.admin-main-wide { max-width: 1240px; }
+
+/* The same measure as `.admin-main` above: every admin screen spans the same
+   column, and a narrower cap here is how the list screens ended up visibly
+   thinner than the dashboard and the journal editor. Kept as a class rather
+   than removed so a screen that genuinely wants narrower still says so. */
+.admin-main-wide { max-width: 1400px; }
 
 .admin-head {
   display: flex;
@@ -1028,6 +1033,43 @@ textarea[data-grow] { max-height: 60vh; }
    specificity — so declaring `flex` unconditionally would leave all three
    dialogs sitting in the page, open, on first paint. */
 .modal[open] { display: flex; }
+
+/* Stepped down to modeless while the assistant is up — see `src/lib/modal.ts`.
+   A modeless dialog leaves the top layer, so its stack has to be stated: above
+   the page, the tab bar (20) and the route progress (60), below the assistant
+   panel (70) and the toasts (80). `position: fixed` keeps it centred on the
+   viewport rather than on the document. Deliberately no dim: a dimmed page
+   reads as untouchable, and both surfaces stay usable by design. */
+.modal-downgraded[open] {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  z-index: 65;
+}
+
+/* The frozen look behind two coexisting dialogs, on `/admin/projects`.
+   Applied to the page root itself rather than as an overlay: the two dialogs
+   are siblings of it, so no stacking order — however the browser resolves
+   one — can ever dim them by accident. Instant, deliberately: a fade that
+   restarts on every recompute reads as flicker. Set and cleared with the
+   `inert` itself, by that screen's freeze wiring. */
+body[data-asx-freeze] #admin-projects,
+body[data-asx-freeze] .admin-sidebar {
+  filter: brightness(0.55) saturate(0.6);
+}
+
+/* A frozen page must not scroll under two live dialogs; their own inner
+   scrollers are unaffected. Both elements named, as two rules rather than
+   one selector list: some engines scroll the document through `html` no
+   matter what `body` says, and an engine without `:has()` drops a whole
+   rule for one bad selector — taking the `body` half with it. Scoped to
+   the freeze marker, which only the projects screen ever sets. */
+html:has(body[data-asx-freeze]) {
+  overflow: hidden;
+}
+body[data-asx-freeze] {
+  overflow: hidden;
+}
 
 .modal-narrow { width: min(560px, 92vw); }
 
