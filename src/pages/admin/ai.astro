@@ -197,6 +197,14 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
               <span class="text-muted ai-cap">max {SETTINGS_CEILINGS.perDayTotal}</span>
             </div>
             <div class="field">
+              <label for="ai-permin">Answers per minute, site-wide</label>
+              <input class="input" type="number" id="ai-permin" min="1" max={SETTINGS_CEILINGS.perMinuteTotal} />
+              <span class="text-muted ai-cap">
+                the burst limit — keep it under your provider's own requests-per-minute,
+                remembering one question can be two or three requests. Max {SETTINGS_CEILINGS.perMinuteTotal}.
+              </span>
+            </div>
+            <div class="field">
               <label for="ai-maxchars">Question length</label>
               <input class="input" type="number" id="ai-maxchars" min="1" max={SETTINGS_CEILINGS.maxQuestionChars} />
               <span class="text-muted ai-cap">characters, max {SETTINGS_CEILINGS.maxQuestionChars}</span>
@@ -717,6 +725,7 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
       suggestions: $<HTMLTextAreaElement>('ai-suggestions'),
       perIpPerHour: $<HTMLInputElement>('ai-perhour'),
       perDayTotal: $<HTMLInputElement>('ai-perday'),
+      perMinuteTotal: $<HTMLInputElement>('ai-permin'),
       maxQuestionChars: $<HTMLInputElement>('ai-maxchars'),
       maxTurns: $<HTMLInputElement>('ai-maxturns'),
       maxOutputTokens: $<HTMLInputElement>('ai-maxout'),
@@ -747,6 +756,7 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
           .slice(0, 4),
         perIpPerHour: number(settingsFields.perIpPerHour, DEFAULTS.perIpPerHour),
         perDayTotal: number(settingsFields.perDayTotal, DEFAULTS.perDayTotal),
+        perMinuteTotal: number(settingsFields.perMinuteTotal, DEFAULTS.perMinuteTotal),
         maxQuestionChars: number(settingsFields.maxQuestionChars, DEFAULTS.maxQuestionChars),
         maxTurns: number(settingsFields.maxTurns, DEFAULTS.maxTurns),
         maxOutputTokens: number(settingsFields.maxOutputTokens, DEFAULTS.maxOutputTokens),
@@ -765,6 +775,7 @@ import { AUTO_DEFAULTS } from '../../lib/journal-auto';
       settingsFields.suggestions.value = settings.suggestions.join('\n');
       settingsFields.perIpPerHour.value = String(settings.perIpPerHour);
       settingsFields.perDayTotal.value = String(settings.perDayTotal);
+      settingsFields.perMinuteTotal.value = String(settings.perMinuteTotal);
       settingsFields.maxQuestionChars.value = String(settings.maxQuestionChars);
       settingsFields.maxTurns.value = String(settings.maxTurns);
       settingsFields.maxOutputTokens.value = String(settings.maxOutputTokens);

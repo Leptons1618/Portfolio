@@ -119,6 +119,31 @@ export interface AiSettings {
    * shown in a disclosure nobody opens.
    */
   reasoningEffort: ReasoningEffort | null;
+  /**
+   * Questions the whole site may ask a vendor in one minute.
+   *
+   * The other two budgets are per-visitor-per-hour and per-site-per-day, and
+   * between them they have a hole exactly the shape of the thing they exist to
+   * prevent: **a burst from many visitors at once.** Fifteen an hour each stops
+   * one person looping; it does nothing about two hundred people arriving in
+   * the same minute, because each of them is well inside their own budget. The
+   * daily total is site-wide but far too coarse to shape a spike — it is spent
+   * in thirty seconds and the day is over.
+   *
+   * The number that matters is the vendor's. OpenRouter allows **20 requests a
+   * minute** on free models, and one visitor question is not one request: the
+   * first call plus up to `maxRounds` follow-ups, and up to one attempt per
+   * model in `fallback_models` when they start refusing. So the site's own
+   * per-minute ceiling has to sit *below* the vendor's, or a rush turns into a
+   * wall of 429s — which the fallback walk then makes worse by trying every
+   * other model on the same exhausted account.
+   *
+   * Refusing here is strictly better than being refused there. A visitor over
+   * this limit is told to try again in a moment, which is true and costs
+   * nothing; a visitor who gets through to a rate-limited vendor waits for a
+   * walk across every model and is told the assistant is broken.
+   */
+  perMinuteTotal: number;
 }
 
 /**
@@ -152,6 +177,10 @@ const CEILINGS = {
   maxOutputTokens: MAX_OUTPUT_CEILING,
   perIpPerHour: 60,
   perDayTotal: 2000,
+  /* Above any free tier worth naming and still under a small paid one, so the
+     ceiling never becomes the thing stopping a funded account from serving a
+     rush. The *default* below is what protects a free key. */
+  perMinuteTotal: 120,
 } as const;
 
 /** What an unconfigured site behaves like. Off, with sane copy. */
@@ -169,6 +198,11 @@ export const DEFAULTS: AiSettings = {
   maxOutputTokens: 2000,
   perIpPerHour: 15,
   perDayTotal: 300,
+  /* Eight, against a vendor floor of twenty requests a minute: one question
+     can be two or three requests once the tool loop and a fallback are counted,
+     so eight questions is roughly the whole of a free minute and leaves room
+     for the daily job and the author's own drafting to land in the same one. */
+  perMinuteTotal: 8,
   /* See the field's own comment. `low` rather than absent: absent means "send
      nothing", which hands the decision to whatever the vendor defaults to, and
      the vendors that default to anything default to more. */
@@ -212,6 +246,7 @@ export function clampSettings(raw: unknown): AiSettings {
     maxOutputTokens: clampNumber(source.maxOutputTokens, DEFAULTS.maxOutputTokens, CEILINGS.maxOutputTokens),
     perIpPerHour: clampNumber(source.perIpPerHour, DEFAULTS.perIpPerHour, CEILINGS.perIpPerHour),
     perDayTotal: clampNumber(source.perDayTotal, DEFAULTS.perDayTotal, CEILINGS.perDayTotal),
+    perMinuteTotal: clampNumber(source.perMinuteTotal, DEFAULTS.perMinuteTotal, CEILINGS.perMinuteTotal),
     /* `clampEffort` answers `null` for anything that is not one of the three
        levels — which is also how the form says "leave it to the provider row",
        so an empty select and a garbage column land in the same, safe place. */

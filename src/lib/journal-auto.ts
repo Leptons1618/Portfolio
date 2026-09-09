@@ -275,6 +275,50 @@ export function autoInstruction(day: string, settings: AutoJournalSettings): str
       'rather than a second version of it.',
     'Write it as an entry in an ongoing journal, not as an article introducing a topic to ' +
       'strangers. No preamble about why the subject matters.',
+
+    /* ---- the voice ----
+
+       Everything below exists because the default output of "write a journal
+       post" is a competent article by nobody: second person, evergreen tense,
+       adjectives where the facts should be. A journal is written by someone
+       who was there, so the instruction asks for the marks of having been
+       there — first person, past tense, the decision and what it cost. */
+    'Write in the first person, as the author, about work they actually did: "I", past ' +
+      'tense, a specific week. Never address the reader as "you", never write "we" for ' +
+      'work one person did, and never explain the subject the way a tutorial would. The ' +
+      'test for every paragraph is whether someone who was not there could have written ' +
+      'it; if they could, it does not belong.',
+    'Say what was tried, what broke, and what it cost. A post where nothing went wrong ' +
+      'reads as marketing. Name the wrong turn before the fix, and keep the sentence that ' +
+      'admits the first approach was worse.',
+
+    /* ---- the artifacts ----
+
+       Inline code and a fenced block are the two things that most separate a
+       practitioner's entry from generated prose, and this site renders both
+       well: `code-fx.ts` colours fences in the browser, and `.prose code`
+       styles the inline form. Asking for them is cheap and the effect is
+       large. Paired with the anti-invention rule below, because "include a
+       number" is otherwise an instruction to make one up. */
+    'Use inline code for every identifier, filename, flag, command, column, table and ' +
+      'setting you mention — write `getProjects()` and `wrangler deploy` and `body_html`, ' +
+      'never the bare words. Include at least one fenced code block with a language tag: ' +
+      'the actual shape of the thing being described — a query, a config, a function, a ' +
+      'shell session — and keep it under about fifteen lines. Prefer one real block over ' +
+      'three illustrative ones.',
+    'Be specific with figures: counts, sizes, durations, versions, limits. **Every number, ' +
+      'name, date, tool and quotation must come from the reference above.** If you do not ' +
+      'have a real figure for something, write the sentence without one — an invented ' +
+      'benchmark is worse than a vague one, and this is published under the author\'s name.',
+    'Link to the pages this site already has, by path — /projects/example, ' +
+      '/case-studies/example, /journal/example — wherever one is genuinely relevant. Use ' +
+      'the slugs from the index and no others.',
+
+    /* Journals are dated entries, so they are allowed to be unfinished; an
+       article is not. Ending on the open question is the single clearest
+       signal that this is the former. */
+    'End on what is still open — the thing not working yet, the decision not made, what ' +
+      'gets tried next. Not a summary, not a conclusion, and not a call to action.',
   ];
   if (settings.instruction.trim()) parts.push(settings.instruction.trim());
   return parts.join('\n\n');

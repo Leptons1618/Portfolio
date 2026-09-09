@@ -14,6 +14,29 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **The frozen page behind two dialogs now works on every admin screen.** When
+  the assistant opens over a dialog both step down to modeless so both stay
+  usable, which gives away the backdrop and the inertness the top layer was
+  providing. Those were re-applied inside `/admin/projects`, naming that
+  screen's root and its own two dialogs by id — so the **media library** dimmed
+  nothing anywhere, *including on that screen*, because it was not one of the
+  two ids it knew to watch, and every other place the assistant meets a dialog
+  had a panel floating over a bright, fully clickable page. Moved into
+  `syncFreeze()` in `src/lib/modal.ts`, which derives the state instead of
+  tracking it and listens for `close` **in the capture phase** (that event does
+  not bubble), so a dismissal nothing initiated is still correct. Freezes
+  `.admin-main > :not(dialog)` plus the sidebar rail. A leftover `console.info`
+  on every recompute went with it. Decision **59**.
+
+- **`/admin/journal` pages its list.** Rows per page — 10, 25, 50 or all,
+  remembered per browser — with a pager that hides itself whenever everything
+  matching already fits. Paging is applied by the same function as the search
+  and status filters, because two writers to one `row.hidden` is how a row ends
+  up visible on a page it is not on. Every row stays in the DOM: the sort
+  re-appends rows, the drag reads DOM order and Save writes the whole order, so
+  a pager that removed rows would quietly drop every off-screen post out of the
+  saved order.
+
 - **The AI routes no longer overrun the platform's duration limit.** Production
   was serving `Internal server error: 500` on the assistant, intermittently and
   with nothing streamed. Cloudflare's own analytics named it: `exceededResources`
@@ -30,6 +53,19 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   short answer beats a killed worker. Decision **56**.
 
 ### Added
+
+- **A third budget for the public assistant, and a visitor who can see it.**
+  The two existing budgets — per visitor per hour, per site per day — leave a
+  hole shaped like the thing they defend against: two hundred people arriving
+  in the same minute are each well inside their own allowance. The number that
+  binds is the vendor's, and it is per-minute (OpenRouter allows **20 requests
+  a minute** on free models, and one question is two or three requests once the
+  tool loop and a fallback are counted). `perMinuteTotal` is site-wide and
+  checked **before** the daily total, so a spike cannot spend the day in thirty
+  seconds; it refuses with a `Retry-After` in seconds, because this one really
+  does clear that soon. `/api/ai/status` also reports how many questions the
+  visitor has left — read without spending one — and the widget shows it at
+  five or fewer. Decision **58**.
 
 - **The writing assistant can read the code it is writing about.** Three new
   tools on the authoring surface — `list_repo_files`, `read_repo_docs` and
@@ -55,6 +91,16 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   named `-100` is a white margin on cream and a black one on brown.
 
 ### Changed
+
+- **The daily journal writes like a person keeping one.** Its instruction now
+  asks for the marks of having been there: first person and past tense, the
+  wrong turn named before the fix, inline code for every identifier, filename,
+  flag and column, at least one fenced block with a language tag, links to the
+  site's own pages by path, and an ending on what is still open rather than a
+  summary. Paired with a hard anti-invention rule — every number, name, date
+  and quotation must come from the reference — because "include a figure" is
+  otherwise an instruction to make one up, and this publishes under the
+  author's name.
 
 - **The public assistant has a voice, and four more rules.** The scope prompt
   gained a `VOICE` section — warm and dry, wit from specificity rather than

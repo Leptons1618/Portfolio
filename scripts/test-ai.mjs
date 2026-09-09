@@ -72,7 +72,7 @@ const { site } = await load('src/lib/site.ts');
 const { buildCorpus, buildIndex, publicPosts, publicProjects, corpusSize } =
   await load('src/lib/ai-corpus.ts');
 const { TOOL_SPECS, runTool, toolSummary, toolsFor } = await load('src/lib/ai-tools.ts');
-const { boundTurns, scopePrompt, dayStamp, GuardError, screenQuestion, OFF_TOPIC } =
+const { boundTurns, scopePrompt, dayStamp, GuardError, screenQuestion, OFF_TOPIC, charge, remainingFor } =
   await load('src/lib/ai-guard.ts');
 const {
   ASSIST_TASKS,
@@ -3078,6 +3078,107 @@ check('a generated title becomes a slug the write path accepts', () => {
   /* And a very long title is cut without leaving a trailing hyphen, which
      `SLUG` would also refuse. */
   assert.ok(SLUG.test(slugify(`${'word '.repeat(40)}end`)));
+});
+
+/**
+ * `ai_rate`, in memory.
+ *
+ * Three statement shapes are all `charge()` and `remainingFor()` ever issue —
+ * the sweep, the upsert-returning, and a single-bucket read — so the stub
+ * matches on those rather than parsing SQL. Enough to prove the arithmetic;
+ * D1's own behaviour is not what these checks are about.
+ */
+function fakeRateDb() {
+  const rows = new Map();
+  return {
+    rows,
+    prepare(sql) {
+      return {
+        args: [],
+        bind(...args) {
+          this.args = args;
+          return this;
+        },
+        async run() {
+          if (sql.includes('DELETE')) {
+            const [now] = this.args;
+            for (const [key, row] of rows) if (row.expires < now) rows.delete(key);
+          }
+          return { results: [], success: true, meta: { changes: 0, duration: 0, last_row_id: 0 } };
+        },
+        async first() {
+          const [bucket, expires] = this.args;
+          if (sql.includes('INSERT')) {
+            const row = rows.get(bucket) ?? { hits: 0, expires };
+            row.hits += 1;
+            rows.set(bucket, row);
+            return { hits: row.hits };
+          }
+          return rows.has(bucket) ? { hits: rows.get(bucket).hits } : null;
+        },
+        async all() {
+          return { results: [], success: true, meta: { changes: 0, duration: 0, last_row_id: 0 } };
+        },
+      };
+    },
+  };
+}
+
+await checkAsync('a site-wide burst is refused before the vendor refuses it', async () => {
+  /* The hole the other two budgets leave. Per-visitor-per-hour stops one
+     person looping and the daily total is far too coarse to shape a spike, so
+     two hundred visitors each well inside their own budget can arrive in the
+     same minute — and the vendor, which is the one with a per-minute ceiling,
+     is where that lands. Being refused there costs a walk across every model
+     on an exhausted key before anyone is told anything. */
+  const db = fakeRateDb();
+  const limits = { perIpPerHour: 100, perDayTotal: 1000, perMinuteTotal: 3 };
+  const now = Date.parse('2026-09-10T12:00:30Z');
+
+  /* Three different visitors, all inside their own hourly budget. */
+  const verdicts = [];
+  for (let i = 0; i < 5; i += 1) {
+    verdicts.push(await charge(db, `visitor-${i}`, limits, now));
+  }
+  assert.deepEqual(
+    verdicts.map(v => v.ok),
+    [true, true, true, false, false],
+    'the fourth question in one minute is refused however many people asked it',
+  );
+  assert.match(verdicts[3].reason, /a lot of questions right now/i);
+  /* Seconds, not hours: unlike the other two this really does clear that soon. */
+  assert.ok(verdicts[3].retryAfterSeconds > 0 && verdicts[3].retryAfterSeconds <= 60);
+
+  /* Checked *before* the day, so a burst cannot spend the day's allowance in
+     thirty seconds: three got through and only those three were counted. */
+  assert.equal(
+    db.rows.get(`day:${dayStamp(now)}`)?.hits ?? 0,
+    3,
+    'refused bursts never reach the daily counter',
+  );
+
+  /* The next minute is a fresh bucket — and does count against the day. */
+  const later = await charge(db, 'visitor-9', limits, now + 60_000);
+  assert.equal(later.ok, true);
+  assert.equal(db.rows.get(`day:${dayStamp(now)}`)?.hits ?? 0, 4);
+});
+
+await checkAsync('a visitor can be told what is left without spending it', async () => {
+  const db = fakeRateDb();
+  const limits = { perIpPerHour: 5, perDayTotal: 1000, perMinuteTotal: 100 };
+  const now = Date.parse('2026-09-10T12:00:30Z');
+
+  assert.equal(await remainingFor(db, 'someone', limits, now), 5);
+  await charge(db, 'someone', limits, now);
+  await charge(db, 'someone', limits, now);
+  assert.equal(await remainingFor(db, 'someone', limits, now), 3);
+
+  /* Reading it is free — the panel asks on open and must not cost a question. */
+  assert.equal(await remainingFor(db, 'someone', limits, now), 3);
+
+  /* The smaller budget wins, and it never reads below zero. */
+  const tight = { perIpPerHour: 5, perDayTotal: 1, perMinuteTotal: 100 };
+  assert.equal(await remainingFor(db, 'someone', tight, now), 0);
 });
 
 check('the repository tools can only reach the owner’s own code', () => {

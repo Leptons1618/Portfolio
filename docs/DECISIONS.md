@@ -1345,3 +1345,35 @@ A case study is a description of software, and the authoring assistant had no ac
 
 Decision 31 refused a tool loop on the grounds that a model choosing **actions** turns the endpoint into a general-purpose agent on the owner's key. That still holds. Every endpoint here is a `GET`, no argument becomes a path without going through `safePath()`'s per-segment allowlist, and a stolen admin session buys a model that can read repositories the same session could already read with `curl`.
 
+## 58. A burst is a third budget, and the vendor's minute is the one that binds
+
+The public assistant had two budgets: questions per visitor per hour, and answers per day site-wide. Between them they leave a hole shaped exactly like the thing they exist to prevent — **many visitors at once**. Fifteen an hour each stops one person looping and does nothing about two hundred people arriving in the same minute, because every one of them is comfortably inside their own allowance. The daily total is site-wide but far too coarse to shape a spike: it is spent in thirty seconds and then the day is over for everyone.
+
+The number that actually binds is the vendor's, and it is a per-minute one. This site answers on OpenRouter's free models, which allow **20 requests per minute** and — depending on lifetime credits purchased — **50 or 1000 per day**. Two things follow, and both were wrong here:
+
+- **The site's daily budget was set above the vendor's.** `perDayTotal` was 1300 against a vendor ceiling of at most 1000. A budget that cannot be spent is not a budget.
+- **One question is not one request.** The first call, plus up to `maxRounds` follow-ups when the model looks something up, plus one attempt per entry in `fallback_models` once they start refusing. So the site's own per-minute ceiling has to sit *below* the vendor's with room to spare.
+
+`perMinuteTotal` is that third budget: site-wide, checked after the per-visitor hour and **before** the daily total, so a spike cannot spend the day's allowance in thirty seconds. It refuses with a `Retry-After` measured in seconds, because unlike the other two this one really does clear that soon.
+
+Refusing here is strictly better than being refused there. A visitor over this limit is told to try again in a moment — true, instant, and free. A visitor who gets through to a rate-limited vendor waits out a walk across every model on the same exhausted account and is then told the assistant is broken, which is the failure decision 56 was also cleaning up after.
+
+**The fallback list is not resilience against this.** Every model in it is `:free` on one account, and OpenRouter governs capacity per account rather than per key — so when the cap is hit, all five refuse identically and the walk buys nothing but latency. Fallbacks defend against *one model* being down or retired. Defending against the account's own ceiling needs a second provider row on a different footing, and that is a decision about money rather than about code.
+
+**What a visitor is told.** `/api/ai/status` now reports `remaining` — read through `remainingFor()`, which touches the same two buckets `charge()` writes and increments neither, because asking how many questions are left must not cost one. The widget shows it only at five or fewer: a counter on every question reads as a meter running down, which is not what a portfolio wants. That number is also why the endpoint's `Cache-Control` went from `public, max-age=300` to `private, max-age=30` — a shared cache would hand one reader another reader's count.
+
+## 59. The page behind two dialogs is `modal.ts`'s business, not a screen's
+
+Decision-adjacent to 26 and to `modal.ts`'s own header: when the assistant opens over a dialog, both step down to modeless so both stay usable, and stepping out of the top layer gives away the backdrop and the inertness that came with it. Those have to be re-applied, and the question is *where*.
+
+They were re-applied inside `/admin/projects`, naming that screen's own root and its own two dialogs by id. That worked on that screen, for those two dialogs, and nowhere else:
+
+- the **media library** opens from the journal and project editors, and from the projects screen itself — and on none of them did it dim anything, including on the very screen that had the wiring, because it was not one of the two ids that screen knew to watch;
+- every other place the assistant coexists with a dialog got a modeless panel floating over a page that stayed bright and fully clickable.
+
+It also shipped a `console.info` on every recompute.
+
+The state being described — which dialogs are open, and whether the assistant is up — is `modal.ts`'s, so the description belongs beside it, and then there is exactly one of it. `syncFreeze()` derives the frozen state rather than tracking it (two dialogs and a panel produce more orderings than a counter survives) and is called from every transition plus a **capture-phase `close` listener on `document`** — capture, because `close` does not bubble, and that listener is what makes a dismissal nothing here initiated (the X, a backdrop click, Escape) still correct.
+
+What is frozen is `.admin-main > :not(dialog)` plus the sidebar rail. Every dialog on the admin, the assistant included, is a direct child of that region, which is what lets `:not(dialog)` replace a list of ids — and the rail is named separately because it lives outside the main region and persists across page swaps, so it would otherwise stay bright and clickable beside a dimmed page.
+

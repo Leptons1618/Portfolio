@@ -526,6 +526,7 @@ export interface RateVerdict {
   retryAfterSeconds?: number;
 }
 
+const MINUTE_MS = 60_000;
 const HOUR_MS = 3_600_000;
 const DAY_MS = 86_400_000;
 
@@ -550,7 +551,7 @@ const DAY_MS = 86_400_000;
 export async function charge(
   db: D1Database,
   caller: string,
-  limits: { perIpPerHour: number; perDayTotal: number },
+  limits: { perIpPerHour: number; perDayTotal: number; perMinuteTotal?: number },
   now = Date.now(),
   /**
    * `countsAgainstDay: false` meters the caller without spending the site's
@@ -593,6 +594,28 @@ export async function charge(
 
   if (!countsAgainstDay) return { ok: true };
 
+  /* The site-wide minute, between the per-visitor hour and the per-site day.
+     Those two have a hole exactly the shape of what they exist to prevent: a
+     hundred visitors each well inside their own hourly budget, arriving in the
+     same minute, is a burst neither one sees. The vendor does — it is the one
+     with a per-minute ceiling — and being refused *there* costs a walk across
+     every model on an exhausted key before anyone is told anything.
+
+     Checked before the day so a spike cannot spend the day's allowance in
+     thirty seconds, and refused with a `Retry-After` measured in seconds,
+     because unlike the other two this one really does clear that soon. */
+  if (limits.perMinuteTotal && limits.perMinuteTotal > 0) {
+    const minuteStart = Math.floor(now / MINUTE_MS) * MINUTE_MS;
+    const burst = await bump(`min:${minuteStart}`, minuteStart + MINUTE_MS);
+    if (burst > limits.perMinuteTotal) {
+      return {
+        ok: false,
+        reason: 'The assistant is answering a lot of questions right now. Try again in a moment.',
+        retryAfterSeconds: Math.max(1, Math.ceil((minuteStart + MINUTE_MS - now) / 1000)),
+      };
+    }
+  }
+
   const total = await bump(`day:${day}`, Date.parse(`${day}T00:00:00Z`) + DAY_MS);
   if (total > limits.perDayTotal) {
     return {
@@ -605,6 +628,41 @@ export async function charge(
   }
 
   return { ok: true };
+}
+
+/**
+ * What this caller has left, without spending any of it.
+ *
+ * Reads the same two buckets `charge()` writes, and increments neither — it is
+ * called from `/api/ai/status`, which a visitor hits on opening the panel and
+ * which must not cost them a question to look at.
+ *
+ * Both numbers are floored at zero and the smaller wins, because a visitor does
+ * not care *which* budget ran out; they care how many they have. The day's
+ * figure is deliberately not reported on its own — see `charge()`'s refusal
+ * copy for why the site's daily total is not a visitor's business.
+ */
+export async function remainingFor(
+  db: D1Database,
+  caller: string,
+  limits: { perIpPerHour: number; perDayTotal: number },
+  now = Date.now(),
+): Promise<number> {
+  const hourStart = Math.floor(now / HOUR_MS) * HOUR_MS;
+  const day = dayStamp(now);
+
+  const [mine, site] = await Promise.all([
+    db
+      .prepare('SELECT hits FROM ai_rate WHERE bucket = ?')
+      .bind(`ip:${caller}:${hourStart}`)
+      .first<{ hits: number }>(),
+    db.prepare('SELECT hits FROM ai_rate WHERE bucket = ?').bind(`day:${day}`).first<{ hits: number }>(),
+  ]);
+
+  return Math.max(
+    0,
+    Math.min(limits.perIpPerHour - (mine?.hits ?? 0), limits.perDayTotal - (site?.hits ?? 0)),
+  );
 }
 
 /** What the admin's usage panel shows: today's total and the busiest callers. */

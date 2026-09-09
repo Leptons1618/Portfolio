@@ -1047,13 +1047,16 @@ textarea[data-grow] { max-height: 60vh; }
   z-index: 65;
 }
 
-/* The frozen look behind two coexisting dialogs, on `/admin/projects`.
-   Applied to the page root itself rather than as an overlay: the two dialogs
-   are siblings of it, so no stacking order — however the browser resolves
-   one — can ever dim them by accident. Instant, deliberately: a fade that
+/* The frozen look behind two coexisting dialogs, on every admin screen.
+   Applied to the page's own content rather than as an overlay: every dialog
+   here is a sibling of it, so no stacking order — however the browser
+   resolves one — can ever dim one by accident, and `:not(dialog)` is the
+   whole rule rather than a list of ids. Instant, deliberately: a fade that
    restarts on every recompute reads as flicker. Set and cleared with the
-   `inert` itself, by that screen's freeze wiring. */
-body[data-asx-freeze] #admin-projects,
+   `inert` itself, by `syncFreeze()` in `src/lib/modal.ts` — which is where
+   it lives now, rather than in one screen's script, because the same
+   coexistence happens on `/admin/ai` and wherever the media library opens. */
+body[data-asx-freeze] .admin-main > :not(dialog),
 body[data-asx-freeze] .admin-sidebar {
   filter: brightness(0.55) saturate(0.6);
 }
@@ -1063,7 +1066,7 @@ body[data-asx-freeze] .admin-sidebar {
    one selector list: some engines scroll the document through `html` no
    matter what `body` says, and an engine without `:has()` drops a whole
    rule for one bad selector — taking the `body` half with it. Scoped to
-   the freeze marker, which only the projects screen ever sets. */
+   the freeze marker, which `syncFreeze()` sets on any admin screen. */
 html:has(body[data-asx-freeze]) {
   overflow: hidden;
 }
