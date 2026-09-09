@@ -70,7 +70,19 @@
     }
   ],
 
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+
+  // Optional Headroom compression proxy (headroomlabs-ai/headroom, TypeScript
+  // SDK). Unset or blank means the AI routes skip compression entirely — see
+  // `src/lib/headroom.ts`. For local work, `headroom proxy --port 8787` and
+  // `HEADROOM_BASE_URL=http://localhost:8787` in `.dev.vars` (gitignored);
+  // `wrangler dev` reads that file, deploys read this block. A deployed Worker
+  // cannot reach a loopback proxy, so production only sets this when it points
+  // at a reachable proxy started with `HEADROOM_COMPRESS_ALLOW_REMOTE=1`.
+  // When it is wrong or down, calls still answer — just uncompressed.
+  "vars": {
+    "HEADROOM_BASE_URL": ""
+  }
 
   // There is deliberately no setting here disabling `wrangler types`. There
   // isn't one to set: `dev.types.includeRuntime` used to sit at this spot and

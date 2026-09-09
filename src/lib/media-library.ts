@@ -33,6 +33,7 @@
  */
 
 import { getToken } from './github';
+import { isDowngradeTransit, showAdminModal } from './modal';
 
 export interface MediaItem {
   path: string;
@@ -339,6 +340,9 @@ function build(): Library {
      `finish()` — so the promise is settled from `close` rather than from each
      button, and every dismissal resolves exactly once. */
   dialog.addEventListener('close', () => {
+    /* A step down to modeless (or back up) while the assistant is up is not
+       a dismissal — the pick is still pending. See `src/lib/modal.ts`. */
+    if (isDowngradeTransit(dialog)) return;
     resolveOpen?.(null);
     resolveOpen = null;
   });
@@ -382,7 +386,7 @@ export function openMediaLibrary(options: MediaLibraryOptions = {}): Promise<str
     resolveOpen = resolve;
   });
 
-  library.dialog.showModal();
+  showAdminModal(library.dialog);
   void load();
 
   return promise;

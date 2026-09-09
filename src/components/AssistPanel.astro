@@ -46,7 +46,9 @@ const { surface, sub } = Astro.props;
 ---
 
 {/* `show()` rather than `showModal()` — the editor behind this stays visible
-    and usable, because watching the fields fill is the point. `data-surface` is
+    and usable, because watching the fields fill is the point. Always modeless,
+    so it never makes another admin dialog inert — `src/lib/modal.ts` steps any
+    open modal down while this is up. `data-surface` is
     what the script reads to know which commands to offer. */}
 <dialog class="asx" id="assist-dialog" aria-label="Writing assistant" data-surface={surface} data-dock="right">
   {/* `data-drag` marks the part of the header that moves the panel: the copy,
@@ -135,6 +137,15 @@ const { surface, sub } = Astro.props;
       <select class="input is-auto" id="assist-tools" aria-label="Content lookups">
         <option value="on">On</option>
         <option value="off">Off</option>
+      </select>
+    </label>
+    {/* Jump straight to a past thread without opening the drawer: same rows,
+        one press. Rebuilt from the drawer listing plus the thread just
+        started, so it never needs its own request. */}
+    <label class="asx-tool">
+      <span class="asx-tool-label">Chat</span>
+      <select class="input is-auto" id="assist-chat" aria-label="Past conversations">
+        <option value="">Past conversations…</option>
       </select>
     </label>
   </div>

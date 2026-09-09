@@ -117,6 +117,23 @@ const {
   topicFor,
 } = await load('src/lib/journal-auto.ts');
 const { SLUG } = await load('src/lib/content-schema.ts');
+const { sameToolLinkage } = await load('src/lib/headroom.ts');
+const {
+  ASK_CHATS_KEY,
+  MAX_CHATS,
+  MAX_TURNS,
+  ago,
+  fileTurns,
+  forgetChat,
+  newChatId,
+  readChats,
+  readCurrent,
+  rememberCurrent,
+  sanitizeChats,
+  titleFor,
+  upsertChat,
+  writeChats,
+} = await load('src/lib/ask-history.ts');
 
 let checks = 0;
 function check(name, run) {
@@ -2984,6 +3001,185 @@ check('a generated title becomes a slug the write path accepts', () => {
   /* And a very long title is cut without leaving a trailing hyphen, which
      `SLUG` would also refuse. */
   assert.ok(SLUG.test(slugify(`${'word '.repeat(40)}end`)));
+});
+
+check('a compressed round keeps the tool bookkeeping or is refused', () => {  /* `agentStream()` only accepts a Headroom result that is the same
+     conversation structurally — a transform that dropped, merged or
+     reordered turns would orphan a `tool_calls` against its `tool` answers,
+     which the vendor refuses as a 400 rather than answering short. */
+  const sys = { role: 'system', content: 'rules' };
+  const user = { role: 'user', content: 'write it' };
+  const asked = {
+    role: 'assistant',
+    content: '',
+    tool_calls: [
+      { id: 'c1', type: 'function', function: { name: 'read_post', arguments: '{"slug":"x"}' } },
+    ],
+  };
+  const answered = { role: 'tool', tool_call_id: 'c1', name: 'read_post', content: 'the post' };
+  const thread = [sys, user, asked, answered];
+
+  /* Shrunk content is the same conversation. */
+  const shrunk = thread.map(m => ({
+    ...m,
+    content: typeof m.content === 'string' ? m.content.slice(0, 2) : m.content,
+  }));
+  assert.ok(sameToolLinkage(thread, shrunk));
+
+  /* A dropped turn, a reordered pair, or a rewritten call id is not. */
+  assert.ok(!sameToolLinkage(thread, thread.slice(0, 3)));
+  assert.ok(!sameToolLinkage(thread, [sys, asked, user, answered]));
+  assert.ok(
+    !sameToolLinkage(thread, [
+      sys,
+      user,
+      {
+        ...asked,
+        tool_calls: [{ id: 'c9', type: 'function', function: { name: 'read_post', arguments: '{}' } }],
+      },
+      answered,
+    ]),
+  );
+
+  /* Re-serialised arguments are still the same call. */
+  assert.ok(
+    sameToolLinkage(thread, [
+      sys,
+      user,
+      {
+        ...asked,
+        tool_calls: [
+          { id: 'c1', type: 'function', function: { name: 'read_post', arguments: '{ "slug": "x" }' } },
+        ],
+      },
+      answered,
+    ]),
+  );
+});
+
+check('browser history keeps threads, caps them, and forgets garbage', () => {
+  /* The public widget has no authenticated caller to file transcripts under,
+     so the browser shelf in `ask-history.ts` is the whole of its memory —
+     and the bytes are the visitor's own to corrupt. */
+  const backing = new Map();
+  const store = {
+    getItem: key => backing.get(key) ?? null,
+    setItem: (key, value) => {
+      backing.set(key, value);
+    },
+    removeItem: key => {
+      backing.delete(key);
+    },
+  };
+
+  /* Garbage in, empty list out — never a throw. */
+  assert.deepEqual(readChats(store), []);
+  store.setItem(ASK_CHATS_KEY, 'not json{');
+  assert.deepEqual(readChats(store), []);
+  store.setItem(ASK_CHATS_KEY, JSON.stringify({ chats: [] }));
+  assert.deepEqual(readChats(store), []);
+  store.setItem(
+    ASK_CHATS_KEY,
+    JSON.stringify([
+      null,
+      { id: 42, turns: 'nope' },
+      { id: 'empty', title: 'Empty', updatedAt: 3, turns: [] },
+      {
+        id: 'good',
+        title: 'Good',
+        updatedAt: 7,
+        turns: [
+          { role: 'user', content: 'hi' },
+          { role: 'assistant', content: 'hello' },
+          { role: 'system', content: 'smuggled' },
+          null,
+        ],
+      },
+    ]),
+  );
+  const cleaned = readChats(store);
+  assert.equal(cleaned.length, 1);
+  assert.equal(cleaned[0].id, 'good');
+  /* The smuggled system turn and the null are gone, not stored. */
+  assert.deepEqual(
+    cleaned[0].turns.map(turn => turn.role),
+    ['user', 'assistant'],
+  );
+
+  /* Filing puts the thread first, keeps the cap, and forgets one id. */
+  const many = Array.from({ length: MAX_CHATS + 5 }, (_, i) => ({
+    id: `c${i}`,
+    title: `C${i}`,
+    updatedAt: i,
+    turns: [{ role: 'user', content: 'q' }],
+  }));
+  const filed = upsertChat(many.slice(0, MAX_CHATS), {
+    id: 'new',
+    title: 'New',
+    updatedAt: 999,
+    turns: [{ role: 'user', content: 'q' }],
+  });
+  assert.equal(filed.length, MAX_CHATS);
+  assert.equal(filed[0].id, 'new');
+  assert.ok(!filed.some(chat => chat.id === 'c19'));
+  /* Re-filing an old thread moves it, without duplicating it. */
+  const moved = upsertChat(filed, { ...filed[filed.length - 1], updatedAt: 1000 });
+  assert.equal(moved[0].id, filed[filed.length - 1].id);
+  assert.equal(moved.filter(chat => chat.id === moved[0].id).length, 1);
+  assert.deepEqual(
+    forgetChat(moved, moved[0].id).some(chat => chat.id === moved[0].id),
+    false,
+  );
+
+  /* Turns and characters are cut to what the shelf keeps. */
+  const long = Array.from({ length: MAX_TURNS + 10 }, (_, i) => ({
+    role: i % 2 ? 'assistant' : 'user',
+    content: `turn ${i} ` + 'x'.repeat(5000),
+  }));
+  const kept = fileTurns(long);
+  assert.equal(kept.length, MAX_TURNS);
+  assert.ok(kept.every(turn => turn.content.length <= 4000));
+  assert.ok(kept[0].content.startsWith('turn 10'));
+
+  /* The open-thread pointer round-trips, and titles fall back honestly. */
+  assert.equal(readCurrent(store), null);
+  rememberCurrent(store, 'good');
+  assert.equal(readCurrent(store), 'good');
+  rememberCurrent(store, null);
+  assert.equal(readCurrent(store), null);
+  assert.equal(titleFor([{ role: 'user', content: '  what is this?  ' }]), 'what is this?');
+  assert.equal(titleFor([{ role: 'assistant', content: 'no question' }]), 'Conversation');
+  assert.equal(titleFor([], 'Kept'), 'Kept');
+
+  /* Ids are lowercase and distinct; ages read at a glance. */
+  const a = newChatId();
+  const b = newChatId();
+  assert.ok(a.length > 0 && a === a.toLowerCase() && a !== b);
+  const now = Date.now();
+  assert.equal(ago(0, now), '');
+  assert.equal(ago(now - 20_000, now), 'just now');
+  assert.equal(ago(now - 5 * 60_000, now), '5m ago');
+  assert.equal(ago(now - 3 * 3_600_000, now), '3h ago');
+  assert.equal(ago(now - 3 * 86_400_000, now), '3d ago');
+
+  /* A denied shelf reads as empty and writes into the void, not a throw —
+     which is what makes storage a degradation rather than a dependency. */
+  const denied = {
+    getItem: () => {
+      throw new Error('denied');
+    },
+    setItem: () => {
+      throw new Error('denied');
+    },
+    removeItem: () => {
+      throw new Error('denied');
+    },
+  };
+  assert.deepEqual(readChats(denied), []);
+  assert.equal(readCurrent(denied), null);
+  writeChats(denied, cleaned);
+  rememberCurrent(denied, 'x');
+  rememberCurrent(denied, null);
 });
 
 process.stdout.write(`\nai: ${checks} checks passed\n`);

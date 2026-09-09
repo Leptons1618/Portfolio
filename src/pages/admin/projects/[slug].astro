@@ -435,8 +435,10 @@ const STATUS_VARIANT: Record<string, string> = {
     setBusy,
     setLabel,
     toast,
+    trackDirty,
     undoRing,
     wireTabs,
+    type DirtyField,
     type UndoEntry,
   } from '../../../lib/admin';
   import { copyText } from '../../../lib/clipboard';
@@ -614,12 +616,24 @@ const STATUS_VARIANT: Record<string, string> = {
     attachImageUpload(project.hero, { dir: 'images/projects', name: () => `${seed.slug}-hero` });
 
     fillProject(seed.project);
+
     $<HTMLButtonElement>('pf-reset').addEventListener('click', () => {
       fillProject(seed.project);
+      projectDirty.reset();
       say(pageMessage, 'Reverted to what is saved.');
     });
 
     const saveProject = $<HTMLButtonElement>('pf-save');
+
+    /* Save stays disabled until the form differs from the last save — a
+       save that can only repeat the stored row wastes a request to say
+       nothing changed. Reset after every fill and every good save; checked
+       after every assistant write, whose assignments fire no events. */
+    const projectDirty = trackDirty(
+      () => Object.values(project) as DirtyField[],
+      saveProject,
+      'No changes to save yet.',
+    );
     saveProject.addEventListener('click', async () => {
       if (!signedIn) return say(pageMessage, 'Sign in with GitHub to save.', 'error');
 
@@ -629,6 +643,7 @@ const STATUS_VARIANT: Record<string, string> = {
       setBusy(saveProject, true, 'Saving…');
       say(pageMessage, 'Saving…');
       const pending = toast('Saving the project…', { tone: 'pending' });
+      let saved = false;
       try {
         /* `hidden` and `caseStudySlug` are deliberately not in this patch: the
            first belongs to the switch above, the second to the section below.
@@ -641,12 +656,16 @@ const STATUS_VARIANT: Record<string, string> = {
           action: { label: 'view live ↗', href: result.url },
         });
         seed.project = { ...fields, hidden: seed.project.hidden, caseStudySlug: seed.project.caseStudySlug };
+        saved = true;
       } catch (error) {
         say(pageMessage, message(error), 'error');
         pending.update(message(error), { tone: 'error' });
       } finally {
         setBusy(saveProject, false);
       }
+      /* After the busy restore, so the fresh snapshot paints rather than the
+         stashed pre-save state. Failures keep their dirt. */
+      if (saved) projectDirty.reset();
     });
 
     // ----------------------------------------------------------- visibility
@@ -787,6 +806,12 @@ const STATUS_VARIANT: Record<string, string> = {
       window.location.reload();
     }
 
+    /* The assistant section below needs a way to mark this half dirty when
+       it streams into it, but `study` only exists inside the linked branch —
+       so the branch publishes a notifier the panel calls without knowing
+       which half it is. */
+    let notifyStudyWrite: (() => void) | null = null;
+
     if (linkedSlug) {
       const study = {
         title: $<HTMLInputElement>('cs-title'),
@@ -832,10 +857,19 @@ const STATUS_VARIANT: Record<string, string> = {
       fillCaseStudy(seed.caseStudy!.data, seed.caseStudy!.body);
       $<HTMLButtonElement>('cs-reset').addEventListener('click', () => {
         fillCaseStudy(seed.caseStudy!.data, seed.caseStudy!.body);
+        studyDirty.reset();
         say(csMessage, 'Reverted to what is saved.');
       });
 
       const saveStudy = $<HTMLButtonElement>('cs-save');
+
+      /* Same contract as the frontmatter half: disabled until different. */
+      const studyDirty = trackDirty(
+        () => Object.values(study) as DirtyField[],
+        saveStudy,
+        'No changes to save yet.',
+      );
+      notifyStudyWrite = () => studyDirty.check();
       saveStudy.addEventListener('click', async () => {
         if (!signedIn) return say(csMessage, 'Sign in with GitHub to save.', 'error');
 
@@ -875,6 +909,7 @@ const STATUS_VARIANT: Record<string, string> = {
         setBusy(saveStudy, true, 'Saving…');
         say(csMessage, 'Saving…');
         const pending = toast('Saving the case study…', { tone: 'pending' });
+        let studyDirtySaved = false;
         try {
           const changes: Partial<CaseStudyFields> = {
             title,
@@ -902,12 +937,14 @@ const STATUS_VARIANT: Record<string, string> = {
             action: { label: 'view live ↗', href: result.url },
           });
           seed.caseStudy = { slug: linkedSlug, data: { ...seed.caseStudy!.data, ...changes }, body };
+          studyDirtySaved = true;
         } catch (error) {
           say(csMessage, message(error), 'error');
           pending.update(message(error), { tone: 'error' });
         } finally {
           setBusy(saveStudy, false);
         }
+        if (studyDirtySaved) studyDirty.reset();
       });
 
       const unlink = $<HTMLButtonElement>('cs-unlink');
@@ -1124,6 +1161,11 @@ const STATUS_VARIANT: Record<string, string> = {
 
         input.value = value;
       }
+
+    /* Programmatic writes fire no events, so a streamed run would leave both
+       Save buttons disabled without this. */
+    projectDirty.check();
+    notifyStudyWrite?.();
     }
 
     /** A short, honest description of how far a run has got, from the shape. */
@@ -1197,6 +1239,10 @@ const STATUS_VARIANT: Record<string, string> = {
         const input = inputs[key];
         if (input) input.value = value;
       }
+      /* A restore is a write like any other — re-check rather than assuming
+         the snapshot it restored was clean. */
+      projectDirty.check();
+      notifyStudyWrite?.();
 
       const left = undos.depth;
       panel.say(

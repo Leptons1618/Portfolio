@@ -389,6 +389,9 @@ const seed = {
       localStorage.setItem(KEY, JSON.stringify(state));
       $('resume-stamp').textContent =
         `[ status: editing // draft saved ${new Date().toLocaleTimeString()} ]`;
+      /* Every mutation on this screen funnels through here, so the commit
+         button is re-checked here rather than in each of them. */
+      paintResumeSave();
     }
 
     /* ---------- small builders, shared by both panels ---------- */
@@ -1323,6 +1326,19 @@ const seed = {
       commitBtn.title = 'Sign in with GitHub to save.';
     }
 
+    /* Save stays disabled until `state` differs from the last save. Guarded
+       on a session: signed out, the button above already says why it does
+       nothing. Reset by re-snapshotting after every good save. */
+    let savedState = JSON.stringify(state);
+    function paintResumeSave(): void {
+      if (!signedIn || commitBtn.hasAttribute('aria-busy')) return;
+      const dirty = JSON.stringify(state) !== savedState;
+      commitBtn.disabled = !dirty;
+      if (dirty) commitBtn.removeAttribute('title');
+      else commitBtn.title = 'No changes to save yet.';
+    }
+    paintResumeSave();
+
     commitBtn.addEventListener('click', async () => {
       setBusy(commitBtn, true, 'Saving…');
       stamp.textContent = '[ status: saving documents/resume ]';
@@ -1331,6 +1347,7 @@ const seed = {
       try {
         syncVariantIds();
         const { url } = await saveResume(state);
+        savedState = JSON.stringify(state);
 
         const link = document.createElement('a');
         link.href = url;
@@ -1349,6 +1366,9 @@ const seed = {
       } finally {
         setBusy(commitBtn, false);
       }
+      /* After the busy restore, so the fresh snapshot paints. Failures keep
+         their dirt. */
+      paintResumeSave();
     });
 
     /* ---------- the assistant ---------- */
@@ -1746,10 +1766,9 @@ const seed = {
 
 <style>
   /* Capped and centred, once, around the whole screen — at the same width the
-     other editors use (`.admin-main-wide`). It used to sit at `--wrap-mid`
-     (900px), a prose measure, so this screen was visibly narrower than the
-     journal editor beside it. */
-  .re-wrap { max-width: 1240px; margin-inline: auto; }
+     other editors use (`.admin-main-wide`), which is the shell's own measure,
+     so no screen is visibly thinner than the dashboard beside it. */
+  .re-wrap { max-width: 1400px; margin-inline: auto; }
 
   .editor-col { display: flex; flex-direction: column; gap: var(--space-4); }
   .re-hint { margin: 0 0 var(--space-1); }

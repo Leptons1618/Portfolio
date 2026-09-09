@@ -58,6 +58,9 @@ const firstName = site.name.split(' ')[0];
         <p class="ask-sub">Answers come from this site's own pages.</p>
       </div>
       <div class="ask-head-actions">
+        <button type="button" class="ask-icon-btn tap-target" id="ask-history" aria-label="Past conversations" title="Past conversations">
+          <Icon name="lucide:history" class="ask-icon" />
+        </button>
         <button type="button" class="ask-icon-btn tap-target" id="ask-new" aria-label="New chat" title="New chat">
           <Icon name="lucide:message-square-plus" class="ask-icon" />
         </button>
@@ -66,6 +69,21 @@ const firstName = site.name.split(' ')[0];
         </button>
       </div>
     </header>
+
+    {/* Past conversations, kept in this browser and nowhere else. An overlay
+        over the log rather than a second panel: the list is a pause in the
+        conversation, not a place. Built rows land here from script, so the
+        rules live in the widget stylesheet with everything else script-built. */}
+    <div class="ask-history" id="ask-history-view" hidden>
+      <div class="ask-history-head">
+        <p class="ask-history-title">Past conversations</p>
+        <button type="button" class="ask-icon-btn tap-target" id="ask-history-close" aria-label="Back to chat" title="Back to chat">
+          <Icon name="lucide:x" class="ask-icon" />
+        </button>
+      </div>
+      <p class="ask-history-note">Kept only in this browser — clearing site data forgets them.</p>
+      <div class="ask-history-list" id="ask-history-list"></div>
+    </div>
 
     {/* `aria-live="polite"` rather than `assertive`: an answer arriving is
         worth announcing, and interrupting whatever a screen reader is in the

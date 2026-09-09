@@ -326,7 +326,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
 <script>
   import { navigate } from 'astro:transitions/client';
-  import { ADMIN_KEYS, onAdminPage, setBusy, toast, undoRing, wireTabs } from '../lib/admin';
+  import { ADMIN_KEYS, onAdminPage, setBusy, toast, trackDirty, undoRing, wireTabs, type DirtyField } from '../lib/admin';
   import {
     buildPostMarkdown,
     createPost,
@@ -608,12 +608,14 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       const saved = readSnapshot();
       if (saved) applySnapshot(saved as Record<string, any>);
       restoreBar.hidden = true;
+      journalDirty?.check();
       toast('Unsaved changes restored. Save to put them on the site.', { tone: 'info' });
     });
 
     $<HTMLButtonElement>('je-restore-discard').addEventListener('click', () => {
       localStorage.removeItem(KEY);
       restoreBar.hidden = true;
+      journalDirty?.check();
       toast('Held changes discarded. The screen is on what is saved.', { tone: 'info' });
     });
 
@@ -622,6 +624,11 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
        left. Debounced: this runs per keystroke over a whole post body. */
     let autosave: ReturnType<typeof setTimeout>;
     function holdLocally() {
+      /* Every write path funnels through here — keystrokes, assistant
+         streams, Insert applies, undos — and the programmatic ones fire no
+         events, so the commit buttons are re-checked here rather than in
+         each of them. */
+      journalDirty?.check();
       clearTimeout(autosave);
       autosave = setTimeout(() => {
         /* Nothing typed is not work to protect, and writing it would make the
@@ -655,6 +662,9 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         body.setRangeText(wrapped, start, end, 'end');
         body.focus();
         render();
+        /* `setRangeText` fires no event — the one write path that skips
+           `holdLocally()`, so it checks directly. */
+        journalDirty?.check();
       });
     });
 
@@ -699,6 +709,18 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         button.title = 'Sign in with GitHub to save.';
       }
     }
+
+    /* Both commit buttons stay disabled until the draft differs from the
+       saved row. Guarded on a session: signed out, the buttons above already
+       say why they do nothing, and this must not re-enable them. Reset after
+       every good save; the re-checks ride along in `holdLocally()`. */
+    const journalDirty = getToken()
+      ? trackDirty(
+          () => [...Object.values(fields), ...statusInputs] as DirtyField[],
+          [commitBtn, draftBtn],
+          'No changes to save yet.',
+        )
+      : null;
 
     /**
      * The three columns `journal` declares NOT NULL, checked before the round
@@ -787,6 +809,9 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
           link.textContent = 'view live ↗';
           stamp.replaceChildren(document.createTextNode('Saved — '), link);
           setBusy(button, false);
+          /* The row is the form now. After the busy restore, for the same
+             reason as everywhere else a save repaints. */
+          journalDirty?.reset();
           return;
         }
 

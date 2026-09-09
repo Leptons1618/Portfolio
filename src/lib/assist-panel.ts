@@ -40,6 +40,7 @@
  */
 
 import { setLabel, toast } from './admin';
+import { downgradeOpenModals, restoreDowngradedModals } from './modal';
 import {
   appendMessage,
   compactChat,
@@ -182,6 +183,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
   const stopBtn = $<HTMLButtonElement>('assist-stop');
   const sessions = $('assist-sessions');
   const sessionList = $('assist-session-list');
+  const chatPick = $<HTMLSelectElement>('assist-chat');
 
   /* The commands this surface offers. `both` is `chat`, which has no command
      and is therefore not in `ASSIST_MENU` at all. */
@@ -352,6 +354,9 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     )
       .then(() => {
         chatId = id;
+        /* The drawer listing has not seen this thread yet — the select has,
+           so switching back to it never drops to the placeholder. */
+        selectChat(id, firstLine.slice(0, 80) || 'New conversation');
         return id;
       })
       .catch(error => {
@@ -710,6 +715,34 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
 
   /* ---------- the history drawer ---------- */
 
+  /** Keep the header select on the open thread, adding a row the drawer
+     listing has not seen yet — a thread created since it was read. */
+  function selectChat(id: string | null, title?: string) {
+    if (id && ![...chatPick.options].some(option => option.value === id)) {
+      const option = document.createElement('option');
+      option.value = id;
+      const text = title ?? turns[0]?.content ?? 'Conversation';
+      option.textContent = text.length > 48 ? `${text.slice(0, 47)}…` : text;
+      chatPick.append(option);
+    }
+    chatPick.value = id ?? '';
+  }
+
+  function paintChatOptions(chats: ChatSummary[]) {
+    chatPick.replaceChildren();
+    const none = document.createElement('option');
+    none.value = '';
+    none.textContent = 'Past conversations…';
+    chatPick.append(none);
+    for (const chat of chats) {
+      const option = document.createElement('option');
+      option.value = chat.id;
+      option.textContent = chat.title.length > 48 ? `${chat.title.slice(0, 47)}…` : chat.title;
+      chatPick.append(option);
+    }
+    selectChat(chatId);
+  }
+
   async function paintSessions() {
     sessionList.replaceChildren();
     const loading = el('p', 'admin-note');
@@ -729,6 +762,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
       const empty = el('p', 'admin-note');
       empty.textContent = 'Nothing yet. Whatever you ask is kept here.';
       sessionList.append(empty);
+      paintChatOptions([]);
       return;
     }
 
@@ -779,6 +813,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
       row.append(openBtn, remove);
       sessionList.append(row);
     }
+    paintChatOptions(chats);
   }
 
   async function restore(id: string) {
@@ -807,6 +842,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
 
       stick = true;
       follow();
+      selectChat(chat.id, chat.title);
       await paintSessions();
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Could not open that conversation.', {
@@ -821,6 +857,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     warned = false;
     turns = [];
     log.replaceChildren();
+    selectChat(null);
     greet();
   }
 
@@ -833,6 +870,12 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
   $<HTMLButtonElement>('assist-new').addEventListener('click', () => {
     startNew();
     input.focus();
+  });
+
+  /* Jump straight to a thread without opening the drawer. A programmatic
+     assignment below never lands here — only a visitor's pick does. */
+  chatPick.addEventListener('change', () => {
+    if (chatPick.value) void restore(chatPick.value);
   });
 
   const historyBtn = $<HTMLButtonElement>('assist-history');
@@ -1291,15 +1334,23 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
       void fillModels();
     }
     if (!dialog.open) {
-      /* `show()` normally: the editor behind the panel stays visible and
-         usable, because watching the fields fill is the point. The exception is
-         a screen that raises the assistant from inside a modal `<dialog>` — the
-         import form on `/admin/projects` — where the modal is in the top layer
-         and no `z-index` reaches over it. Joining it there is the only way up,
-         and the panel's transparent `::backdrop` means nothing dims. */
-      if (document.querySelector('dialog[open]:modal')) dialog.showModal();
-      else dialog.show();
+      /* Always modeless: the editor — or the import form, or the media
+         library — behind the panel stays visible and usable, because watching
+         the fields fill is the point. A modal dialog in the top layer would
+         make every dialog below it inert, freezing the form a run is writing
+         into until the panel closed. `downgradeOpenModals()` steps any open
+         modal down first, so the two coexist; there is no `z-index` that
+         reaches over the top layer, which is why joining it is not the fix.
+         The panel's transparent `::backdrop` rule stays as a guard for UAs
+         that render one anyway. */
+      downgradeOpenModals();
+      dialog.show();
       settleFloat();
+      /* `show()` fires no event, so the opening is announced for
+         page-scoped listeners — the projects manifest freezes its grid
+         while an import draft is up, and it cannot see this happen any
+         other way. */
+      document.dispatchEvent(new Event('asx-open'));
       /* After the dialog has its box: this is what reserves the page column
          for a docked placement, including one restored from storage. */
       syncPageRoom();
@@ -1335,6 +1386,13 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
   dialog.addEventListener('close', () => {
     config.stop();
     running(false);
+    /* Whatever was stepped down for the panel steps back up — if it is still
+       open. A dialog dismissed while the panel was up stays dismissed. */
+    restoreDowngradedModals();
+    /* The other half of `asx-open` above. This one is native — `close`
+       fires for every dismissal path — and lands after the restore, so a
+       listener reads the settled state. */
+    document.dispatchEvent(new Event('asx-close'));
     /* The reserved column goes with the panel. */
     delete document.body.dataset.asxDock;
   });

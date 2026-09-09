@@ -620,6 +620,134 @@ export function undoRing(depth = 3): UndoRing {
   };
 }
 
+/* ---------- commit buttons that wait for a reason ---------- */
+
+/**
+ * A form field dirty-tracking can read. Checkboxes and radios count — their
+ * `value` never changes, but `checked` does, and it is part of the snapshot.
+ */
+export type DirtyField = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+
+export interface DirtyTracker {
+  /**
+   * Re-check now. Call after anything that assigns `.value` without firing
+   * events — the assistants write straight into the fields on every streamed
+   * frame, and a property assignment is silent by definition.
+   */
+  check(): void;
+  /** Snapshot the current values as clean. Call after fills and good saves. */
+  reset(): void;
+  /** Mark dirty unconditionally — for structural edits no field owns. */
+  mark(): void;
+  readonly dirty: boolean;
+}
+
+const fieldValue = (field: DirtyField): string =>
+  field instanceof HTMLInputElement && (field.type === 'checkbox' || field.type === 'radio')
+    ? `${field.value}::${field.checked ? 'on' : 'off'}`
+    : field.value;
+
+function paintSave(saves: HTMLButtonElement | HTMLButtonElement[], dirty: boolean, idleLabel: string): void {
+  for (const save of Array.isArray(saves) ? saves : [saves]) {
+    /* A request in flight owns the disabled state until it lands — see
+       `setBusy()`, which restores whatever it found. Repainting under it would
+       enable a button mid-save. */
+    if (save.hasAttribute('aria-busy')) continue;
+    save.disabled = !dirty;
+    if (dirty) save.removeAttribute('title');
+    else save.title = idleLabel;
+  }
+}
+
+/**
+ * Disable a commit button until its form actually differs from what was saved.
+ *
+ * A save that can only repeat what is already stored is a button that wastes
+ * a request and a toast to say nothing changed. Snapshot-based, so typing
+ * something and typing it back re-disables — the comparison is against the
+ * values, not against the fact of having typed.
+ *
+ * Two things the caller owns: `reset()` after every prefill and every good
+ * save (a save that landed *is* the new clean), and `check()` after the
+ * assistant writes, whose assignments fire no events.
+ */
+export function trackDirty(
+  getFields: () => DirtyField[],
+  save: HTMLButtonElement | HTMLButtonElement[],
+  idleLabel = 'No changes to save yet.',
+): DirtyTracker {
+  let snapshot = '';
+  const read = () => getFields().map(fieldValue).join('\n');
+  const tracker: DirtyTracker = {
+    check() {
+      paintSave(save, read() !== snapshot, idleLabel);
+    },
+    reset() {
+      snapshot = read();
+      paintSave(save, false, idleLabel);
+    },
+    mark() {
+      paintSave(save, true, idleLabel);
+    },
+    get dirty() {
+      return read() !== snapshot;
+    },
+  };
+  const onEdit = () => tracker.check();
+  for (const field of getFields()) {
+    field.addEventListener('input', onEdit);
+    field.addEventListener('change', onEdit);
+  }
+  tracker.reset();
+  return tracker;
+}
+
+/**
+ * The same contract for a container of fields that come and go — the resume's
+ * generated rows, where snapshotting values means chasing nodes that a
+ * re-render replaces.
+ *
+ * Any typed or picked value marks dirty through delegated `input`/`change`,
+ * and any structural change (a row added or removed) through the observer.
+ * Re-renders that restore saved state — variant switches — are *not* edits,
+ * so the caller resets after those the way static forms reset after fills.
+ */
+export function trackDirtyContainer(
+  container: HTMLElement,
+  save: HTMLButtonElement,
+  idleLabel = 'No changes to save yet.',
+): DirtyTracker {
+  let dirty = false;
+  const tracker: DirtyTracker = {
+    check() {
+      paintSave(save, dirty, idleLabel);
+    },
+    reset() {
+      dirty = false;
+      paintSave(save, false, idleLabel);
+    },
+    mark() {
+      dirty = true;
+      paintSave(save, true, idleLabel);
+    },
+    get dirty() {
+      return dirty;
+    },
+  };
+  container.addEventListener('input', () => tracker.mark());
+  container.addEventListener('change', () => tracker.mark());
+  new MutationObserver(() => tracker.mark()).observe(container, { childList: true, subtree: true });
+  tracker.reset();
+  /* The observer fires async, so a render that was already queued when this
+     wired up would mark dirty a tick later. Resetting again on the next frame
+     settles it — a genuine edit after that still marks through the listeners
+     above. */
+  requestAnimationFrame(() => {
+    if (!dirty) tracker.reset();
+  });
+  return tracker;
+}
+
 /* ---------- fields that grow with what is in them ---------- */
 
 /**
@@ -653,12 +781,18 @@ export function mountAutoGrow(): void {
     field.style.height = field.scrollHeight ? `${field.scrollHeight}px` : '';
   };
 
-  const native = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+  const proto = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
 
   const attach = (field: HTMLTextAreaElement) => {
     if (field.dataset.growing) return;
     field.dataset.growing = 'on';
     field.addEventListener('input', () => grow(field));
+
+    /* Whoever wrapped this element first keeps working — chained below
+       rather than assumed to be the prototype's, so `trackDirty()` in this
+       same module survives whichever of the two ran first. */
+    const native =
+      Object.getOwnPropertyDescriptor(field, 'value') ?? proto;
 
     if (native?.get && native.set) {
       Object.defineProperty(field, 'value', {

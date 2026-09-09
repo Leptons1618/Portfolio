@@ -216,9 +216,13 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
    * offers for that, and it is the fix that cannot be forgotten: the
    * alternative is an `input` event dispatched by hand at each of the six
    * places a value is assigned, five of which are in files this one does not
-   * own. The prototype's own descriptor still does the work.
+   * own. Whoever wrapped the element first still does the work — chained
+   * below rather than assumed to be the prototype's, so `trackDirty()` in
+   * `admin.ts` survives whichever of the two ran first.
    */
-  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!;
+  const descriptor =
+    Object.getOwnPropertyDescriptor(input, 'value') ??
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!;
   Object.defineProperty(input, 'value', {
     configurable: true,
     get() {
