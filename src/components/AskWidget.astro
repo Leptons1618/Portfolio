@@ -114,6 +114,12 @@ const firstName = site.name.split(' ')[0];
     <p class="ask-foot">
       This is a language model reading published pages. It can be wrong — the
       pages themselves are the record.
+      {/* How many questions this visitor has left. Filled in by
+          `ask-widget.ts` from `/api/ai/status` and decremented as they are
+          spent, so running out is something they saw coming rather than a
+          refusal out of nowhere. Empty — and therefore invisible — until the
+          count is actually known. */}
+      <span class="ask-left" id="ask-left" hidden></span>
     </p>
 
     {/* The corner the panel grows from. Bottom-right anchored, so the handle

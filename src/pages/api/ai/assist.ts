@@ -1,7 +1,8 @@
 import type { APIRoute } from 'astro';
-import { json, refusal, requireOwner } from '../../../lib/authorize';
+import { bearerToken, json, refusal, requireOwner } from '../../../lib/authorize';
 import {
   ProviderError,
+  RUN_BUDGET_MS,
   agentStream,
   callChat,
   getAiSettings,
@@ -15,7 +16,6 @@ import { MAX_TOOL_CALLS, runTool, toolSummary, toolsFor } from '../../../lib/ai-
 import { getCaseStudies, getPosts, getProjects } from '../../../lib/content';
 import { getResume } from '../../../lib/resume';
 import { ASSIST_TASKS, assistPrompt, isAssistTask } from '../../../lib/assist-tasks';
-import { compressForModel } from '../../../lib/headroom';
 import { site } from '../../../lib/site';
 
 /**
@@ -150,7 +150,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
     payload.tools !== false &&
     (task.needsCorpus || payload.task === 'chat') &&
     Boolean(providers[0]?.toolsEnabled);
-  const tools = wantsTools ? toolsFor('assist') : [];
+  /* The owner's own token, checked by `requireOwner()` above and forwarded so
+     the repository tools can read GitHub as them. It is the same credential
+     the browser already holds; nothing new is minted or stored. Its presence
+     is also what puts those three tools on the list at all — see `needsRepo`
+     in `ai-tools.ts`. */
+  const githubToken = bearerToken(request);
+  const tools = wantsTools ? toolsFor('assist', { repoAccess: Boolean(githubToken) }) : [];
 
   /* The author's own voice is the point of a writing assistant, and the only
      record of it this system has is what they have already published. Tasks
@@ -186,32 +192,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     corpus: voice,
     persona: settings.persona,
     history: turns(payload.history),
-    tools: tools.length ? toolSummary('assist') : '',
+    tools: tools.length ? toolSummary('assist', { repoAccess: Boolean(githubToken) }) : '',
   });
 
   const model = pickModel(providers, payload.model);
-
-  /* Optional Headroom pass over the prompt — index, README, transcript — so
-     a reasoning model spends the shared `max_tokens` ceiling on deliberation
-     *and* the answer rather than on reference material. Off unless
-     * `HEADROOM_BASE_URL` is set, and a proxy fault still answers, just
-     * uncompressed: see `src/lib/headroom.ts`. */
-  const { messages: finalMessages, stats: headroomStats } = await compressForModel(messages, {
-    model: model ?? providers[0]?.model,
-    baseUrl: locals.runtime.env.HEADROOM_BASE_URL,
-  });
-  /* Logged only when it moved tokens or failed usefully — a 0-token round
-     is the proxy correctly declining small or already-dense prompts, which
-     is the common case and not news. */
-  if (headroomStats.enabled && (headroomStats.tokensSaved > 0 || headroomStats.note)) {
-    console.log(
-      `[ai/assist] headroom: ${
-        headroomStats.compressed
-          ? `saved ${headroomStats.tokensSaved} tokens (${headroomStats.transformsApplied.join(', ') || 'compressed'})`
-          : (headroomStats.note ?? 'uncompressed fallback')
-      }`,
-    );
-  }
 
   /* The run's effort, and it is always sent.
    *
@@ -244,13 +228,18 @@ export const POST: APIRoute = async ({ request, locals }) => {
        question, and timing out at thirty seconds mid-outline would be the
        most annoying possible failure. */
     timeoutMs: 60_000,
+    /* The ceiling the sixty above is measured against. One attempt may take a
+       minute; the *run* may not, because the rounds and the fallback walk
+       multiply and the platform kills what overruns — see
+       `CallOptions.deadline`. Attempts clamp themselves to what is left. */
+    deadline: Date.now() + RUN_BUDGET_MS,
     ...(tools.length ? { tools } : {}),
     ...(model ? { model } : {}),
     effort,
   };
 
   try {
-    const first = await callChat(providers, { ...call, messages: finalMessages }, 'assist');
+    const first = await callChat(providers, { ...call, messages }, 'assist');
 
     if (!first.response.body) return json({ error: 'The model returned nothing.' }, 502);
 
@@ -259,15 +248,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
         first,
         which: 'assist',
         call,
-        messages: finalMessages,
-        runTool: (name, args) => runTool(DB, name, args),
+        messages,
+        runTool: (name, args) => runTool(DB, name, args, { githubToken }),
         maxCalls: MAX_TOOL_CALLS,
-        /* Later rounds re-send everything read so far — the case-study and
-           journal flows that fetch docs are where the transcript grows. */
-        headroom: {
-          baseUrl: locals.runtime.env.HEADROOM_BASE_URL,
-          model: model ?? providers[0]?.model,
-        },
       }),
       {
         headers: {

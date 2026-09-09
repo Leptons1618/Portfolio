@@ -59,17 +59,6 @@ interface Env {
    * model, or reach the write endpoint.
    */
   CRON_SECRET?: string;
-  /**
-   * Where the Headroom compression proxy listens, e.g.
-   * `http://localhost:8787` for local dev (`headroom proxy --port 8787`).
-   *
-   * Optional, and unset means the AI routes skip compression entirely — see
-   * `src/lib/headroom.ts`. Unset is a supported state: nothing is fetched,
-   * nothing fails, the prompt goes out as built. A deployed Worker cannot see
-   * a loopback proxy, so production only uses this when it points at a
-   * reachable proxy started with `HEADROOM_COMPRESS_ALLOW_REMOTE=1`.
-   */
-  HEADROOM_BASE_URL?: string;
 }
 
 /**

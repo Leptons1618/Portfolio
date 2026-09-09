@@ -231,6 +231,15 @@ async function drain(stream: ReadableStream<Uint8Array>): Promise<{ text: string
   return { text, error };
 }
 
+/**
+ * What the daily job may spend starting model work, as ms.
+ *
+ * Longer than the interactive `RUN_BUDGET_MS` — no reader is waiting on this
+ * one — and still short of the duration limit that kills an invocation, so a
+ * slow generation ends as a written post rather than as a dropped tick.
+ */
+const DAILY_BUDGET_MS = 45_000;
+
 /** Generate one post, or throw with a reason worth writing into the run record. */
 async function compose(
   db: D1Database,
@@ -277,6 +286,12 @@ async function compose(
     /* Longer than the panel's sixty seconds. Nobody is watching this one, and a
        whole post on a slow model is the longest generation this site makes. */
     timeoutMs: 120_000,
+    /* Same platform ceiling as the interactive routes, and a longer slice of
+       it: this is a cron tick nobody is waiting on, so it is worth letting a
+       slow model finish. It still may not overrun — an invocation the platform
+       kills writes no post at all, and the schedule reads that as a failed try
+       and burns one of the day's attempts for nothing. */
+    deadline: Date.now() + DAILY_BUDGET_MS,
     /* Low, and not negotiable here. The panel has a picker because an author
        sometimes wants a harder think; a job that runs while nobody is looking
        has no such moment, and every token of deliberation is billed against the

@@ -551,6 +551,66 @@ html[data-theme='paper'] .footer-copy {
   border-color: var(--color-divider);
 }
 
+/* --- The hero, as a print stuck in the book ---------------------------------
+   Geometry orbits the portrait; Blueprint keylines it as a detail plate.
+   This theme is a sketchbook page, and the thing a sketchbook does with a
+   photograph is *stick it in* — so the portrait gets a print's mount, sits a
+   degree off square, and casts the hard offset every card here casts.
+
+   The mount is `--color-neutral-200` and the choice is load-bearing. This
+   palette's neutral ramp **inverts on the dark screen ramp** — `-100` is the
+   lightest stock in light mode and the darkest ink in dark mode — so a mount
+   named `-100` is a white print margin on cream and a black one on brown,
+   which is not the same object. `-200` is one step *off the ground* in both
+   directions (#faf5ea over #f7f2e9 light, #211a12 over #16110c dark), so the
+   print separates from the page whichever way the palette runs.
+
+   With a mount doing the separating, the page's own bottom vignette has
+   nothing left to do — it exists to land a bleeding edge on the ground, and
+   this edge does not bleed — so it goes, the way Geometry drops it.
+
+   The tilt is the whole trick and it is deliberately small: 1.2 degrees is
+   the angle a hand misses square by, and more reads as a gimmick rather than
+   as a photograph someone put there. */
+
+:root[data-theme='paper'] .hero-figure {
+  border-left-style: var(--rule-style);
+}
+
+:root[data-theme='paper'] .hero-figure::after {
+  content: none;
+}
+
+:root[data-theme='paper'] .hero-photo {
+  /* Uneven, like a print's: the wide bottom edge is where a caption would be
+     written, and it is what stops the crop reading as a mistake. */
+  border: var(--space-2) solid var(--color-neutral-200);
+  border-bottom-width: var(--space-4);
+  box-shadow: var(--shadow-lg);
+  rotate: -1.2deg;
+  position: relative;
+  z-index: 1;
+}
+
+/* The ghost: a dashed outline where the print was first laid down, turned the
+   other way. A paste-up shows its own second thoughts, and this is the mark
+   that says the photograph was positioned by hand rather than placed by a
+   grid — the same story the tilt tells, told once more underneath it.
+
+   `--color-divider` rather than a neutral because it is the one token that
+   means "a line you can just see" on both ramps, and `--rule-style` is the
+   theme's own dashed pencil. Behind the print: no z-index of its own, so the
+   photograph's `z-index: 1` above wins. */
+:root[data-theme='paper'] .hero-figure::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 var(--space-6);
+  margin: calc(var(--space-2) * -1);
+  pointer-events: none;
+  border: 1px var(--rule-style) var(--color-divider);
+  rotate: 1.5deg;
+}
+
 /* --- Motion: things done to paper -------------------------------------------
    A marker is dragged, a pencil taps, a card is nudged. Nothing glows and
    nothing floats — the sheet is on a desk. Opt-in on `no-preference`; the

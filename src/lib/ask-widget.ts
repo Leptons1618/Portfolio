@@ -35,6 +35,10 @@ export interface AskStatus {
   greeting: string;
   suggestions: string[];
   maxQuestionChars: number;
+  /** Questions this visitor has left right now. Absent on an older cached status. */
+  remaining?: number;
+  /** The per-visitor hourly ceiling `remaining` is measured against. */
+  perIpPerHour?: number;
 }
 
 /**
@@ -89,6 +93,35 @@ export function mountAskWidget(status: AskStatus): void {
     const input = $<HTMLTextAreaElement>('ask-input');
     const send = $<HTMLButtonElement>('ask-send');
     const suggestions = $('ask-suggestions');
+    const leftNote = document.getElementById('ask-left');
+
+    /**
+     * How many questions are left, counted down locally as they are spent.
+     *
+     * Seeded from `/api/ai/status` and decremented here rather than re-fetched
+     * per answer: the number only ever moves one way within a session, and a
+     * request to find out how many requests remain is a poor trade. It can
+     * drift low if the same visitor is asking from two tabs, which is the safe
+     * direction — the limiter is the authority and refuses with its own copy.
+     *
+     * Hidden entirely while unknown, and while there is plenty left: a counter
+     * on every question reads as a meter running down, which is not the
+     * feeling a portfolio wants. It appears at five.
+     */
+    let left = typeof status.remaining === 'number' ? status.remaining : null;
+
+    function drawLeft(): void {
+      if (!leftNote) return;
+      if (left === null || left > 5) {
+        leftNote.hidden = true;
+        return;
+      }
+      leftNote.hidden = false;
+      leftNote.textContent =
+        left <= 0
+          ? ' You have used your questions for this hour.'
+          : ` ${left} question${left === 1 ? '' : 's'} left this hour.`;
+    }
     const grip = $<HTMLButtonElement>('ask-grip');
 
     const SIZE_KEY = 'om-ask-size';
@@ -505,6 +538,13 @@ export function mountAskWidget(status: AskStatus): void {
       bubble('user').textContent = question;
       suggestions.hidden = true;
 
+      /* Spent on the way out, matching `charge()` — which counts before the
+         model is called and does not refund a failed one. A local count that
+         only decremented on success would drift *above* the server's and
+         promise questions the limiter has already taken. */
+      if (left !== null) left = Math.max(0, left - 1);
+      drawLeft();
+
       const target = bubble('assistant');
       target.dataset.state = 'waiting';
       /* Three children, in this order: the thinking disclosure (added by
@@ -703,6 +743,7 @@ export function mountAskWidget(status: AskStatus): void {
     /** The greeting and the starter chips. Drawn on open, and again on New chat. */
     function drawIntro(status: AskStatus) {
       note(status.greeting);
+      drawLeft();
       suggestions.replaceChildren();
       if (!status.suggestions.length) return;
       suggestions.hidden = false;

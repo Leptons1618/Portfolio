@@ -686,6 +686,15 @@
     line-height: 1.4;
     color: var(--color-text-muted);
   }
+/* The remaining-questions note, inside the disclaimer line rather than beside
+   it: it is the same register — small print about what this thing is and what
+   it will do — and a second line would give it more weight than it deserves.
+   Warmed with the accent only once it is actually low, which is the only time
+   `ask-widget.ts` unhides it at all. */
+.ask-left {
+  color: var(--color-accent);
+}
+
 
   .ask-visually-hidden {
     position: absolute;

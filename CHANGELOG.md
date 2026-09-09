@@ -12,7 +12,115 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- **The frozen page behind two dialogs now works on every admin screen.** When
+  the assistant opens over a dialog both step down to modeless so both stay
+  usable, which gives away the backdrop and the inertness the top layer was
+  providing. Those were re-applied inside `/admin/projects`, naming that
+  screen's root and its own two dialogs by id — so the **media library** dimmed
+  nothing anywhere, *including on that screen*, because it was not one of the
+  two ids it knew to watch, and every other place the assistant meets a dialog
+  had a panel floating over a bright, fully clickable page. Moved into
+  `syncFreeze()` in `src/lib/modal.ts`, which derives the state instead of
+  tracking it and listens for `close` **in the capture phase** (that event does
+  not bubble), so a dismissal nothing initiated is still correct. Freezes
+  `.admin-main > :not(dialog)` plus the sidebar rail. A leftover `console.info`
+  on every recompute went with it. Decision **59**.
+
+- **`/admin/journal` pages its list.** Rows per page — 10, 25, 50 or all,
+  remembered per browser — with a pager that hides itself whenever everything
+  matching already fits. Paging is applied by the same function as the search
+  and status filters, because two writers to one `row.hidden` is how a row ends
+  up visible on a page it is not on. Every row stays in the DOM: the sort
+  re-appends rows, the drag reads DOM order and Save writes the whole order, so
+  a pager that removed rows would quietly drop every off-screen post out of the
+  saved order.
+
+- **The AI routes no longer overrun the platform's duration limit.** Production
+  was serving `Internal server error: 500` on the assistant, intermittently and
+  with nothing streamed. Cloudflare's own analytics named it: `exceededResources`
+  with a wall-time p99 of **60 seconds**, against a p50 of 10ms for every other
+  route, and `clientDisconnected` at 50s beside it. Nothing was unbounded — that
+  was the bug. One attempt is capped at 30s (60s for `/assist`), `callChat()`
+  walks every model of every provider, a tool-shaped 4xx triggers a second walk
+  without tools, and `agentStream()` repeats all of it per round; each limit is
+  reasonable and the *product* is minutes. A run now carries one deadline
+  (`CallOptions.deadline`): attempts clamp their own timeout to what is left,
+  the provider walk stops rather than starting an attempt that cannot finish,
+  and an expired clock folds into the round limit that already exists — the
+  model is told it is out of lookups and asked to answer from what it holds. A
+  short answer beats a killed worker. Decision **56**.
+
 ### Added
+
+- **A third budget for the public assistant, and a visitor who can see it.**
+  The two existing budgets — per visitor per hour, per site per day — leave a
+  hole shaped like the thing they defend against: two hundred people arriving
+  in the same minute are each well inside their own allowance. The number that
+  binds is the vendor's, and it is per-minute (OpenRouter allows **20 requests
+  a minute** on free models, and one question is two or three requests once the
+  tool loop and a fallback are counted). `perMinuteTotal` is site-wide and
+  checked **before** the daily total, so a spike cannot spend the day in thirty
+  seconds; it refuses with a `Retry-After` in seconds, because this one really
+  does clear that soon. `/api/ai/status` also reports how many questions the
+  visitor has left — read without spending one — and the widget shows it at
+  five or fewer. Decision **58**.
+
+- **The writing assistant can read the code it is writing about.** Three new
+  tools on the authoring surface — `list_repo_files`, `read_repo_docs` and
+  `read_repo_file` — read the owner's own GitHub repositories through the token
+  the admin already holds, so a case study, a project's frontmatter or a journal
+  post is written from the actual tree, the actual README and the actual file
+  rather than from a one-line summary and the model's priors. `read_repo_docs`
+  gathers the README and the docs beside it in **one** call, README first and
+  changelogs last, because the call budget is eight for a whole answer. The
+  boundary is the point: the owner's repositories only, the authoring surface
+  only, `GET` only, every path validated segment by segment, everything capped.
+  New module `src/lib/ai-code.ts`. Decision **57**.
+
+- **A portrait treatment for Blueprint and Paper.** Geometry has had its
+  wireframe orbit since the theme landed and the other two got the plain
+  rectangle. Blueprint now renders the photograph as a drafting *detail*:
+  keylined, hard-offset, and marked with four crop ticks that sit outside the
+  trim the way a real sheet's do. Paper mounts it as a print stuck in the book —
+  a print's uneven white border, a degree and a bit off square, and a dashed
+  ghost outline underneath where it was first laid down. Both are token-only and
+  both hold on the dark ramp; Paper's mount is `--color-neutral-200` rather than
+  `-100` precisely because that palette's neutral ramp inverts, and a mount
+  named `-100` is a white margin on cream and a black one on brown.
+
+### Changed
+
+- **The daily journal writes like a person keeping one.** Its instruction now
+  asks for the marks of having been there: first person and past tense, the
+  wrong turn named before the fix, inline code for every identifier, filename,
+  flag and column, at least one fenced block with a language tag, links to the
+  site's own pages by path, and an ending on what is still open rather than a
+  summary. Paired with a hard anti-invention rule — every number, name, date
+  and quotation must come from the reference — because "include a figure" is
+  otherwise an instruction to make one up, and this publishes under the
+  author's name.
+
+- **The public assistant has a voice, and four more rules.** The scope prompt
+  gained a `VOICE` section — warm and dry, wit from specificity rather than
+  jokes, lead with the answer, never flatter, refuse cheerfully in one
+  sentence — and four guardrails it should not have to improvise: it never
+  speaks *as* the owner (third person, always), never touches private life or
+  anything contractual, never reproduces the reference in bulk, and never ranks
+  him against another person. Three matching patterns joined the deterministic
+  screen for the phrasings that are unmistakable, and the refusal line is in the
+  same voice as everything else now.
+
+### Removed
+
+- **Headroom prompt compression.** `headroom-ai`, `src/lib/headroom.ts`,
+  `scripts/dev-with-headroom.mjs` and the wiring in `ai.ts` and both AI routes.
+  It was a no-op in production — `HEADROOM_BASE_URL` was `""`, so
+  `compressForModel()` returned its input untouched on every call — while
+  costing a dependency, ~330 lines, a wrapper around `npm run dev` and a moving
+  part in the middle of the path that was producing the 500s above. `npm run
+  dev` is `astro dev` again.
 
 - **A journal that writes itself, once a day, into a draft.** `/admin/ai` has
   a third tab: switch it on, give it a window and a list of topics, and once a

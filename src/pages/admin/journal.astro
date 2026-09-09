@@ -89,6 +89,14 @@ const SORTS = [
   ['edited', 'Recently edited'],
   ['title', 'Title A–Z'],
 ];
+
+/* Rows per page. `0` is "all", which is what this list did before there was a
+   pager and what a short journal still wants. Every row stays in the DOM
+   whatever is chosen — the pager hides, it does not fetch — because the search,
+   the sort and the drag-to-reorder all read the whole list, and a page that
+   only holds twenty of them could not save an order. */
+const PAGE_SIZES = [10, 25, 50, 0];
+const DEFAULT_PAGE_SIZE = 25;
 ---
 <AdminLayout title="Journal">
   <div class="admin-main-wide" id="admin-journal" data-date-order={dateOrder}>
@@ -167,6 +175,16 @@ const SORTS = [
                 <label class="seg-opt"><input type="radio" name="entry-filter" value={value} />{label}</label>
               ))}
             </div>
+            {/* Rows per page. A view of the list like the sort beside it —
+                nothing is written and the choice is this browser's, which is
+                why it is remembered in `localStorage` rather than in D1. */}
+            <select class="input is-auto entry-per-page" id="entry-per-page" aria-label="Rows per page">
+              {PAGE_SIZES.map(size => (
+                <option value={String(size)} selected={size === DEFAULT_PAGE_SIZE}>
+                  {size === 0 ? 'All rows' : `${size} per page`}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
@@ -283,6 +301,24 @@ const SORTS = [
             </div>
           </section>
         ))}
+        {/* The pager. Hidden whenever everything matching already fits on one
+            page, so a journal of six posts never grows a control it does not
+            need. Below the shelves rather than above them: it describes what
+            was just read, and the Active/Archived split above is the same one
+            list — page one fills with Active and later pages spill into
+            Archived, which is why there is one pager and not two. */}
+        <div class="entry-pager" id="entry-pager" hidden>
+          <p class="text-muted admin-note" id="entry-range" aria-live="polite"></p>
+          <div class="admin-actions">
+            <button type="button" class="btn btn-secondary btn-sm" id="entry-prev">
+              <Icon name="lucide:chevron-left" class="admin-nav-icon" />Previous
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="entry-next">
+              Next<Icon name="lucide:chevron-right" class="admin-nav-icon" />
+            </button>
+          </div>
+        </div>
+
         {/* A filter that matched none of the posts there are is a different
             nothing from having none, and it wants a different sentence. Outside
             the cards now that there are two of them — and outside the rows the
@@ -457,24 +493,105 @@ const SORTS = [
     }
 
 
+    /* ---- paging ----
+
+       Paging is a *second* hide on top of the filter's, and both land on the
+       same `row.hidden`, which is why they share one function: two writers to
+       one attribute is how a row ends up visible on a page it is not on. The
+       filter decides what matches; the slice below decides which of the
+       matches this page shows.
+
+       Every row stays in the DOM either way. The sort re-appends rows, the
+       drag reads DOM order and Save writes the whole order — a pager that
+       removed rows would silently drop every post not on screen out of the
+       saved order. */
+    const perPageSelect = document.getElementById('entry-per-page') as HTMLSelectElement | null;
+    const pager = document.getElementById('entry-pager');
+    const pagerRange = document.getElementById('entry-range');
+    const pagerPrev = document.getElementById('entry-prev') as HTMLButtonElement | null;
+    const pagerNext = document.getElementById('entry-next') as HTMLButtonElement | null;
+    const PER_PAGE_KEY = 'om-journal-per-page';
+
+    let page = 0;
+
+    const perPage = (): number => {
+      const value = Number(perPageSelect?.value ?? 25);
+      return Number.isFinite(value) && value >= 0 ? value : 25;
+    };
+
     function applyEntryFilters() {
       const term = (entrySearch?.value ?? '').trim().toLowerCase();
       const status = entryFilters.find(input => input.checked)?.value ?? 'all';
-      let shown = 0;
+
+      /* Pass one: what matches, in the order the shelves currently hold. */
+      const matching = rows.filter(
+        row =>
+          (status === 'all' || row.dataset.status === status) &&
+          (term === '' || (row.dataset.search ?? '').includes(term)),
+      );
+
+      /* Pass two: which of them this page shows. The page index is clamped
+         rather than reset, so deleting the last row of the last page steps
+         back one page instead of stranding the reader on an empty one. */
+      const size = perPage();
+      const pages = size === 0 ? 1 : Math.max(1, Math.ceil(matching.length / size));
+      page = Math.min(Math.max(page, 0), pages - 1);
+      const from = size === 0 ? 0 : page * size;
+      const to = size === 0 ? matching.length : from + size;
+      const visible = new Set(matching.slice(from, to));
+
       rows.forEach(row => {
-        const hide =
-          !(status === 'all' || row.dataset.status === status) ||
-          !(term === '' || (row.dataset.search ?? '').includes(term));
-        row.hidden = hide;
-        if (!hide) shown += 1;
+        row.hidden = !visible.has(row);
       });
+
       /* A shelf with nothing left on it is a heading over a rule. Asked of the
          rows rather than counted alongside them, so this stays right after a
          status change moves a post from one section to the other. */
       sections.forEach(section => {
         section.hidden = !section.querySelector('.existing-row:not([hidden])');
       });
-      entriesEmpty.hidden = shown > 0;
+      entriesEmpty.hidden = matching.length > 0;
+
+      if (pager) {
+        /* Hidden when everything fits: a journal of six posts should not grow
+           a control that can only ever say "1–6 of 6". */
+        pager.hidden = matching.length === 0 || pages <= 1;
+        if (pagerRange) {
+          pagerRange.textContent = `${matching.length ? from + 1 : 0}–${Math.min(to, matching.length)} of ${matching.length}`;
+        }
+        if (pagerPrev) pagerPrev.disabled = page === 0;
+        if (pagerNext) pagerNext.disabled = page >= pages - 1;
+      }
+    }
+
+    /** Any change to *what* is listed starts the reader at the top again. */
+    const resetPage = () => {
+      page = 0;
+      applyEntryFilters();
+    };
+
+    pagerPrev?.addEventListener('click', () => {
+      page -= 1;
+      applyEntryFilters();
+      pager?.scrollIntoView({ block: 'nearest' });
+    });
+    pagerNext?.addEventListener('click', () => {
+      page += 1;
+      applyEntryFilters();
+      pager?.scrollIntoView({ block: 'nearest' });
+    });
+
+    if (perPageSelect) {
+      /* Restored before the first paint of the list, and stored per browser:
+         it is a reading preference, not a property of the journal. */
+      const saved = localStorage.getItem(PER_PAGE_KEY);
+      if (saved !== null && Array.from(perPageSelect.options).some(o => o.value === saved)) {
+        perPageSelect.value = saved;
+      }
+      perPageSelect.addEventListener('change', () => {
+        localStorage.setItem(PER_PAGE_KEY, perPageSelect.value);
+        resetPage();
+      });
     }
 
     /* Ordering is a comparator per option, read off the row's data attributes
@@ -497,11 +614,21 @@ const SORTS = [
           .forEach(row => card.appendChild(row));
       });
       paintOrder();
+      /* Re-page: the slice is taken in DOM order, so re-ordering the rows
+         changes which of them page one holds. Idempotent, so the callers that
+         already follow a sort with a filter pass cost nothing. */
+      applyEntryFilters();
     }
 
-    entrySearch?.addEventListener('input', applyEntryFilters);
-    entrySort?.addEventListener('change', applySort);
-    entryFilters.forEach(input => input.addEventListener('change', applyEntryFilters));
+    /* `resetPage`, not `applyEntryFilters`: narrowing the list while standing on
+       page three should show the first of the new matches, not the third page
+       of them — which is usually empty and always looks broken. */
+    entrySearch?.addEventListener('input', resetPage);
+    entrySort?.addEventListener('change', () => {
+      page = 0;
+      applySort();
+    });
+    entryFilters.forEach(input => input.addEventListener('change', resetPage));
 
     /** Move a row to a status without re-reading it from the database. */
     function markRowStatus(slug: string, status: PostStatus) {
@@ -675,6 +802,12 @@ const SORTS = [
     /* The server-rendered order is the saved one, so a fresh screen starts
        with Save disabled. */
     paintOrder();
+    /* First paint of the list. The filter used to be interaction-only — every
+       row ships visible and nothing hid one until something was typed — but
+       paging is applied by the same function, so without a pass here the first
+       screen shows all thirty-one rows and the pager sits hidden with an empty
+       range until the reader touches a control. */
+    applyEntryFilters();
   });
 </script>
 
@@ -693,6 +826,20 @@ const SORTS = [
   }
 
   /* — reordering — */
+  /* The pager. `space-between` so the range sits at the reading edge and the
+     buttons at the acting one, and it wraps on a phone rather than squeezing
+     the count into two lines. `hidden` is honoured by `global.css`'s
+     `!important` rule, so nothing here may set a `display` unconditionally. */
+  .entry-pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-top: var(--space-4);
+  }
+  .entry-pager .admin-note { margin: 0; }
+
   .order-toolbar {
     display: flex;
     justify-content: space-between;

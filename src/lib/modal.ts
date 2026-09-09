@@ -92,6 +92,7 @@ export function downgradeOpenModals(): void {
       dialog.show();
     });
   }
+  syncFreeze();
 }
 
 /**
@@ -114,6 +115,7 @@ export function restoreDowngradedModals(): void {
       dialog.showModal();
     });
   }
+  syncFreeze();
 }
 
 /**
@@ -133,6 +135,7 @@ export function showAdminModal(dialog: HTMLDialogElement): void {
   dialog.dataset.wasModal = '';
   dialog.classList.add('modal-downgraded');
   dialog.show();
+  syncFreeze();
 }
 
 /* ---------- Escape while stepped down ----------
@@ -149,6 +152,62 @@ export function showAdminModal(dialog: HTMLDialogElement): void {
  * event's dialog ancestor would otherwise name the wrong thing to close).
  * A `close()` here carries no transit flag: it is a real dismissal.
  */
+
+/* ---------- the frozen page ----------
+ *
+ * Two coexisting dialogs need the page behind them to *say* it is not the
+ * thing in front. A lone modal gets that free from the top layer — backdrop
+ * and inertness — and stepping down to modeless gives both away, so it is
+ * re-applied here.
+ *
+ * Here, and not on a screen. This started as wiring inside
+ * `/admin/projects`, naming that screen's own root and its own two dialogs,
+ * which meant the *other* places the same coexistence happens — the provider
+ * and model dialogs on `/admin/ai`, and the media library, which opens from
+ * the journal and project editors — dimmed nothing at all: a stepped-down
+ * dialog floating over a page that stayed bright and fully clickable. It also
+ * missed the media library **on the projects screen itself**, because that
+ * dialog was not one of the two the screen knew to watch. The state being
+ * described is `modal.ts`'s, so the description belongs beside it, and then
+ * there is one of it.
+ *
+ * What is frozen is every direct child of `.admin-main` that is not a
+ * `<dialog>`, plus the sidebar rail — which lives outside the main region and
+ * persists across page swaps, so it freezes separately or else stays bright
+ * and clickable beside a dimmed page. Every dialog on the admin, the
+ * assistant included, is a direct child of that region, which is what makes
+ * `:not(dialog)` the whole rule rather than a list of ids.
+ */
+
+/** The marker `admin.css` dims from. */
+const FROZEN = 'data-asx-freeze';
+
+const frozenParts = (): HTMLElement[] => [
+  ...document.querySelectorAll<HTMLElement>('.admin-main > :not(dialog)'),
+  ...document.querySelectorAll<HTMLElement>('.admin-sidebar'),
+];
+
+/**
+ * Match the page's frozen state to what is actually open.
+ *
+ * Derived rather than tracked: two dialogs and a panel produce more orderings
+ * than a counter survives, and every one of them ends here. Frozen exactly
+ * when the assistant is up *and* something else is open — a lone modal
+ * freezes the page by itself, and a lone panel is meant to be used beside a
+ * live page.
+ */
+export function syncFreeze(): void {
+  const main = document.querySelector('.admin-main');
+  if (!main) return;
+
+  const others = Array.from(document.querySelectorAll<HTMLDialogElement>('dialog[open]')).filter(
+    dialog => dialog.id !== ASSIST_ID,
+  );
+  const frozen = isAssistOpen() && others.length > 0;
+
+  for (const part of frozenParts()) part.inert = frozen;
+  document.body.toggleAttribute(FROZEN, frozen);
+}
 
 let wired = false;
 
@@ -176,4 +235,18 @@ function wireGlobal(): void {
   if (wired) return;
   wired = true;
   document.addEventListener('keydown', onEscape);
+  /* Capture, because `close` does not bubble: a listener on `document` sees a
+     dialog's own `close` on the way *down* to it and nowhere else. This is what
+     makes the freeze correct for a dismissal nothing here initiated — the X, a
+     backdrop click, Escape, or a screen closing its own dialog in code. */
+  document.addEventListener('close', () => syncFreeze(), true);
+  /* `show()` fires no event, so the panel announces itself. */
+  document.addEventListener('asx-open', () => syncFreeze());
+  document.addEventListener('asx-close', () => syncFreeze());
+  /* A navigation mid-draft swaps the page out from under a set freeze while
+     `<body>` — where the marker lives — persists across the swap. */
+  document.addEventListener('astro:page-load', () => {
+    document.body.removeAttribute(FROZEN);
+    syncFreeze();
+  });
 }
