@@ -12,7 +12,69 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Fixed
+
+- **The AI routes no longer overrun the platform's duration limit.** Production
+  was serving `Internal server error: 500` on the assistant, intermittently and
+  with nothing streamed. Cloudflare's own analytics named it: `exceededResources`
+  with a wall-time p99 of **60 seconds**, against a p50 of 10ms for every other
+  route, and `clientDisconnected` at 50s beside it. Nothing was unbounded — that
+  was the bug. One attempt is capped at 30s (60s for `/assist`), `callChat()`
+  walks every model of every provider, a tool-shaped 4xx triggers a second walk
+  without tools, and `agentStream()` repeats all of it per round; each limit is
+  reasonable and the *product* is minutes. A run now carries one deadline
+  (`CallOptions.deadline`): attempts clamp their own timeout to what is left,
+  the provider walk stops rather than starting an attempt that cannot finish,
+  and an expired clock folds into the round limit that already exists — the
+  model is told it is out of lookups and asked to answer from what it holds. A
+  short answer beats a killed worker. Decision **56**.
+
 ### Added
+
+- **The writing assistant can read the code it is writing about.** Three new
+  tools on the authoring surface — `list_repo_files`, `read_repo_docs` and
+  `read_repo_file` — read the owner's own GitHub repositories through the token
+  the admin already holds, so a case study, a project's frontmatter or a journal
+  post is written from the actual tree, the actual README and the actual file
+  rather than from a one-line summary and the model's priors. `read_repo_docs`
+  gathers the README and the docs beside it in **one** call, README first and
+  changelogs last, because the call budget is eight for a whole answer. The
+  boundary is the point: the owner's repositories only, the authoring surface
+  only, `GET` only, every path validated segment by segment, everything capped.
+  New module `src/lib/ai-code.ts`. Decision **57**.
+
+- **A portrait treatment for Blueprint and Paper.** Geometry has had its
+  wireframe orbit since the theme landed and the other two got the plain
+  rectangle. Blueprint now renders the photograph as a drafting *detail*:
+  keylined, hard-offset, and marked with four crop ticks that sit outside the
+  trim the way a real sheet's do. Paper mounts it as a print stuck in the book —
+  a print's uneven white border, a degree and a bit off square, and a dashed
+  ghost outline underneath where it was first laid down. Both are token-only and
+  both hold on the dark ramp; Paper's mount is `--color-neutral-200` rather than
+  `-100` precisely because that palette's neutral ramp inverts, and a mount
+  named `-100` is a white margin on cream and a black one on brown.
+
+### Changed
+
+- **The public assistant has a voice, and four more rules.** The scope prompt
+  gained a `VOICE` section — warm and dry, wit from specificity rather than
+  jokes, lead with the answer, never flatter, refuse cheerfully in one
+  sentence — and four guardrails it should not have to improvise: it never
+  speaks *as* the owner (third person, always), never touches private life or
+  anything contractual, never reproduces the reference in bulk, and never ranks
+  him against another person. Three matching patterns joined the deterministic
+  screen for the phrasings that are unmistakable, and the refusal line is in the
+  same voice as everything else now.
+
+### Removed
+
+- **Headroom prompt compression.** `headroom-ai`, `src/lib/headroom.ts`,
+  `scripts/dev-with-headroom.mjs` and the wiring in `ai.ts` and both AI routes.
+  It was a no-op in production — `HEADROOM_BASE_URL` was `""`, so
+  `compressForModel()` returned its input untouched on every call — while
+  costing a dependency, ~330 lines, a wrapper around `npm run dev` and a moving
+  part in the middle of the path that was producing the 500s above. `npm run
+  dev` is `astro dev` again.
 
 - **A journal that writes itself, once a day, into a draft.** `/admin/ai` has
   a third tab: switch it on, give it a window and a list of topics, and once a

@@ -58,6 +58,7 @@
  */
 
 import { getCaseStudies, getPosts, getProjects, CATEGORY_LABELS } from './content';
+import { CodeReadError, repoDocs, repoFile, repoTree } from './ai-code';
 import { publicPosts, publicProjects } from './ai-corpus';
 import { entryRange, getResume } from './resume';
 import { site } from './site';
@@ -80,6 +81,17 @@ export interface ToolSpec {
     additionalProperties: false;
   };
   surface: ToolSurface;
+  /**
+   * Needs the owner's GitHub token to run, so it is only offered where one
+   * exists.
+   *
+   * `surface: 'assist'` says *who* may be given a tool; this says *when*. The
+   * daily journal job is on the assist surface too and has no owner token —
+   * it is a cron tick, not a person — so without this it would be handed three
+   * repository tools it can only fail at, spending a lookup and a round to
+   * discover that. `toolsFor()` and `toolSummary()` both read it.
+   */
+  needsRepo?: true;
 }
 
 /**
@@ -184,6 +196,78 @@ export const TOOL_SPECS: readonly ToolSpec[] = [
     },
     surface: 'both',
   },
+
+  /* — the owner's own code ————————————————————————————————————————————————
+
+     Every tool above reads this site's published content. These three read the
+     repository a project actually lives in, and they exist because a case study
+     written from a one-line summary is a confident description of code nobody
+     wrote — the model had no way to check itself.
+
+     All three are `surface: 'assist'`, and that is the guardrail rather than a
+     convenience: the public assistant is never handed them, so no visitor can
+     reach a repository through the chat box. The rest of the boundary — the
+     owner's repositories only, reads only, every path validated — is in
+     `ai-code.ts`, which states it in full. */
+  {
+    name: 'list_repo_files',
+    description:
+      'List the files in one of the author’s own GitHub repositories, documentation first. Use it to see how a project is actually built before writing about it, then read the files that matter. Only the author’s repositories can be read.',
+    parameters: {
+      type: 'object',
+      properties: {
+        repo: {
+          type: 'string',
+          description:
+            'The repository, as "name" or "owner/name" or its GitHub URL. Take it from the project’s repository field.',
+        },
+      },
+      required: ['repo'],
+      additionalProperties: false,
+    },
+    surface: 'assist',
+    needsRepo: true,
+  },
+  {
+    name: 'read_repo_docs',
+    description:
+      'Read a repository’s README and any documentation beside it, in one call. Start here when writing a case study or a post about a project — it is the author’s own account of what the project does and why, and it costs one lookup instead of five.',
+    parameters: {
+      type: 'object',
+      properties: {
+        repo: {
+          type: 'string',
+          description: 'The repository, as "name" or "owner/name" or its GitHub URL.',
+        },
+      },
+      required: ['repo'],
+      additionalProperties: false,
+    },
+    surface: 'assist',
+    needsRepo: true,
+  },
+  {
+    name: 'read_repo_file',
+    description:
+      'Read one text file from one of the author’s repositories — source, configuration or documentation. Use it after list_repo_files to check a specific claim before writing it down.',
+    parameters: {
+      type: 'object',
+      properties: {
+        repo: {
+          type: 'string',
+          description: 'The repository, as "name" or "owner/name" or its GitHub URL.',
+        },
+        path: {
+          type: 'string',
+          description: 'The file’s path inside the repository, exactly as list_repo_files gave it.',
+        },
+      },
+      required: ['repo', 'path'],
+      additionalProperties: false,
+    },
+    surface: 'assist',
+    needsRepo: true,
+  },
 ];
 
 /** The names, as a set, so an unknown call is refused rather than dispatched. */
@@ -195,8 +279,18 @@ const BY_NAME = new Map(TOOL_SPECS.map(spec => [spec.name, spec]));
  * Built here rather than at the route so that "which tools does the writing
  * assistant get" is a property of the table, the same way `task.surface` is.
  */
-export const toolsFor = (surface: 'chat' | 'assist') =>
-  TOOL_SPECS.filter(spec => spec.surface === 'both' || spec.surface === surface).map(spec => ({
+const offered = (
+  surface: 'chat' | 'assist',
+  options: { repoAccess?: boolean },
+): readonly ToolSpec[] =>
+  TOOL_SPECS.filter(
+    spec =>
+      (spec.surface === 'both' || spec.surface === surface) &&
+      (!spec.needsRepo || options.repoAccess === true),
+  );
+
+export const toolsFor = (surface: 'chat' | 'assist', options: { repoAccess?: boolean } = {}) =>
+  offered(surface, options).map(spec => ({
     type: 'function' as const,
     function: {
       name: spec.name,
@@ -206,8 +300,11 @@ export const toolsFor = (surface: 'chat' | 'assist') =>
   }));
 
 /** One line naming what is available, for the system prompt. */
-export const toolSummary = (surface: 'chat' | 'assist'): string =>
-  TOOL_SPECS.filter(spec => spec.surface === 'both' || spec.surface === surface)
+export const toolSummary = (
+  surface: 'chat' | 'assist',
+  options: { repoAccess?: boolean } = {},
+): string =>
+  offered(surface, options)
     .map(spec => `- ${spec.name}: ${spec.description.split('.')[0]}.`)
     .join('\n');
 
@@ -262,6 +359,16 @@ export async function runTool(
   db: D1Database,
   name: string,
   rawArgs: unknown,
+  /**
+   * What the repository tools need, and nothing else has.
+   *
+   * The owner's GitHub token, forwarded from the request `requireOwner()`
+   * already checked. Optional because the public route has none and must never
+   * have one: without it the three `list_repo_files` / `read_repo_*` tools
+   * refuse, which is a second latch behind `surface: 'assist'` — the public
+   * assistant is not offered them *and* could not run them if it were.
+   */
+  ctx: { githubToken?: string } = {},
 ): Promise<ToolResult> {
   const spec = BY_NAME.get(name);
   if (!spec) {
@@ -285,10 +392,57 @@ export async function runTool(
       return readCaseStudy(db, arg(args, 'slug'));
     case 'read_resume':
       return readResume(db, arg(args, 'section'));
+    case 'list_repo_files':
+    case 'read_repo_docs':
+    case 'read_repo_file':
+      return readCode(spec.name, args, ctx.githubToken);
     default:
       /* Unreachable while the switch covers the table, and a compile-time
          reminder to extend it when the table grows. */
       return { ok: false, text: `"${spec.name}" is not wired up.`, detail: 'not implemented' };
+  }
+}
+
+/**
+ * The three repository tools, sharing one failure shape.
+ *
+ * Every way this can fail is an *answer* rather than an error, the same rule
+ * the rest of this file follows: a model told "you may only read the author's
+ * own repositories" names the right one next time, where a model handed an
+ * error frame stops with a half-written draft. `CodeReadError` carries the
+ * sentence worth showing; anything else is reported without its stack, because
+ * a vendor's transport error is not something the writer can act on.
+ */
+async function readCode(
+  name: string,
+  args: Record<string, unknown>,
+  token: string | undefined,
+): Promise<ToolResult> {
+  if (!token) {
+    return {
+      ok: false,
+      text: 'Repository reading is not available in this conversation. Answer from the site’s own content instead.',
+      detail: 'no repository access',
+    };
+  }
+  /* Longer than `arg()`'s 200 characters would allow for a path, and no
+     shorter for a repository name — both are identifiers, not prose. */
+  const repo = typeof args.repo === 'string' ? args.repo.trim().slice(0, 300) : '';
+  const path = typeof args.path === 'string' ? args.path.trim().slice(0, 400) : '';
+
+  try {
+    const result =
+      name === 'list_repo_files'
+        ? await repoTree(repo, token)
+        : name === 'read_repo_docs'
+          ? await repoDocs(repo, token)
+          : await repoFile(repo, path, token);
+    return { ok: true, text: cap(result.text), detail: result.detail };
+  } catch (error) {
+    if (error instanceof CodeReadError) {
+      return { ok: false, text: error.message, detail: error.message.slice(0, 80) };
+    }
+    return { ok: false, text: 'That repository could not be read.', detail: 'repository read failed' };
   }
 }
 

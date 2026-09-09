@@ -77,7 +77,6 @@ import {
   type ReasoningEffort,
 } from './ai-catalog';
 import { site } from './site';
-import { compressForModel, sameToolLinkage } from './headroom';
 
 /* ---------- settings ---------- */
 
@@ -489,6 +488,29 @@ export interface CallOptions {
   stream?: boolean;
   /** Bounds the upstream call so a hung vendor cannot pin a Worker invocation. */
   timeoutMs?: number;
+  /**
+   * When this run must stop starting new work, as `Date.now()` ms.
+   *
+   * `timeoutMs` bounds *one* attempt; this bounds the whole invocation, and
+   * the difference is what was producing 500s in production. A single answer
+   * can walk every provider's every model (30s each), walk them a second time
+   * without tools when a 4xx looked tool-shaped, and do all of that again on
+   * each of `maxRounds` follow-up rounds. Every step is individually bounded
+   * and the product is not, so a bad afternoon at one vendor ran past the
+   * Workers duration limit and the platform killed the invocation — which the
+   * visitor sees as `Internal server error: 500` with nothing streamed, the
+   * worst of both outcomes.
+   *
+   * So the budget is spent, not per attempt, but per run: attempts clamp their
+   * own timeout to what is left, the provider walk stops when it is gone, and
+   * `agentLines` folds an expired deadline into the round limit it already
+   * has — the model is told it is out of lookups and asked to answer from what
+   * it holds. A short answer beats a killed worker.
+   *
+   * Absent means unbounded, which is right for `probe-ai.mjs` and for any
+   * caller that is not inside a request.
+   */
+  deadline?: number;
   /** What the model may look up. Omitted entirely when there is nothing. */
   tools?: ToolDefinition[];
   /**
@@ -521,6 +543,20 @@ export class ProviderError extends Error {
 }
 
 const CHAT_TIMEOUT_MS = 30_000;
+
+/**
+ * How long a request may spend starting new upstream work.
+ *
+ * Well under the Workers duration limit that was killing these invocations,
+ * with the remainder left for the final answer to stream. It bounds when a new
+ * call may *begin*, never a stream already in flight — cutting a model off
+ * mid-sentence to respect a clock would trade a 500 for a truncated answer.
+ */
+export const RUN_BUDGET_MS = 20_000;
+
+/** Milliseconds of the run's budget left, or `Infinity` when it has none set. */
+const timeLeft = (deadline?: number): number =>
+  deadline === undefined ? Infinity : deadline - Date.now();
 
 /**
  * One provider, one attempt.
@@ -663,7 +699,15 @@ async function callProvider(
   options: CallOptions,
 ): Promise<Response> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? CHAT_TIMEOUT_MS);
+  /* The shorter of what this attempt is allowed and what the run has left, so
+     the last attempt before a deadline cannot overshoot it by a full timeout.
+     Floored at a second: an attempt worth starting is worth a moment to fail
+     in, and a zero here would abort before the socket opened. */
+  const budget = Math.max(
+    1_000,
+    Math.min(options.timeoutMs ?? CHAT_TIMEOUT_MS, timeLeft(options.deadline)),
+  );
+  const timer = setTimeout(() => controller.abort(), budget);
 
   /* `undefined` on the row *and* on the call means "send nothing"; `null` on
      the call means "send nothing even though the row says otherwise". The
@@ -781,6 +825,18 @@ export const modelChoices = (providers: Provider[], which: 'chat' | 'assist') =>
  * The `Response` is returned unread so the caller can stream it. Every early
  * return here has already consumed the error body, so nothing leaks a reader.
  */
+/**
+ * The run ran out of budget mid-walk.
+ *
+ * A `ProviderError` like every other giving-up path here, so the routes'
+ * existing `catch` reports it as an ordinary provider failure with a status a
+ * caller can act on. `504` rather than `502`: nothing refused this, it simply
+ * did not finish in the time one request is allowed.
+ */
+const outOfTime = (lastError: string): never => {
+  throw new ProviderError(`${lastError} No time left in this request to try another.`, 504);
+};
+
 export async function callChat(
   providers: Provider[],
   options: CallOptions,
@@ -808,6 +864,12 @@ export async function callChat(
       : modelsFor(base, which);
 
     for (const model of wanted) {
+      /* Out of budget stops the walk rather than starting an attempt that
+         cannot finish. `lastError` is left naming the vendor that actually
+         failed — "ran out of time" is what happened to the walk, not why the
+         first model refused, and the second is the useful half. */
+      if (timeLeft(options.deadline) <= 0) return outOfTime(lastError);
+
       const provider = { ...base, model };
 
       let response: Response;
@@ -848,7 +910,7 @@ export async function callChat(
      diagnose from "every provider refused". The provider row's `toolsEnabled`
      is the way to make it permanent; this is what makes the first request after
      a model change still produce an answer. */
-  if (refusedWithTools) {
+  if (refusedWithTools && timeLeft(options.deadline) > 0) {
     const { tools, ...withoutTools } = options;
     return callChat(providers, withoutTools, which);
   }
@@ -1482,17 +1544,6 @@ export interface AgentOptions {
   maxRounds?: number;
   /** How many tool calls one answer may make in total. */
   maxCalls?: number;
-  /**
-   * Compress the transcript before each follow-up round, through Headroom.
-   *
-   * A lookup-heavy answer re-sends everything it has read on every round —
-   * each tool result is up to 8,000 characters and there may be eight of
-   * them — so the rounds are where the input bill actually grows. Optional
-   * and off without a `baseUrl`; only structurally identical results are
-   * ever used (see `sameToolLinkage()` in `headroom.ts`), and anything else
-   * falls back to the transcript as built.
-   */
-  headroom?: { baseUrl?: string | null; model?: string };
 }
 
 /**
@@ -1546,36 +1597,6 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
   const maxCalls = options.maxCalls ?? 8;
 
   const messages = [...options.messages];
-  /** How many turns the first send carried — everything after is lookups. */
-  const fresh = messages.length;
-
-  /**
-   * The transcript as the next round should carry it.
-   *
-   * Unchanged unless the lookups since the first send are big enough for a
-   * proxy round trip to be worth it (about 500 tokens of new tool results).
-   * Small answers skip the request entirely rather than paying latency to
-   * save nothing.
-   */
-  async function sendable(): Promise<ChatMessage[]> {
-    if (!options.headroom?.baseUrl?.trim()) return messages;
-    const added = messages
-      .slice(fresh)
-      .reduce((n, m) => n + (typeof m.content === 'string' ? m.content.length : 0), 0);
-    if (added < 2000) return messages;
-
-    const { messages: out, stats } = await compressForModel(messages, {
-      model: options.headroom.model ?? first.provider.model,
-      baseUrl: options.headroom.baseUrl,
-    });
-    if (!sameToolLinkage(messages, out)) return messages;
-    if (stats.compressed && stats.tokensSaved > 0) {
-      console.log(
-        `[ai] headroom round: saved ${stats.tokensSaved} tokens (${stats.transformsApplied.join(', ') || 'compressed'})`,
-      );
-    }
-    return out;
-  }
   /* Pinned to the provider that answered, like the rounds themselves are: the
      headroom a call was granted is a property of the row it went out on, and
      later rounds do not go back to the list. */
@@ -1633,7 +1654,14 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
        without tools, and the two budgets are the only things that grant them. */
     if (!call.tools?.length) break;
 
-    if (round >= maxRounds) {
+    /* Two ways to be out of lookups, and they end the same way. The round
+       count is the model asking too many times; the deadline is the run having
+       spent the time one request gets — see `CallOptions.deadline`. Folding the
+       clock into this branch rather than giving it its own is what makes an
+       over-long run finish with an answer instead of being killed mid-flight
+       by the platform, which is a 500 with nothing in it. */
+    const expired = timeLeft(options.call.deadline) <= 0;
+    if (round >= maxRounds || expired) {
       /* Told, *and* disarmed. The model is given a plain answer about why its
          lookup did not run — one that knows it is out writes the best answer it
          has, where one that is simply stopped leaves a blank bubble — and the
@@ -1644,7 +1672,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
           id: 'limit',
           name: asked[0]?.name ?? 'tool',
           status: 'error',
-          detail: `no more lookups (limit ${maxRounds})`,
+          detail: expired ? 'no more lookups (out of time)' : `no more lookups (limit ${maxRounds})`,
         },
       };
       messages.push({ role: 'assistant', content: said, tool_calls: toolCallsFor(asked) });
@@ -1653,13 +1681,14 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
           role: 'tool',
           tool_call_id: wanted.id,
           name: wanted.name,
-          content:
-            'You have reached the limit on lookups for this answer. Answer now from what you already have, and say plainly if something is missing.',
+          content: expired
+            ? 'This answer has run out of time for lookups. Answer now from what you already have, and say plainly if something is missing.'
+            : 'You have reached the limit on lookups for this answer. Answer now from what you already have, and say plainly if something is missing.',
         });
       }
       const { tools, ...disarmed } = call;
       call = disarmed;
-      response = await nextRound(await sendable(), which, call, first.provider);
+      response = await nextRound(messages, which, call, first.provider);
       continue;
     }
 
@@ -1719,7 +1748,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
       });
     }
 
-    response = await nextRound(await sendable(), which, call, first.provider);
+    response = await nextRound(messages, which, call, first.provider);
   }
 
   yield stopReason ? { done: true, stopReason } : { done: true };

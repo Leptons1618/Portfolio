@@ -513,6 +513,71 @@ html[data-theme='blueprint'] .contact-lets { color: var(--color-accent-2-700); }
   border-color: var(--color-divider);
 }
 
+/* — the hero, as a detail plate ————————————————————————————————————————
+
+   Geometry makes the portrait a disc in an orbit. This theme is a drafting
+   table, so the photograph is what a drawing does with a photograph: a
+   *detail*, trimmed square, keylined, and marked up for the printer.
+
+   Three marks, and every one of them is a real convention rather than
+   decoration. The keyline in `--color-accent-2` is the drawn edge. The four
+   corner ticks in `--color-accent` are crop marks — on a real sheet they say
+   where the trim falls, which is why they sit *outside* the image and never
+   touch it. The hard offset shadow is the theme's own, the same one every
+   card here casts, so the plate lifts off the grid like everything else.
+
+   Drawn on `.hero-figure::before` because the photograph is an `<img>` and
+   an `<img>` has no pseudo-elements to hang marks on. Its box is the
+   photograph's exactly: the figure's only child is the photo, and the
+   `::after` veil the page already positions this way is the proof. */
+
+html[data-theme='blueprint'] .hero-figure {
+  /* The drafting margin, in the theme's own dashed rule. */
+  border-left-style: var(--rule-style);
+  border-left-color: var(--color-accent-2-400);
+}
+
+html[data-theme='blueprint'] .hero-photo {
+  border: 1px solid var(--color-accent-2-500);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Crop marks: eight hairlines, two per corner, offset clear of the trim.
+
+   Eight gradient layers rather than an SVG because a data URI cannot read
+   `--color-accent` and would print the same rust on every palette — the same
+   reason `.btn-primary`'s sweep is a gradient. `--bp-tick` is the arm length
+   and `--bp-gap` the clearance; both are local to this block. */
+html[data-theme='blueprint'] .hero-figure::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 var(--space-6);
+  margin: calc(var(--bp-gap) * -1);
+  pointer-events: none;
+  z-index: 1;
+
+  --bp-tick: 14px;
+  --bp-gap: 7px;
+  --bp-ink: var(--color-accent);
+
+  background-image:
+    linear-gradient(var(--bp-ink) 0 0), linear-gradient(var(--bp-ink) 0 0),
+    linear-gradient(var(--bp-ink) 0 0), linear-gradient(var(--bp-ink) 0 0),
+    linear-gradient(var(--bp-ink) 0 0), linear-gradient(var(--bp-ink) 0 0),
+    linear-gradient(var(--bp-ink) 0 0), linear-gradient(var(--bp-ink) 0 0);
+  background-repeat: no-repeat;
+  background-size:
+    var(--bp-tick) 1px, 1px var(--bp-tick),
+    var(--bp-tick) 1px, 1px var(--bp-tick),
+    var(--bp-tick) 1px, 1px var(--bp-tick),
+    var(--bp-tick) 1px, 1px var(--bp-tick);
+  background-position:
+    left top, left top,
+    right top, right top,
+    left bottom, left bottom,
+    right bottom, right bottom;
+}
+
 /* — motion: the plotter ————————————————————————————————————————————————
    Everything that moves on this theme moves the way a pen plotter does —
    a line is *drawn*, a light *blinks*, a box is *traced*. Every rule below

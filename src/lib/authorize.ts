@@ -76,6 +76,20 @@ export async function requireOwner(request: Request): Promise<string> {
   return user.login;
 }
 
+/**
+ * The bearer token on a request, or `''`.
+ *
+ * Split out because `requireOwner()` returns the *login* — which is the right
+ * answer for "may this caller write" and the wrong one for the repository
+ * tools in `ai-code.ts`, which need the credential itself to read GitHub as
+ * the owner. Call it only after `requireOwner()` has approved the same
+ * request: on its own this parses a header and vouches for nothing.
+ */
+export const bearerToken = (request: Request): string => {
+  const header = request.headers.get('Authorization') ?? '';
+  return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+};
+
 /** JSON response helper, so every endpoint answers in the same shape. */
 export const json = (body: unknown, status = 200): Response =>
   new Response(JSON.stringify(body), {

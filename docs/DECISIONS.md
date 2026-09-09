@@ -1305,3 +1305,43 @@ The card moved into `AdminProjectCard.astro` because it is rendered from two pla
 The dashboard stays what decision 55's first draft made it — an overview: stats, activity, quick actions, one column, nothing on it that writes.
 
 **Rejected.** `SectionSep` as the boundary — a public-page mark on an authoring surface, and invisible on half the themes at that. A Deep Dives tab beside Repository Sync — closer than the dashboard, still a second list of the same rows with its own switch, which is the duplication rather than a smaller amount of it. Keeping the split on `/projects` as well as the home page — two curated line-ups of the same rows is two places to edit and two to go stale, which decision 53 had already rejected in the other direction. A separate preview of the home-page cards inside the editor — the manifest card is the thing being arranged; a second rendering of it is a second thing that can disagree with the page.
+
+## 56. A run gets one budget, because every step being bounded does not bound the run
+
+Production served `Internal server error: 500` on the AI routes, intermittently, with nothing streamed. Cloudflare's analytics named it: `exceededResources`, wall-time p99 of **60 seconds** against a p50 of 10ms for everything else, and `clientDisconnected` at 50s beside it — visitors giving up a moment before the platform killed the invocation.
+
+Nothing in the AI path was unbounded. That was the problem. Every step had a limit and the limits multiplied:
+
+- one attempt was capped at `CHAT_TIMEOUT_MS` (30s), and `/api/ai/assist` raised its own to 60s for long generations;
+- `callChat()` walks **every model of every active provider**, one attempt each;
+- a 4xx that looked tool-shaped triggered a *second* whole walk without tools;
+- `agentStream()` then does all of that again on each of `maxRounds` follow-up rounds.
+
+Two providers with three models each is six attempts, twelve across both walks, thirty-six across three rounds. Every one of them individually reasonable; the product is minutes. The platform kills what overruns, and a killed invocation is the worst available outcome — the visitor waits a full minute and gets a 500 with nothing in it, having been closer to an answer at second five than at second sixty.
+
+**So the budget is per run, not per attempt.** `CallOptions.deadline` is one timestamp threaded through the single choke point every call already passes:
+
+- `callProvider()` clamps its own timeout to whatever is left, so the last attempt before the deadline cannot overshoot it by a full 30 seconds;
+- `callChat()` checks before each attempt and stops the walk rather than starting one that cannot finish, giving up as a `504` — nothing refused this, it just did not finish in the time a request gets;
+- `agentStream()` folds an expired deadline **into the round limit it already had**, which is the whole reason this is small: that branch already tells the model it is out of lookups, disarms the tools and takes one last answer. Out of time and out of rounds want the same ending, so they share it.
+
+`RUN_BUDGET_MS` is 20 seconds for the interactive routes and `DAILY_BUDGET_MS` 45 for the cron, which nobody is waiting on. Both bound when new work may *begin* and never a stream already in flight: cutting a model off mid-sentence to respect a clock trades a 500 for a truncated answer, which is not a trade. An absent deadline is unbounded, which is right for `probe-ai.mjs` and anything else outside a request.
+
+**What this is not.** It is not a fix for a slow vendor — a slow vendor still produces a slow answer. It is the guarantee that a slow vendor produces an *answer*, short and honest about what it could not look up, rather than a platform error page.
+
+## 57. The assistant may read the owner's code, and only the owner's code
+
+A case study is a description of software, and the authoring assistant had no access to any. `ai-tools.ts` reads this site's own database, so a draft about a project was written from that project's one-line summary plus whatever the model already believed about a name like `menu-ocr` — which produces fluent, specific, confident prose about a pipeline nobody wrote. The fix is not a better prompt. It is letting the model read the repository.
+
+`src/lib/ai-code.ts` is three tools — `list_repo_files`, `read_repo_docs`, `read_repo_file` — against the GitHub REST API, and the interesting part is the boundary rather than the fetching.
+
+**It is a separate module from `github.ts` because `github.ts` is browser code.** That file keeps the token in `sessionStorage` and its request helper reads it from there; none of that exists in a Worker. These tools run server-side inside `/api/ai/assist`, where the owner's token arrives as the bearer header `requireOwner()` has already checked. `bearerToken()` in `authorize.ts` is the one new export that makes the credential — as opposed to the login — available to a route that has earned it.
+
+**The owner's repositories, and nobody else's.** `ownRepo()` refuses any owner other than `site.githubUser`. This is the check the rest of the file rests on: the token would happily read half of GitHub, so a model talked into naming `someone-else/private-thing` has to be stopped here, before a fetch. It accepts a bare name, `owner/name` and a full URL, because a model handed a project's `repo_url` pastes exactly that.
+
+**Two latches keep it off the public assistant.** All three specs are `surface: 'assist'`, so `toolsFor('chat')` never lists them. They are *also* `needsRepo: true`, which drops them wherever no token exists — and the case that matters is the daily journal job, which is on the assist surface and is a cron tick with no owner behind it. Without the second latch that job would be handed three tools it can only fail at, spending a lookup and a round to find out. `check:ai` pins both directions.
+
+**Everything is capped, and the caps were tuned against real data rather than guessed.** The first version gave the documentation reader a shared character pool; run against this repository it spent the entire pool on a 112 KB `CHANGELOG.md` and never fetched the README. Documentation is now ranked — README first, architecture and design next, changelogs last — and each document gets its own slice, so one large file cannot starve the rest. `read_repo_docs` exists at all for the same arithmetic: gathering the docs costs one of the eight calls an answer may make instead of five, which under decision 56's deadline is the difference between a draft that read them and a draft that ran out.
+
+Decision 31 refused a tool loop on the grounds that a model choosing **actions** turns the endpoint into a general-purpose agent on the owner's key. That still holds. Every endpoint here is a `GET`, no argument becomes a path without going through `safePath()`'s per-segment allowlist, and a stolen admin session buys a model that can read repositories the same session could already read with `curl`.
+
