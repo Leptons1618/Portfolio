@@ -63,7 +63,17 @@ export const onRequest = defineMiddleware(async (context, next) => {
   const cache = edge();
   if (cache && cacheableMethod && isPublic) {
     const hit = await cache.match(context.request);
-    if (hit) return hit;
+    /* Copied, never returned as-is. A Cache API response has *immutable*
+       headers, and this function is not the last hand on what it returns:
+       `RenderContext.render` strips Astro's own `x-astro-route-type` marker
+       off the middleware's response, then attaches cookies. The stored copy
+       still carries that marker — it is put below, and Astro deletes it only
+       further up the stack — so the delete fired on every hit and threw
+       `TypeError: Can't modify immutable headers`. Every edge hit was a 500;
+       misses rendered fine, which is why it read as intermittent rather than
+       as a cache that never worked. `new Response(body, init)` re-guards the
+       headers as mutable. */
+    if (hit) return new Response(hit.body, hit);
   }
 
   const response = await next();
