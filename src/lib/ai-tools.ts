@@ -92,6 +92,17 @@ export interface ToolSpec {
    * discover that. `toolsFor()` and `toolSummary()` both read it.
    */
   needsRepo?: true;
+  /**
+   * Withdrawn when the run already carries the README.
+   *
+   * The project screen sends the README as context on every repository task,
+   * and a model told to "start here" with `read_repo_docs` spent its first
+   * round — and eight thousand characters re-sent on every later one —
+   * fetching the document it had just been handed. On a slow free model that
+   * was a third of the run's time budget gone before it read a line of code.
+   * Decision **60**.
+   */
+  skipWhenReadmeGiven?: true;
 }
 
 /**
@@ -245,6 +256,7 @@ export const TOOL_SPECS: readonly ToolSpec[] = [
     },
     surface: 'assist',
     needsRepo: true,
+    skipWhenReadmeGiven: true,
   },
   {
     name: 'read_repo_file',
@@ -279,17 +291,25 @@ const BY_NAME = new Map(TOOL_SPECS.map(spec => [spec.name, spec]));
  * Built here rather than at the route so that "which tools does the writing
  * assistant get" is a property of the table, the same way `task.surface` is.
  */
-const offered = (
-  surface: 'chat' | 'assist',
-  options: { repoAccess?: boolean },
-): readonly ToolSpec[] =>
+export interface ToolOptions {
+  /** An owner token is on the request, so the repository tools can run. */
+  repoAccess?: boolean;
+  /** The run's context already carries the project's README. */
+  readmeGiven?: boolean;
+  /** Only the repository readers — a task about one repository needs no slugs. */
+  repoOnly?: boolean;
+}
+
+const offered = (surface: 'chat' | 'assist', options: ToolOptions): readonly ToolSpec[] =>
   TOOL_SPECS.filter(
     spec =>
       (spec.surface === 'both' || spec.surface === surface) &&
-      (!spec.needsRepo || options.repoAccess === true),
+      (!spec.needsRepo || options.repoAccess === true) &&
+      !(spec.skipWhenReadmeGiven && options.readmeGiven === true) &&
+      !(options.repoOnly === true && !spec.needsRepo),
   );
 
-export const toolsFor = (surface: 'chat' | 'assist', options: { repoAccess?: boolean } = {}) =>
+export const toolsFor = (surface: 'chat' | 'assist', options: ToolOptions = {}) =>
   offered(surface, options).map(spec => ({
     type: 'function' as const,
     function: {
@@ -300,10 +320,7 @@ export const toolsFor = (surface: 'chat' | 'assist', options: { repoAccess?: boo
   }));
 
 /** One line naming what is available, for the system prompt. */
-export const toolSummary = (
-  surface: 'chat' | 'assist',
-  options: { repoAccess?: boolean } = {},
-): string =>
+export const toolSummary = (surface: 'chat' | 'assist', options: ToolOptions = {}): string =>
   offered(surface, options)
     .map(spec => `- ${spec.name}: ${spec.description.split('.')[0]}.`)
     .join('\n');

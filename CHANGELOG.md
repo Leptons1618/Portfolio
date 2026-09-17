@@ -14,6 +14,79 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **The provider walk no longer gives up early on OpenRouter's free pool.**
+  Tested live against OpenRouter: a free model answers **HTTP 200 and then
+  sends only `{"error": "Service temporarily overloaded"}`**, and a model can
+  refuse with **403** "only available on agentic harnesses". The walk returned
+  on the first and stopped at the second as though the key were bad, so the
+  fallback models were never tried. `callChat()` now reads a stream up to its
+  first real frame before accepting it (`firstFrame()`, replaying what it read
+  byte for byte) and ends a provider on 403 only when the vendor's words are
+  about the key. Decision **60**.
+
+- **Three more free-pool failures, handled.** A round that is nothing but
+  deliberation is handed to the next model on the row once (noted in the
+  Thinking disclosure) instead of ending the run; a stream that goes silent
+  for 45 seconds is ended with an error instead of holding the request open;
+  and a model that writes its plan into the answer ("We need to write the
+  section… Let's draft:") has it routed to thinking — the narration sniffer
+  now knows that opener, and a markdown heading ends narration the way a
+  field label does. A written section that restarts after such a preamble
+  keeps the restart, and a section that is still only planning is retried.
+
+- **The frontmatter task asked for categories the database refuses.** The
+  prompt listed `ml, web, systems, data, tooling, other`; the CHECK constraint
+  allows `ml-cv, ai-llm, full-stack, devtools, systems, simulation, other`, and
+  the editor rightly ignored the rest — so most runs left the category unset.
+  The list is now generated from a table typed against the constraint.
+
+### Added
+
+- **The frontmatter run fills every field.** Year, status and the demo link are
+  read from GitHub's metadata (`projectFactsFromRepo()` — created year, archived
+  flag, last push, homepage), not asked of a model; the model writes a longer
+  summary, four to seven domain tags, a fuller stack and four to six specific
+  highlights.
+- **The project editor's frontmatter tab, rebuilt.** Five numbered groups
+  (identity, classification, tags & stack, links & media, highlights) with
+  hints and live counters; tags and stack as removable chips; a live preview of
+  the `/projects` card beside the form; a completeness checklist; and a
+  **per-field review** of what the assistant changed — each changed field is
+  marked with what it used to say and its own Keep / Revert, plus Keep all /
+  Revert all. The two columns fold to one when the docked assistant leaves too
+  little room. New module `src/lib/frontmatter-editor.ts`.
+- **A long case study, written in steps.** `/write-case-study-body` on the
+  project page now plans first (`casestudyplan`: reads the repository, returns
+  15–30 facts and six to eight sections) and then writes one section per
+  request (`casestudysection`, ~300 words each, no lookups), for about 2,000
+  words. Every step is short enough to finish on a free model; a step that
+  fails is retried once; a run that stops keeps its sections and offers
+  **Resume at section N**. One Undo takes the whole write-up back. New module
+  `src/lib/case-study-writer.ts`; both steps are closed table entries with no
+  command (`step: true`), and the plan may read only the repository
+  (`lookups: 'repo'`).
+- **The public project page shows the whole project.** Actions (case study,
+  live demo, repository) in the header; an at-a-glance strip; the status as a
+  shaped dot; highlights; the stack as an ordered manifest; the case study in
+  brief — date, read time, word count, problem and solution side by side,
+  outcomes, and the write-up's own section list — with the way in; related
+  projects ranked by shared tags; tags linking back to the filtered index.
+
+- **A writing-assistant run that runs out of time now still writes its answer.**
+  When the 20-second lookup budget ran out — usually while reading a
+  repository on a slow free model — the "answer from what you have" round was
+  sent on the same expired deadline and refused before it left, so the author
+  got `No time left in this request` after every lookup had been paid for. The
+  answer round now has its own 15-second start window (`ANSWER_GRACE_MS`), and
+  a clock that runs out mid-lookup withdraws the tools instead of failing the
+  run. Also: `read_repo_docs` is no longer offered when the page already sent
+  the README (it was being fetched twice); repository docs are capped at four
+  documents of 1,800 characters each and read two at a time, so none are
+  fetched only to be cut by the result cap; every GitHub read has an 8-second timeout; the file
+  tree lists 200 paths so it fits its cap; and what a model says just before a
+  lookup ("Let me read the README first.") is shown as thinking rather than
+  written into the post. Decision **60**.
+
 - **The frozen page behind two dialogs now works on every admin screen.** When
   the assistant opens over a dialog both step down to modeless so both stay
   usable, which gives away the backdrop and the inertness the top layer was
