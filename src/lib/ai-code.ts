@@ -59,8 +59,18 @@ const UA = 'portfolio-assistant';
  */
 const FILE_CHARS = 8_000;
 
-/** How many tree entries are worth listing. A repo is shaped by its first few hundred paths. */
-const TREE_ENTRIES = 400;
+/**
+ * How many tree entries are worth listing.
+ *
+ * Sized to fit under `RESULT_CHARS` in `ai-tools.ts` (8,000) at a typical
+ * thirty-odd characters a line. At 400 the listing ran past that cap and was
+ * cut mid-list, so the model was re-sent eight thousand characters every round
+ * *and* lost the "N more not listed" line that told it the list was partial.
+ */
+const TREE_ENTRIES = 200;
+
+/** How long one GitHub read may take before the lookup reports it and moves on. */
+const GITHUB_TIMEOUT_MS = 8_000;
 
 /**
  * Paths that say nothing about how a project works.
@@ -105,7 +115,20 @@ const DOC_RANK = (path: string): number => {
  * got fetched. The front of a document is its statement of what the thing is,
  * which is the part a writer needs.
  */
-const DOC_CHARS = 3_000;
+const DOC_CHARS = 1_800;
+
+/**
+ * How many documents one `read_repo_docs` call gathers.
+ *
+ * `DOC_DOCS × DOC_CHARS` has to fit under `RESULT_CHARS` (8,000), or the later
+ * documents are fetched, paid for in time, and then cut by the second cap
+ * before the model sees them — which is what six at 3,000 each was doing: the
+ * fourth, fifth and sixth reads never reached anyone. Decision **60**.
+ */
+const DOC_DOCS = 4;
+
+/** Reads at once. Enough to halve the wait, few enough not to stampede a shared limit. */
+const DOC_CONCURRENCY = 2;
 
 export class CodeReadError extends Error {}
 
@@ -159,9 +182,17 @@ async function get(path: string, token: string, accept: string): Promise<Respons
   try {
     response = await fetch(`https://api.github.com${path}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: accept, 'User-Agent': UA },
+      /* A lookup runs inside the assistant's time budget, and a read that
+         hangs spends all of it. Reported like any other failed read, so the
+         model is told and can write from what it has. */
+      signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
     });
-  } catch {
-    throw new CodeReadError('GitHub could not be reached.');
+  } catch (error) {
+    throw new CodeReadError(
+      error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
+        ? 'GitHub did not answer in time.'
+        : 'GitHub could not be reached.',
+    );
   }
   if (response.status === 404) throw new CodeReadError('GitHub has no such repository, branch or file.');
   if (response.status === 403) {
@@ -271,18 +302,18 @@ export async function repoDocs(
     .filter(e => e.type === 'blob' && e.path && !NOISE.test(e.path) && DOC_PATH.test(e.path))
     .map(e => e.path as string)
     .sort((a, b) => DOC_RANK(a) - DOC_RANK(b) || a.localeCompare(b))
-    .slice(0, 6);
+    .slice(0, DOC_DOCS);
 
   if (!docs.length) {
     throw new CodeReadError(`${owner}/${repo} has no README or docs/ to read. Try list_repo_files.`);
   }
 
-  /* Sequential, not `Promise.all`: six parallel reads is six subrequests
-     landing at once against a shared rate limit, and what this saves is tokens
-     rather than milliseconds. A read that fails is reported in place rather
-     than failing the set — five documents beat none. */
-  const parts: string[] = [];
-  for (const path of docs) {
+  /* Two at a time, in rank order. Fully sequential was a second or more per
+     document inside a run that has twenty seconds for all of its lookups, and
+     all at once is a burst against a shared rate limit; pairs halve the wait
+     and stay polite. A read that fails is reported in place rather than
+     failing the set — three documents beat none. */
+  const readOne = async (path: string): Promise<string> => {
     try {
       const response = await get(
         `/repos/${owner}/${repo}/contents/${path.split('/').map(encodeURIComponent).join('/')}`,
@@ -291,10 +322,14 @@ export async function repoDocs(
       );
       const body = await response.text();
       const text = body.length > DOC_CHARS ? `${body.slice(0, DOC_CHARS)}\n[…truncated]` : body;
-      parts.push(`--- ${path} ---\n${text}`);
+      return `--- ${path} ---\n${text}`;
     } catch (error) {
-      parts.push(`--- ${path} ---\n[could not be read: ${(error as Error).message}]`);
+      return `--- ${path} ---\n[could not be read: ${(error as Error).message}]`;
     }
+  };
+  const parts: string[] = [];
+  for (let i = 0; i < docs.length; i += DOC_CONCURRENCY) {
+    parts.push(...(await Promise.all(docs.slice(i, i + DOC_CONCURRENCY).map(readOne))));
   }
 
   return {

@@ -78,17 +78,23 @@ const {
   ASSIST_TASKS,
   ASSIST_MENU,
   CASE_STUDY_KEYS,
+  CATEGORY_PROMPT,
+  DEFAULT_SECTIONS,
   HISTORY_LIMITS,
   POST_KEYS,
   PROJECT_KEYS,
   VARIANT_KEYS,
   assistPrompt,
+  cleanSection,
   isAssistTask,
   parseCommand,
   parseDocument,
   parseEdit,
   parseFields,
+  parsePlan,
   pickTask,
+  projectFactsFromRepo,
+  sectionContext,
   taskForCommand,
 } = await load('src/lib/assist-tasks.ts');
 const {
@@ -1591,6 +1597,29 @@ check('a labelled field line ends the narration and stays in the answer', () => 
   assert.match(split.reasoning, /concrete title/);
 });
 
+check('a model narrating its instructions is thinking, and its heading starts the answer', () => {
+  /* Decision 60, verbatim in shape from a free OpenRouter model asked for one
+     case-study section: it planned out loud, then wrote the section. */
+  const split = narrated(
+    'We need to write the section "## How keys are named". Must start with that line exactly.\n' +
+      '- ListKeys scans ~/.ssh/*.pub\n' +
+      'Let\'s draft:\n\n' +
+      '## How keys are named\n\nKeySmith checks a name with ValidKeyName first.',
+  );
+  assert.match(split.text, /^## How keys are named\n\nKeySmith checks/);
+  assert.match(split.reasoning, /We need to write the section/);
+  assert.ok(!split.text.includes('Must start'), 'the narration reached the answer');
+
+  for (const opener of [
+    'The task is to produce frontmatter for this repository.\nTITLE: Keysmith',
+    'We are asked to write one section.\n## A heading\nBody.',
+    'Okay, we need to produce the frontmatter now.\nTITLE: Keysmith',
+  ]) {
+    const out = narrated(opener);
+    assert.ok(/^(?:TITLE|## A heading)/.test(out.text), `not stripped: ${opener}`);
+  }
+});
+
 check('an ordinary answer is not mistaken for deliberation', () => {
   /* Seventeen legitimate questions guard `screenQuestion()`; these guard the
      narration sniffer, and they are answers that open the way answers do. */
@@ -1603,6 +1632,10 @@ check('an ordinary answer is not mistaken for deliberation', () => {
     'Yes.',
     'I do not have that detail. The site covers his projects, writing and background.',
     'So the short answer is that he used YOLOv8 with DeepSort for tracking.',
+    /* Decision 60's openers are narrow: these are posts, not narration. */
+    'We need to write better error messages, and this is how we started.',
+    'We need to talk about retries. Most of ours were making outages worse.',
+    'I need to write this down before I forget how the cache actually works.',
   ];
   for (const answer of answers) {
     const split = narrated(answer);
@@ -1772,6 +1805,61 @@ await checkAsync('an expired run budget stops the walk instead of overrunning', 
      request (the probe script) relies on. */
   const none = await walk([row({})], () => ({ status: 200 }));
   assert.equal(none.result.response.status, 200);
+});
+
+await checkAsync('a 403 about one model is not a 403 about the key', async () => {
+  /* Decision 60. OpenRouter answers 403 for a model that is "only available on
+     agentic harnesses", and the walk used to treat every 403 as the key and
+     skip the fallbacks. A 403 that names the key still ends the provider. */
+  const model403 = await walk(
+    [row({ fallbackModels: ['second'] })],
+    model =>
+      model === 'primary'
+        ? { status: 403, body: '{"error":{"message":"primary is only available on agentic harnesses"}}' }
+        : { status: 200 },
+  );
+  assert.deepEqual(model403.tried, ['primary', 'second']);
+  assert.equal(model403.result.response.status, 200);
+
+  const key403 = await walk(
+    [row({ fallbackModels: ['second'] })],
+    () => ({ status: 403, body: '{"error":{"message":"Key limit exceeded"}}' }),
+  );
+  assert.deepEqual(key403.tried, ['primary'], 'a refused key was tried once per model');
+});
+
+await checkAsync('a stream that opens with an error falls through to the next model', async () => {
+  /* Decision 60. HTTP 200, then nothing but "overloaded" — the free pool's
+     commonest failure — used to be returned as the answer. */
+  const frame = f => `data: ${JSON.stringify(f)}\n\n`;
+  const good =
+    frame({ choices: [{ delta: { role: 'assistant', content: '' } }] }) +
+    frame({ choices: [{ delta: { content: 'Hello' } }] }) +
+    frame({ choices: [{ delta: { content: ' there.' }, finish_reason: 'stop' }] }) +
+    'data: [DONE]\n\n';
+  const { tried, result } = await walk(
+    [row({ fallbackModels: ['second', 'third'] })],
+    model =>
+      model === 'primary'
+        ? { status: 200, body: ': OPENROUTER PROCESSING\n\n' + frame({ error: { message: 'Service temporarily overloaded' } }) }
+        : model === 'second'
+          ? { status: 200, body: 'data: [DONE]\n\n' }
+          : { status: 200, body: good },
+    'chat',
+    { stream: true },
+  );
+  assert.deepEqual(tried, ['primary', 'second', 'third']);
+  assert.equal(result.provider.model, 'third');
+  /* What was read to decide is replayed, so the caller sees the whole stream. */
+  assert.equal(await result.response.text(), good);
+
+  const failed = await walk(
+    [row({})],
+    () => ({ status: 200, body: frame({ error: { message: 'Service temporarily overloaded' } }) }),
+    'chat',
+    { stream: true },
+  );
+  assert.ok(/overloaded/.test(failed.result.message), 'the vendor’s reason is lost');
 });
 
 await checkAsync('a rejected key ends that provider and moves to the next', async () => {
@@ -2002,11 +2090,159 @@ check('a stored base URL finds the preset it came from, or the escape hatch', ()
   assert.equal(PROVIDER_PRESETS[PROVIDER_PRESETS.length - 1].id, 'custom');
 });
 
+/* ---------- 10b. the frontmatter and the long case study (decision 60) ---------- */
+
+await checkAsync('the frontmatter prompt offers exactly the categories the database accepts', async () => {
+  const { CATEGORY_LABELS } = await load('src/lib/content.ts');
+  const offered = CATEGORY_PROMPT.split('\n').map(line => line.trim().split(' — ')[0]);
+  assert.deepEqual([...offered].sort(), Object.keys(CATEGORY_LABELS).sort());
+  assert.ok(ASSIST_TASKS.project.instructions.includes(CATEGORY_PROMPT));
+  /* The old list, four of whose values the CHECK constraint refuses. */
+  assert.ok(!/one of ml, web, systems, data, tooling/.test(ASSIST_TASKS.project.instructions));
+});
+
+check('year, status and the demo link come from GitHub, not from a model', () => {
+  const now = new Date('2026-09-16T00:00:00Z');
+  assert.deepEqual(
+    projectFactsFromRepo(
+      { createdAt: '2023-11-02T10:00:00Z', pushedAt: '2026-08-30T00:00:00Z', archived: false, homepage: 'https://menu.example.dev' },
+      '# Menu OCR',
+      now,
+    ),
+    { year: '2023', status: 'active', demoUrl: 'https://menu.example.dev' },
+  );
+  assert.equal(projectFactsFromRepo({ pushedAt: '2024-01-01T00:00:00Z' }, '', now).status, 'stable');
+  assert.equal(projectFactsFromRepo({ pushedAt: '2026-09-01T00:00:00Z', archived: true }, '', now).status, 'archived');
+  assert.equal(projectFactsFromRepo({ pushedAt: '2026-09-01T00:00:00Z' }, '> Work in progress', now).status, 'wip');
+  /* A homepage that is the repository itself, or not a URL, is no demo. */
+  assert.equal(projectFactsFromRepo({ homepage: 'https://github.com/x/y' }, '', now).demoUrl, undefined);
+  assert.equal(projectFactsFromRepo({ homepage: 'soon' }, '', now).demoUrl, undefined);
+  /* Nothing known, nothing claimed. */
+  assert.deepEqual(projectFactsFromRepo({}, '', now), {});
+});
+
+check('a case study plan is read however the model formats it', () => {
+  const plan = parsePlan(`**FACTS:**
+- Uses DBSCAN over OCR x-coordinates to find columns
+* Hungarian matching assigns prices
+1. Runs at 330ms per image on GPU
+SECTIONS:
+## 1. Why menus are hard
+Layout has no declared reading order.
+## The pipeline end to end
+## Finding columns without templates
+DBSCAN, and why not k-means.
+### Pairing prices with items
+## What still breaks
+## Next`);
+  assert.equal(plan.planned, true);
+  assert.equal(plan.facts.length, 3);
+  assert.deepEqual(plan.sections.map(s => s.heading), [
+    'Why menus are hard',
+    'The pipeline end to end',
+    'Finding columns without templates',
+    'Pairing prices with items',
+    'What still breaks',
+    'Next',
+  ]);
+  assert.equal(plan.sections[2].brief, 'DBSCAN, and why not k-means.');
+
+  /* Too few sections is not a plan: the default arc stands in, facts kept. */
+  const thin = parsePlan('FACTS:\n- one fact here\nSECTIONS:\n## Only one');
+  assert.equal(thin.planned, false);
+  assert.equal(thin.sections.length, DEFAULT_SECTIONS.length);
+  assert.deepEqual(thin.facts, ['one fact here']);
+  assert.equal(parsePlan('').planned, false);
+});
+
+check('each section request is sized, placed and capped', () => {
+  const plan = parsePlan(['FACTS:', '- a', 'SECTIONS:', ...['A', 'B', 'C', 'D', 'E', 'F', 'G'].map(h => `## ${h}`)].join('\n'));
+  const first = sectionContext(plan, 0, '');
+  assert.match(first.section, /^## A\n/);
+  assert.match(first.section, /about 300 words/);
+  assert.match(first.section, /first section/);
+  assert.equal(first.previous, '');
+  assert.match(first.outline, /→ 1\. A/);
+
+  const last = sectionContext(plan, 6, 'x'.repeat(5000));
+  assert.match(last.section, /last section/);
+  assert.equal(last.previous.length, 1200, 'the previous section travels as its ending only');
+
+  /* Few sections never ask one request for more than it can finish. */
+  const four = parsePlan(['SECTIONS:', ...['A', 'B', 'C', 'D'].map(h => `## ${h}`)].join('\n'));
+  assert.match(sectionContext(four, 0, '').section, /about 450 words/);
+  assert.match(sectionContext(four, 0, '').facts, /No separate facts/);
+
+  /* And every field it produces is one the section task sends, with a cap. */
+  for (const key of Object.keys(first)) {
+    assert.ok(ASSIST_TASKS.casestudysection.context.includes(key), `${key} is not sent`);
+  }
+  const wire = JSON.stringify(
+    assistPrompt(ASSIST_TASKS.casestudysection, {
+      ownerName: 'x', context: { ...first, facts: 'f'.repeat(20_000) }, instruction: '', corpus: '', persona: '',
+    }),
+  );
+  assert.ok(!wire.includes('f'.repeat(6001)), 'facts travelled uncapped');
+});
+
+check('a written section is cleaned to exactly its own heading and body', () => {
+  assert.equal(cleanSection('## Wrong name\n\nBody text.', 'Right name'), '## Right name\n\nBody text.');
+  assert.equal(cleanSection('Body with no heading.', 'H'), '## H\n\nBody with no heading.');
+  assert.equal(
+    cleanSection('```markdown\n## H\nOne.\n\n## The next section\nNot ours.\n```', 'H'),
+    '## H\n\nOne.',
+  );
+  assert.equal(cleanSection('### H\nKept\n### A subsection\nAlso kept', 'H'), '## H\n\nKept\n### A subsection\nAlso kept');
+  assert.equal(cleanSection('   ', 'H'), '');
+
+  /* Decision 60, from a live run: heading, planning, the heading again, the
+     section. The section is what is kept. */
+  assert.equal(
+    cleanSection(
+      '## State persistence\n\nThen paragraphs.\n\nLet\'s draft ~340 words.\n\nDraft:\n\n## State persistence\n\nThe app records three flags per key.',
+      'State persistence',
+    ),
+    '## State persistence\n\nThe app records three flags per key.',
+  );
+  /* Planning with no section after it is not a section. */
+  assert.equal(cleanSection('## H\n\nThen paragraphs.\n\nLet\'s draft ~340 words.\n\nDraft:', 'H'), '');
+  /* A section that merely mentions drafting is still a section. */
+  assert.match(cleanSection('## H\n\nThe first draft of the parser was greedy.', 'H'), /greedy/);
+
+  /* A section far past its length ends at a paragraph that fits… */
+  const para = n => Array.from({ length: n }, (_, i) => `w${i}`).join(' ');
+  const long = `## H\n\n${para(100)}\n\n${para(100)}\n\n${para(100)}`;
+  const trimmed = cleanSection(long, 'H', 150);
+  assert.equal(trimmed.split(/\s+/).length, 2 + 100, 'kept more than fits, or less than the first paragraph');
+  /* …never inside a code fence, and never before its first paragraph. */
+  const fence = `## H\n\n${para(20)}\n\n\`\`\`go\n${para(10)}\n\n${para(200)}\n\`\`\`\n\n${para(20)}`;
+  const kept = cleanSection(fence, 'H', 60);
+  assert.equal((kept.match(/```/g) ?? []).length % 2, 0, 'a fence was cut open');
+  assert.equal(cleanSection(`## H\n\n${para(500)}`, 'H', 50).split(/\s+/).length, 502);
+  assert.equal(cleanSection(long, 'H'), `## H\n\n${para(100)}\n\n${para(100)}\n\n${para(100)}`);
+});
+
+check('the plan may read the repository and nothing else', () => {
+  assert.equal(ASSIST_TASKS.casestudyplan.lookups, 'repo');
+  const names = toolsFor('assist', { repoAccess: true, readmeGiven: true, repoOnly: true }).map(t => t.function.name);
+  assert.deepEqual(names.sort(), ['list_repo_files', 'read_repo_file']);
+  assert.equal(toolsFor('assist', { repoOnly: true }).length, 0, 'no token, no repository tools, and nothing else either');
+  /* Sections look nothing up — the plan's facts are their whole source. */
+  assert.equal(ASSIST_TASKS.casestudysection.lookups, undefined);
+  assert.equal(ASSIST_TASKS.casestudysection.needsCorpus, false);
+});
+
 /* ---------- 11. commands ---------- */
 
 check('every task has a command except the conversational one, and they are unique', () => {
+  /* Steps of a longer job (the long case study) have no command either, and
+     are never on a menu — the page sequences them. */
+  for (const [name, task] of Object.entries(ASSIST_TASKS).filter(([, task]) => task.step)) {
+    assert.equal(task.command, undefined, `${name} is a step and must not be typable`);
+    assert.equal(ASSIST_MENU.some(item => item.name === name), false, `${name} is on a menu`);
+  }
   const commands = Object.entries(ASSIST_TASKS)
-    .filter(([name]) => name !== 'chat')
+    .filter(([name, task]) => name !== 'chat' && !task.step)
     .map(([name, task]) => {
       assert.ok(task.command, `${name} has no command`);
       assert.match(task.command, /^[a-z0-9]+(?:-[a-z0-9]+)*$/, `${name}: ${task.command}`);
@@ -2833,6 +3069,26 @@ await checkAsync('reasoning is still separated inside the loop', async () => {
   assert.equal(frames.filter(f => f.delta).map(f => f.delta).join(''), 'Here it is.');
 });
 
+await checkAsync('what a model says before a lookup is not written into the draft', async () => {
+  /* Decision 60. "Let me read the README first." used to stream as answer
+     text, and the editors write answer text into the post. */
+  const { frames } = await runAgent([
+    [text('Let me read the README first.'), wantsTool('c1', 'read_post', '{"slug":"live"}')],
+    [text('TITLE: Queues'), { choices: [{ finish_reason: 'stop' }] }],
+  ]);
+  assert.equal(frames.filter(f => f.delta).map(f => f.delta).join(''), 'TITLE: Queues');
+  assert.ok(frames.some(f => f.thinking === 'Let me read the README first.'), 'the narration vanished');
+
+  /* A long answer on a tool-armed round still streams, in more than one piece. */
+  const long = 'word '.repeat(120);
+  const streamed = await runAgent([
+    [text(long.slice(0, 300)), text(long.slice(300)), { choices: [{ finish_reason: 'stop' }] }],
+  ]);
+  const deltas = streamed.frames.filter(f => f.delta).map(f => f.delta);
+  assert.equal(deltas.join(''), long);
+  assert.ok(deltas.length >= 2, 'an answer was held back whole instead of streaming');
+});
+
 /* ---------- 19. the run that was all thinking ---------- */
 
 /*
@@ -2895,6 +3151,81 @@ await checkAsync('thinking that leads somewhere is never reported as a failure',
   );
 });
 
+await checkAsync('a model that only thinks hands the run to the next model, once', async () => {
+  /* Decision 60, measured on OpenRouter: one model spends the whole ceiling
+     deliberating where another answers. With a fallback configured, the
+     editor gets an answer and a note in the thinking channel, not an error. */
+  const bodies = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (_, init) => {
+    const body = JSON.parse(init.body);
+    bodies.push(body.model);
+    return new Response(
+      sse(body.model === 'second'
+        ? [text('TITLE: Answered.'), { choices: [{ finish_reason: 'stop' }] }]
+        : [thinks(5000), { choices: [{ finish_reason: 'length' }] }]),
+      { status: 200 },
+    );
+  };
+  try {
+    const provider = { ...row({ fallbackModels: ['second', 'third'] }), model: 'primary' };
+    const run = async call => {
+      const stream = agentStream({
+        first: { response: new Response(sse([thinks(5000), { choices: [{ finish_reason: 'length' }] }])), provider },
+        which: 'assist',
+        call,
+        messages: [{ role: 'user', content: 'go' }],
+        runTool: async () => ({ ok: true, text: 'x', detail: 'x' }),
+      });
+      return (await new Response(stream).text()).trim().split('\n').map(line => JSON.parse(line));
+    };
+
+    /* No tools: the call that used to take the one-round shortcut. */
+    const frames = await run({ maxTokens: 100, stream: true });
+    assert.ok(!frames.some(f => f.error), 'the thinking-only round still reached the editor as an error');
+    assert.equal(frames.filter(f => f.delta).map(f => f.delta).join(''), 'TITLE: Answered.');
+    assert.ok(frames.some(f => /asking second instead/.test(f.thinking ?? '')), 'the switch is not announced');
+    assert.deepEqual(bodies, ['second'], 'exactly one more request, to the next model');
+    assert.equal(frames[frames.length - 1].stopReason, 'stop', 'the first model’s truncation leaked into done');
+
+    /* Once per run: if the next model also only thinks, that is the answer. */
+    bodies.length = 0;
+    const stubborn = { ...provider, fallbackModels: ['also-thinks', 'never-asked'] };
+    const stream = agentStream({
+      first: { response: new Response(sse([thinks(5000)])), provider: stubborn },
+      which: 'assist',
+      call: { maxTokens: 100, stream: true },
+      messages: [{ role: 'user', content: 'go' }],
+      runTool: async () => ({ ok: true, text: 'x', detail: 'x' }),
+    });
+    const twice = (await new Response(stream).text()).trim().split('\n').map(line => JSON.parse(line));
+    assert.deepEqual(bodies, ['also-thinks']);
+    assert.ok(twice.some(f => /spent this whole run thinking/.test(f.error ?? '')));
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+await checkAsync('a stream that goes silent is ended, not waited on forever', async () => {
+  /* Decision 60: the attempt timer stops at the headers, so a vendor that
+     opens a stream and then stalls used to hold the run open until the
+     platform killed it. Silence between chunks is now bounded. */
+  const encoder = new TextEncoder();
+  const upstream = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Half an ans"}}]}\n\n'));
+      /* …and never another byte, and never closed. */
+    },
+  });
+  const started = Date.now();
+  const text = await new Response(ndjsonFromSSE(upstream, 0, 60)).text();
+  const frames = text.trim().split('\n').map(JSON.parse);
+  assert.ok(Date.now() - started < 2000, 'the stall was waited on');
+  assert.ok(frames.some(f => /stopped sending/.test(f.error ?? '')), 'the stall was not reported');
+  assert.equal(frames.filter(f => /thinking/.test(f.error ?? '')).length, 0, 'a stall was also blamed on thinking');
+  assert.equal(frames[frames.length - 1].done, true);
+});
+
 await checkAsync('a round that produced nothing at all is not blamed on thinking', async () => {
   /* An empty response is its own failure with its own message, and saying "it
      spent the run thinking" about a round that thought nothing would send the
@@ -2902,6 +3233,115 @@ await checkAsync('a round that produced nothing at all is not blamed on thinking
   const out = await drain(['data: [DONE]\n\n']);
   const frames = out.trim().split('\n').map(JSON.parse);
   assert.ok(!frames.some(f => f.error), 'an empty stream was reported as runaway thinking');
+});
+
+/*
+ * An out-of-time run still answers.
+ *
+ * The production failure behind decision 60: the round that tells a model it
+ * is out of lookups went out on the same expired deadline, `callChat()` refused
+ * to start it, and the author got "No time left" after every lookup had been
+ * paid for. Both ways of running out are pinned — the clock gone before the
+ * model asks, and the clock running out *while a lookup runs*, which is the
+ * common one because a GitHub read takes seconds.
+ */
+const outOfTime = async ({ deadline, toolMs }) => {
+  const bodies = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (_, init) => {
+    const body = JSON.parse(init.body);
+    bodies.push(body);
+    return new Response(
+      sse(
+        body.tools
+          ? [wantsTool(`again${bodies.length}`, 'read_post', '{"slug":"live"}')]
+          : [text('From what I have.'), { choices: [{ finish_reason: 'stop' }] }],
+      ),
+      { status: 200 },
+    );
+  };
+  try {
+    const stream = agentStream({
+      first: { response: new Response(sse([wantsTool('c1', 'read_post', '{"slug":"live"}')])), provider: row({}) },
+      which: 'assist',
+      call: { maxTokens: 100, tools: toolsFor('chat'), deadline },
+      messages: [{ role: 'user', content: 'go' }],
+      runTool: async () => {
+        await new Promise(done => setTimeout(done, toolMs));
+        return { ok: true, text: 'result', detail: 'ok' };
+      },
+    });
+    const frames = (await new Response(stream).text()).trim().split('\n').map(line => JSON.parse(line));
+    return { frames, bodies };
+  } finally {
+    globalThis.fetch = real;
+  }
+};
+
+await checkAsync('a run out of time for lookups still gets its answer round', async () => {
+  for (const [label, scenario] of [
+    ['expired before the model asked', { deadline: Date.now() - 1, toolMs: 0 }],
+    ['expired while the lookup ran', { deadline: Date.now() + 20, toolMs: 60 }],
+  ]) {
+    const { frames, bodies } = await outOfTime(scenario);
+    assert.ok(!frames.some(f => f.error), `${label}: the answer round was refused`);
+    assert.equal(
+      frames.filter(f => f.delta).map(f => f.delta).join(''),
+      'From what I have.',
+      `${label}: no answer was written`,
+    );
+    assert.equal(bodies.length, 1, `${label}: exactly one more request, and it is the answer`);
+    assert.ok(!bodies[0].tools, `${label}: the answer round must not be offered tools`);
+    assert.ok(frames.some(f => f.tool?.id === 'limit'), `${label}: the author is not told why`);
+    assert.equal(frames[frames.length - 1].done, true);
+  }
+});
+
+await checkAsync('a batch of lookups stops at the deadline', async () => {
+  /* A model may ask for several files at once; they run one after another, so
+     the ones left when the clock runs out are answered in words, not read. */
+  const batch = {
+    choices: [
+      {
+        delta: {
+          tool_calls: [0, 1, 2, 3].map(index => ({
+            index,
+            id: `b${index}`,
+            type: 'function',
+            function: { name: 'read_post', arguments: '{"slug":"live"}' },
+          })),
+        },
+        finish_reason: 'tool_calls',
+      },
+    ],
+  };
+  const real = globalThis.fetch;
+  const sent = [];
+  globalThis.fetch = async (_, init) => {
+    sent.push(JSON.parse(init.body));
+    return new Response(sse([text('Done.'), { choices: [{ finish_reason: 'stop' }] }]), { status: 200 });
+  };
+  let ran = 0;
+  try {
+    const stream = agentStream({
+      first: { response: new Response(sse([batch])), provider: row({}) },
+      which: 'assist',
+      call: { maxTokens: 100, tools: toolsFor('chat'), deadline: Date.now() + 30 },
+      messages: [{ role: 'user', content: 'go' }],
+      runTool: async () => {
+        ran += 1;
+        await new Promise(done => setTimeout(done, 50));
+        return { ok: true, text: 'result', detail: 'ok' };
+      },
+    });
+    const frames = (await new Response(stream).text()).trim().split('\n').map(line => JSON.parse(line));
+    assert.equal(ran, 1, `${ran} lookups ran after the window closed`);
+    /* Every call still gets a reply, or the next request is malformed. */
+    assert.equal(sent[0].messages.filter(m => m.role === 'tool').length, 4);
+    assert.equal(frames.filter(f => f.delta).map(f => f.delta).join(''), 'Done.');
+  } finally {
+    globalThis.fetch = real;
+  }
 });
 
 /* ---------- 20. the daily journal ---------- */
@@ -3216,6 +3656,37 @@ check('the repository tools can only reach the owner’s own code', () => {
   for (const bad of ['../secrets', 'a/../../b', '', '   ', 'a/b\u0000c', 'x/'.repeat(20) + 'y']) {
     assert.throws(() => safePath(bad), CodeReadError, `should have refused: ${bad}`);
   }
+});
+
+check('a README already on the page is not looked up again', () => {
+  /* Decision 60. The project screen sends the README with every repository
+     task, and a model offered `read_repo_docs` spent its first round fetching
+     it again — time and re-sent context a slow model does not have. */
+  const given = toolsFor('assist', { repoAccess: true, readmeGiven: true }).map(t => t.function.name);
+  assert.ok(!given.includes('read_repo_docs'), 'the docs tool is still offered beside the README');
+  assert.ok(given.includes('list_repo_files') && given.includes('read_repo_file'), 'the code tools went too');
+  assert.ok(!toolSummary('assist', { repoAccess: true, readmeGiven: true }).includes('read_repo_docs'));
+  assert.ok(
+    toolsFor('assist', { repoAccess: true }).some(t => t.function.name === 'read_repo_docs'),
+    'without a README the docs tool is the right first lookup',
+  );
+
+  /* And the prompt says so, but only when there is both a README and a tool. */
+  const base = {
+    ownerName: 'Someone',
+    context: { repo: 'owner/thing', readme: '# Thing\nIt does a thing.' },
+    instruction: '',
+    corpus: '',
+    persona: '',
+  };
+  const note = /do not look it up again/;
+  const armed = JSON.stringify(assistPrompt(ASSIST_TASKS.casestudybody, { ...base, tools: '- list_repo_files: x.' }));
+  assert.ok(note.test(armed), 'a model with tools is not told the README is already here');
+  assert.ok(!note.test(JSON.stringify(assistPrompt(ASSIST_TASKS.casestudybody, base))), 'no tools, nothing to warn about');
+  assert.ok(
+    !note.test(JSON.stringify(assistPrompt(ASSIST_TASKS.casestudybody, { ...base, context: { repo: 'x' }, tools: 't' }))),
+    'no README, no claim that one was sent',
+  );
 });
 
 check('repository tools are offered only where a token exists', () => {

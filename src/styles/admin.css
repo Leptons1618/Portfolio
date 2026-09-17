@@ -657,6 +657,130 @@ textarea[data-grow] { max-height: 60vh; }
   font-size: 13px;
   line-height: 1.6;
 }
+/* — the detail page's frontmatter form, grouped — decision 60.
+
+   Five numbered groups rather than one flat list, so the page reads in the
+   order a project page does. Everything below is either in the template or
+   made by `frontmatter-editor.ts`, and the second half is why it lives here:
+   a page's scoped styles never reach a node a script created. */
+.pf-form { gap: var(--space-4); }
+.pf-form-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); flex-wrap: wrap; }
+.pf-group { border: 0; margin: 0; padding: var(--space-4) 0 0; border-top: 1px solid var(--color-divider); min-width: 0; }
+.pf-group > legend {
+  float: left;
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 15px;
+}
+.pf-group > legend + * { clear: both; }
+.pf-group-no { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.08em; color: var(--color-accent-700); }
+/* As many columns as fit at a readable width — the assistant docks beside
+   this form and takes a third of the screen, so the viewport is the wrong
+   thing to measure. */
+.pf-grid-4 { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.pf-help { margin: 5px 0 0; font-size: 11px; line-height: 1.45; color: var(--color-text-faint); }
+.pf-group > .pf-help { margin-top: var(--space-2); }
+
+.pf-counter { margin: 4px 0 0; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em; color: var(--color-text-faint); }
+.pf-counter[data-tone='warn'] { color: var(--color-accent-700); }
+
+/* Chips over the list input. The box is an `.input`, so focus and theme come
+   from the shared layer; `:focus-within` stands in for the entry's own ring. */
+.pf-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 40px; padding: 6px 8px; cursor: text; }
+.pf-chips:focus-within { outline: 2px solid var(--color-accent); outline-offset: -1px; }
+.pf-chip-list { display: contents; list-style: none; margin: 0; padding: 0; }
+.pf-chip { gap: 4px; padding: 2px 4px 2px 9px; font-size: 12px; }
+.pf-chip-x {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.pf-chip-x:hover,
+.pf-chip-x:focus-visible { opacity: 1; color: var(--color-accent-700); }
+.pf-chip-entry {
+  flex: 1 0 120px;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 0;
+}
+
+/* The assistant's changes, one field at a time. The mark is a rule down the
+   field's edge in the accent, and the row under it says what was there. */
+.field[data-ai-changed] { position: relative; }
+.field[data-ai-changed]::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 calc(-1 * var(--space-2));
+  width: 2px;
+  background: var(--color-accent);
+}
+.pf-review { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2); margin-top: 5px; font-size: 11px; }
+.pf-review-was { flex: 1 1 160px; min-width: 0; color: var(--color-text-faint); overflow-wrap: anywhere; }
+.pf-review-actions { display: inline-flex; gap: 4px; flex: none; }
+.pf-review-btn {
+  border: 1px solid var(--color-divider);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.pf-review-btn:hover,
+.pf-review-btn:focus-visible { border-color: var(--color-accent); color: var(--color-accent-700); }
+.pf-review-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--color-accent);
+  background: var(--color-accent-100);
+  color: var(--color-accent-800);
+  font-size: 12px;
+}
+.pf-review-text { flex: 1 1 260px; }
+
+/* The live preview and the completeness meter, in the side column. */
+.pf-preview-host { display: flex; flex-direction: column; gap: var(--space-3); }
+.pf-preview { background: var(--color-bg); pointer-events: none; }
+.pf-preview-hero img { display: block; width: 100%; height: 120px; object-fit: cover; }
+.pf-preview-tags,
+.pf-preview-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.pf-preview-more { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-faint); align-self: center; }
+.pf-preview-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-1); }
+.pf-preview-page { display: flex; flex-direction: column; gap: 6px; }
+.pf-preview-caption,
+.pf-preview-counts { margin: 0; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; color: var(--color-text-faint); }
+.pf-preview-caption { text-transform: uppercase; }
+
+.pf-meter-label { margin: 0 0 6px; font-family: var(--font-mono); font-size: 11px; }
+.pf-meter { height: 4px; background: var(--color-divider); margin-bottom: var(--space-3); }
+.pf-meter-fill { display: block; height: 100%; background: var(--color-accent); transition: width var(--dur-base) var(--ease-out); }
+.pf-checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.pf-checks li { display: flex; gap: var(--space-2); color: var(--color-text-faint); }
+.pf-checks li.is-done { color: var(--color-text); }
+.pf-check-mark { width: 1em; text-align: center; font-family: var(--font-mono); color: var(--color-text-faint); }
+.pf-checks li.is-done .pf-check-mark { color: var(--color-accent-700); }
+
+
 .pf-message { min-height: 18px; font-size: 12px; margin: var(--space-3) 0 0; }
 .pf-message[data-tone='error'] { color: var(--color-accent-700); }
 

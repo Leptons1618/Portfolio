@@ -146,9 +146,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
   /* Tools go to the tasks that were given the index, and to conversation.
      A task that rewrites a selection has nothing to look up, and offering it
      tools is a round trip it will occasionally take anyway. */
+  const repoOnly = (task as { lookups?: 'repo' }).lookups === 'repo';
   const wantsTools =
     payload.tools !== false &&
-    (task.needsCorpus || payload.task === 'chat') &&
+    (task.needsCorpus || repoOnly || payload.task === 'chat') &&
     Boolean(providers[0]?.toolsEnabled);
   /* The owner's own token, checked by `requireOwner()` above and forwarded so
      the repository tools can read GitHub as them. It is the same credential
@@ -156,7 +157,20 @@ export const POST: APIRoute = async ({ request, locals }) => {
      is also what puts those three tools on the list at all — see `needsRepo`
      in `ai-tools.ts`. */
   const githubToken = bearerToken(request);
-  const tools = wantsTools ? toolsFor('assist', { repoAccess: Boolean(githubToken) }) : [];
+  /* The README, when the page already sent it, is not worth a lookup — see
+     `skipWhenReadmeGiven` in `ai-tools.ts`. Only counted for a task that
+     actually forwards the field, because a value `assistPrompt` drops is a
+     README the model never saw. */
+  const readme = (payload.context as { readme?: unknown } | undefined)?.readme;
+  const toolOptions = {
+    repoAccess: Boolean(githubToken),
+    readmeGiven:
+      (task.context as readonly string[]).includes('readme') &&
+      typeof readme === 'string' &&
+      Boolean(readme.trim()),
+    repoOnly,
+  };
+  const tools = wantsTools ? toolsFor('assist', toolOptions) : [];
 
   /* The author's own voice is the point of a writing assistant, and the only
      record of it this system has is what they have already published. Tasks
@@ -174,8 +188,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
      is `chat`: the tools take a slug, and the index is the only list of slugs
      there is. Tools without it would be a model told never to invent a slug and
      given nowhere to find one. */
+  /* A task that may only read the repository needs no slugs, so no index
+     either — see `lookups` in `assist-tasks.ts`. */
   let voice = '';
-  if (task.needsCorpus || wantsTools) {
+  if (task.needsCorpus || (wantsTools && !repoOnly)) {
     const [projects, caseStudies, posts, resume] = await Promise.all([
       getProjects(DB),
       getCaseStudies(DB),
@@ -192,7 +208,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
     corpus: voice,
     persona: settings.persona,
     history: turns(payload.history),
-    tools: tools.length ? toolSummary('assist', { repoAccess: Boolean(githubToken) }) : '',
+    tools: tools.length ? toolSummary('assist', toolOptions) : '',
   });
 
   const model = pickModel(providers, payload.model);

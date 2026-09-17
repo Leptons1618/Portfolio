@@ -589,6 +589,43 @@ const CHAT_TIMEOUT_MS = 30_000;
  */
 export const RUN_BUDGET_MS = 20_000;
 
+/**
+ * How long the *final* answer round may take to start, once lookups are over.
+ *
+ * `RUN_BUDGET_MS` above decides when a new lookup may begin. It used to decide
+ * the last round too, and that was the bug: the round that tells a model "you
+ * are out of lookups, answer now" went out carrying the same expired deadline,
+ * so `callChat()` refused it before a byte was sent. Every lookup and every
+ * token of deliberation the run had already paid for was thrown away and the
+ * author was shown "No time left in this request" — reported as "it spends all
+ * its tokens fetching the repo and never writes anything". Decision **60**.
+ *
+ * So the answer round gets its own clock, measured from the moment it is
+ * needed. It bounds the provider walk and the wait for headers, exactly as the
+ * run budget does, and like that budget it never cuts off a stream in flight.
+ * The run as a whole stays bounded: one lookup window, one round already in
+ * flight when it closed, and this.
+ */
+export const ANSWER_GRACE_MS = 15_000;
+
+/**
+ * How much of a tool-armed round's text waits to see whether it is an answer.
+ *
+ * Longer than the one-line "let me look that up" a model says before a lookup,
+ * short enough that an answer's first words are late by a beat rather than a
+ * sentence. See the hold in `agentLines()`.
+ */
+const HOLD_CHARS = 240;
+
+/**
+ * How long a stream may go without a byte before it is treated as stalled.
+ *
+ * Reasoning models stream their deliberation, and OpenRouter sends keep-alive
+ * comments while a model is queued, so a healthy stream is never quiet this
+ * long. Exported for `check:ai`.
+ */
+export const STREAM_IDLE_MS = 45_000;
+
 /** Milliseconds of the run's budget left, or `Infinity` when it has none set. */
 const timeLeft = (deadline?: number): number =>
   deadline === undefined ? Infinity : deadline - Date.now();
@@ -738,11 +775,7 @@ async function callProvider(
      the last attempt before a deadline cannot overshoot it by a full timeout.
      Floored at a second: an attempt worth starting is worth a moment to fail
      in, and a zero here would abort before the socket opened. */
-  const budget = Math.max(
-    1_000,
-    Math.min(options.timeoutMs ?? CHAT_TIMEOUT_MS, timeLeft(options.deadline)),
-  );
-  const timer = setTimeout(() => controller.abort(), budget);
+  const timer = setTimeout(() => controller.abort(), attemptBudget(options));
 
   /* `undefined` on the row *and* on the call means "send nothing"; `null` on
      the call means "send nothing even though the row says otherwise". The
@@ -842,6 +875,115 @@ export const modelChoices = (providers: Provider[], which: 'chat' | 'assist') =>
   );
 
 /**
+ * The least a model gets to produce its first frame, deadline or not.
+ *
+ * Reasoning models stream their deliberation within a second or three, so this
+ * only bites on a model that is stalled. It is a floor because a round begun
+ * with a moment of the run left would otherwise be failed for not answering in
+ * that moment — the deadline decides when work may *start*, not how fast the
+ * vendor must be once it has.
+ */
+const FIRST_FRAME_FLOOR_MS = 10_000;
+
+/** A 403 body that is about the credential rather than the model. */
+const KEY_REFUSAL = /\b(?:api[\s_-]?key|key limit|credential|unauthori[sz]ed|invalid token|credits?)\b/i;
+
+/** What one attempt may spend, before and after its headers. */
+const attemptBudget = (options: CallOptions): number =>
+  Math.max(1_000, Math.min(options.timeoutMs ?? CHAT_TIMEOUT_MS, timeLeft(options.deadline)));
+
+/**
+ * Read a streamed response up to its first frame that means something.
+ *
+ * Something is text, reasoning, a tool call or a finish reason. An `error`
+ * frame first, a stream that ends first, or nothing within `budget` are all
+ * failures of *this model*, and the caller moves on to the next one. What has
+ * been read is not lost: the response handed back replays it ahead of the rest
+ * of the stream, byte for byte, so every reader downstream sees exactly what
+ * the vendor sent.
+ */
+async function firstFrame(
+  response: Response,
+  budget: number,
+): Promise<{ ok: true; response: Response } | { ok: false; message: string }> {
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  const seen: Uint8Array[] = [];
+  let text = '';
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timer = new Promise<'late'>(done => {
+    timeoutId = setTimeout(() => done('late'), budget);
+  });
+  const fail = (message: string) => {
+    void reader.cancel().catch(() => {});
+    return { ok: false as const, message };
+  };
+
+  try {
+    for (;;) {
+      const next = await Promise.race([reader.read(), timer]);
+      if (next === 'late') return fail('no output in time.');
+      if (next.done) return fail('the stream ended before any output.');
+      seen.push(next.value);
+      text += decoder.decode(next.value, { stream: true });
+
+      const lines = text.split('\n');
+      text = lines.pop() ?? '';
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line.startsWith('data:')) continue;
+        const data = line.slice(5).trim();
+        if (!data || data === '[DONE]') continue;
+        let frame: {
+          error?: { message?: string };
+          choices?: {
+            delta?: { content?: string; reasoning?: string; reasoning_content?: string; tool_calls?: unknown[] };
+            finish_reason?: string | null;
+          }[];
+        };
+        try {
+          frame = JSON.parse(data);
+        } catch {
+          continue;
+        }
+        if (frame.error) return fail((frame.error.message ?? 'the model stopped.').slice(0, 200));
+        const choice = frame.choices?.[0];
+        const delta = choice?.delta;
+        if (
+          delta?.content ||
+          delta?.reasoning ||
+          delta?.reasoning_content ||
+          delta?.tool_calls?.length ||
+          choice?.finish_reason
+        ) {
+          const replay = new ReadableStream<Uint8Array>({
+            start(controller) {
+              for (const chunk of seen) controller.enqueue(chunk);
+            },
+            async pull(controller) {
+              const { done, value } = await reader.read();
+              if (done) controller.close();
+              else controller.enqueue(value);
+            },
+            cancel(reason) {
+              return reader.cancel(reason);
+            },
+          });
+          return {
+            ok: true,
+            response: new Response(replay, { status: response.status, headers: response.headers }),
+          };
+        }
+      }
+    }
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : 'the stream failed.');
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+/**
  * Ask the first model that answers, walking models and then providers.
  *
  * Two nested walks, because there are two different outages. A model that is
@@ -919,7 +1061,22 @@ export async function callChat(
         continue;
       }
 
-      if (response.ok) return { response, provider };
+      if (response.ok) {
+        if (!options.stream || !response.body) return { response, provider };
+        /* A 200 is not an answer yet. OpenRouter's free pool routinely opens
+           the stream and then sends nothing but `{"error":…"overloaded"}`, and
+           a walk that returned on the status line handed that to the caller as
+           the answer — the next model on the list was never tried. So the
+           stream is read up to its first real frame here, where falling
+           through is still possible. Decision **60**. */
+        const opened = await firstFrame(
+          response,
+          Math.max(FIRST_FRAME_FLOOR_MS, attemptBudget(options)),
+        );
+        if (opened.ok) return { response: opened.response, provider };
+        lastError = `${base.label} (${model}) failed: ${opened.message}`;
+        continue;
+      }
 
       /* Read it here so the connection is released either way, and so the
          message below is the vendor's own rather than a status code.
@@ -932,8 +1089,14 @@ export async function callChat(
       }
 
       /* The key, not the model. Trying its other models spends latency to
-         collect the same 401 once per entry in the list. */
-      if (response.status === 401 || response.status === 403) break;
+         collect the same 401 once per entry in the list.
+
+         A 403 is only sometimes the key. OpenRouter also answers 403 for one
+         *model* — "only available on agentic harnesses", a moderation flag on
+         one upstream — and ending the walk there left every fallback untried.
+         So a 403 ends it only when the vendor's own words are about the key. */
+      if (response.status === 401) break;
+      if (response.status === 403 && KEY_REFUSAL.test(detail)) break;
     }
   }
 
@@ -1021,6 +1184,14 @@ const NARRATION: RegExp[] = [
   /^\s*the\s+user\s+(?:is\s+)?(?:asking|asks|wants|said|says|gave|provided)\b/i,
   /^\s*i\s+need\s+to\s+(?:analy|understand|figure|work\s+out|carefully|first)/i,
   /^\s*(?:first|step)\s*,?\s*(?:1\s*[.:)]|i\s+(?:need|should|must|will))/i,
+  /* Measured on OpenRouter's free pool, writing one case-study section: "We
+     need to write the section "## …". Must start with that line exactly." —
+     the model planning out loud about its own instructions. Narrow on
+     purpose: the verb *and* an object naming the deliverable, so "We need to
+     write better error messages" still opens a post. Decision 60. */
+  /^\s*(?:(?:okay|ok|alright|so)\s*,?\s*)?(?:we|i)\s+(?:need|have|must|should)\s+to\s+(?:write|produce|output|draft|create|generate|return)\s+(?:the|a|an|this|one)\s+(?:section|frontmatter|answer|response|output|plan|case study|summary|reply|fields?|json|markdown)\b/i,
+  /^\s*(?:the|our|my)\s+task\s+is\s+to\b/i,
+  /^\s*(?:we|i)\s*(?:'re|’re|\s+are|\s+am|'m|’m)\s+(?:being\s+)?(?:asked|told|instructed)\s+to\b/i,
 ];
 
 /**
@@ -1046,6 +1217,14 @@ const NARRATION_RULE = /^\s*(?:-{3,}|={3,}|\*{3,})\s*$/;
  * answer's first line, so it is kept.
  */
 const FIELD_LABEL = /^[A-Z][A-Z ]{1,14}:/;
+
+/**
+ * A markdown heading at the start of a line — the other shape an answer opens
+ * with. A section, a post body and a plan all start at one, and a model that
+ * narrated first ("Let's draft:") starts its real output there. Kept, like a
+ * field label.
+ */
+const ANSWER_HEADING = /^#{1,3}\s+\S/;
 
 /** Enough of the opening to decide on, when no newline arrives first. */
 const HEAD_WINDOW = 90;
@@ -1134,7 +1313,7 @@ export function thinkStripper() {
       const one = partial.slice(0, cut);
       partial = partial.slice(cut + 1);
 
-      if (FIELD_LABEL.test(one)) {
+      if (FIELD_LABEL.test(one) || ANSWER_HEADING.test(one)) {
         /* The answer's own first line. Kept, along with everything after it. */
         narrating = false;
         const rest = `${one}\n${partial}`;
@@ -1231,7 +1410,13 @@ export function thinkStripper() {
 
       const last = partial;
       partial = '';
-      return both(out, narrating ? { text: '', reasoning: last } : { text: last, reasoning: '' });
+      /* A last line with no newline after it is still a line: if it is the
+         answer's opening — a field label, a heading — it is the answer. */
+      const answerLine = FIELD_LABEL.test(last) || ANSWER_HEADING.test(last);
+      return both(
+        out,
+        narrating && !answerLine ? { text: '', reasoning: last } : { text: last, reasoning: '' },
+      );
     },
   };
 }
@@ -1274,6 +1459,8 @@ export function ndjsonFromSSE(
   upstream: ReadableStream<Uint8Array>,
   /** The round's thinking allowance, quoted in the report below. Not a gate. */
   thinkBudget = 0,
+  /** See `STREAM_IDLE_MS`. A parameter so `check:ai` need not wait it out. */
+  idleMs = STREAM_IDLE_MS,
 ): ReadableStream<Uint8Array> {
   return linesToStream(
     (async function* () {
@@ -1283,7 +1470,7 @@ export function ndjsonFromSSE(
          can tell those apart — so it rides on the `done` frame, which is the
          one every reader already waits for. */
       let stopReason = '';
-      for await (const event of sseEvents(upstream, thinkBudget)) {
+      for await (const event of sseEvents(upstream, thinkBudget, idleMs)) {
         if (event.kind === 'stop') {
           stopReason = event.reason;
           continue;
@@ -1302,7 +1489,8 @@ export function ndjsonFromSSE(
 type SseEvent =
   | { kind: 'thinking'; text: string }
   | { kind: 'delta'; text: string }
-  | { kind: 'error'; message: string }
+  /** `thinkingOnly` marks the one error another model might not repeat. */
+  | { kind: 'error'; message: string; thinkingOnly?: true }
   | { kind: 'stop'; reason: string }
   /** Emitted once, at the end of a round, when the model asked to call something. */
   | { kind: 'tools'; calls: ToolCall[] };
@@ -1344,6 +1532,7 @@ function frameFor(event: SseEvent): Record<string, unknown> | null {
 async function* sseEvents(
   upstream: ReadableStream<Uint8Array>,
   thinkBudget = 0,
+  idleMs = STREAM_IDLE_MS,
 ): AsyncGenerator<SseEvent> {
   const decoder = new TextDecoder();
   const reader = upstream.getReader();
@@ -1357,6 +1546,9 @@ async function* sseEvents(
      spending the budget the answer was given, which is fine. */
   let thought = 0;
   let produced = false;
+  /* A stall has already been reported; the thinking-only report would be a
+     second, misleading error about the same round. */
+  let stalled = false;
   /* The last non-empty `finish_reason` upstream sent. `length` is the one worth
      carrying: it is the difference between "the model had nothing more to add"
      and "the ceiling cut it off mid-sentence", and nothing else on either
@@ -1368,7 +1560,26 @@ async function* sseEvents(
 
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      /* Bounded between chunks, not overall. A long answer may stream for
+         minutes; a stream that goes silent for this long has stalled, and
+         nothing else would ever end it — the attempt timer stops at the
+         headers. Measured on OpenRouter's free pool. Decision 60. */
+      let idle: ReturnType<typeof setTimeout> | undefined;
+      const next = await Promise.race([
+        reader.read(),
+        new Promise<'stalled'>(resolve => {
+          idle = setTimeout(() => resolve('stalled'), idleMs);
+        }),
+      ]).finally(() => clearTimeout(idle));
+      if (next === 'stalled') {
+        yield {
+          kind: 'error',
+          message: `The model stopped sending for ${Math.round(idleMs / 1000)} seconds, so this answer was ended. Try again, or pick another model.`,
+        };
+        stalled = true;
+        break;
+      }
+      const { done, value } = next;
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
@@ -1499,10 +1710,11 @@ async function* sseEvents(
      * `thinkBudget` only quantifies the message. The budget is not the trigger
      * — spending it and then answering is fine, and is what the headroom is
      * there for. */
-    if (!produced && thought > 0) {
+    if (!produced && thought > 0 && !stalled) {
       const spent = Math.round(thought / CHARS_PER_TOKEN);
       yield {
         kind: 'error',
+        thinkingOnly: true,
         message:
           `The model spent this whole run thinking — about ${spent} tokens of deliberation ` +
           `and no answer${thinkBudget > 0 ? `, against a ${thinkBudget}-token allowance` : ''}. ` +
@@ -1617,7 +1829,11 @@ export function agentStream(options: AgentOptions): ReadableStream<Uint8Array> {
      and exactly the frames every reader already handles. Not an optimisation:
      it is what says out loud that the loop exists *only* for lookups, and it
      keeps `ndjsonFromSSE` the thing both paths agree the frame protocol is. */
-  if (!options.call.tools?.length && options.first.response.body) {
+  if (
+    !options.call.tools?.length &&
+    options.first.response.body &&
+    !nextModel(options.first.provider, options.which)
+  ) {
     return ndjsonFromSSE(
       options.first.response.body,
       thinkingBudget(options.first.provider, options.call.maxTokens),
@@ -1637,6 +1853,10 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
      later rounds do not go back to the list. */
   const thinkBudget = thinkingBudget(first.provider, options.call.maxTokens);
   let response = first.response;
+  /* The provider the rounds go back to. It changes at most once — see the
+     all-thinking handover below. */
+  let provider = first.provider;
+  let switched = false;
   let spent = 0;
   let stopReason = '';
   /* Withdrawn rather than refused, once the budget is gone.
@@ -1659,9 +1879,45 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
        otherwise it repeats itself, having no record of having spoken. */
     let said = '';
     let asked: ToolCall[] = [];
+    /* The opening of a round that could still end in a lookup, held back.
+
+       A model with tools very often says what it is about to do — "Let me read
+       the README first." — and *then* asks. Streamed as it arrived, that
+       sentence was answer text, and every editor that writes a task's output
+       into a field wrote it into the post. Nothing in the frame says which kind
+       of sentence it is until the round ends, so the first `HOLD_CHARS` wait:
+       a round that turns into a lookup hands them over as thinking, and one
+       that keeps going is an answer and streams as before, a beat late.
+       Decision **60**. */
+    let held = '';
+    let flowing = !call.tools?.length;
+    /* Set when this round was nothing but deliberation and another model is
+       configured to ask instead. Held rather than sent, because the editors
+       end a run on any `error` frame. */
+    let thoughtOnly = '';
 
     for await (const event of sseEvents(response.body, thinkBudget)) {
-      if (event.kind === 'delta') said += event.text;
+      if (event.kind === 'error' && event.thinkingOnly && !switched && nextModel(provider, which)) {
+        thoughtOnly = event.message;
+        continue;
+      }
+      if (event.kind === 'delta') {
+        said += event.text;
+        if (!flowing) {
+          held += event.text;
+          if (held.length >= HOLD_CHARS) {
+            flowing = true;
+            yield { delta: held };
+            held = '';
+          }
+          continue;
+        }
+      }
+      if (event.kind === 'error' && held) {
+        /* Whatever it managed before failing is still the author's to see. */
+        yield { delta: held };
+        held = '';
+      }
       if (event.kind === 'stop') {
         stopReason = event.reason;
         continue;
@@ -1672,6 +1928,39 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
       }
       const frame = frameFor(event);
       if (frame) yield frame;
+    }
+
+    if (held) yield asked.length ? { thinking: held } : { delta: held };
+
+    /* A round that only deliberated, handed to the next model once.
+
+       Measured on OpenRouter's free pool: the same frontmatter request that one
+       model answers in twenty seconds, another spends two minutes thinking
+       about and never writes. That is a property of the model, not of the
+       request, so the next model on the row is asked with the same messages —
+       once per run, announced in the thinking channel, and on the answer
+       round's own clock when the lookup window has closed. Decision **60**. */
+    if (thoughtOnly) {
+      const next = nextModel(provider, which)!;
+      switched = true;
+      stopReason = '';
+      yield {
+        thinking: `\n\n[${provider.model} spent its whole allowance thinking and wrote nothing — asking ${next.model} instead.]\n\n`,
+      };
+      const retry =
+        call.tools?.length && timeLeft(options.call.deadline) > 0
+          ? call
+          : answerCall((({ tools, ...rest }) => rest)(call));
+      try {
+        const again = await callChat([next], { ...retry, messages }, which);
+        response = again.response;
+        provider = again.provider;
+        call = retry;
+        continue;
+      } catch {
+        yield { error: thoughtOnly };
+        break;
+      }
     }
 
     if (!asked.length) break;
@@ -1723,7 +2012,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
       }
       const { tools, ...disarmed } = call;
       call = disarmed;
-      response = await nextRound(messages, which, call, first.provider);
+      response = await nextRound(messages, which, answerCall(call), provider);
       continue;
     }
 
@@ -1740,6 +2029,19 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
         /* Same reasoning as the round limit: a model that may still ask, will. */
         const { tools, ...disarmed } = call;
         call = disarmed;
+        continue;
+      }
+      /* Out of time partway through a batch: the lookups already run are kept,
+         the rest are answered in words. Without this a model that asked for
+         five files at once had all five read one after another — each up to
+         eight seconds — however long ago the window closed. */
+      if (timeLeft(options.call.deadline) <= 0) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: wanted.id,
+          name: wanted.name,
+          content: 'Not read: this answer is out of time for lookups.',
+        });
         continue;
       }
       spent += 1;
@@ -1783,11 +2085,52 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
       });
     }
 
-    response = await nextRound(messages, which, call, first.provider);
+    /* The lookups themselves can outlast the window — a GitHub read is several
+       seconds, and a round that started with a second to spare ends well past
+       it. The results are already in the conversation and paid for, so the
+       model gets them *and* no more tools, and is told so in the last result
+       rather than in a message of its own: a `user` turn after `tool` turns is
+       valid in the spec and still refused by one or two strict routers. */
+    if (call.tools?.length && timeLeft(options.call.deadline) <= 0) {
+      const { tools, ...disarmed } = call;
+      call = disarmed;
+      const last = messages[messages.length - 1];
+      if (last?.role === 'tool') {
+        last.content +=
+          '\n\n[No more lookups are available for this answer. Write it now from what you ' +
+          'have, and say plainly if something is missing.]';
+      }
+      yield {
+        tool: {
+          id: 'limit',
+          name: asked[asked.length - 1]?.name ?? 'tool',
+          status: 'error',
+          detail: 'no more lookups (out of time)',
+        },
+      };
+    }
+
+    response = await nextRound(
+      messages,
+      which,
+      call.tools?.length ? call : answerCall(call),
+      provider,
+    );
   }
 
   yield stopReason ? { done: true, stopReason } : { done: true };
 }
+
+/**
+ * The call for a round that may only answer: no tools, and its own clock.
+ *
+ * See `ANSWER_GRACE_MS`. Every path that withdraws the tools goes through
+ * here, so none of them can send the answer round out on a deadline that has
+ * already passed. A call with no deadline at all (the probe script) stays
+ * unbounded.
+ */
+const answerCall = (call: Omit<CallOptions, 'messages'>): Omit<CallOptions, 'messages'> =>
+  call.deadline === undefined ? call : { ...call, deadline: Date.now() + ANSWER_GRACE_MS };
 
 /** The assistant turn to replay, in the shape the API expects it back. */
 const toolCallsFor = (calls: ToolCall[]) =>
@@ -1832,6 +2175,23 @@ async function nextRound(
   call: Omit<CallOptions, 'messages'>,
   provider: Provider,
 ): Promise<Response> {
-  const { response } = await callChat([provider], { ...call, messages }, which);
+  /* `assistModel` cleared, so the walk starts at the model that answered —
+     otherwise a row with an assist model would begin every later round there,
+     whichever of its models actually took the first. */
+  const { response } = await callChat([{ ...provider, assistModel: '' }], { ...call, messages }, which);
   return response;
+}
+
+/**
+ * The same row, starting at the model after the one that just answered.
+ *
+ * `null` when there is none. Used once per run, for a round that was nothing
+ * but deliberation — the one failure a different model on the same key can fix.
+ */
+function nextModel(provider: Provider, which: 'chat' | 'assist'): Provider | null {
+  const list = modelsFor(provider, which);
+  const at = list.indexOf(provider.model);
+  const rest = at === -1 ? list.filter(model => model !== provider.model) : list.slice(at + 1);
+  if (!rest.length) return null;
+  return { ...provider, assistModel: '', model: rest[0], fallbackModels: rest.slice(1) };
 }

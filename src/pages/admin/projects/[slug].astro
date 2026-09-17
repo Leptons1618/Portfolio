@@ -167,68 +167,110 @@ const STATUS_VARIANT: Record<string, string> = {
         `.tab-panel[hidden]` and leave a "hidden" panel on screen. */}
     <div class="tab-panel" id="pd-panel-fields" role="tabpanel" aria-labelledby="pd-tab-fields">
     <div class="pd-grid">
-      <section class="card elev-sm">
-        <p class="admin-eyebrow">Project Frontmatter</p>
-        <p class="text-muted admin-note">
-          Fields left blank are removed when they are optional. Visibility is the switch
-          above, not a field here.
-        </p>
-        <hr class="rule pd-rule" />
-
-        <div class="pf-grid">
-          <div class="field pf-wide">
-            <label for="pf-title">Title</label>
-            <input class="input" id="pf-title" />
+      <section class="card elev-sm pf-form">
+        <div class="pf-form-head">
+          <div>
+            <p class="admin-eyebrow">Project Frontmatter</p>
+            <p class="text-muted admin-note">
+              Everything the project page and its card show. Blank optional fields are
+              removed on save; visibility is the switch above.
+            </p>
           </div>
-          <div class="field pf-wide">
-            <label for="pf-summary">Summary</label>
-            <textarea class="input pf-summary" id="pf-summary" data-grow></textarea>
-          </div>
-          <div class="field">
-            <label for="pf-category">Category</label>
-            <select class="input" id="pf-category">
-              {PROJECT_CATEGORIES.map(([value, label]) => <option value={value}>{label}</option>)}
-            </select>
-          </div>
-          <div class="field">
-            <label for="pf-status">Status</label>
-            <select class="input" id="pf-status">
-              {PROJECT_STATUSES.map(([value, label]) => <option value={value}>{label}</option>)}
-            </select>
-          </div>
-          <div class="field">
-            <label for="pf-year">Year</label>
-            <input class="input" id="pf-year" type="number" min="1990" max="2100" />
-          </div>
-          <div class="field">
-            <label for="pf-rank">Featured rank (blank = not featured)</label>
-            <input class="input" id="pf-rank" type="number" min="1" max="99" />
-          </div>
-          <div class="field pf-wide">
-            <label for="pf-tags">Tags (comma separated)</label>
-            <input class="input" id="pf-tags" />
-          </div>
-          <div class="field pf-wide">
-            <label for="pf-stack">Stack (comma separated)</label>
-            <input class="input" id="pf-stack" />
-          </div>
-          <div class="field pf-wide">
-            <label for="pf-repo">Repository URL</label>
-            <input class="input" id="pf-repo" />
-          </div>
-          <div class="field pf-wide">
-            <label for="pf-demo">Demo URL (optional)</label>
-            <input class="input" id="pf-demo" />
-          </div>
-          <div class="field pf-wide">
-            <label for="pf-hero">Hero image (optional)</label>
-            <input class="input" id="pf-hero" placeholder="/images/project.jpg" />
-          </div>
-          <div class="field pf-wide">
-            <label for="pf-highlights">Highlights (one per line)</label>
-            <textarea class="input pf-highlights" id="pf-highlights" data-grow></textarea>
-          </div>
+          <button type="button" class="btn btn-secondary btn-sm" data-assist-task="project">
+            <Icon name="lucide:sparkles" class="admin-nav-icon" />Fill every field
+          </button>
         </div>
+
+        {/* Shown only while there are assistant changes to review; the
+            `hidden` attribute is dropped rather than overridden — decision 26. */}
+        <div class="pf-review-bar" id="pf-review-bar" role="status" hidden></div>
+
+        <fieldset class="pf-group">
+          <legend><span class="pf-group-no">01</span>Identity</legend>
+          <div class="pf-grid">
+            <div class="field pf-wide">
+              <label for="pf-title">Title</label>
+              <input class="input" id="pf-title" />
+            </div>
+            <div class="field pf-wide">
+              <label for="pf-summary">Summary</label>
+              <textarea class="input pf-summary" id="pf-summary" data-grow></textarea>
+              <p class="pf-help">The card body and the meta description: what it does, for whom, and why it is interesting.</p>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="pf-group">
+          <legend><span class="pf-group-no">02</span>Classification</legend>
+          <div class="pf-grid pf-grid-4">
+            <div class="field">
+              <label for="pf-category">Category</label>
+              <select class="input" id="pf-category">
+                {PROJECT_CATEGORIES.map(([value, label]) => <option value={value}>{label}</option>)}
+              </select>
+            </div>
+            <div class="field">
+              <label for="pf-status">Status</label>
+              <select class="input" id="pf-status">
+                {PROJECT_STATUSES.map(([value, label]) => <option value={value}>{label}</option>)}
+              </select>
+            </div>
+            <div class="field">
+              <label for="pf-year">Year</label>
+              <input class="input" id="pf-year" type="number" min="1990" max="2100" />
+            </div>
+            <div class="field">
+              <label for="pf-rank">Featured rank</label>
+              <input class="input" id="pf-rank" type="number" min="1" max="99" placeholder="not featured" />
+            </div>
+          </div>
+          <p class="pf-help">The assistant reads year, status and the demo link from GitHub. Featured rank is yours alone.</p>
+        </fieldset>
+
+        <fieldset class="pf-group">
+          <legend><span class="pf-group-no">03</span>Tags &amp; stack</legend>
+          <div class="pf-grid">
+            <div class="field pf-wide">
+              <label for="pf-tags">Tags</label>
+              <input class="input" id="pf-tags" />
+              <p class="pf-help">The problem and the technique — “Document Parsing”, “Bipartite Matching”. Enter or a comma adds one.</p>
+            </div>
+            <div class="field pf-wide">
+              <label for="pf-stack">Stack</label>
+              <input class="input" id="pf-stack" />
+              <p class="pf-help">Languages, frameworks and services, most important first.</p>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="pf-group">
+          <legend><span class="pf-group-no">04</span>Links &amp; media</legend>
+          <div class="pf-grid">
+            <div class="field">
+              <label for="pf-repo">Repository URL</label>
+              <input class="input" id="pf-repo" inputmode="url" />
+            </div>
+            <div class="field">
+              <label for="pf-demo">Demo URL (optional)</label>
+              <input class="input" id="pf-demo" inputmode="url" />
+            </div>
+            <div class="field pf-wide">
+              <label for="pf-hero">Hero image (optional)</label>
+              <input class="input" id="pf-hero" placeholder="/images/project.jpg" />
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="pf-group">
+          <legend><span class="pf-group-no">05</span>Highlights</legend>
+          <div class="pf-grid">
+            <div class="field pf-wide">
+              <label for="pf-highlights">One per line</label>
+              <textarea class="input pf-highlights" id="pf-highlights" data-grow></textarea>
+              <p class="pf-help">Facts, not adjectives: a technique and why, a measured result, a hard constraint it handles.</p>
+            </div>
+          </div>
+        </fieldset>
 
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" id="pf-reset">Revert</button>
@@ -237,6 +279,17 @@ const STATUS_VARIANT: Record<string, string> = {
       </section>
 
       <aside class="pd-side">
+        <section class="card elev-sm pf-aside-card">
+          <p class="admin-eyebrow">Live preview</p>
+          <p class="text-muted admin-note">The card on <code>/projects</code>, as the form reads now.</p>
+          <div id="pf-preview" class="pf-preview-host"></div>
+        </section>
+
+        <section class="card elev-sm pf-aside-card">
+          <p class="admin-eyebrow">Completeness</p>
+          <div id="pf-checklist"></div>
+        </section>
+
         <section class="card elev-sm">
           <p class="admin-eyebrow">Repository</p>
           <dl class="pd-facts">
@@ -266,7 +319,8 @@ const STATUS_VARIANT: Record<string, string> = {
             <Icon name="lucide:sparkles" class="admin-nav-icon" />Write the frontmatter from it
           </button>
           <p class="text-muted admin-note">
-            Reads the README and fills the fields on the left. Undo puts them back.
+            Reads the README and GitHub’s metadata and fills every field on the left. Each
+            change is marked for review; Undo puts them all back.
           </p>
         </section>
 
@@ -305,7 +359,7 @@ const STATUS_VARIANT: Record<string, string> = {
               <Icon name="lucide:sparkles" class="admin-nav-icon" />Write the fields
             </button>
             <button type="button" class="btn btn-secondary btn-sm" data-assist-task="casestudybody">
-              <Icon name="lucide:sparkles" class="admin-nav-icon" />Write the prose
+              <Icon name="lucide:sparkles" class="admin-nav-icon" />Write the long write-up
             </button>
             <button type="button" class="btn btn-secondary btn-sm" id="cs-unlink">Unlink</button>
           </div>
@@ -444,7 +498,8 @@ const STATUS_VARIANT: Record<string, string> = {
   import { copyText } from '../../../lib/clipboard';
   import { relativeTime } from '../../../lib/format';
   import { runAssist } from '../../../lib/ai-store';
-  import { mountAssistPanel } from '../../../lib/assist-panel';
+  import { mountAssistPanel, type AssistTurn } from '../../../lib/assist-panel';
+  import { LongRunStopped, writeLongCaseStudy, type LongRunState } from '../../../lib/case-study-writer';
   import {
     ASSIST_MENU,
     ASSIST_TASKS,
@@ -453,6 +508,7 @@ const STATUS_VARIANT: Record<string, string> = {
     isAssistTask,
     parseEdit,
     parseFields,
+    projectFactsFromRepo,
     type AssistTask,
     type AssistTaskName,
     type FieldShape,
@@ -460,6 +516,7 @@ const STATUS_VARIANT: Record<string, string> = {
     type ProjectTarget,
   } from '../../../lib/assist-tasks';
   import {
+    PROJECT_CATEGORIES,
     createCaseStudy,
     patchCaseStudy,
     patchProject,
@@ -479,6 +536,15 @@ const STATUS_VARIANT: Record<string, string> = {
     repoFacts,
   } from '../../../lib/github';
   import { attachImageUpload } from '../../../lib/image-upload';
+  import {
+    completeness,
+    mountChips,
+    mountCounter,
+    renderChecklist,
+    renderPreview,
+    reviewChanges,
+    watchValue,
+  } from '../../../lib/frontmatter-editor';
 
   onAdminPage('#admin-project-detail', () => {
     interface Seed {
@@ -615,9 +681,61 @@ const STATUS_VARIANT: Record<string, string> = {
        would land before it was listening. */
     attachImageUpload(project.hero, { dir: 'images/projects', name: () => `${seed.slug}-hero` });
 
+    /* — the form's own controls — decision 60.
+
+       Mounted before the first fill, like the image control above, so the
+       chips and counters paint from the fill's own assignments. */
+    mountChips(project.tags, 'Add a tag…');
+    mountChips(project.stack, 'Add a technology…');
+    mountCounter(project.title, { max: 80, unit: 'chars' });
+    mountCounter(project.summary, { min: 120, max: 220, unit: 'chars' });
+    mountCounter(project.highlights, { min: 4, max: 6, unit: 'lines' });
+
+    const categoryLabels = new Map<string, string>(PROJECT_CATEGORIES);
+    const previewHost = $('pf-preview');
+    const checklistHost = $('pf-checklist');
+    let asideQueued = false;
+    /* Coalesced to a frame: a streamed run assigns a dozen fields per frame,
+       and each assignment calls this. */
+    const refreshAside = () => {
+      if (asideQueued) return;
+      asideQueued = true;
+      requestAnimationFrame(() => {
+        asideQueued = false;
+        const values = {
+          title: project.title.value,
+          summary: project.summary.value,
+          category: project.category.value,
+          categoryLabel: categoryLabels.get(project.category.value) ?? project.category.value,
+          status: project.status.value,
+          year: project.year.value,
+          rank: project.rank.value,
+          tags: csv(project.tags.value),
+          stack: csv(project.stack.value),
+          repo: project.repo.value.trim(),
+          demo: project.demo.value.trim(),
+          hero: project.hero.value.trim(),
+          highlights: lines(project.highlights.value),
+          hasCaseStudy: Boolean(seed.project.caseStudySlug),
+        };
+        renderPreview(previewHost, values);
+        renderChecklist(checklistHost, completeness(values));
+      });
+    };
+    for (const field of Object.values(project)) watchValue(field, refreshAside);
+
+    /* The assistant's changes still waiting for a Keep or a Revert. */
+    let review: { clear: () => void } | null = null;
+    const endReview = () => {
+      review?.clear();
+      review = null;
+    };
+
     fillProject(seed.project);
+    refreshAside();
 
     $<HTMLButtonElement>('pf-reset').addEventListener('click', () => {
+      endReview();
       fillProject(seed.project);
       projectDirty.reset();
       say(pageMessage, 'Reverted to what is saved.');
@@ -665,7 +783,10 @@ const STATUS_VARIANT: Record<string, string> = {
       }
       /* After the busy restore, so the fresh snapshot paints rather than the
          stashed pre-save state. Failures keep their dirt. */
-      if (saved) projectDirty.reset();
+      if (saved) {
+        projectDirty.reset();
+        endReview();
+      }
     });
 
     // ----------------------------------------------------------- visibility
@@ -1071,6 +1192,12 @@ const STATUS_VARIANT: Record<string, string> = {
           title: project.title,
           summary: project.summary,
           category: project.category,
+          /* Not in `PROJECT_KEYS`, so `applyLive` never writes these three —
+             `applyRepoFacts` does, from GitHub. They are here so the run's
+             snapshot, its Undo and its review cover them too. */
+          status: project.status,
+          year: project.year,
+          demo: project.demo,
           tags: project.tags,
           stack: project.stack,
           highlights: project.highlights,
@@ -1235,6 +1362,7 @@ const STATUS_VARIANT: Record<string, string> = {
       const inputs = target ? targetInputs(target) : null;
       if (!inputs) return;
 
+      if (target === 'project') endReview();
       for (const [key, value] of Object.entries(entry.values)) {
         const input = inputs[key];
         if (input) input.value = value;
@@ -1253,15 +1381,61 @@ const STATUS_VARIANT: Record<string, string> = {
       toast('Reverted.', { tone: 'success' });
     }
 
+    /* — what GitHub states outright — decision 60.
+
+       Year, status and the demo link, written before the model's first token
+       and only where GitHub actually said something. A value the select does
+       not offer is not applied, the same rule `applyLive` keeps. */
+    function applyRepoFacts(derived: ReturnType<typeof projectFactsFromRepo>) {
+      if (derived.year) project.year.value = derived.year;
+      if (derived.status && Array.from(project.status.options).some(o => o.value === derived.status)) {
+        project.status.value = derived.status;
+      }
+      if (derived.demoUrl && !project.demo.value.trim()) project.demo.value = derived.demoUrl;
+      projectDirty.check();
+    }
+
+    const FIELD_LABELS: Record<string, string> = {
+      title: 'title',
+      summary: 'summary',
+      category: 'category',
+      status: 'status',
+      year: 'year',
+      demo: 'demo link',
+      tags: 'tags',
+      stack: 'stack',
+      highlights: 'highlights',
+    };
+
+    /** Mark what the last frontmatter run changed, against its own snapshot. */
+    function startReview() {
+      const entry = undos.peek();
+      const inputs = targetInputs('project');
+      if (!entry || !inputs || snapshotTargets.get(entry) !== 'project') return;
+      endReview();
+      review = reviewChanges({
+        before: entry.values,
+        inputs,
+        labels: FIELD_LABELS,
+        bar: $('pf-review-bar'),
+        onWrite: () => projectDirty.check(),
+      });
+    }
+
     /* — the repository, read once —
 
        Both tasks want the same two things and neither is cheap: three GitHub
        calls, one of which can return twenty kilobytes. Keyed by the URL in the
        field rather than by nothing, so re-pointing the project at a different
        repository is not answered out of the last one's cache. */
-    let repoCache: { url: string; repo: string; readme: string } | null = null;
+    let repoCache: {
+      url: string;
+      repo: string;
+      readme: string;
+      derived: ReturnType<typeof projectFactsFromRepo>;
+    } | null = null;
 
-    async function repoContext(): Promise<{ repo: string; readme: string }> {
+    async function repoContext(): Promise<NonNullable<typeof repoCache>> {
       const url = project.repo.value.trim() || seed.project.repoUrl || '';
       /* Unreachable in practice — `blockedBecause()` refuses a task whose
          project has no mapped repository before one is ever run — but a
@@ -1293,7 +1467,12 @@ const STATUS_VARIANT: Record<string, string> = {
             .filter(Boolean)
             .join('\n');
 
-      repoCache = { url, repo: facts, readme };
+      repoCache = {
+        url,
+        repo: facts,
+        readme,
+        derived: meta ? projectFactsFromRepo(meta, readme) : {},
+      };
       return repoCache;
     }
 
@@ -1487,6 +1666,7 @@ const STATUS_VARIANT: Record<string, string> = {
             /* Covers the model that "changed" a field to what it already said,
                which would otherwise offer an Undo that does nothing. */
             dropUnusedSnapshot();
+            if (target === 'project') startReview();
             const where = target === 'caseStudy' ? 'the case study' : 'the project';
             turn.status(`Updated ${editing.join(', ')} in ${where}. Nothing is saved until you press Save changes.`);
             turn.actions([...undoAction(), again]);
@@ -1509,6 +1689,13 @@ const STATUS_VARIANT: Record<string, string> = {
           panel.running(false);
           if (assisting === controller) assisting = null;
         }
+        return;
+      }
+
+      /* The write-up is a sequence of short requests now, not one long one —
+         see `case-study-writer.ts` and decision 60. */
+      if (name === 'casestudybody') {
+        await runLong(turn, controller, instruction);
         return;
       }
 
@@ -1542,7 +1729,7 @@ const STATUS_VARIANT: Record<string, string> = {
 
       try {
         turn.status('Reading the repository…');
-        const { repo, readme } = await repoContext();
+        const { repo, readme, derived } = await repoContext();
         /* `repoContext` does not take the signal — three GitHub reads that are
            already in flight are not worth threading one through — so a stop
            pressed while it was out lands here rather than as an AbortError. */
@@ -1582,6 +1769,10 @@ const STATUS_VARIANT: Record<string, string> = {
            waiting on the network has written nothing, and a snapshot for it
            would push a real one off the end of the ring. */
         takeSnapshot(live, task.label);
+        if (live === 'project') {
+          endReview();
+          applyRepoFacts(derived);
+        }
         turn.status('Writing…');
 
         const output = await runAssist(
@@ -1645,8 +1836,9 @@ const STATUS_VARIANT: Record<string, string> = {
         }
 
         applyLive(live, output);
+        if (live === 'project') startReview();
         turn.status(
-          `Done — it is in the fields. Nothing is saved until you press Save changes.${
+          `Done — it is in the fields${live === 'project' ? ', and each change is marked for review' : ''}. Nothing is saved until you press Save changes.${
             truncated ? ' It hit this task’s token ceiling, so the end may be cut off.' : ''
           }`,
         );
@@ -1697,6 +1889,125 @@ const STATUS_VARIANT: Record<string, string> = {
         panel.running(false);
         if (assisting === controller) assisting = null;
       }
+    }
+
+    /* — the long write-up —
+
+       Plan, then one request per section, each streaming into the body field
+       as it arrives. The snapshot is taken once, before the first word, so a
+       single Undo takes the whole write-up back however many requests it was.
+       A run that stops — by hand or after a step fails twice — keeps what it
+       finished, and offers to carry on from the step it stopped at. */
+    async function runLong(
+      turn: AssistTurn,
+      controller: AbortController,
+      instruction: string,
+      resume?: LongRunState,
+    ) {
+      const body = document.getElementById('cs-body') as HTMLTextAreaElement | null;
+      const startOver = {
+        label: 'Start over',
+        run: () => void runTask('casestudybody', instruction),
+      };
+      let progress: LongRunState | null = resume ?? null;
+      const resumeAction = () =>
+        progress && (progress.plan || progress.sections.length)
+          ? [{
+              label: progress.plan
+                ? `Resume at section ${progress.sections.length + 1}`
+                : 'Resume',
+              primary: true,
+              run: () => resumeLong(progress!, instruction),
+            }]
+          : [];
+
+      try {
+        if (!body) throw new Error('There is no case study body on this page to write into.');
+        turn.status('Reading the repository…');
+        const { repo, readme } = await repoContext();
+        if (controller.signal.aborted) throw new DOMException('Stopped.', 'AbortError');
+
+        const value = (id: string) =>
+          (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null)?.value ?? '';
+
+        if (!resume) takeSnapshot('caseStudyBody', ASSIST_TASKS.casestudybody.label);
+
+        const result = await writeLongCaseStudy({
+          context: {
+            repo,
+            readme,
+            title: value('cs-title'),
+            summary: value('cs-subtitle'),
+            stack: value('cs-stack'),
+            highlights: value('cs-achievements'),
+            problem: value('cs-problem'),
+            solution: value('cs-solution'),
+          },
+          instruction,
+          signal: controller.signal,
+          run: panel.runOptions(),
+          resume,
+          onPhase: text => turn.status(text),
+          onDraft: markdown => {
+            if (!markdown) return;
+            body.value = markdown;
+            notifyStudyWrite?.();
+          },
+          onThinking: chunk => turn.thinking(chunk),
+          onTool: frame => turn.tool(frame),
+          onState: state => {
+            progress = state;
+          },
+        });
+
+        const planned = result.state.plan?.planned !== false;
+        turn.status(
+          `Done — ${result.words.toLocaleString()} words in ${result.state.sections.length} sections` +
+            `${planned ? '' : ' (a standard outline: the plan did not come back usable)'}. ` +
+            'Nothing is saved until you press Save changes.',
+        );
+        turn.actions([...undoAction(), startOver]);
+        turn.end(result.markdown);
+        toast(`Case study written — ${result.words.toLocaleString()} words.`, { tone: 'success' });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          const kept = progress?.sections.length ?? 0;
+          if (!resume && !kept) dropUnusedSnapshot();
+          turn.status(
+            kept
+              ? `Stopped. ${kept} finished section${kept === 1 ? ' is' : 's are'} in the field.`
+              : 'Stopped before a section was finished.',
+          );
+          turn.actions([...resumeAction(), ...undoAction(), startOver]);
+          turn.end(body?.value ?? '');
+          return;
+        }
+        if (error instanceof LongRunStopped) progress = error.state;
+        const text = error instanceof Error ? error.message : 'The write-up failed.';
+        const kept = progress?.sections.length ?? 0;
+        if (!resume && !kept) dropUnusedSnapshot();
+        turn.status(
+          kept
+            ? `Stopped with ${kept} of ${progress?.plan?.sections.length ?? kept} sections written — they are in the field. Resume carries on from the next one.`
+            : 'Stopped before a section was written.',
+        );
+        turn.note(text, 'error');
+        turn.actions([...resumeAction(), ...undoAction(), startOver]);
+        turn.end(body?.value ?? '');
+        toast(text, { tone: 'error' });
+      } finally {
+        panel.running(false);
+        if (assisting === controller) assisting = null;
+      }
+    }
+
+    function resumeLong(state: LongRunState, instruction: string) {
+      const turn = panel.begin('Resume the case study prose', ASSIST_TASKS.casestudybody.command);
+      panel.running(true);
+      assisting?.abort();
+      const controller = new AbortController();
+      assisting = controller;
+      void runLong(turn, controller, instruction, state);
     }
 
     /* — the panel —
@@ -1764,6 +2075,13 @@ const STATUS_VARIANT: Record<string, string> = {
   .pd-message[data-tone='error'] { color: var(--color-accent-700); }
 
   .pd-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-4); align-items: start; }
+  /* The panel is what the two columns share, and the docked assistant takes
+     a third of the window — so the switch to one column is measured on the
+     panel, not on the viewport. */
+  .tab-panel { container-type: inline-size; }
+  @container (max-width: 820px) {
+    .pd-grid { grid-template-columns: 1fr; }
+  }
   .pd-side { display: flex; flex-direction: column; gap: var(--space-4); }
   .pd-rule { margin: var(--space-3) 0; }
 

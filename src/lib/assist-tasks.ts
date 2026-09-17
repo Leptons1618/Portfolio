@@ -186,7 +186,15 @@ export type AssistField =
   /** The advert this variant is being tailored to, pasted by the author. */
   | 'jobDescription'
   /** One bullet or one line, for the tasks that rewrite exactly that. */
-  | 'entry';
+  | 'entry'
+  /** The long case study's research: facts read from the repository. */
+  | 'facts'
+  /** The long case study's section plan, every heading with its brief. */
+  | 'outline'
+  /** The one section this request writes: heading, brief and length. */
+  | 'section'
+  /** The end of the section before it, so the prose runs on rather than restarts. */
+  | 'previous';
 
 export interface AssistTask {
   /** Shown on the button in the editor. */
@@ -234,6 +242,23 @@ export interface AssistTask {
   keys?: FieldShape;
   /** Whether the task is useless without a steer in the instruction box. */
   needsTopic?: true;
+  /**
+   * One step of a longer job a page runs, rather than something to type.
+   *
+   * No command and on no menu: the long case study is a plan and then one
+   * request per section, and the page is what sequences them. Still a closed
+   * table entry — a step is exactly as bounded as a command, it is just not
+   * offered on its own. Decision **60**.
+   */
+  step?: true;
+  /**
+   * Which lookups the task gets, when it is not the whole set.
+   *
+   * `repo` offers only the repository readers and skips the published-content
+   * index those other tools need for their slugs — a plan for a write-up about
+   * one repository has no use for either, and the index is thousands of tokens.
+   */
+  lookups?: 'repo';
 }
 
 /* ---------- the labelled-field format ---------- */
@@ -276,6 +301,70 @@ export interface FieldShape {
   tail: FieldSpec;
 }
 
+/**
+ * What each category means, in words a model can choose by.
+ *
+ * Typed against the CHECK constraint's own union, so a category added in
+ * `migrations/` fails the typecheck here until it is described. The prompt
+ * used to list `ml, web, systems, data, tooling, other` — four of which the
+ * database refuses — and the editor, which rightly applies only a value in its
+ * option list, silently left the category unset on most runs. Decision **60**.
+ * A type-only import, erased at compile time, so this file still imports
+ * nothing at runtime.
+ */
+const CATEGORY_GUIDE: Record<import('./content').Category, string> = {
+  'ml-cv': 'computer vision — detection, OCR, tracking, image or video models',
+  'ai-llm': 'AI / ML that is not vision — LLM apps, agents, RAG, NLP, classic ML',
+  'full-stack': 'web or mobile applications with a user interface and a backend',
+  devtools: 'developer tools — CLIs, editor configs, extensions, build or workflow tooling',
+  systems: 'systems work — low-level, networking, storage, infrastructure, performance',
+  simulation: 'simulations, games, visualisations and interactive maths',
+  other: 'anything that fits none of the above',
+};
+
+/** The category list as the prompt states it, one per line. */
+export const CATEGORY_PROMPT = Object.entries(CATEGORY_GUIDE)
+  .map(([value, meaning]) => `  ${value} — ${meaning}`)
+  .join('\n');
+
+/**
+ * The frontmatter facts GitHub already knows, so no model has to guess them.
+ *
+ * `year`, `status` and `demoUrl` are exactly the fields a model invents
+ * plausibly when asked (see `PROJECT_KEYS`), and they are also the fields the
+ * repository's own metadata answers outright: when it was created, whether it
+ * is archived, when it was last pushed, and what homepage it names. So the
+ * frontmatter run fills them from here, deterministically, and the model is
+ * asked only for what needs reading and writing. `wip` is the one status the
+ * metadata cannot state, and the README saying so is the evidence taken.
+ *
+ * Pure, and in this import-free file, so `check:ai` can pin it.
+ */
+export function projectFactsFromRepo(
+  repo: { createdAt?: string; pushedAt?: string; archived?: boolean; homepage?: string | null },
+  readme: string,
+  now: Date = new Date(),
+): { year?: string; status?: 'active' | 'stable' | 'wip' | 'archived'; demoUrl?: string } {
+  const out: { year?: string; status?: 'active' | 'stable' | 'wip' | 'archived'; demoUrl?: string } = {};
+
+  const created = repo.createdAt ? new Date(repo.createdAt) : null;
+  if (created && !Number.isNaN(created.getTime())) out.year = String(created.getUTCFullYear());
+
+  const pushed = repo.pushedAt ? new Date(repo.pushedAt) : null;
+  const idleDays =
+    pushed && !Number.isNaN(pushed.getTime()) ? (now.getTime() - pushed.getTime()) / 86_400_000 : null;
+  if (repo.archived) out.status = 'archived';
+  else if (/\b(?:work[\s-]in[\s-]progress|wip|under (?:active )?development|early (?:alpha|preview)|not (?:yet )?ready)\b/i.test(readme.slice(0, 4000))) {
+    out.status = 'wip';
+  } else if (idleDays !== null) out.status = idleDays <= 180 ? 'active' : 'stable';
+
+  const homepage = repo.homepage?.trim() ?? '';
+  if (/^https?:\/\/[^\s/]+\.[^\s]+$/i.test(homepage) && !/github\.com\//i.test(homepage)) {
+    out.demoUrl = homepage;
+  }
+  return out;
+}
+
 /** What `compose` returns: the journal post's five fields. */
 export const POST_KEYS: FieldShape = {
   head: [
@@ -295,7 +384,10 @@ export const POST_KEYS: FieldShape = {
  * than about the repository, and a model asked for them invents a plausible
  * one — a wrong year written confidently into a field nobody re-reads is worse
  * than an empty one. `repoUrl` is what the task was given, so asking for it
- * back is a chance to get it wrong.
+ * back is a chance to get it wrong. The frontmatter run still fills `year`,
+ * `status` and the demo link — from `projectFactsFromRepo()`, which reads them
+ * off GitHub's metadata rather than out of a model. `featuredRank` stays the
+ * author's alone.
  */
 export const PROJECT_KEYS: FieldShape = {
   head: [
@@ -615,23 +707,25 @@ Rules, and the first two are hard requirements because the output is rendered ra
     command: 'write-frontmatter',
     surface: 'project',
     group: 'write',
-    hint: 'From the repository: summary, category, tags, stack and highlights.',
-    instructions: `Write the portfolio frontmatter for this project, from its repository. The reader is someone deciding in ten seconds whether this project is worth opening — not someone who already knows what it is.
+    hint: 'From the repository: every field — summary, category, tags, stack, highlights, plus year, status and demo from GitHub.',
+    instructions: `Write the portfolio frontmatter for this project, from its repository. The reader is someone deciding in ten seconds whether this project is worth opening — not someone who already knows what it is. The project page shows every one of these fields, so each has to earn its place.
 
 Return it in exactly this shape, with each label at the start of its own line:
 
 TITLE: the project's display name, plain text, no quotes. Prefer a readable name over the repository slug.
-SUMMARY: one or two sentences, under 200 characters, saying what it does and for whom. Concrete. No "a project that", no "this repository contains".
-CATEGORY: exactly one of ml, web, systems, data, tooling, other. Nothing else, no explanation.
-TAGS: three to six comma-separated tags in Title Case, about the problem domain.
-STACK: the comma-separated languages, frameworks and services it is actually built on, most important first.
+SUMMARY: one or two sentences, 120 to 220 characters, saying what it does, for whom, and the one thing that makes it interesting. Concrete. No "a project that", no "this repository contains".
+CATEGORY: exactly one of these values, copied exactly, and nothing else on the line:
+${CATEGORY_PROMPT}
+TAGS: four to seven comma-separated tags in Title Case about the problem domain and technique (for example "Document Parsing", "Bipartite Matching") — not language names, which belong in STACK.
+STACK: the comma-separated languages, frameworks, libraries and services it is actually built on, most important first, six to twelve of them, each named the way its project names itself ("PyTorch", "FastAPI", "Cloudflare Workers").
 HIGHLIGHTS:
-one per line, three to five of them, each a single sentence naming something specific the project does or achieved
+one per line, four to six of them, each a single sentence of 12 to 30 words naming something specific: a technique and why it was chosen, a measured result, a design decision, an integration, or a hard constraint it handles
 
 Rules:
-- Work only from the repository material you were given. If the README does not say it, do not claim it — no invented benchmarks, no invented user counts, no invented dates.
-- Highlights are facts, not adjectives. "Streams inference over WebSockets at 40ms median" is a highlight; "Built with a modern stack" is not.
-- If the material is too thin to say anything specific, write a short honest summary rather than a padded one.
+- Work only from the repository material you were given. If the README or the files do not say it, do not claim it — no invented benchmarks, no invented user counts, no invented dates.
+- Highlights are facts, not adjectives. "Streams inference over WebSockets at 40ms median" is a highlight; "Built with a modern stack" is not. Prefer the ones that name a number, an algorithm or a trade-off. Do not start two highlights with the same verb.
+- If the material is too thin for six specific highlights, write fewer. A short honest list beats a padded one.
+- Year, status and the demo link are filled in from GitHub separately. Do not write them.
 
 Emit nothing before TITLE: and nothing after the last highlight. Do not wrap the response in a code fence.`,
     format: 'document',
@@ -717,7 +811,11 @@ Emit nothing before TITLE: and nothing after the last achievement. Do not wrap t
     command: 'write-case-study-body',
     surface: 'project',
     group: 'write',
-    hint: 'The long-form write-up under the header — background, approach, what it cost.',
+    /* On the project page this command runs the long write-up — a plan and
+       one request per section (`case-study-writer.ts`). The instructions below
+       are the single-request version the import modal still uses for its
+       quick first draft. */
+    hint: 'The long write-up, about 2,000 words — planned from the repository, then written section by section.',
     instructions: `Write the body of this case study: the long-form account under the structured header the author already has.
 
 Rules:
@@ -738,6 +836,95 @@ Rules:
     context: ['repo', 'readme', 'title', 'summary', 'stack', 'highlights', 'problem', 'solution'],
     live: 'caseStudyBody',
   },
+  /**
+   * The long case study, step one: read the repository and plan the write-up.
+   *
+   * `casestudybody` asks for 700–1,200 words in one request, and on the free
+   * models this site runs on a request that long does not finish inside the
+   * time one request gets — measured at over ninety seconds for 1,500 words.
+   * So the long form is split: this step reads the code and returns the facts
+   * and a section plan, and `casestudysection` writes one section per request
+   * from them. Each request is short enough to finish, a failed one can be
+   * retried alone, and the page shows real progress. Decision **60**.
+   *
+   * It is the one step that looks things up, and only in the repository.
+   */
+  casestudyplan: {
+    label: 'Plan the long case study',
+    surface: 'project',
+    group: 'write',
+    step: true,
+    lookups: 'repo',
+    hint: 'Reads the repository and plans the write-up: the facts, and the sections.',
+    instructions: `Plan a long, detailed case study (about 2,000 words) of this project. You are not writing it yet — you are gathering what it will say and deciding its sections.
+
+First, if the README does not already explain how the project works inside, read the code: use list_repo_files once, then read_repo_file on at most three files that show the core of it — the entry point, the main module, the key configuration. Then write the plan.
+
+Return it in exactly this shape:
+
+FACTS:
+- one specific, checkable fact per line, fifteen to thirty of them
+SECTIONS:
+## First section heading
+One or two sentences: what this section covers, and which facts it draws on.
+## Second section heading
+...
+
+Rules for FACTS:
+- Every fact comes from the material you were given or read. Name the actual module, function, library, algorithm, number, file, command or constraint. "Uses DBSCAN over OCR x-coordinates to find columns" is a fact; "uses advanced techniques" is not.
+- Include what the author measured, what they chose and why, what failed or was replaced, and what is still missing, wherever the material says so.
+- No invented numbers, users, clients or dates.
+
+Rules for SECTIONS:
+- Six to eight sections, each with a level-2 heading that says what the section is about in plain words — not "Introduction" or "Conclusion".
+- The page already shows the problem and the solution above the write-up, so do not plan a section that restates them.
+- Every section is about the project. Never plan one about your own research — what you did or did not read, or what the material leaves unexplained.
+- A good arc: the context and constraints, the architecture as a whole, two or three sections each going deep on one component or decision, what was hard or changed along the way, the results and their limits, what comes next. Follow the actual work rather than this list.
+
+Emit nothing before FACTS: and nothing after the last section. Do not wrap the response in a code fence.`,
+    format: 'markdown',
+    maxTokens: 2400,
+    temperature: 0.4,
+    needsCorpus: false,
+    context: ['repo', 'readme', 'title', 'summary', 'stack', 'highlights', 'problem', 'solution'],
+  },
+
+  /**
+   * The long case study, step two: one section, from the plan.
+   *
+   * No lookups — the plan's facts are the whole of what it may say, which is
+   * what keeps eight requests from each re-reading the repository and keeps
+   * every one of them short. The page sends the previous section's ending so
+   * the prose runs on instead of re-introducing the project eight times.
+   */
+  casestudysection: {
+    label: 'Write one case study section',
+    surface: 'project',
+    group: 'write',
+    step: true,
+    hint: 'One section of the long write-up, from the plan.',
+    instructions: `Write one section of a long-form case study, the one named under "The section to write now". The rest of the write-up is written separately, section by section.
+
+Rules:
+- The first line is that section's level-2 heading, exactly as given. Then the section, and nothing else — not the next section, no closing summary.
+- The length given with the section, give or take fifty words.
+- Specific and technical. Build the section from the facts: name the actual component, library, algorithm, file, number and trade-off. Explain how it works and why it was done that way, the way an engineer explains their own system to another engineer.
+- Invent nothing. If a fact is not in the list, do not state it. Where the material is thin, go deeper on what it does say rather than padding.
+- Continue from the previous section. Do not re-introduce the project, and do not repeat a point the outline gives to another section.
+- Level-3 headings, short lists and a small table are fine where they make it clearer. A code fence only when the facts contain the code or command itself, and never longer than twelve lines.
+- Markdown only. No preamble, and do not wrap the response in a code fence.`,
+    format: 'markdown',
+    /* About 900 words of room for a ~300-word section — the floor every task
+       keeps for a reasoning model's opening. Measured live, a free model asked
+       for one section will sometimes write the whole write-up; `cleanSection()`
+       keeps only the first, and this ceiling is what stops the rest costing
+       half a minute each. */
+    maxTokens: 1200,
+    temperature: 0.6,
+    needsCorpus: false,
+    context: ['title', 'summary', 'stack', 'problem', 'solution', 'facts', 'outline', 'section', 'previous'],
+  },
+
   /**
    * The selection, rewritten to an instruction typed beside it.
    *
@@ -970,7 +1157,7 @@ If they asked a question, answer it in prose:
 
 If they asked you to change a field — a new title, a tighter summary, different tags, a rewritten section, a sharper problem statement — make the change instead of describing it. Reply with **only** the fields you are changing, nothing else:
 - One field per line, starting at the very first character of your reply: the field's name in capitals, a colon, then the new value. Nothing before it, no preamble, no explanation after it.
-- The names are the ones the context above used: TITLE, SUBTITLE, SUMMARY, TAGS, STACK, CATEGORY, READTIME, PROBLEM, SOLUTION. The long ones — BODY, HIGHLIGHTS, ACHIEVEMENTS — go last, with the label on its own line and the content below it, and everything after that label is that field.
+- The names are the ones the context above used: TITLE, SUBTITLE, SUMMARY, TAGS, STACK, CATEGORY, READTIME, PROBLEM, SOLUTION. CATEGORY takes exactly one of: ${Object.keys(CATEGORY_GUIDE).join(', ')}. The long ones — BODY, HIGHLIGHTS, ACHIEVEMENTS — go last, with the label on its own line and the content below it, and everything after that label is that field.
 - Only the fields they asked about. A field you do not write is left exactly as it is, so never repeat one back unchanged.
 - Write the finished value, not a suggestion: "TITLE: Pinned skills, reproducible bootstraps" and never "TITLE: how about Pinned skills?".
 - The editor applies this to the form and the author presses Save, so a sentence about what you changed would be pasted into their post. Say nothing outside the fields.
@@ -1105,7 +1292,10 @@ export function parseCommand(line: string): {
  * reply with the changed fields themselves, and routing an edit into a
  * generating command would silently regenerate work the author wrote by hand.
  */
-const ROUTE_HINTS: Record<Exclude<AssistTaskName, 'chat'>, readonly string[]> = {
+/* Steps are sequenced by a page and never named in a request — see `step`. */
+type RoutableTask = Exclude<AssistTaskName, 'chat' | 'casestudyplan' | 'casestudysection'>;
+
+const ROUTE_HINTS: Record<RoutableTask, readonly string[]> = {
   compose: [
     'whole post',
     'full post',
@@ -1260,7 +1450,7 @@ export function pickTask(text: string, surface: AssistScreen): AssistMenuItem | 
 
     let score = 0;
     let longest = 0;
-    for (const hint of ROUTE_HINTS[item.name as Exclude<AssistTaskName, 'chat'>] ?? []) {
+    for (const hint of ROUTE_HINTS[item.name as RoutableTask] ?? []) {
       if (hint.endsWith('*')) {
         const stem = hint.slice(0, -1);
         const at = tokens.findIndex(token => token.startsWith(stem));
@@ -1572,6 +1762,202 @@ export interface AssistContext {
 }
 
 /** Turns of history kept, and the size of each. Both bound one request's bill. */
+/* ---------- the long case study ---------- */
+
+/** One section of the long case study, as the plan describes it. */
+export interface PlannedSection {
+  heading: string;
+  brief: string;
+}
+
+export interface CaseStudyPlan {
+  facts: string[];
+  sections: PlannedSection[];
+  /** False when the model's plan was unusable and the default arc stands in. */
+  planned: boolean;
+}
+
+/** How long the whole write-up aims to be, in words. */
+export const LONG_CASE_STUDY_WORDS = 2_100;
+
+/**
+ * The arc used when a model's plan has too few sections to be one.
+ *
+ * Generic on purpose — the facts are what make each section specific — and
+ * never including a problem or solution section, which the page prints above
+ * the write-up already.
+ */
+export const DEFAULT_SECTIONS: readonly PlannedSection[] = [
+  { heading: 'Context and constraints', brief: 'Who this is for, what it had to work within, and what made the obvious approach insufficient.' },
+  { heading: 'Architecture at a glance', brief: 'The components and how data moves between them, end to end.' },
+  { heading: 'The core of it', brief: 'The central component in depth: how it works and why it was built this way.' },
+  { heading: 'Design decisions and trade-offs', brief: 'The choices that shaped it, what each one cost, and what was considered instead.' },
+  { heading: 'What was hard', brief: 'The failures, dead ends and fixes along the way.' },
+  { heading: 'Results and limits', brief: 'What it achieves, how that was measured, and where it still falls short.' },
+  { heading: 'What comes next', brief: 'The open work, in order of what matters most.' },
+];
+
+/**
+ * Read a `casestudyplan` response into facts and sections.
+ *
+ * Tolerant in the ways models are inconsistent — `FACTS` with or without its
+ * colon or bold, bullets as `-`, `*` or numbers, `SECTIONS` spelled `OUTLINE`,
+ * headings at level two or three — and strict about one thing: fewer than four
+ * sections is not a plan, so the default arc stands in and `planned` says so.
+ * Never throws, and a response with no facts still yields a usable plan.
+ */
+export function parsePlan(text: string): CaseStudyPlan {
+  const source = text.replace(/^\s*```[a-z]*\s*\n?/i, '').replace(/\n?```\s*$/, '');
+  const facts: string[] = [];
+  const sections: PlannedSection[] = [];
+  let mode: 'none' | 'facts' | 'sections' = 'none';
+
+  for (const rawLine of source.split('\n')) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const label = line.replace(/[*_#]/g, '').trim().toUpperCase();
+    if (/^(?:KEY\s+)?FACTS\s*:?$/.test(label)) {
+      mode = 'facts';
+      continue;
+    }
+    if (/^(?:SECTIONS|OUTLINE|SECTION PLAN)\s*:?$/.test(label)) {
+      mode = 'sections';
+      continue;
+    }
+
+    const heading = line.match(/^#{2,3}\s+(.+?)\s*#*$/);
+    if (heading && mode !== 'facts') {
+      mode = 'sections';
+      const title = heading[1].replace(/^\d+[.)]\s*/, '').replace(/\*\*/g, '').trim();
+      if (title) sections.push({ heading: title.slice(0, 120), brief: '' });
+      continue;
+    }
+
+    if (mode === 'facts') {
+      const fact = line.replace(/^(?:[-*•]|\d+[.)])\s*/, '').trim();
+      if (fact.length > 3) facts.push(fact.slice(0, 400));
+      continue;
+    }
+    if (mode === 'sections' && sections.length) {
+      const last = sections[sections.length - 1];
+      last.brief = `${last.brief} ${line.replace(/^(?:[-*•])\s*/, '')}`.trim().slice(0, 400);
+    }
+  }
+
+  const unique = sections.filter(
+    (section, index) =>
+      sections.findIndex(other => other.heading.toLowerCase() === section.heading.toLowerCase()) === index,
+  );
+  const usable = unique.length >= 4;
+  return {
+    facts: facts.slice(0, 40),
+    sections: (usable ? unique : DEFAULT_SECTIONS.map(section => ({ ...section }))).slice(0, 9),
+    planned: usable,
+  };
+}
+
+/** The length each section aims for: the total spread evenly, 220–450 words. */
+export const sectionWords = (plan: CaseStudyPlan, totalWords: number = LONG_CASE_STUDY_WORDS): number =>
+  Math.round(Math.min(450, Math.max(220, totalWords / Math.max(1, plan.sections.length))) / 10) * 10;
+
+/**
+ * The context fields one section request carries.
+ *
+ * The length is spread evenly across the sections and kept between 220 and
+ * 450 words, which is what one free-tier request reliably finishes. The
+ * previous section is sent as its *ending*, because the point is continuity of
+ * voice, not re-reading it.
+ */
+export function sectionContext(
+  plan: CaseStudyPlan,
+  index: number,
+  previous: string,
+  totalWords: number = LONG_CASE_STUDY_WORDS,
+): { facts: string; outline: string; section: string; previous: string } {
+  const count = Math.max(1, plan.sections.length);
+  const words = sectionWords(plan, totalWords);
+  const current = plan.sections[index];
+  const outline = plan.sections
+    .map((section, at) => `${at === index ? '→ ' : ''}${at + 1}. ${section.heading}${section.brief ? ` — ${section.brief}` : ''}`)
+    .join('\n');
+  return {
+    facts: plan.facts.length
+      ? plan.facts.map(fact => `- ${fact}`).join('\n')
+      : '- (No separate facts were gathered: work only from the README and the header.)',
+    outline,
+    section:
+      `## ${current.heading}\n` +
+      (current.brief ? `Covers: ${current.brief}\n` : '') +
+      `Length: about ${words} words. Write only this section, then stop — no other level-2 heading.` +
+      (index === 0 ? '\nThis is the first section: open with the specific thing, not with background about the field.' : '') +
+      (index === count - 1 ? '\nThis is the last section: end on the concrete next step, not a summary.' : ''),
+    previous: index === 0 ? '' : previous.trim().slice(-1200),
+  };
+}
+
+/**
+ * One finished section, cleaned for joining into the write-up.
+ *
+ * A model will sometimes drop the heading, change its level, wrap the lot in a
+ * fence or start writing the next section. The heading is put back as planned,
+ * a trailing level-2 heading and everything after it is cut, and a closing
+ * fence goes.
+ */
+export function cleanSection(text: string, heading: string, maxWords?: number): string {
+  let body = text.trim().replace(/^```[a-z]*\s*\n/i, '').replace(/\n```\s*$/, '').trim();
+  let lines = body.split('\n');
+
+  /* A restart. Measured live: the heading, a few lines of the model planning
+     ("Then paragraphs. Let's draft: Draft:"), then the same heading again and
+     the real section. Everything before the *last* copy of this section's
+     heading is that preamble. */
+  const title = (line: string) =>
+    line.replace(/^#{1,3}\s+/, '').replace(/[*_`"]/g, '').replace(/^\d+[.)]\s*/, '').trim().toLowerCase();
+  const wanted = new Set([title(heading)]);
+  if (/^#{1,3}\s+/.test(lines[0] ?? '')) wanted.add(title(lines[0]));
+  for (let at = lines.length - 1; at > 0; at -= 1) {
+    if (/^#{1,3}\s+/.test(lines[at]) && wanted.has(title(lines[at]))) {
+      lines = lines.slice(at);
+      break;
+    }
+  }
+
+  if (/^#{1,3}\s+/.test(lines[0] ?? '')) lines.shift();
+  const nextHeading = lines.findIndex(line => /^##\s+/.test(line));
+  if (nextHeading !== -1) lines.splice(nextHeading);
+
+  /* Measured live, a model asked for 300 words sometimes writes 1,800. Past
+     `maxWords` the section ends at the last paragraph boundary that fits —
+     never inside a code fence, and never before the first paragraph. */
+  if (maxWords) {
+    let words = 0;
+    let fenced = false;
+    let cutAt = -1;
+    for (let at = 0; at < lines.length; at += 1) {
+      const line = lines[at];
+      if (/^\s*```/.test(line)) fenced = !fenced;
+      words += line.split(/\s+/).filter(Boolean).length;
+      const boundary = !fenced && (line.trim() === '' || at === lines.length - 1);
+      if (boundary && words > 0) {
+        if (words > maxWords && cutAt !== -1) break;
+        cutAt = at;
+        if (words > maxWords) break;
+      }
+    }
+    if (cutAt !== -1) lines.splice(cutAt + 1);
+  }
+
+  body = lines.join('\n').trim();
+  /* What is left is still the model talking to itself: not a section. Empty,
+     so the caller retries rather than printing it. */
+  if (SECTION_NARRATION.test(body)) return '';
+  return body ? `## ${heading}\n\n${body}` : '';
+}
+
+/** Phrases a section about a project does not contain, and a model planning one does. */
+const SECTION_NARRATION =
+  /\b(?:let['’]s draft|draft:\s*$|count (?:the )?words|(?:we|i) need to (?:write|output|produce) (?:the|this|a) section|must start with (?:that|the) (?:line|heading))/im;
+
 export const HISTORY_LIMITS = { turns: 12, chars: 4000 } as const;
 
 /**
@@ -1612,6 +1998,12 @@ const CONTEXT_LIMITS: Record<AssistField, number> = {
      list, which is never past the first few thousand characters. */
   jobDescription: 8000,
   entry: 2000,
+  /* The plan's output, re-sent with every section. Big enough for thirty
+     specific facts, small enough that eight sections of it stay cheap. */
+  facts: 6000,
+  outline: 3000,
+  section: 1200,
+  previous: 1500,
 };
 
 const CONTEXT_LABELS: Record<AssistField, string> = {
@@ -1629,6 +2021,10 @@ const CONTEXT_LABELS: Record<AssistField, string> = {
   resume: 'The resume as it currently reads',
   jobDescription: 'The role being applied for',
   entry: 'The line being rewritten',
+  facts: 'Facts gathered from the repository — the only source of claims',
+  outline: 'The whole write-up, section by section',
+  section: 'The section to write now',
+  previous: 'How the previous section ended',
 };
 
 /**
@@ -1694,6 +2090,22 @@ ${task.instructions}`;
     const value = context[field];
     if (typeof value !== 'string' || !value.trim()) continue;
     parts.push(`${CONTEXT_LABELS[field]}:\n<<<\n${value.slice(0, CONTEXT_LIMITS[field])}\n>>>`);
+  }
+
+  /* A README on the page is the repository's documentation, already read.
+     Said here, in the varying half, because whether it was sent changes from
+     run to run and the shared prefix must not. Without it a model that has
+     lookups spends its first round fetching what it was just given. */
+  const readmeSent =
+    (task.context as readonly AssistField[]).includes('readme') &&
+    typeof context.readme === 'string' &&
+    Boolean(context.readme.trim());
+  if (readmeSent && tools?.trim()) {
+    parts.push(
+      'The README above is the repository’s documentation — do not look it up again. ' +
+        'Look something up only for a specific fact it does not give, and no more than two ' +
+        'or three reads; then write.',
+    );
   }
 
   if (instruction.trim()) {

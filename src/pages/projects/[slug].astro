@@ -2,8 +2,8 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import PathLine from '../../components/PathLine.astro';
 import SectionSep from '../../components/SectionSep.astro';
-import Tag from '../../components/Tag.astro';
-import { categoryLabel, getProject, getProjects } from '../../lib/content';
+import { categoryLabel, getCaseStudy, getProject, getProjects } from '../../lib/content';
+import { formatDate } from '../../lib/format';
 
 /* Read from D1 per request. `getProject` applies the same `hidden` filter the
    listing does, so a retired project's URL 404s rather than staying reachable
@@ -15,22 +15,60 @@ const project = Astro.params.slug ? await getProject(DB, Astro.params.slug) : un
 if (!project) return new Response(null, { status: 404 });
 const { title, summary, category, tags, stack, status, year, highlights, repoUrl, demoUrl, caseStudySlug, heroImage } = project.data;
 
-const related = (await getProjects(DB))
-  .filter(p => p.slug !== project.slug && p.data.tags.some(t => tags.includes(t)))
-  .slice(0, 8);
+/* The write-up, when there is one, read through the public filter like every
+   other page — a study this page links to is one a visitor may read. Its
+   framing is shown here in brief, so the project page is the project *and* the
+   way into its long form rather than a spec sheet with a button. Decision 60. */
+const [study, everyProject] = await Promise.all([
+  caseStudySlug ? getCaseStudy(DB, caseStudySlug) : Promise.resolve(undefined),
+  getProjects(DB),
+]);
 
-/* The spec sheet: the project's facts as key = value, the way a manifest
-   prints them. Derived, never typed twice — each line reads a field the head
-   already shows or a count of a list the sidebar already renders. */
-const spec: [string, string][] = [
+/* The write-up's own section headings, as its table of contents. Read from the
+   markdown the page already has rather than parsed out of the HTML. */
+const contents = study
+  ? study.body
+      .split('\n')
+      .map(line => line.match(/^##\s+(.+?)\s*#*$/)?.[1]?.replace(/[*_`]/g, '').trim())
+      .filter((heading): heading is string => Boolean(heading))
+      .slice(0, 10)
+  : [];
+const studyWords = study ? study.body.split(/\s+/).filter(Boolean).length : 0;
+
+/* Related by shared tags, strongest overlap first — the old filter took the
+   first eight that shared *any* tag, in featured order. */
+const related = everyProject
+  .filter(p => p.slug !== project.slug)
+  .map(p => ({ p, shared: p.data.tags.filter(t => tags.includes(t)).length + (p.data.category === category ? 0.5 : 0) }))
+  .filter(({ shared }) => shared >= 1)
+  .sort((a, b) => b.shared - a.shared)
+  .slice(0, 4)
+  .map(({ p }) => p);
+
+const STATUS_LABEL: Record<string, string> = {
+  active: 'Active development',
+  stable: 'Stable',
+  wip: 'Work in progress',
+  archived: 'Archived',
+};
+const statusLabel = STATUS_LABEL[status] ?? status;
+
+const repoName = repoUrl?.replace(/^https?:\/\/(?:www\.)?github\.com\//i, '').replace(/\/+$/, '') ?? '';
+
+/* At a glance: the project's facts as a strip under the head, the same shape
+   the case study's cover uses. Derived, never typed twice. */
+const glance: [string, string][] = [
   ['category', categoryLabel(category)],
   ['year', String(year)],
-  ['status', status],
-  ['stack', `${stack.length} ${stack.length === 1 ? 'item' : 'items'}`],
+  ['status', statusLabel],
+  ['stack', `${stack.length} ${stack.length === 1 ? 'tool' : 'tools'}`],
   ['highlights', String(highlights.length)],
-  ['case_study', caseStudySlug ? 'yes' : 'no'],
-  ['demo', demoUrl ? 'live' : '—'],
+  ...(study
+    ? [['write-up', study.data.readTime ? `${study.data.readTime} read` : `${studyWords.toLocaleString('en')} words`] as [string, string]]
+    : []),
 ];
+
+const tagHref = (tag: string) => `/projects?tags=${encodeURIComponent(tag)}`;
 ---
 <BaseLayout title={title} description={summary}>
   {/* Two columns and a band, not one column and a hairline. `SectionSep` is
@@ -42,10 +80,6 @@ const spec: [string, string][] = [
     <div class="container detail-cover">
       <a class="btn btn-ghost back-link" href="/projects">← Back to Projects</a>
 
-      {/* The card has shown this since there were cards; this page never did, so
-          an image the author uploaded and a field they filled in appeared
-          everywhere except on the project's own page. Same treatment as a case
-          study's hero — one block above the identifying chips. */}
       {heroImage && (
         <div class="grayscale detail-hero"><img src={heroImage} alt={title} /></div>
       )}
@@ -53,26 +87,54 @@ const spec: [string, string][] = [
       <header class="detail-head" data-reveal>
         <PathLine path={`projects/${project.slug}`} cmd="cat project.toml" />
         <div class="detail-chips">
-          <span class="tag tag-neutral">{categoryLabel(category)}</span>
+          <a class="tag tag-neutral detail-chip-link" href={`/projects?category=${encodeURIComponent(category)}`}>{categoryLabel(category)}</a>
           <span class="tag tag-neutral">{year}</span>
-          <span class="tag tag-neutral">{status}</span>
+          <span class="tag tag-neutral detail-status" data-status={status}>
+            <span class="detail-status-dot" aria-hidden="true"></span>{statusLabel}
+          </span>
         </div>
         <h1>{title}</h1>
         <p class="detail-summary">{summary}</p>
+
+        {(study || demoUrl || repoUrl) && (
+          <div class="detail-actions">
+            {study && (
+              <a class="btn btn-primary" href={`/case-studies/${study.slug}`}>
+                Read the case study →
+              </a>
+            )}
+            {demoUrl && (
+              <a class={`btn ${study ? 'btn-secondary' : 'btn-primary'}`} href={demoUrl} target="_blank" rel="noopener">
+                Live demo ↗
+              </a>
+            )}
+            {repoUrl && (
+              <a class="btn btn-secondary" href={repoUrl} target="_blank" rel="noopener">
+                {repoName ? <span class="detail-repo">{repoName}</span> : 'Repository'} ↗
+              </a>
+            )}
+          </div>
+        )}
       </header>
     </div>
 
     <SectionSep />
 
     <div class="container detail-body">
+      <dl class="detail-glance" data-reveal>
+        {glance.map(([key, value]) => (
+          <div class="detail-glance-item">
+            <dt>{key}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+
       <div class="detail-grid">
         <div class="detail-main">
           {highlights.length > 0 && (
             <section class="detail-section" data-reveal>
-              <div class="section-head-rule detail-section-head">
-                <h2>Highlights</h2>
-                <hr class="rule" />
-              </div>
+              <h2 class="detail-section-head"><span class="detail-num">01</span>Highlights</h2>
               <div class="card elev-sm">
                 {/* Each line arrives on its own, numbered — a changelog rather
                     than a bullet list. The stagger is authored so it follows
@@ -86,16 +148,81 @@ const spec: [string, string][] = [
             </section>
           )}
 
+          {stack.length > 0 && (
+            <section class="detail-section" data-reveal>
+              <h2 class="detail-section-head"><span class="detail-num">{highlights.length ? '02' : '01'}</span>Built with</h2>
+              <ul class="stack-list">
+                {stack.map((item, i) => (
+                  <li class="stack-item" data-reveal style={`--reveal-delay: ${60 + i * 30}ms`}>
+                    <span class="stack-index">{String(i + 1).padStart(2, '0')}</span>{item}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {study && (
+            <section class="detail-section" data-reveal aria-labelledby="detail-study-title">
+              <h2 class="detail-section-head">
+                <span class="detail-num">{String((highlights.length ? 1 : 0) + (stack.length ? 1 : 0) + 1).padStart(2, '0')}</span>Case study
+              </h2>
+              <article class="card elev-sm study">
+                <p class="study-meta">
+                  <span>{formatDate(study.data.date)}</span>
+                  {study.data.readTime && <span>{study.data.readTime} read</span>}
+                  {studyWords > 0 && <span>{studyWords.toLocaleString('en')} words</span>}
+                </p>
+                <h3 class="study-title" id="detail-study-title">
+                  <a href={`/case-studies/${study.slug}`}>{study.data.title}</a>
+                </h3>
+                <p class="study-subtitle">{study.data.subtitle}</p>
+
+                <div class="study-split">
+                  <div class="study-block">
+                    <p class="study-label">The problem</p>
+                    <p class="study-copy">{study.data.problem}</p>
+                  </div>
+                  <div class="study-block">
+                    <p class="study-label">The solution</p>
+                    <p class="study-copy">{study.data.solution}</p>
+                  </div>
+                </div>
+
+                {study.data.achievements.length > 0 && (
+                  <div class="study-block">
+                    <p class="study-label">Outcomes</p>
+                    <ul class="study-outcomes">
+                      {study.data.achievements.slice(0, 3).map(a => <li>{a}</li>)}
+                    </ul>
+                    {study.data.achievements.length > 3 && (
+                      <p class="study-more">+{study.data.achievements.length - 3} more in the write-up</p>
+                    )}
+                  </div>
+                )}
+
+                {contents.length > 0 && (
+                  <div class="study-block">
+                    <p class="study-label">Inside the write-up</p>
+                    <ol class="study-contents">
+                      {contents.map(heading => <li>{heading}</li>)}
+                    </ol>
+                  </div>
+                )}
+
+                <a class="btn btn-primary study-cta" href={`/case-studies/${study.slug}`}>
+                  Read the full case study →
+                </a>
+              </article>
+            </section>
+          )}
+
           {related.length > 0 && (
             <section class="detail-section" data-reveal>
-              <div class="section-head-rule detail-section-head">
-                <h2>Related Projects</h2>
-                <hr class="rule" />
-              </div>
+              <h2 class="detail-section-head detail-section-head-plain">Related projects</h2>
               <div class="related-list">
                 {related.map((r, i) => (
                   <a href={`/projects/${r.slug}`} class="card elev-sm related-card" data-reveal style={`--reveal-delay: ${i * 60}ms`}>
-                    <span class="card-kicker">{r.data.year}</span>
+                    <span class="card-kicker">{r.data.year} · {categoryLabel(r.data.category)}</span>
                     <h3 class="card-title">{r.data.title}</h3>
                     <p class="card-body">{r.data.summary}</p>
                   </a>
@@ -106,32 +233,35 @@ const spec: [string, string][] = [
         </div>
 
         <aside class="detail-sidebar" data-reveal style="--reveal-delay: 100ms">
-          <div class="card sidebar-card spec-card">
-            <p class="eyebrow sidebar-label">Spec</p>
-            <dl class="spec">
-              {spec.map(([key, value]) => (
-                <div class="spec-row">
-                  <dt>{key}</dt>
-                  <dd>{value}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
           <div class="card sidebar-card">
             <p class="eyebrow sidebar-label">Links</p>
             <div class="link-list">
+              {study && <a href={`/case-studies/${study.slug}`} class="btn btn-primary btn-block">Case study →</a>}
+              {demoUrl && <a href={demoUrl} class="btn btn-secondary btn-block" target="_blank" rel="noopener">Live demo ↗</a>}
               {repoUrl && <a href={repoUrl} class="btn btn-secondary btn-block" target="_blank" rel="noopener">Repository ↗</a>}
-              {demoUrl && <a href={demoUrl} class="btn btn-primary btn-block" target="_blank" rel="noopener">Live Demo ↗</a>}
-              {caseStudySlug && <a href={`/case-studies/${caseStudySlug}`} class="btn btn-primary btn-block">Read case study →</a>}
+              {!study && !demoUrl && !repoUrl && <p class="text-muted sidebar-empty">The code is private.</p>}
             </div>
           </div>
-          <div class="card sidebar-card">
-            <p class="eyebrow sidebar-label">Tags</p>
-            <div class="tag-list">{tags.map(tag => <Tag text={tag} variant="neutral" />)}</div>
-          </div>
-          <div class="card sidebar-card">
-            <p class="eyebrow sidebar-label">Stack</p>
-            <div class="tag-list">{stack.map(s => <Tag text={s} variant="outline" />)}</div>
+          {tags.length > 0 && (
+            <div class="card sidebar-card">
+              <p class="eyebrow sidebar-label">Tags</p>
+              <div class="tag-list">
+                {tags.map(tag => (
+                  <a class="tag tag-neutral detail-chip-link" href={tagHref(tag)}>{tag}</a>
+                ))}
+              </div>
+            </div>
+          )}
+          <div class="card sidebar-card spec-card">
+            <p class="eyebrow sidebar-label">Spec</p>
+            <dl class="spec">
+              <div class="spec-row"><dt>slug</dt><dd>{project.slug}</dd></div>
+              <div class="spec-row"><dt>category</dt><dd>{category}</dd></div>
+              <div class="spec-row"><dt>status</dt><dd>{status}</dd></div>
+              <div class="spec-row"><dt>year</dt><dd>{year}</dd></div>
+              {repoName && <div class="spec-row"><dt>repo</dt><dd>{repoName}</dd></div>}
+              <div class="spec-row"><dt>case_study</dt><dd>{study ? study.slug : '—'}</dd></div>
+            </dl>
           </div>
         </aside>
       </div>
@@ -145,40 +275,140 @@ const spec: [string, string][] = [
   .detail-cover { padding-top: var(--space-6); padding-bottom: var(--space-8); }
   .detail-body { padding-top: var(--space-8); padding-bottom: var(--space-8); }
   .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
-  .detail-grid { display: grid; grid-template-columns: 1fr 280px; gap: var(--space-8); }
+  .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: var(--space-8); }
   .detail-main { min-width: 0; }
 
   .detail-hero { margin-bottom: var(--space-4); }
   .detail-hero img { width: 100%; height: 320px; object-fit: cover; display: block; }
 
-  .detail-head { margin-bottom: var(--space-4); }
+  .detail-head { margin-bottom: 0; }
   .detail-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-3); }
+  .detail-chip-link { text-decoration: none; }
+  .detail-chip-link:hover,
+  .detail-chip-link:focus-visible { background: var(--color-accent-100); color: var(--color-accent-800); }
   h1 { margin-bottom: var(--space-2); }
   .detail-summary { font-size: 18px; line-height: 1.6; opacity: 0.85; max-width: 62ch; margin: 0; }
+  .detail-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-6); }
+  .detail-repo { font-family: var(--font-mono); font-size: 0.9em; }
 
-  .detail-section { margin-bottom: var(--space-6); }
-  .detail-section-head { margin-bottom: var(--space-3); }
-  .detail-section-head h3 { margin: 0; }
-  .highlight-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-2); counter-reset: highlight; }
-  .highlight-list li { padding-left: calc(var(--space-6) + var(--space-2)); position: relative; opacity: 0.85; font-size: 14px; counter-increment: highlight; }
+  /* The status chip carries a dot: filled while the work is moving, hollow
+     once it has stopped. Shape as well as colour, so it reads without either. */
+  .detail-status { gap: 6px; }
+  .detail-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
+  .detail-status[data-status='active'] .detail-status-dot { background: var(--color-accent); }
+  .detail-status[data-status='wip'] .detail-status-dot { background: none; border: 1.5px solid var(--color-accent); }
+  .detail-status[data-status='archived'] .detail-status-dot { background: none; border: 1.5px solid currentColor; }
+
+  /* At a glance — the same strip the case study cover draws. */
+  .detail-glance {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-6);
+    margin: 0 0 var(--space-8);
+    padding-bottom: var(--space-4);
+    border-bottom: 1px solid var(--color-divider);
+  }
+  .detail-glance-item { display: flex; flex-direction: column; gap: 2px; }
+  .detail-glance-item dt {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-faint);
+  }
+  .detail-glance-item dd { margin: 0; font-size: 14px; }
+
+  .detail-section { margin-bottom: var(--space-8); }
+  .detail-section-head { display: flex; align-items: baseline; gap: var(--space-2); margin: 0 0 var(--space-3); }
+  .detail-num { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.08em; color: var(--color-accent); }
+  .detail-section-head-plain { font-size: 1.25em; }
+
+  .highlight-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: var(--space-3); counter-reset: highlight; }
+  .highlight-list li { padding-left: calc(var(--space-6) + var(--space-2)); position: relative; opacity: 0.85; font-size: 15px; line-height: 1.55; counter-increment: highlight; }
   .highlight-list li::before {
     content: counter(highlight, decimal-leading-zero);
     position: absolute;
     left: 0;
-    top: 0.15em;
+    top: 0.2em;
     font-family: var(--font-mono);
     font-size: 11px;
     letter-spacing: 0.06em;
     color: var(--color-accent);
   }
 
-  /* The spec sheet: `key = value` in mono, dotted leaders between so the
-     values line up as a column the eye can run down. */
-  .spec { margin: 0; display: flex; flex-direction: column; gap: 4px; font-family: var(--font-mono); font-size: 12px; }
-  .spec-row { display: flex; align-items: baseline; gap: var(--space-2); }
-  .spec-row dt { color: var(--color-text-faint); flex: none; }
-  .spec-row dt::after { content: ' ='; color: var(--color-accent); }
-  .spec-row dd { margin: 0; color: var(--color-text); overflow-wrap: anywhere; }
+  /* Built with — a numbered manifest rather than a cloud of pills, because
+     the order is the author's ("most important first") and a cloud hides it. */
+  .stack-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    border-top: 1px solid var(--color-divider);
+  }
+  .stack-item {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-1);
+    border-bottom: 1px solid var(--color-divider);
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+  .stack-index { font-family: var(--font-mono); font-size: 10px; color: var(--color-text-faint); flex: none; }
+
+  /* The case study, in brief. */
+  .study { gap: var(--space-4); padding: var(--space-6); }
+  .study-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-4);
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--color-text-faint);
+  }
+  .study-title { margin: 0; font-size: 22px; line-height: 1.25; }
+  .study-title a { color: inherit; text-decoration: none; }
+  .study-title a:hover,
+  .study-title a:focus-visible { color: var(--color-accent); }
+  .study-subtitle { margin: calc(-1 * var(--space-2)) 0 0; font-size: 15px; line-height: 1.55; opacity: 0.8; }
+  .study-split { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+  .study-block { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+  .study-label {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-accent);
+  }
+  .study-copy { margin: 0; font-size: 14px; line-height: 1.6; opacity: 0.85; }
+  /* Preflight strips list markers, so the dash is drawn — in the accent, the
+     same voice as the numbered lists above. */
+  .study-outcomes { list-style: none; margin: 0; padding: 0; font-size: 14px; line-height: 1.55; }
+  .study-outcomes li { position: relative; padding-left: 1.2em; opacity: 0.85; }
+  .study-outcomes li::before { content: '—'; position: absolute; left: 0; color: var(--color-accent); }
+  .study-outcomes li + li { margin-top: 4px; }
+  .study-more { margin: 2px 0 0; font-size: 12px; color: var(--color-text-faint); }
+  .study-contents {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: toc;
+    columns: 2;
+    column-gap: var(--space-6);
+    font-size: 13px;
+  }
+  .study-contents li { counter-increment: toc; break-inside: avoid; padding: 3px 0; }
+  .study-contents li::before {
+    content: counter(toc, decimal-leading-zero) '  ';
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--color-text-faint);
+  }
+  .study-cta { align-self: flex-start; }
 
   .related-list { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
   .related-card { text-decoration: none; color: inherit; }
@@ -187,17 +417,28 @@ const spec: [string, string][] = [
   .related-card:hover .card-title,
   .related-card:focus-visible .card-title { color: var(--color-accent); }
 
-  .detail-sidebar { display: flex; flex-direction: column; gap: var(--space-3); }
-  /* `.eyebrow` carries the mono label treatment and its accent colour from
-     the shared layer; this scope adds only the tighter margin a card
-     sidebar wants. */
+  .detail-sidebar { display: flex; flex-direction: column; gap: var(--space-3); position: sticky; top: var(--space-6); align-self: start; }
   .sidebar-label { margin-bottom: var(--space-1); }
+  .sidebar-empty { margin: 0; font-size: 13px; }
   .link-list { display: flex; flex-direction: column; gap: var(--space-2); }
   .tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
 
-  @media (max-width: 860px) {
+  /* The spec sheet: `key = value` in mono, the way a manifest prints them. */
+  .spec { margin: 0; display: flex; flex-direction: column; gap: 4px; font-family: var(--font-mono); font-size: 12px; }
+  .spec-row { display: flex; align-items: baseline; gap: var(--space-2); }
+  .spec-row dt { color: var(--color-text-faint); flex: none; }
+  .spec-row dt::after { content: ' ='; color: var(--color-accent); }
+  .spec-row dd { margin: 0; color: var(--color-text); overflow-wrap: anywhere; }
+
+  @media screen and (max-width: 860px) {
     .detail-grid { grid-template-columns: 1fr; gap: var(--space-6); }
+    .detail-sidebar { position: static; }
     .related-list { grid-template-columns: 1fr; }
     .detail-hero img { height: 220px; }
+    .study { padding: var(--space-4); }
+  }
+  @media screen and (max-width: 640px) {
+    .study-split { grid-template-columns: 1fr; }
+    .study-contents { columns: 1; }
   }
 </style>
