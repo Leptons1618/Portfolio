@@ -1204,9 +1204,11 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
         return;
       }
       document.body.dataset.asxDock = dock;
-      /* The panel plus the gap it floats off the edge by. */
-      const box = dialog.getBoundingClientRect();
-      document.body.style.setProperty('--asx-dock-w', `${Math.round(box.width + 16)}px`);
+      /* The panel plus the gap it floats off the edge by. `offsetWidth`, not a
+         client rect: this runs a frame into the `asx-in` entrance, which is
+         still at `scale(0.98)`, and a rect measured mid-animation reserved
+         eleven pixels less than the panel ends up wide. */
+      document.body.style.setProperty('--asx-dock-w', `${Math.round(dialog.offsetWidth + 16)}px`);
     });
   }
 

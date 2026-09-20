@@ -1866,6 +1866,19 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
      post right. Focus mode hides the right column outright. */
   .editor-grid { display: grid; grid-template-columns: 8fr 4fr; gap: var(--space-4); align-items: start; }
 
+  /* One column when the grid itself is narrow, whatever the window is. The
+     viewport rule at the bottom of this block cannot see the column a docked
+     assistant reserves (`.admin-main` pads away from it), so at 1440px with
+     the panel open the body textarea was 295px wide — while the panel was
+     writing into it. Same arrangement the project page uses on `.tab-panel`.
+     The grid queries itself, so the *children* stack rather than the template
+     changing: `1 / -1` spans both tracks. */
+  .editor-grid { container-type: inline-size; }
+  @container (max-width: 820px) {
+    .editor-col,
+    .editor-side { grid-column: 1 / -1; }
+  }
+
   /* The assistant docks to the bottom-right of the viewport, which is exactly
      where this column's fields are — so the panel sat over the Summary field
      while the Summary task was writing into it. The panel cannot move: it is
