@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { json, refusal, requireOwner } from '../../lib/authorize';
+import { record } from '../../lib/log';
 import { BadRequest, SLUG, TABLES, bind, explainConstraint, isTable } from '../../lib/content-schema';
 import { pinNewJournalPost } from '../../lib/content';
 import { renderBody } from '../../lib/markdown';
@@ -66,6 +67,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (op === 'delete') {
       const { meta } = await DB.prepare(`DELETE FROM ${table} WHERE slug = ?`).bind(slug).run();
       if (meta.changes === 0) return json({ error: `No ${table} row with slug "${slug}".` }, 404);
+      /* The one write here that does not come back. Worth a line of its own. */
+      await record(DB, 'warn', 'content', `Deleted ${table} "${slug}".`, { table, op, slug });
       return json({ ok: true, slug, changed: meta.changes });
     }
 
@@ -90,6 +93,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
          the saved order names. A no-op when no order is saved — see the
          helper. Projects keep their own arrangement; nothing to do there. */
       if (table === 'journal') await pinNewJournalPost(DB, slug);
+      await record(DB, 'info', 'content', `Created ${table} "${slug}".`, { table, op, slug, columns });
       return json({ ok: true, slug, created: true }, 201);
     }
 
@@ -101,6 +105,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         .bind(...values, slug)
         .run();
       if (meta.changes === 0) return json({ error: `No ${table} row with slug "${slug}".` }, 404);
+      await record(DB, 'info', 'content', `Saved ${table} "${slug}".`, { table, op, slug, columns });
       return json({ ok: true, slug, changed: meta.changes });
     }
 
@@ -119,9 +124,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
        it, because a refusal nobody can explain is still worth showing. */
     const message = error instanceof Error ? error.message : String(error);
     if (/constraint/i.test(message)) {
-      return json({ error: explainConstraint(message, slug) ?? message }, 409);
+      const why = explainConstraint(message, slug) ?? message;
+      await record(DB, 'warn', 'content', `Refused a write to "${slug}": ${why}`, { slug });
+      return json({ error: why }, 409);
     }
 
+    await record(DB, 'error', 'content', `A write to "${slug}" failed: ${message}`, { slug });
     return json({ error: message }, 500);
   }
 };

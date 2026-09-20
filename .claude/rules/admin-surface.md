@@ -51,7 +51,9 @@ Do not reintroduce an installation-permission check here. `discoverInstallation(
 
 **Authorising the App and installing it are two different grants, and only the second one carries repository access** — decision 17. Signing in does the first. An account that has never done the second has an empty "Installed GitHub Apps" list, so GitHub shows it the "Authorized GitHub Apps" tab instead, which has a Revoke button and no repository picker on it at all. Never hard-code `https://github.com/settings/installations` again: **every** link about a permission goes through `grantAccessUrl()`, which returns the installation's own page when the id has been learned (by `listRepositories()`, or `discoverInstallation()`), `/apps/<slug>/installations/new` when `PUBLIC_GITHUB_APP_SLUG` is set (the only rung that works when the App is installed nowhere), and `/settings/apps` otherwise. The slug is optional and cannot be derived from the client ID — `GET /app` needs a JWT signed with the App's private key, which this system deliberately never holds.
 
-**`/admin/*` is public HTML.** The pre-paint redirect in `AdminLayout` hides the editors; it does not protect them. Never put anything in an admin page that would be a secret if read.
+**`/admin/*` is public HTML.** The pre-paint redirect in `AdminLayout` hides the editors; it does not protect them. Never put anything in an admin page that would be a secret if read — and that includes a *prefilled form field*: the identity screen rendered `site.address` into its HTML, which put the owner's street address one `curl` away on a page robots merely decline to index. `site.address` is blank now and nothing renders it; a value in `site.ts` is a value that is served.
+
+**The Logs screen reads `/api/logs` and never renders a row server-side**, for the same reason the AI screen fetches its providers: a log line can quote a vendor's error. Rows are built with `createElement` and `textContent`. The table is written only by `record()` in `src/lib/log.ts`, and the rule in that file is the one to keep: **never a row per anonymous request** — every call site has authenticated the caller or spent a metered budget first, or a scanner could spend the free tier's D1 writes. The error boundary's `reportFault()` is bounded to five a page for the same reason.
 
 These screens are server-rendered now (they read D1 per request), and that changes nothing about the above — server-rendered is not gated, there is no session to gate on, and the HTML is served to anyone who asks. What is protected is **`POST /api/content`**, which asks GitHub who is calling before it touches a row. Treat the admin UI as convenience and `src/lib/authorize.ts` as the boundary.
 
@@ -74,6 +76,7 @@ localStorage key names live in `src/lib/admin.ts` (`ADMIN_KEYS`, `SIDEBAR_KEY`) 
 | `projects` | — | **save** only | inserts a `projects` row; patches `hidden` |
 | `projects/[slug]` | — | **save** only | `projects` and `case_studies` rows |
 | `ai` | — | **save** only | `ai_providers` rows; the `ai-assistant` row in `documents` |
+| `logs` | — | **clear** only | the `logs` table, over `/api/logs`; the error boundary files faults through it |
 | `settings` | `settings` | export only | `site-identity.json`, hand-applied to `src/lib/site.ts` |
 
 Exports are downloads, unchanged in spirit: a post as `.md`, the resume as `.json`, identity as `.json`. They are how content leaves this system, not how it is saved.

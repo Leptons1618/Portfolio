@@ -1397,3 +1397,41 @@ Decision 56 gave a run one deadline and folded an expired clock into the round l
 **A model that only thinks gets one replacement, and a silent stream gets an end.** Live, the same frontmatter request took one model twenty seconds and another two minutes of deliberation with no answer; that is the model, not the request, so a thinking-only round is re-asked of the next model on the row, once per run, with the same messages. Separately, nothing bounded a stream once it had started — the attempt timer stops at the headers — so `sseEvents()` ends a stream that sends nothing for `STREAM_IDLE_MS` (45s). Neither limits how long a healthy answer may take to stream.
 
 **The frontmatter's facts come from GitHub; its prose comes from the model.** The case against asking a model for `year` and `status` (above `PROJECT_KEYS`) stands. The frontmatter run fills them anyway — from the repository's own metadata (`projectFactsFromRepo()`), before the model's first token and under the same snapshot, so Undo and the per-field review cover them. The category list in the prompt is generated from a table typed against the CHECK constraint, because a hand-written list had drifted to four values the database refuses.
+
+## 61. The daily journal does not stream, because the Worker gets ten milliseconds
+
+**Status:** accepted
+
+**Context.** The daily post failed on eight of fifteen days, and the workflow reported every one of them as a success. The Actions logs, read back, sorted the failures into three: Cloudflare **error 1102** — "Worker exceeded resource limits" — on most attempts; a run that "spent this whole run thinking" on the rest; and a `curl --retry` that answered each 502 with two more attempts thirty seconds apart, spending the day's three inside one job so the hourly retry the schedule was designed around never ran.
+
+The 1102 is the platform, not the model. This site is on the **Workers Free plan** (decision 18: "no payment method is on the account"), which allows **10 ms of CPU per invocation**. Waiting on a `fetch()` costs none of it; per-token work costs all of it. A streamed answer is decoded, split, parsed, regex-scanned for reasoning tags, re-encoded as NDJSON and parsed again *per chunk*, and a reasoning model streams thousands of chunks of deliberation before its first word of answer. The interactive routes stay inside the allowance by keeping runs short (decision 60 split long work into several requests for a related reason); a cron tick writing a whole post on a slow free model cannot, and the runtime's tolerance for the occasional overrun is exactly what made it fail *most* of the time rather than always. Decision 56 saw the same limit — `exceededResources` — and bounded wall time, which bounds the chunk count; it is the CPU that is bounded, and the docs now say so in those words.
+
+**Decision.** `/api/ai/daily` asks for a **non-streamed completion**. `agentComplete()` in `ai.ts` is the same loop as `agentStream()` — rounds, calls, the provider that answered, the one-time handover when a round was nothing but deliberation, `thinkStripper()` over the finished text so a `<think>` block or a narrated opening still never reaches a field — with the per-token work replaced by one `JSON.parse` however long the vendor takes. There is no time limit on a subrequest while the caller stays connected, so the answer round goes out with no deadline and a three-minute attempt timeout, and the workflow's `curl` waits ten. A post that arrives whole is also checked for `finish_reason: length` and refused: this job may be set to publish, and half a post under the author's byline is worse than none.
+
+The workflow now sets `pipefail` — the pipeline's status was `tail`'s, which is always zero — so a failed tick is a red run, which GitHub already emails the owner about. It no longer retries a 5xx; the next tick is the retry, and there are two an hour because GitHub was dropping most of the hourly ones.
+
+**Consequences.** Nobody watches this job, so the thinking channel it now discards was never shown to anyone; the run record keeps the reason. The interactive routes are unchanged and still stream — a person is watching those, and their runs are bounded. If the site ever moves to the paid plan, `limits.cpu_ms` in `wrangler.jsonc` is the knob and this decision becomes an optimisation rather than a requirement.
+
+**Rejected.** Generating in the GitHub runner and posting the finished entry — the cron secret would then be a credential that writes posts, which decision 52 built it specifically not to be. Streaming with a thinner per-chunk path — cheaper, but a reasoning model's deliberation alone is far past the budget at any per-chunk cost. Cloudflare Cron Triggers — same 10 ms, and decision 52's argument against wrapping the adapter's bundle stands.
+
+## 62. The site keeps its own log, and never writes it for a stranger
+
+**Status:** accepted
+
+**Context.** The daily journal failed for a fortnight and the only record was a green tick in GitHub Actions and a one-line run record on the AI screen. Workers Logs (on in `wrangler.jsonc`) holds every invocation, but it needs a Cloudflare login, keeps three days on the free plan, and cannot say *why* the site decided what it decided. The ask was for a page in the admin that shows what happened.
+
+**Decision.** A `logs` table, written only by `record()` in `src/lib/log.ts` from the places that already know the outcome — the daily tick, a content write, an upload, a provider that refused, a screen that faulted — capped at 2,000 rows on every write, read by `/admin/logs` over the owner-only `/api/logs`, and cleared from the same screen. The page also links to the platform's log and metrics, because an invocation the runtime killed for exceeding its CPU allowance never got to write a line here; the two records are complementary, not one.
+
+**The rule that makes it safe is about cost.** D1's free tier allows 100,000 writes a day. A log line per refused request — every 401 on `/api/content`, every screened question on the public assistant — would let anyone with `curl` spend them, and then the daily journal's own write fails. So a row is written only after the caller was authenticated or a metered budget was charged. The error boundary's `reportFault()` is bounded to five a page for the same reason. And the table keeps the promise `ai_rate` makes: no visitor's question, no token, no key — slugs, tasks, models, statuses and durations.
+
+**Rejected.** Proxying the Workers Logs query API into the admin — it needs a second Cloudflare token as a Worker secret and re-implements a page the dashboard already has; the deep link is one click. A capped JSON array in `documents` — a read-modify-write that drops lines under concurrency, which is the one thing a log must not do. Firebase Crashlytics — it has no web SDK.
+
+## 63. A body is sanitised on write, because the daily journal publishes what a model wrote
+
+**Status:** accepted
+
+**Context.** Astro's markdown processor was built for `.md` files an author committed, so it lets raw HTML through untouched and does not police link schemes: `<script>`, `<img onerror>` and `[x](javascript:…)` all came out of `renderBody()` verbatim, into `body_html`, onto every visit to the post. The owner writing a script into their own post is their business. The daily journal writing what a model wrote, and being set to publish it unread, is not — and the editor's own preview already escapes markup and restricts link schemes, so the stored HTML disagreed with what the author had been shown.
+
+**Decision.** `markdown.ts` walks the mdast before `remark-rehype` sees it: a raw `html` node becomes a `text` node (shown, escaped, rather than dropped or executed), a link or definition with a scheme other than http, https, mailto or tel is unwrapped to its text, and an image with such a source is removed. `npm run check:markdown` pins it, and runs in `npm run check`. A tree walk rather than `rehype-sanitize`: the site's own content uses no raw HTML at all — the seed carries none — so an allowlist of tags would be a dependency maintained for an empty set.
+
+**Consequences.** Raw HTML is not a feature of the journal. Existing rows are untouched (they were scanned; none carries markup); a re-save renders through the new path.

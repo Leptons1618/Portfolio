@@ -12,7 +12,66 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## Unreleased
 
+### Added
+
+- **A Logs screen.** `/admin/logs` reads the site's own record — a daily
+  journal tick and how it ended, a content write, an upload, a provider that
+  refused, a screen that faulted — out of a new `logs` table written only by
+  `record()` in `src/lib/log.ts`, capped at 2,000 rows, never per anonymous
+  request. Filters by source and level, pages older, clears. Links to Workers
+  Logs and Metrics for the invocations the platform killed, which never got
+  to write a line. The admin error boundary files its faults there too, five
+  a page at most. Decision **62**.
+
+### Security
+
+- **Bodies are sanitised on write.** Raw HTML and `javascript:` links passed
+  straight through `renderBody()` into `body_html`; the daily journal writes a
+  model's markdown and may publish it unread. `markdown.ts` now turns raw
+  HTML into escaped text and unwraps unsafe links; `npm run check:markdown`
+  pins it. Existing posts were scanned and carry none. Decision **63**.
+- **The owner's street address is no longer served.** `site.address` was
+  prefilled into the prerendered `/admin/settings` HTML, which anyone can
+  fetch, on a public repository; nothing renders it, so it is blank now.
+- **HSTS** (`max-age=31536000`) on static and Worker responses; **SVGs from
+  `/media/`** get `Content-Security-Policy: sandbox`, so one opened directly
+  runs nothing; the real D1 database id is no longer the config self-test's
+  fixture.
+
 ### Fixed
+
+- **The daily journal stopped failing on error 1102, and stopped reporting
+  its failures as successes.** Cloudflare's 1102 is the Workers Free plan's
+  10 ms CPU limit, and a streamed post — parsed and re-encoded per token —
+  spent it many times over. `/api/ai/daily` now asks for a non-streamed
+  completion through `agentComplete()`, the same tool loop without the
+  per-token work: one parse however long the vendor takes. The workflow sets
+  `pipefail` (its status was `tail`'s, always green) and no longer lets
+  `curl --retry` spend all three of the day's attempts in one run; it ticks
+  twice an hour because GitHub was dropping most of the hourly ones. A post
+  cut off by the token ceiling is refused rather than published. Decision
+  **61**.
+
+- **The import form is usable with the assistant open.** A stepped-down
+  dialog was centred on the viewport while the docked panel reserved a
+  column the page — but not the dialog — moved out of; the panel covered the
+  form's right two-fifths, Create button included. Downgraded dialogs now
+  centre in the column the page has left, capped so they never run under
+  the panel.
+
+- **The journal editor collapses to one column when the panel is docked.**
+  Its breakpoint was a viewport query that could not see the reserved
+  column, so at 1440px the body textarea was 295px wide while the assistant
+  was writing into it. `.editor-grid` is a container query now, the way the
+  project page's `.tab-panel` already was.
+
+- **The docked column is bounded, and the left dock sits beside the rail.**
+  Reserving the panel's full width left a 1280px laptop 300px of content;
+  the reservation now keeps ~500px for the page and lets the panel overlap
+  past that. Docked left, the panel used to cover the nav while the page
+  padded by the panel's whole width, leaving a dead column the size of the
+  sidebar between them. The reserved width is measured with `offsetWidth`,
+  not a rect taken mid-entrance-animation.
 
 - **The provider walk no longer gives up early on OpenRouter's free pool.**
   Tested live against OpenRouter: a free model answers **HTTP 200 and then

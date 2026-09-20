@@ -55,6 +55,11 @@ const errorMessage = (cause: unknown): string => {
  */
 export function showAdminError(cause: unknown, context?: string): void {
   console.error(context ? `[admin: ${context}]` : '[admin]', cause);
+  /* Into the site's own log as well, so a screen that faulted while nobody
+     was watching the console still leaves a line on `/admin/logs`. Loaded
+     lazily: `log-store.ts` imports `github.ts`, and this module is imported
+     by the pre-paint shell scripts that must stay small. */
+  void import('./log-store').then(({ reportFault }) => reportFault(errorMessage(cause), context ?? 'error boundary'));
 
   const host = document.getElementById(ERROR_BOUNDARY_ID);
   if (!host) return;

@@ -22,6 +22,7 @@ import {
 import { getPosts, getProjects, getPublicCaseStudies } from '../../../lib/content';
 import { getResume } from '../../../lib/resume';
 import { site } from '../../../lib/site';
+import { record } from '../../../lib/log';
 
 /**
  * The public assistant.
@@ -236,9 +237,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
          can name the model, the account and occasionally the key's prefix, and
          a visitor is owed none of that. */
       console.error('[ai/chat] provider failed:', error.message);
+      /* Metered already — a provider is only called after `charge()` — so
+         this cannot be made to write per anonymous request. */
+      await record(DB, 'error', 'chat', `Provider failed: ${error.message}`, { status: error.status });
       return refuse('The assistant could not answer just now. Please try again.', 502);
     }
     console.error('[ai/chat] unexpected:', error);
+    await record(DB, 'error', 'chat', `Unexpected: ${error instanceof Error ? error.message : String(error)}`);
     return refuse('Something went wrong.', 500);
   }
 };
