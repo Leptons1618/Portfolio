@@ -92,10 +92,15 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (!headers.has('Permissions-Policy')) {
     headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
   }
-  /* Same four headers `public/_headers` puts on the static assets, so a page
+  /* Same five headers `public/_headers` puts on the static assets, so a page
      does not lose one by being rendered rather than served from the store. */
   if (!headers.has('X-Frame-Options')) {
     headers.set('X-Frame-Options', 'SAMEORIGIN');
+  }
+  /* A year, no `includeSubDomains`: the OAuth Worker lives on workers.dev and
+     nothing else hangs off this zone, so the plain form is the whole claim. */
+  if (!headers.has('Strict-Transport-Security')) {
+    headers.set('Strict-Transport-Security', 'max-age=31536000');
   }
 
   if (!cacheableMethod || response.status !== 200) return response;
