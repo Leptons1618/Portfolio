@@ -21,9 +21,12 @@ name: Daily journal
 # nothing downstream cares which minute of it this ran in.
 on:
   schedule:
-    # :17 rather than :00. The top of the hour is when every cron on the
-    # platform fires at once, and a queued run is a delayed run.
-    - cron: '17 * * * *'
+    # :17 and :47 rather than :00. The top of the hour is when every cron on
+    # the platform fires at once, and a queued run is a delayed run. Two a
+    # hour because GitHub drops scheduled runs under load — this one landed
+    # six to eight times a day, not twenty-four — and a dropped tick is a
+    # retry that never happens. Each skipped tick is a six-second job.
+    - cron: '17,47 * * * *'
   workflow_dispatch:
 
 permissions: {}
@@ -55,12 +58,27 @@ jobs:
             exit 1
           fi
 
+          # `pipefail`, because the exit status of a pipeline is otherwise its
+          # *last* command's — `tail`, which always succeeds — and every failure
+          # this job ever had was a green tick. Two weeks of 502s and 503s
+          # showed as "success" in the run list.
+          set -o pipefail
+
           # `--fail-with-body` so a 502 from the endpoint is a failed step *and*
           # still prints the reason it gave. Without the body half, a failure
           # reads as "curl: (22)" and nothing else.
+          #
+          # No `--retry`. curl retries every 5xx, and a 502 from this endpoint
+          # is a generation that failed *after* the attempt was recorded — so
+          # two retries thirty seconds apart spent all three of the day's
+          # attempts inside one run, and the "next hour tries again" in
+          # journal-auto.ts never got its turn. The schedule is the retry.
+          #
+          # Ten minutes, because the post is not streamed any more — the
+          # endpoint answers when the model has finished, and a whole post on
+          # a slow free model is regularly a couple of minutes.
           http_status=$(curl --silent --show-error --fail-with-body \
-            --max-time 300 \
-            --retry 2 --retry-delay 30 --retry-connrefused \
+            --max-time 600 \
             --write-out '\n%{http_code}' \
             --header "Authorization: Bearer $CRON_SECRET" \
             --header 'Content-Type: application/json' \

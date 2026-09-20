@@ -61,6 +61,7 @@ const {
   modelsFor,
   callChat,
   agentStream,
+  agentComplete,
   effectiveMaxTokens,
   thinkingBudget,
   THINKING_HEADROOM,
@@ -3044,6 +3045,142 @@ await checkAsync('a tool that throws does not take the answer down', async () =>
   assert.ok(failed, 'a thrown tool produced no error row');
   assert.match(frames.filter(f => f.delta).map(f => f.delta).join(''), /could not read/);
   assert.equal(frames[frames.length - 1].done, true);
+});
+
+/* ---------- the same loop, without a stream ----------
+ *
+ * `agentComplete()` is what the daily journal runs, because the Workers Free
+ * plan allows 10 ms of CPU per invocation and a streamed post is per-token
+ * work; a completion that arrives whole is one parse. What is pinned is that
+ * it is the *same* loop: it looks things up, it stops when a model keeps
+ * asking, it hands a deliberation-only round to the next model once, and a
+ * `<think>` block never reaches the answer. Everything else it inherits.
+ */
+
+/** A non-streamed completion body, from a message. */
+const completion = message => ({ choices: [{ message, finish_reason: message.tool_calls ? 'tool_calls' : 'stop' }] });
+const asksFor = (id, name, args) => ({ role: 'assistant', content: '', tool_calls: [{ id, type: 'function', function: { name, arguments: args } }] });
+
+/** Run `agentComplete` against a stubbed vendor answering `rounds` in order. */
+const runComplete = async (rounds, options = {}, providers = [row({})]) => {
+  let round = 0;
+  const sent = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (_, init) => {
+    const body = JSON.parse(init.body);
+    sent.push(body);
+    return new Response(JSON.stringify(rounds[Math.min(round++, rounds.length - 1)]), { status: 200 });
+  };
+  const calls = [];
+  try {
+    const result = await agentComplete({
+      providers,
+      which: 'assist',
+      call: { maxTokens: 100, tools: toolsFor('assist') },
+      messages: [{ role: 'user', content: 'go' }],
+      runTool: async (name, args) => {
+        calls.push({ name, args });
+        return { ok: true, text: `result for ${name}`, detail: 'ok' };
+      },
+      ...options,
+    });
+    return { result, calls, sent };
+  } finally {
+    globalThis.fetch = real;
+  }
+};
+
+await checkAsync('a completion is never asked for as a stream', async () => {
+  const { sent, result } = await runComplete([completion({ role: 'assistant', content: 'Hello.' })]);
+  assert.ok(sent.every(body => body.stream === false), 'a body asked to stream');
+  assert.equal(result.text, 'Hello.');
+  assert.equal(result.stopReason, 'stop');
+  assert.equal(result.calls, 0);
+});
+
+await checkAsync('a completion runs the lookup and carries it into the next round', async () => {
+  const { result, calls, sent } = await runComplete([
+    completion(asksFor('c1', 'read_post', '{"slug":"live"}')),
+    completion({ role: 'assistant', content: 'It is about queues.' }),
+  ]);
+  assert.deepEqual(calls, [{ name: 'read_post', args: { slug: 'live' } }]);
+  assert.equal(result.text, 'It is about queues.');
+  assert.equal(result.calls, 1);
+  /* The second request replays the ask and answers it, in the shape the API
+     expects back — the same two messages the streamed loop appends. */
+  const replay = sent[1].messages.slice(-2);
+  assert.equal(replay[0].role, 'assistant');
+  assert.equal(replay[0].tool_calls[0].id, 'c1');
+  assert.equal(replay[1].role, 'tool');
+  assert.equal(replay[1].tool_call_id, 'c1');
+  assert.equal(replay[1].content, 'result for read_post');
+});
+
+await checkAsync('a completion that keeps asking is stopped, told, and disarmed', async () => {
+  /* The vendor answers with a tool call forever. The loop has to end anyway,
+     and it ends by withdrawing the `tools` field, after which the same reply
+     is read as the answer. */
+  const { result, calls, sent } = await runComplete(
+    [completion(asksFor('c1', 'read_post', '{"slug":"live"}'))],
+    { maxRounds: 2 },
+  );
+  assert.ok(calls.length <= 2, `ran ${calls.length} lookups`);
+  assert.ok(sent.length <= 5, `sent ${sent.length} requests`);
+  assert.equal(sent[sent.length - 1].tools, undefined, 'the last round still offered tools');
+  assert.match(sent[sent.length - 1].messages.at(-1).content, /No more lookups/);
+  assert.equal(typeof result.text, 'string');
+});
+
+await checkAsync('a completion caps the total lookups across rounds', async () => {
+  const { calls } = await runComplete(
+    [completion(asksFor('c1', 'read_post', '{"slug":"live"}'))],
+    { maxRounds: 6, maxCalls: 2 },
+  );
+  assert.ok(calls.length <= 2, `${calls.length} lookups ran against a cap of 2`);
+});
+
+await checkAsync('a completion keeps reasoning out of the answer', async () => {
+  const { result } = await runComplete([
+    completion({ role: 'assistant', content: '<think>First, the index.</think>TITLE: Queues\nBODY:\nDone.', reasoning: 'hmm ' }),
+  ]);
+  assert.equal(result.text, 'TITLE: Queues\nBODY:\nDone.');
+  assert.match(result.reasoning, /^hmm /);
+  assert.match(result.reasoning, /First, the index\./);
+});
+
+await checkAsync('a completion that only deliberated is asked of the next model, once', async () => {
+  const { result, sent } = await runComplete(
+    [
+      completion({ role: 'assistant', content: '', reasoning: 'thinking, thinking' }),
+      completion({ role: 'assistant', content: 'An answer.' }),
+    ],
+    {},
+    [row({ fallbackModels: ['second'] })],
+  );
+  assert.deepEqual(sent.map(body => body.model), ['primary', 'second']);
+  assert.equal(result.text, 'An answer.');
+});
+
+await checkAsync('a completion with no fallback reports the deliberation rather than looping', async () => {
+  const { result, sent } = await runComplete([
+    completion({ role: 'assistant', content: '', reasoning: 'thinking, thinking' }),
+  ]);
+  assert.equal(sent.length, 1);
+  assert.equal(result.text, '');
+  assert.match(result.reasoning, /thinking/);
+});
+
+await checkAsync('a completion whose body is an error is a provider failure, not an answer', async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: { message: 'overloaded' } }), { status: 200 });
+  try {
+    await assert.rejects(
+      agentComplete({ providers: [row({})], which: 'assist', call: { maxTokens: 10 }, messages: [], runTool: async () => ({ ok: true, text: '', detail: '' }) }),
+      /overloaded/,
+    );
+  } finally {
+    globalThis.fetch = real;
+  }
 });
 
 await checkAsync('a tool call with truncated arguments still runs', async () => {
