@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { json, refusal, requireOwner } from '../../lib/authorize';
+import { record } from '../../lib/log';
 import { MAX_MEDIA_BYTES, MEDIA_TYPES, mediaPath } from '../../lib/media';
 
 /**
@@ -117,6 +118,8 @@ export const POST: APIRoute = async ({ request, locals }) => {
   )
     .bind(path, mime, bytes, bytes.byteLength)
     .run();
+
+  await record(DB, 'info', 'media', `Uploaded /media/${path}.`, { path, mime, size: bytes.byteLength });
 
   // The URL the caller should store in a `heroImage` field.
   return json({ ok: true, url: `/media/${path}`, size: bytes.byteLength }, 201);

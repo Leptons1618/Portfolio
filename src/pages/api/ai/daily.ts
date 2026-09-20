@@ -2,8 +2,7 @@ import type { APIRoute } from 'astro';
 import { Unauthorized, json, refusal, requireOwner } from '../../../lib/authorize';
 import {
   ProviderError,
-  agentStream,
-  callChat,
+  agentComplete,
   getAiSettings,
   modelsFor,
   usableProviders,
@@ -27,6 +26,7 @@ import {
 } from '../../../lib/journal-auto';
 import { renderBody } from '../../../lib/markdown';
 import { site } from '../../../lib/site';
+import { record } from '../../../lib/log';
 
 /**
  * The daily journal job.
@@ -61,10 +61,11 @@ import { site } from '../../../lib/site';
  *
  * ## It writes a draft
  *
- * Never `published`. The post appears in the admin's journal list with a Draft
- * chip and 404s for everyone else until the owner reads it and presses publish.
- * An unattended model with the owner's byline is exactly the thing decision 13
- * refuses to build, and a status column is what makes refusing it cheap.
+ * By default. The post appears in the admin's journal list with a Draft chip
+ * and 404s for everyone else until the owner reads it and presses publish. An
+ * unattended model with the owner's byline is exactly the thing decision 13
+ * refuses to build, and a status column is what makes refusing it cheap. The
+ * `publish` setting on the Daily journal tab is the owner choosing otherwise.
  */
 
 export const prerender = false;
@@ -190,55 +191,24 @@ async function writeRun(db: D1Database, run: AutoJournalRun): Promise<void> {
 }
 
 /**
- * Drain a streamed answer into its two channels.
+ * What the daily job may spend starting *lookups*, as ms.
  *
- * The job wants the whole text at once, which a non-streaming call would give
- * it more directly — and would also hand it a reasoning model's deliberation
- * mixed into `content`, with nothing between that and a published post but a
- * parser. Streaming and draining runs the answer through exactly the separation
- * every other surface gets: `delta` is the answer, `thinking` is not, and
- * `error` is a run that reported on itself. Decision 29 is not a property of
- * the browser, it is a property of the frame protocol.
+ * Much longer than the interactive `RUN_BUDGET_MS` — no reader is waiting on
+ * this one, and a reasoning model on the free pool can deliberate for a minute
+ * before it asks for its first page. It bounds the rounds that may still ask;
+ * the answer round is sent with no deadline at all, because a non-streamed
+ * post arrives in one piece when the model is done and a clock that could
+ * abort it a moment before would throw the whole generation away. See
+ * `agentComplete()`. The workflow's `curl` waits ten minutes for all of it.
  */
-async function drain(stream: ReadableStream<Uint8Array>): Promise<{ text: string; error: string }> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let text = '';
-  let error = '';
-
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() ?? '';
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      let frame: { delta?: string; error?: string };
-      try {
-        frame = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (typeof frame.delta === 'string') text += frame.delta;
-      /* Kept rather than thrown: a run that produced an answer *and* reported
-         something is worth writing, and one that produced nothing needs the
-         report as its reason. */
-      if (typeof frame.error === 'string' && frame.error) error = frame.error;
-    }
-  }
-  return { text, error };
-}
+const DAILY_BUDGET_MS = 240_000;
 
 /**
- * What the daily job may spend starting model work, as ms.
- *
- * Longer than the interactive `RUN_BUDGET_MS` — no reader is waiting on this
- * one — and still short of the duration limit that kills an invocation, so a
- * slow generation ends as a written post rather than as a dropped tick.
+ * One attempt at the vendor. A whole post on a slow free model, not streamed,
+ * is regularly a minute or two; the platform puts no limit on a subrequest
+ * while the caller stays connected, and the workflow's `curl` waits ten.
  */
-const DAILY_BUDGET_MS = 45_000;
+const DAILY_ATTEMPT_MS = 180_000;
 
 /** Generate one post, or throw with a reason worth writing into the run record. */
 async function compose(
@@ -282,15 +252,7 @@ async function compose(
   const call = {
     maxTokens: task.maxTokens,
     temperature: task.temperature,
-    stream: true,
-    /* Longer than the panel's sixty seconds. Nobody is watching this one, and a
-       whole post on a slow model is the longest generation this site makes. */
-    timeoutMs: 120_000,
-    /* Same platform ceiling as the interactive routes, and a longer slice of
-       it: this is a cron tick nobody is waiting on, so it is worth letting a
-       slow model finish. It still may not overrun — an invocation the platform
-       kills writes no post at all, and the schedule reads that as a failed try
-       and burns one of the day's attempts for nothing. */
+    timeoutMs: DAILY_ATTEMPT_MS,
     deadline: Date.now() + DAILY_BUDGET_MS,
     /* Low, and not negotiable here. The panel has a picker because an author
        sometimes wants a harder think; a job that runs while nobody is looking
@@ -301,19 +263,34 @@ async function compose(
     ...(model ? { model } : {}),
   };
 
-  const first = await callChat(providers, { ...call, messages }, 'assist');
-  if (!first.response.body) throw new Error('The model returned nothing.');
+  /* Not streamed, and that is the fix for a fortnight of error 1102: the
+     Workers Free plan allows 10 ms of CPU per invocation, a stream is work per
+     token, and waiting on the vendor is free. `agentComplete()` still runs the
+     lookups, still hands a deliberation-only round to the next model once, and
+     still strips reasoning out of the answer — decision 29 holds off the
+     browser because it is a property of what comes back, not of how. */
+  const { text, reasoning, stopReason } = await agentComplete({
+    providers,
+    which: 'assist',
+    call,
+    messages,
+    runTool: (name, args) => runTool(db, name, args),
+    maxCalls: MAX_TOOL_CALLS,
+  });
 
-  const { text, error } = await drain(
-    agentStream({
-      first,
-      which: 'assist',
-      call,
-      messages,
-      runTool: (name, args) => runTool(db, name, args),
-      maxCalls: MAX_TOOL_CALLS,
-    }),
-  );
+  if (!text.trim()) {
+    throw new Error(
+      reasoning
+        ? `The model spent this whole run thinking — about ${Math.round(reasoning.length / 4)} tokens of deliberation and no answer. Pick a model that does not deliberate on the Daily journal tab.`
+        : 'The model finished without writing anything.',
+    );
+  }
+  /* A post cut off by the ceiling is half a post, and this job may be set to
+     publish. Better no entry than one that stops mid-sentence under the
+     author's name; the next tick is the retry. */
+  if (stopReason === 'length') {
+    throw new Error('The model hit the token ceiling before finishing the post.');
+  }
 
   const parsed = parseFields(text, POST_KEYS);
   if (!parsed.recognised) {
@@ -321,12 +298,12 @@ async function compose(
        not salvaged as body text. That fallback is how a reasoning model's
        deliberation ended up inside a post — decision 29 — and an unattended job
        is the last place to reintroduce it. */
-    throw new Error(error || 'The model answered in no recognisable shape.');
+    throw new Error('The model answered in no recognisable shape.');
   }
 
   const title = parsed.values.title?.trim() ?? '';
   const body = parsed.values.body?.trim() ?? '';
-  if (!title || !body) throw new Error(error || 'The post came back without a title or a body.');
+  if (!title || !body) throw new Error('The post came back without a title or a body.');
 
   const summary = parsed.values.summary?.trim() ?? '';
   return {
@@ -364,6 +341,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const run = clampAutoRun(await readDoc(DB, AUTO_RUN_KEY));
 
   const now = new Date();
+  const startedAt = now.getTime();
   const verdict = decide(now, settings, run);
 
   if (!verdict.act && !force) {
@@ -417,6 +395,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
       note: status === 'published' ? `Published "${post.title}".` : `Drafted "${post.title}".`,
       at: new Date().toISOString(),
     });
+    await record(DB, 'info', 'daily', `${status === 'published' ? 'Published' : 'Drafted'} "${post.title}".`, {
+      slug,
+      day: verdict.day,
+      attempt: force ? 'forced' : today.attempts + 1,
+      caller,
+      ms: Date.now() - startedAt,
+    });
 
     return json({
       ok: true,
@@ -440,6 +425,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
       note: reason.slice(0, 300),
       at: new Date().toISOString(),
     }).catch(() => {});
+    await record(DB, 'error', 'daily', `Attempt failed: ${reason}`, {
+      day: verdict.day,
+      attempt: force ? 'forced' : today.attempts + 1,
+      caller,
+      ms: Date.now() - startedAt,
+    });
 
     /* A 502 rather than a 200, so the workflow's step goes red and the failure
        is visible in a place the owner already looks — the alternative is a job

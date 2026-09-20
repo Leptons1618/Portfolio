@@ -23,6 +23,59 @@ import { createMarkdownProcessor } from '@astrojs/markdown-remark';
 let processor: ReturnType<typeof createMarkdownProcessor> | null = null;
 
 /**
+ * The markdown tree, with nothing in it that could run in a reader's browser.
+ *
+ * Astro's processor is built for `.md` files an author committed, so it lets
+ * raw HTML through untouched and does not police link schemes. Here the same
+ * processor renders rows written by `POST /api/content` — and by the daily
+ * journal job, which writes what a model wrote and may be set to publish it
+ * with nobody reading it first. `<script>`, `<img onerror>` and
+ * `[x](javascript:…)` all came out of `renderBody()` verbatim and would have
+ * been served on every visit to the post. This walks the mdast before
+ * `remark-rehype` sees it:
+ *
+ *   - a raw `html` node becomes a `text` node, so the markup is *shown*, escaped,
+ *     rather than silently dropped or silently executed — the editor's own
+ *     preview already renders it that way;
+ *   - a link or definition whose scheme is not http, https, mailto or tel is
+ *     unwrapped to its text, and an image with such a source is removed. A
+ *     relative path has no scheme and is untouched.
+ *
+ * A tree walk rather than `rehype-sanitize`: the site's own content uses no raw
+ * HTML at all (the seed carries none), so an allowlist of tags would be a
+ * dependency maintained for an empty set. `npm run check:markdown` pins it.
+ */
+type Node = { type: string; value?: string; url?: string; children?: Node[] };
+
+const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
+const SAFE = /^(?:https?|mailto|tel):/i;
+const unsafe = (url: string | undefined): boolean =>
+  Boolean(url) && SCHEME.test(url!.trim()) && !SAFE.test(url!.trim());
+
+function neutralise(tree: Node): void {
+  if (!tree.children) return;
+  const out: Node[] = [];
+  for (const child of tree.children) {
+    if (child.type === 'html') {
+      out.push({ type: 'text', value: child.value ?? '' });
+      continue;
+    }
+    if ((child.type === 'link' || child.type === 'linkReference') && child.children) neutralise(child);
+    if (child.type === 'link' && unsafe(child.url)) {
+      out.push(...(child.children ?? []));
+      continue;
+    }
+    if (child.type === 'definition' && unsafe(child.url)) continue;
+    if (child.type === 'image' && unsafe(child.url)) continue;
+    neutralise(child);
+    out.push(child);
+  }
+  tree.children = out;
+}
+
+export const safeMarkdown = () => (tree: Node) => neutralise(tree);
+
+/**
  * The markdown, as the HTML the page will serve.
  *
  * `syntaxHighlight: false` is not a preference, it is what makes this run on
@@ -45,6 +98,6 @@ let processor: ReturnType<typeof createMarkdownProcessor> | null = null;
  */
 export const renderBody = async (markdown: string): Promise<string> => {
   if (!markdown.trim()) return '';
-  processor ??= createMarkdownProcessor({ syntaxHighlight: false });
+  processor ??= createMarkdownProcessor({ syntaxHighlight: false, remarkPlugins: [safeMarkdown] });
   return (await (await processor).render(markdown)).code;
 };

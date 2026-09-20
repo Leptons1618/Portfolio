@@ -61,7 +61,7 @@ import { site } from '../lib/site';
 const FACTS: [string, string][] = [
   ['runtime', 'Astro 5 · Cloudflare Workers'],
   ['rendering', 'Static, with an adapter'],
-  ['database', 'Cloudflare D1 — 9 tables'],
+  ['database', 'Cloudflare D1 — 10 tables'],
   ['migrations', '10, applied before each deploy'],
   ['images', 'BLOBs in D1, one route serves them'],
   ['styling', 'Plain CSS · 3 themes × light/dark'],
@@ -78,6 +78,7 @@ const TABLES: [string, string][] = [
   ['ai_providers', 'One row per endpoint the site may call, and the one API key this system stores. The admin listing gets a fingerprint of it and never the key.'],
   ['ai_rate', 'Request counters for the public assistant. No visitor text, no readable IP.'],
   ['ai_chats · ai_messages', 'The authoring assistant’s saved conversations. Owner-only, read by nothing public.'],
+  ['logs', 'The site’s own record: what the daily job did, what was saved, what a provider refused. Never written per anonymous request, never a visitor’s words.'],
 ];
 
 /**
@@ -187,11 +188,11 @@ const SHOTS = {
         <div class="col-split-head">
           <span class="col-split-num"></span>
           <h2>Content is rows, not files</h2>
-          <p class="col-split-hint">Nine tables, and the schema is the validation.</p>
+          <p class="col-split-hint">Ten tables, and the schema is the validation.</p>
         </div>
         <div class="prose col-split-body">
           <p>
-            There is no <code>src/content/</code>. Nine tables in D1 hold everything
+            There is no <code>src/content/</code>. Ten tables in D1 hold everything
             the site renders, and the schema is the validation —
             <code>NOT NULL</code>, <code>CHECK</code> constraints and one foreign key
             refuse a bad write when the author presses save, which is the job a

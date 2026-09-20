@@ -19,7 +19,12 @@ export const site = {
 
   email: 'anishgiri163@gmail.com',
   location: 'Bengaluru, Karnataka, India',
-  address: 'Nanjappa Layout, Adugodi, Bengaluru, Karnataka, 560030',
+  /* Deliberately empty. Nothing on the site renders a postal address — the
+     resume masthead prints `location` — and this module is imported by the
+     prerendered `/admin/settings` page, whose HTML is public: the street
+     address sat in a form field anyone could fetch, on a repository that is
+     public too. A value here is a value that is served; leave it blank. */
+  address: '',
   phone: '6294957979',
 
   githubUser: 'Leptons1618',

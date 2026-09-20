@@ -94,7 +94,7 @@ function selfTest() {
       process.exit(1);
     }
   };
-  const id = '285491b7-631b-437b-8d85-b8794b26198c';
+  const id = '0f3c2a1e-7b6d-4c5a-9e8f-1a2b3c4d5e6f';
 
   assert(isDatabaseId(id), 'accepts a real database id');
   assert(!isDatabaseId(PLACEHOLDER), 'rejects the placeholder itself');

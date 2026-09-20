@@ -1,0 +1,303 @@
+---
+/**
+ * The site's own log, read back.
+ *
+ * What the Worker decided and what came of it — a daily journal tick and how
+ * it ended, a content write, an upload, a provider that refused, a screen that
+ * faulted — out of the `logs` table `src/lib/log.ts` writes. It is the record
+ * the site keeps for itself; the platform keeps the other one (every
+ * invocation, its CPU time, the ones it killed), and the card on the right
+ * links there, because a Worker that was terminated for exceeding its
+ * allowance never got to write a line here.
+ *
+ * Static shell, filled over `GET /api/logs` — the same reasoning as the AI
+ * screen: `/admin/*` is public HTML, and a log line can quote a vendor's
+ * error message. The rows are built in script, so their rules go through the
+ * `#log-list :global(…)` door like the import list's.
+ */
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import Illustration from '../../components/Illustration.astro';
+import { Icon } from 'astro-icon/components';
+import { LOG_CAP, LOG_SOURCES } from '../../lib/log';
+import { site } from '../../lib/site';
+
+const SOURCE_LABELS: Record<(typeof LOG_SOURCES)[number], string> = {
+  daily: 'Daily journal',
+  content: 'Content writes',
+  media: 'Uploads',
+  chat: 'Public assistant',
+  assist: 'Writing assistant',
+  admin: 'Screen faults',
+};
+
+/* The dashboard deep link resolves the account after sign-in, so no account
+   id has to be written down here. */
+const CF_LOGS = 'https://dash.cloudflare.com/?to=/:account/workers/services/view/portfolio/production/observability/logs';
+const CF_METRICS = 'https://dash.cloudflare.com/?to=/:account/workers/services/view/portfolio/production/metrics';
+const ACTIONS = `${site.repo}/actions/workflows/daily-journal.yml`;
+---
+<AdminLayout title="Logs">
+  <div class="admin-main-wide" id="admin-logs">
+    <div class="admin-head">
+      <div>
+        <p class="admin-eyebrow-mono">MODULE: LOGS</p>
+        <h1 class="admin-title">Logs</h1>
+        <span class="text-muted admin-stamp" id="log-stamp">Sign in to read the log.</span>
+      </div>
+      <div class="admin-actions">
+        <button type="button" class="btn btn-secondary" id="log-refresh">
+          <Icon name="lucide:refresh-cw" class="admin-nav-icon" />Refresh
+        </button>
+        <button type="button" class="btn btn-secondary" id="log-clear">
+          <Icon name="lucide:trash-2" class="admin-nav-icon" />Clear
+        </button>
+      </div>
+    </div>
+
+    <p class="admin-note lg-message" id="log-message"></p>
+
+    <div class="lg-grid">
+      <div class="lg-main">
+        <section class="card elev-sm">
+          <div class="lg-controls">
+            <select class="input is-auto" id="log-source" aria-label="Filter by source">
+              <option value="">Every source</option>
+              {LOG_SOURCES.map(source => <option value={source}>{SOURCE_LABELS[source]}</option>)}
+            </select>
+            <div class="seg" role="group" aria-label="Filter by level">
+              <label class="seg-opt"><input type="radio" name="log-level" value="" checked />All</label>
+              <label class="seg-opt"><input type="radio" name="log-level" value="info" />Info</label>
+              <label class="seg-opt"><input type="radio" name="log-level" value="warn" />Warn</label>
+              <label class="seg-opt"><input type="radio" name="log-level" value="error" />Error</label>
+            </div>
+          </div>
+
+          <div id="log-list" class="lg-list"></div>
+
+          <div class="admin-empty" id="log-empty" hidden>
+            <div class="admin-empty-art admin-empty-art-sm"><Illustration name="no-data" /></div>
+            <h3 class="admin-empty-title">Nothing logged yet</h3>
+            <p class="admin-empty-copy">
+              A line lands here when the daily journal runs, when something is saved or uploaded, when a
+              provider refuses, or when a screen faults. Skipped ticks and refused sign-ins are deliberately
+              not recorded — see the card on the right for those.
+            </p>
+          </div>
+
+          <div class="lg-foot">
+            <button type="button" class="btn btn-secondary btn-sm" id="log-more" hidden>Older</button>
+          </div>
+        </section>
+      </div>
+
+      <aside class="lg-side">
+        <section class="card elev-sm">
+          <p class="admin-eyebrow">What lands here</p>
+          <p class="admin-note">
+            Every row is written by code that had already checked who was asking or spent a metered
+            budget — never once per anonymous request, so nobody with <code>curl</code> can fill it. The
+            newest {LOG_CAP} rows are kept; the rest go on the next write. No visitor's question, token
+            or key is ever in a row.
+          </p>
+        </section>
+
+        <section class="card elev-sm">
+          <p class="admin-eyebrow">The platform's log</p>
+          <p class="admin-note">
+            Workers Logs holds every invocation — status, CPU and wall time, and the ones the runtime
+            <em>killed</em> for exceeding the free plan's 10 ms of CPU (error 1102), which by definition
+            never wrote a line here. Three days of retention on the free plan.
+          </p>
+          <div class="lg-links">
+            <a class="btn btn-secondary btn-sm" href={CF_LOGS} target="_blank" rel="noopener">
+              <Icon name="lucide:external-link" class="admin-nav-icon" />Workers Logs
+            </a>
+            <a class="btn btn-secondary btn-sm" href={CF_METRICS} target="_blank" rel="noopener">
+              <Icon name="lucide:activity" class="admin-nav-icon" />Metrics &amp; errors
+            </a>
+            <a class="btn btn-secondary btn-sm" href={ACTIONS} target="_blank" rel="noopener">
+              <Icon name="lucide:external-link" class="admin-nav-icon" />Daily journal runs
+            </a>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </div>
+</AdminLayout>
+
+<script>
+  import { onAdminPage, setBusy, setLabel, toast } from '../../lib/admin';
+  import { getToken } from '../../lib/github';
+  import { clearLogs, listLogs, type LogRow } from '../../lib/log-store';
+
+  onAdminPage('#admin-logs', () => {
+    const list = document.getElementById('log-list')!;
+    const empty = document.getElementById('log-empty')!;
+    const stamp = document.getElementById('log-stamp')!;
+    const message = document.getElementById('log-message')!;
+    const more = document.getElementById('log-more') as HTMLButtonElement;
+    const refresh = document.getElementById('log-refresh') as HTMLButtonElement;
+    const clear = document.getElementById('log-clear') as HTMLButtonElement;
+    const source = document.getElementById('log-source') as HTMLSelectElement;
+    const levels = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="log-level"]'));
+
+    const say = (text: string, tone: 'info' | 'error' = 'info') => {
+      message.dataset.tone = tone;
+      message.textContent = text;
+    };
+
+    if (!getToken()) {
+      refresh.disabled = true;
+      clear.disabled = true;
+      say('Sign in with GitHub to read the log.', 'error');
+      return;
+    }
+
+    /* The last id on screen, so "Older" pages from there. */
+    let oldest = 0;
+
+    /* Every value is `textContent`: a message can quote a vendor's error or a
+       slug, and none of it goes near an HTML parser. */
+    function row(entry: LogRow): HTMLElement {
+      const host = document.createElement('article');
+      host.className = 'log-row';
+      host.dataset.level = entry.level;
+
+      const when = document.createElement('time');
+      when.className = 'log-when';
+      when.dateTime = entry.at;
+      const at = new Date(entry.at);
+      when.textContent = Number.isNaN(at.getTime()) ? entry.at : at.toLocaleString();
+      when.title = entry.at;
+
+      const level = document.createElement('span');
+      level.className = 'tag log-level';
+      level.textContent = entry.level;
+
+      const src = document.createElement('span');
+      src.className = 'log-source';
+      src.textContent = entry.source;
+
+      const text = document.createElement('p');
+      text.className = 'log-text';
+      text.textContent = entry.message;
+
+      const head = document.createElement('div');
+      head.className = 'log-head';
+      head.append(when, level, src);
+      host.append(head, text);
+
+      if (entry.detail) {
+        const details = document.createElement('details');
+        details.className = 'log-detail';
+        const summary = document.createElement('summary');
+        summary.textContent = 'detail';
+        const pre = document.createElement('pre');
+        try {
+          pre.textContent = JSON.stringify(JSON.parse(entry.detail), null, 2);
+        } catch {
+          pre.textContent = entry.detail;
+        }
+        details.append(summary, pre);
+        host.append(details);
+      }
+      return host;
+    }
+
+    const filter = () => ({
+      source: source.value || undefined,
+      level: levels.find(input => input.checked)?.value || undefined,
+    });
+
+    async function load(append = false) {
+      const button = append ? more : refresh;
+      setBusy(button, true, append ? 'Loading…' : 'Reading…');
+      try {
+        const page = await listLogs({ ...filter(), before: append ? oldest : undefined });
+        if (!append) list.replaceChildren();
+        for (const entry of page.rows) list.append(row(entry));
+        if (page.rows.length) oldest = page.rows[page.rows.length - 1].id;
+        empty.hidden = list.childElementCount > 0;
+        more.hidden = page.rows.length < page.page;
+        stamp.textContent = `${page.total} of up to ${page.cap} rows kept · read ${new Date().toLocaleTimeString()}`;
+        say('');
+      } catch (error) {
+        say(error instanceof Error ? error.message : 'Could not read the log.', 'error');
+      } finally {
+        setBusy(button, false);
+      }
+    }
+
+    refresh.addEventListener('click', () => void load());
+    more.addEventListener('click', () => void load(true));
+    source.addEventListener('change', () => void load());
+    levels.forEach(input => input.addEventListener('change', () => void load()));
+
+    /* Two clicks, like every delete on this surface: the rows do not come back. */
+    let armed = false;
+    clear.addEventListener('click', async () => {
+      if (!armed) {
+        armed = true;
+        setLabel(clear, 'Confirm clear');
+        window.setTimeout(() => {
+          armed = false;
+          setLabel(clear, null);
+        }, 4000);
+        return;
+      }
+      armed = false;
+      setLabel(clear, null);
+      setBusy(clear, true, 'Clearing…');
+      const pending = toast('Clearing the log…', { tone: 'pending' });
+      try {
+        const { removed } = await clearLogs();
+        pending.update(`Cleared ${removed} rows.`, { tone: 'success' });
+        await load();
+      } catch (error) {
+        pending.update(error instanceof Error ? error.message : 'Could not clear the log.', { tone: 'error' });
+      } finally {
+        setBusy(clear, false);
+      }
+    });
+
+    void load();
+  });
+</script>
+
+<style>
+  .lg-message { min-height: 18px; font-size: 12px; margin: 0 0 var(--space-4); }
+  .lg-message[data-tone='error'] { color: var(--color-accent-700); }
+
+  .lg-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-4); align-items: start; }
+  .lg-main { min-width: 0; }
+  .lg-side { display: flex; flex-direction: column; gap: var(--space-4); }
+  .lg-controls { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; margin-bottom: var(--space-3); }
+  .lg-links { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); align-items: flex-start; }
+  .lg-foot { display: flex; justify-content: center; margin-top: var(--space-3); }
+  .lg-list { display: flex; flex-direction: column; }
+
+  /* Built in script, so these hang off the server-rendered host — the same
+     door `#import-list :global(.repo-…)` uses, for the same reason. */
+  #log-list :global(.log-row) {
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-divider);
+    border-left: 3px solid transparent;
+    padding-left: var(--space-2);
+  }
+  #log-list :global(.log-row:last-child) { border-bottom: 0; }
+  #log-list :global(.log-row[data-level='warn']) { border-left-color: var(--color-accent-400); }
+  #log-list :global(.log-row[data-level='error']) { border-left-color: var(--color-accent-700); }
+  #log-list :global(.log-head) { display: flex; gap: var(--space-2); align-items: center; flex-wrap: wrap; font-size: 11px; font-family: var(--font-mono); }
+  #log-list :global(.log-when) { color: color-mix(in srgb, var(--color-text) 60%, transparent); }
+  #log-list :global(.log-level) { font-size: 10px; }
+  #log-list :global(.log-row[data-level='error'] .log-level) { color: var(--color-accent-700); border-color: currentColor; }
+  #log-list :global(.log-source) { letter-spacing: 0.04em; text-transform: uppercase; }
+  #log-list :global(.log-text) { margin: 4px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+  #log-list :global(.log-detail) { margin-top: 4px; font-size: 11px; }
+  #log-list :global(.log-detail summary) { cursor: pointer; font-family: var(--font-mono); color: color-mix(in srgb, var(--color-text) 60%, transparent); }
+  #log-list :global(.log-detail pre) { margin: 4px 0 0; padding: var(--space-2); background: var(--color-surface); overflow-x: auto; font-size: 11px; }
+
+  @media (max-width: 1000px) {
+    .lg-grid { grid-template-columns: 1fr; }
+  }
+</style>

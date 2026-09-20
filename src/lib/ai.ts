@@ -2195,3 +2195,140 @@ function nextModel(provider: Provider, which: 'chat' | 'assist'): Provider | nul
   if (!rest.length) return null;
   return { ...provider, assistModel: '', model: rest[0], fallbackModels: rest.slice(1) };
 }
+
+/* ---------- the tool loop, without a stream ---------- */
+
+/** What `agentComplete()` hands back: the answer, the deliberation, and how it ended. */
+export interface Completion {
+  text: string;
+  reasoning: string;
+  /** The vendor's `finish_reason` of the answering round — `length` is a truncation. */
+  stopReason: string;
+  /** Lookups actually run. */
+  calls: number;
+}
+
+/**
+ * One answer, with lookups, as a string — the non-streaming twin of `agentStream()`.
+ *
+ * Exists for the daily journal job, and the reason is the platform rather than
+ * the model. This site runs on the Workers Free plan, which allows **10 ms of
+ * CPU per invocation**; waiting on a `fetch()` costs none of it. A streamed
+ * answer is per-token work — decode, split, parse, strip, re-encode, for every
+ * one of the thousands of chunks a reasoning model sends while it deliberates
+ * — and a whole post's worth of that runs to hundreds of milliseconds. The
+ * interactive routes stay inside the allowance by keeping runs short (decision
+ * 60); a cron tick writing 1,500 words on a slow free model cannot, and the
+ * platform answered it with error 1102 on most attempts for a fortnight. A
+ * non-streamed completion is one `JSON.parse` however long the vendor takes,
+ * and there is no time limit on a subrequest while the client stays connected.
+ *
+ * Same three bounds as the streamed loop — rounds, calls, and the provider that
+ * answered — same message shapes, same one-time handover to the next model when
+ * a round was nothing but deliberation, and `thinkStripper()` run once over the
+ * finished text so a `<think>` block or a narrated opening still never reaches
+ * a field. Decision 29 is a property of *what is returned*, not of how it
+ * travelled.
+ *
+ * The answer round is sent **without a deadline**: a non-streamed post arrives
+ * all at once when the model is done, so a clock that could abort it a second
+ * before the headers would throw away the whole generation. `timeoutMs` still
+ * bounds each attempt.
+ */
+export async function agentComplete(
+  options: Omit<AgentOptions, 'first'> & { providers: Provider[] },
+): Promise<Completion> {
+  const { which, runTool } = options;
+  const maxRounds = options.maxRounds ?? 3;
+  const maxCalls = options.maxCalls ?? 8;
+  const messages = [...options.messages];
+  let call: Omit<CallOptions, 'messages'> = { ...options.call, stream: false };
+  let candidates = options.providers;
+  let switched = false;
+  let spent = 0;
+
+  for (let round = 0; ; round += 1) {
+    const armed = Boolean(call.tools?.length);
+    const { response, provider } = await callChat(
+      candidates,
+      { ...call, messages, ...(armed ? {} : { deadline: undefined }) },
+      which,
+    );
+    /* Later rounds go back to the model that answered, never to the list. */
+    candidates = [{ ...provider, assistModel: '' }];
+
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string } | string;
+      choices?: {
+        message?: {
+          content?: string | null;
+          reasoning?: string | null;
+          reasoning_content?: string | null;
+          tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[];
+        };
+        finish_reason?: string | null;
+      }[];
+    } | null;
+    if (!body || body.error) {
+      const detail = typeof body?.error === 'string' ? body.error : body?.error?.message;
+      throw new ProviderError(`${provider.label} (${provider.model}) failed: ${detail ?? 'no readable answer.'}`);
+    }
+    const choice = body.choices?.[0];
+    const message = choice?.message ?? {};
+    const content = message.content ?? '';
+    const reasoning = message.reasoning ?? message.reasoning_content ?? '';
+    const asked: ToolCall[] = (message.tool_calls ?? [])
+      .filter(c => c.function?.name)
+      .map((c, i) => ({ id: c.id || `call_${round}_${i}`, name: c.function!.name!, arguments: c.function!.arguments ?? '' }));
+
+    /* A round that only deliberated, handed to the next model once — the same
+       rule, for the same measured reason, as the streamed loop. */
+    if (!content.trim() && !asked.length && reasoning && !switched) {
+      const next = nextModel(provider, which);
+      if (next) {
+        switched = true;
+        candidates = [next];
+        continue;
+      }
+    }
+
+    if (!asked.length || !armed) {
+      const split = thinkStripper();
+      const a = split.split(content);
+      const b = split.flush();
+      return {
+        text: a.text + b.text,
+        reasoning: reasoning + a.reasoning + b.reasoning,
+        stopReason: choice?.finish_reason ?? '',
+        calls: spent,
+      };
+    }
+
+    messages.push({ role: 'assistant', content, tool_calls: toolCallsFor(asked) });
+    const over = round >= maxRounds || timeLeft(options.call.deadline) <= 0;
+    for (const wanted of asked) {
+      if (over || spent >= maxCalls) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: wanted.id,
+          name: wanted.name,
+          content: 'No more lookups are available for this answer. Write it now from what you have, and say plainly if something is missing.',
+        });
+        continue;
+      }
+      spent += 1;
+      let outcome: ToolOutcome;
+      try {
+        outcome = await runTool(wanted.name, parseArguments(wanted.arguments));
+      } catch (error) {
+        outcome = { ok: false, text: `That lookup failed: ${error instanceof Error ? error.message : 'unknown error'}.`, detail: 'failed' };
+      }
+      messages.push({ role: 'tool', tool_call_id: wanted.id, name: wanted.name, content: outcome.text });
+    }
+    /* Withdrawn, not merely refused: a model that may still ask, will. */
+    if (over || spent >= maxCalls) {
+      const { tools, ...disarmed } = call;
+      call = disarmed;
+    }
+  }
+}

@@ -1171,6 +1171,22 @@ textarea[data-grow] { max-height: 60vh; }
   z-index: 65;
 }
 
+/* Centred in the room the page has *left*, not in the viewport. A docked
+   panel reserves a column on `<body>` (see "the page makes room" below) and
+   the page content pads away from it; a stepped-down dialog is `inset: 0;
+   margin: auto` against the whole viewport, so it stayed put and the panel
+   sat over its right two-fifths — Status, Featured rank, the Create button —
+   which is what "the import form can't be used with the assistant open"
+   turned out to mean. Same column, same width, and a cap so the dialog
+   never runs under the panel however narrow the window. */
+@media (min-width: 621px) {
+  body[data-asx-dock='right'] .modal-downgraded[open] { right: var(--asx-dock-w, 608px); }
+  body[data-asx-dock='left'] .modal-downgraded[open] { left: var(--asx-dock-w, 608px); }
+  body[data-asx-dock] .modal-downgraded[open] {
+    max-width: calc(100vw - var(--asx-dock-w, 608px) - var(--space-4) * 2);
+  }
+}
+
 /* The frozen look behind two coexisting dialogs, on every admin screen.
    Applied to the page's own content rather than as an overlay: every dialog
    here is a sibling of it, so no stacking order — however the browser
@@ -1939,7 +1955,20 @@ body[data-asx-freeze] {
    same two edges except the left one, which is what lets the resize handle keep
    a single meaning: the float writes offsets from *right* and *bottom* rather
    than a top-left position. */
-.asx[data-dock='left'] { inset: auto auto var(--space-4) var(--space-4); }
+/* Beside the rail, not over it: docked left the panel used to start at the
+   viewport edge and cover the nav, while `.admin-main` — which begins where
+   the rail ends — still padded by the panel's whole width, leaving a dead
+   column the size of the sidebar between the two. The rail's width is the
+   same custom property the rail reads, and the collapsed width is its one
+   other value. Below 860px the rail is a banner and the edge is the edge. */
+.asx[data-dock='left'] {
+  inset: auto auto var(--space-4) calc(var(--admin-sidebar-w, 260px) + var(--space-4));
+}
+:root[data-admin-collapsed] .asx[data-dock='left'] { left: calc(64px + var(--space-4)); }
+@media (max-width: 860px) {
+  .asx[data-dock='left'],
+  :root[data-admin-collapsed] .asx[data-dock='left'] { left: var(--space-4); }
+}
 
 .asx[data-dock='float'] {
   inset: auto var(--asx-right, var(--space-4)) var(--asx-bottom, var(--space-4)) auto;
@@ -1970,8 +1999,16 @@ body[data-asx-freeze] {
    docks themselves are physical — the placement rules pin the panel to
    literal left/right edges. */
 @media (min-width: 621px) {
-  body[data-asx-dock='right'] .admin-main { padding-right: var(--asx-dock-w, 608px); }
-  body[data-asx-dock='left'] .admin-main { padding-left: var(--asx-dock-w, 608px); }
+  /* Capped so the content column keeps ~500px, whatever the panel's width: on
+     a 1280px laptop the full 576px reservation left the editor 300px wide, and
+     on an 860px tablet it left nothing. Past the cap the panel overlaps the
+     page instead, which is the trade the float placement makes anyway. */
+  body[data-asx-dock='right'] .admin-main {
+    padding-right: max(0px, min(var(--asx-dock-w, 608px), calc(100vw - 800px)));
+  }
+  body[data-asx-dock='left'] .admin-main {
+    padding-left: max(0px, min(var(--asx-dock-w, 608px), calc(100vw - 800px)));
+  }
 }
 
 /* One button through all three placements, one inlined icon visible at a
@@ -2763,7 +2800,8 @@ body[data-asx-freeze] {
   .asx-grip { display: none; }
   .asx-dock { display: none; }
   .asx-head[data-drag] { cursor: default; }
-  .asx[data-dock] { inset: auto 0 0 0; }
+  .asx[data-dock],
+  :root[data-admin-collapsed] .asx[data-dock='left'] { inset: auto 0 0 0; }
 
   /* The three run controls stack rather than scroll: at 360px two of them do
      not fit on one row, and a horizontally scrolling toolbar is a control

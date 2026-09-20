@@ -55,6 +55,12 @@ export const GET: APIRoute = async ({ params, locals }) => {
          letting a re-upload actually show up. */
       'Cache-Control': 'public, max-age=60, s-maxage=86400',
       ETag: `"${row.updated_at}"`,
+      /* An SVG is a document as well as an image: opened directly, its
+         `<script>` runs on this origin. Sandboxed, it still draws inside an
+         `<img>` — which is the only way this site uses one — and runs nothing
+         when navigated to. Only the owner and the diagram task can upload,
+         so this is belt and braces rather than a hole; the braces are free. */
+      ...(type === 'image/svg+xml' ? { 'Content-Security-Policy': "sandbox; script-src 'none'" } : {}),
     },
   });
 };

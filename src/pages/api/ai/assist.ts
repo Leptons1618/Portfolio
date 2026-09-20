@@ -17,6 +17,7 @@ import { getCaseStudies, getPosts, getProjects } from '../../../lib/content';
 import { getResume } from '../../../lib/resume';
 import { ASSIST_TASKS, assistPrompt, isAssistTask } from '../../../lib/assist-tasks';
 import { site } from '../../../lib/site';
+import { record } from '../../../lib/log';
 
 /**
  * The journal writing assistant.
@@ -281,8 +282,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
       /* Shown in full, unlike on the public route. The reader is the owner and
          the vendor's message is the only thing that says which model name was
          wrong or which account is out of credit. */
+      await record(DB, 'error', 'assist', `${task.label}: ${error.message}`, { task: payload.task, status: error.status });
       return json({ error: error.message }, error.status);
     }
-    return json({ error: error instanceof Error ? error.message : 'Assist failed.' }, 500);
+    const message = error instanceof Error ? error.message : 'Assist failed.';
+    await record(DB, 'error', 'assist', `${task.label}: ${message}`, { task: payload.task });
+    return json({ error: message }, 500);
   }
 };
