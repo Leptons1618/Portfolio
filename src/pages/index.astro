@@ -93,7 +93,7 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
         class="grayscale hero-photo"
         src={site.photo}
         srcset="/images/ui/portrait-320.webp 320w, /images/ui/portrait.webp 439w"
-        sizes="(max-width: 760px) 320px, 400px"
+        sizes="160px"
         alt={site.name}
         width="440"
         height="550"
@@ -249,6 +249,22 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
     /* The vignette below hangs off this. Geometry replaces the whole figure
        with the orbit and sets its own; both are `relative` either way. */
     position: relative;
+    /* Small, and on the disc's line. Left to the grid the photograph filled
+       the whole 0.8fr lane — 360-odd pixels of portrait beside 52px type —
+       and read as the page's subject rather than its author. 160px is what
+       Geometry's disc comes to (38% of the lane), so the three themes now
+       agree on how much portrait a hero gets, and the plate is centred in
+       the lane the way the disc is: the right margin is the rule and its
+       padding, so the *photograph* — not the figure box — sits on the lane's
+       centre line. Capping the figure rather than the image keeps every
+       theme's marks — crop ticks, ghost outline, veil — on the photograph,
+       because they are all drawn on this box. Geometry lifts all of it: the
+       orbit wants the lane. */
+    --hero-photo: 160px;
+    --hero-rule: calc(var(--space-6) + 2px);
+    max-width: calc(var(--hero-photo) + var(--hero-rule));
+    margin-right: var(--hero-rule);
+    justify-self: center;
   }
 
   /* 4:5 rather than square, and the eyeline a little higher.
@@ -377,7 +393,11 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
       border-top: 2px solid var(--color-divider);
       padding-left: 0;
       padding-top: var(--space-6);
-      max-width: 320px;
+      /* The rule moved to the top edge: the cap is the photo alone, and
+         there is no margin to centre against. */
+      max-width: var(--hero-photo);
+      margin-right: 0;
+      justify-self: start;
     }
     /* The inset followed the padding, which has moved to the top edge. */
     .hero-figure::after { inset: var(--space-6) 0 0; }

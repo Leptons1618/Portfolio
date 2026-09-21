@@ -598,6 +598,17 @@ html[data-theme='geometry'] .hero-figure {
   padding-left: 0;
 }
 
+/* The page caps the figure to a small plate for the themes that show a
+   rectangle; here the orbit is the lane's width and the disc a fraction of
+   it. Desktop only: the phone rule's cap is the orbit's right size there. */
+@media (min-width: 761px) {
+  html[data-theme='geometry'] .hero-figure {
+    max-width: none;
+    margin-right: 0;
+    justify-self: stretch;
+  }
+}
+
 /* The page lands its portrait's bottom edge on the ground with a gradient,
    because on every other theme the photograph is a rectangle whose lower edge
    would otherwise be a hard line across a near-white shirt. Here it is a disc

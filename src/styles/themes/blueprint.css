@@ -592,7 +592,12 @@ html[data-theme='blueprint'] .hero-figure::before {
    3. The availability light pings in rust, a radar sweep rather than a
       fade, the same grammar Geometry's uses in violet.
    4. The theme switch's swatch blinks like the plotter's ready LED — slow,
-      steps, unmistakably a machine and not a cursor. */
+      steps, unmistakably a machine and not a cursor.
+   5. The portrait's crop marks breathe: the four ticks ease out from the
+      trim and back, a set of calipers being read. It is this theme's answer
+      to the disc drifting in its orbit on Geometry — the *marks* move and
+      the photograph, a detail on a sheet, does not. `margin` is what sets
+      their clearance, so `margin` is what animates. */
 
 @media (prefers-reduced-motion: no-preference) {
   html.reveal-ready[data-theme='blueprint'] [data-reveal].is-revealed .rule {
@@ -621,6 +626,10 @@ html[data-theme='blueprint'] .hero-figure::before {
 
   html[data-theme='blueprint'] .theme-toggle-swatch {
     animation: bp-led 2.2s steps(1, end) infinite;
+  }
+
+  html[data-theme='blueprint'] .hero-figure::before {
+    animation: bp-calipers 6s ease-in-out infinite;
   }
 
   /* A card under the pointer gets its crosshair: the two registration ticks
@@ -661,4 +670,9 @@ html[data-theme='blueprint'] .hero-figure::before {
   0%, 100% { opacity: 1; }
   92% { opacity: 1; }
   96% { opacity: 0.2; }
+}
+
+@keyframes bp-calipers {
+  0%, 100% { margin: calc(var(--bp-gap) * -1); }
+  50% { margin: calc(var(--bp-gap) * -1 - 4px); }
 }
