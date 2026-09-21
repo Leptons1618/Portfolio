@@ -25,6 +25,7 @@
  */
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import Illustration from '../../components/Illustration.astro';
+import DailyJournalPanel from '../../components/DailyJournalPanel.astro';
 import { Icon } from 'astro-icon/components';
 import { getPosts, getJournalOrder } from '../../lib/content';
 import { formatShortDate, relativeTime } from '../../lib/format';
@@ -117,6 +118,22 @@ const DEFAULT_PAGE_SIZE = 25;
       </div>
     </div>
 
+    {/* Two tabs: the entries, and the job that writes one a day. The schedule
+        lived on the AI screen as a third tab and was looked for here, because
+        what it configures is a journal post — decision 64. The initially
+        selected tab is marked on the server, so the right panel shows before
+        `wireTabs` runs, and neither panel carries a page-scoped layout class
+        (the rule in `admin-surface.md`). */}
+    <div class="tab-bar" role="tablist" aria-label="Journal" id="jl-tabs">
+      <button type="button" class="tab" role="tab" id="jl-tab-entries" aria-controls="jl-panel-entries" aria-selected="true">
+        <Icon name="lucide:list" class="admin-nav-icon" />Entries
+      </button>
+      <button type="button" class="tab" role="tab" id="jl-tab-daily" aria-controls="jl-panel-daily" aria-selected="false">
+        <Icon name="lucide:calendar-clock" class="admin-nav-icon" />Daily journal
+      </button>
+    </div>
+
+    <div class="tab-panel" id="jl-panel-entries" role="tabpanel" aria-labelledby="jl-tab-entries">
     {existing.length > 0 && (
       <div class="jl-summary">
         <span class="tag tag-accent-2">{counts.published} published</span>
@@ -336,17 +353,29 @@ const DEFAULT_PAGE_SIZE = 25;
         </p>
       </>
     )}
+    </div>
+
+    <div class="tab-panel" id="jl-panel-daily" role="tabpanel" aria-labelledby="jl-tab-daily" hidden>
+      <DailyJournalPanel />
+    </div>
   </div>
 </AdminLayout>
 
 <script>
-  import { onAdminPage, setBusy, setLabel, toast } from '../../lib/admin';
+  import { onAdminPage, setBusy, setLabel, toast, wireTabs } from '../../lib/admin';
   import { removePost, setPostStatus, postPath, saveJournalOrder, type PostStatus } from '../../lib/content-store';
   import { getToken } from '../../lib/github';
 
   /* The admin client-routes, so this runs on first paint and again every time
      you come back to this screen — see `onAdminPage`. */
   onAdminPage('#admin-journal', () => {
+    /* The schedule panel re-reads its status when it is shown again — a fact
+       about the world, not a form — and `dj-refresh` is how it is told; the
+       panel's own script is in `DailyJournalPanel.astro`. */
+    wireTabs(document.getElementById('jl-tabs')!, id => {
+      if (id === 'jl-panel-daily') document.getElementById('dj-panel')?.dispatchEvent(new Event('dj-refresh'));
+    });
+
     const rows = Array.from(document.querySelectorAll<HTMLElement>('.existing-row'));
     if (!rows.length) return;
 

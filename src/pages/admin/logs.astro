@@ -48,8 +48,16 @@ const ACTIONS = `${site.repo}/actions/workflows/daily-journal.yml`;
         <button type="button" class="btn btn-secondary" id="log-refresh">
           <Icon name="lucide:refresh-cw" class="admin-nav-icon" />Refresh
         </button>
+        {/* The archive: what the filter shows, as a file. There is no second
+            table and no archived flag — the cap keeps this table small, and a
+            row worth keeping past it is a row worth keeping outside D1. */}
+        <button type="button" class="btn btn-secondary" id="log-export">
+          <Icon name="lucide:download" class="admin-nav-icon" />Export
+        </button>
+        {/* Scoped to the filter: with a source or level chosen the label reads
+            "Clear shown" and only those rows go. */}
         <button type="button" class="btn btn-secondary" id="log-clear">
-          <Icon name="lucide:trash-2" class="admin-nav-icon" />Clear
+          <Icon name="lucide:trash-2" class="admin-nav-icon" /><span id="log-clear-label">Clear</span>
         </button>
       </div>
     </div>
@@ -85,7 +93,13 @@ const ACTIONS = `${site.repo}/actions/workflows/daily-journal.yml`;
           </div>
 
           <div class="lg-foot">
-            <button type="button" class="btn btn-secondary btn-sm" id="log-more" hidden>Older</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="log-newer" hidden>
+              <Icon name="lucide:chevron-left" class="admin-nav-icon" />Newer
+            </button>
+            <span class="text-muted lg-range" id="log-range"></span>
+            <button type="button" class="btn btn-secondary btn-sm" id="log-more" hidden>
+              Older<Icon name="lucide:chevron-right" class="admin-nav-icon" />
+            </button>
           </div>
         </section>
       </div>
@@ -97,7 +111,9 @@ const ACTIONS = `${site.repo}/actions/workflows/daily-journal.yml`;
             Every row is written by code that had already checked who was asking or spent a metered
             budget — never once per anonymous request, so nobody with <code>curl</code> can fill it. The
             newest {LOG_CAP} rows are kept; the rest go on the next write. No visitor's question, token
-            or key is ever in a row.
+            or key is ever in a row. Every AI run leaves one: which model answered, how long it took,
+            what it spent, how it ended — and, when a draft came back in no field shape, the opening of
+            what it wrote.
           </p>
         </section>
 
@@ -127,8 +143,9 @@ const ACTIONS = `${site.repo}/actions/workflows/daily-journal.yml`;
 
 <script>
   import { onAdminPage, setBusy, setLabel, toast } from '../../lib/admin';
+  import { copyText } from '../../lib/clipboard';
   import { getToken } from '../../lib/github';
-  import { clearLogs, listLogs, type LogRow } from '../../lib/log-store';
+  import { clearLogs, deleteLog, listAllLogs, listLogs, type LogFilter, type LogRow } from '../../lib/log-store';
 
   onAdminPage('#admin-logs', () => {
     const list = document.getElementById('log-list')!;
@@ -136,8 +153,12 @@ const ACTIONS = `${site.repo}/actions/workflows/daily-journal.yml`;
     const stamp = document.getElementById('log-stamp')!;
     const message = document.getElementById('log-message')!;
     const more = document.getElementById('log-more') as HTMLButtonElement;
+    const newer = document.getElementById('log-newer') as HTMLButtonElement;
+    const range = document.getElementById('log-range')!;
     const refresh = document.getElementById('log-refresh') as HTMLButtonElement;
+    const exportBtn = document.getElementById('log-export') as HTMLButtonElement;
     const clear = document.getElementById('log-clear') as HTMLButtonElement;
+    const clearLabel = document.getElementById('log-clear-label')!;
     const source = document.getElementById('log-source') as HTMLSelectElement;
     const levels = Array.from(document.querySelectorAll<HTMLInputElement>('input[name="log-level"]'));
 
@@ -148,13 +169,33 @@ const ACTIONS = `${site.repo}/actions/workflows/daily-journal.yml`;
 
     if (!getToken()) {
       refresh.disabled = true;
+      exportBtn.disabled = true;
       clear.disabled = true;
       say('Sign in with GitHub to read the log.', 'error');
       return;
     }
 
-    /* The last id on screen, so "Older" pages from there. */
+    /* The page on screen: its first and last ids, so Newer and Older page
+       from its edges, and its ordinal, so the range line can say where it
+       sits in the filter's count. Keyset paging knows no offsets; the
+       ordinal is counted here and reset whenever the filter changes. */
+    let newest = 0;
     let oldest = 0;
+    let pageIndex = 0;
+    let pageSize = 100;
+
+    const pretty = (detail: string | null): string => {
+      if (!detail) return '';
+      try {
+        return JSON.stringify(JSON.parse(detail), null, 2);
+      } catch {
+        return detail;
+      }
+    };
+
+    /** A row as text, for the clipboard. */
+    const asText = (entry: LogRow): string =>
+      `${entry.at} · ${entry.level} · ${entry.source}\n${entry.message}${entry.detail ? `\n${pretty(entry.detail)}` : ''}`;
 
     /* Every value is `textContent`: a message can quote a vendor's error or a
        slug, and none of it goes near an HTML parser. */
@@ -178,48 +219,115 @@ const ACTIONS = `${site.repo}/actions/workflows/daily-journal.yml`;
       src.className = 'log-source';
       src.textContent = entry.source;
 
+      /* Copy and Delete on the row rather than in a menu: a log line is read
+         once and either kept somewhere else or thrown away. Both carry no
+         icon, so `textContent` is safe on them. */
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'btn btn-secondary log-act';
+      copy.textContent = 'Copy';
+      copy.addEventListener('click', async () => {
+        const ok = await copyText(asText(entry));
+        toast(ok ? 'Copied the row.' : 'Could not copy — select the text instead.', { tone: ok ? 'success' : 'error' });
+      });
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn btn-secondary log-act';
+      remove.textContent = 'Delete';
+      /* Two clicks, like every delete on this surface: the row does not come
+         back. */
+      let armed = false;
+      remove.addEventListener('click', async () => {
+        if (!armed) {
+          armed = true;
+          remove.textContent = 'Confirm';
+          window.setTimeout(() => {
+            armed = false;
+            remove.textContent = 'Delete';
+          }, 4000);
+          return;
+        }
+        remove.disabled = true;
+        try {
+          await deleteLog(entry.id);
+          host.remove();
+          empty.hidden = list.childElementCount > 0;
+          toast('Deleted the row.', { tone: 'success' });
+        } catch (error) {
+          remove.disabled = false;
+          toast(error instanceof Error ? error.message : 'Could not delete the row.', { tone: 'error' });
+        }
+      });
+
+      const acts = document.createElement('span');
+      acts.className = 'log-acts';
+      acts.append(copy, remove);
+
       const text = document.createElement('p');
       text.className = 'log-text';
       text.textContent = entry.message;
 
       const head = document.createElement('div');
       head.className = 'log-head';
-      head.append(when, level, src);
+      head.append(when, level, src, acts);
       host.append(head, text);
 
       if (entry.detail) {
         const details = document.createElement('details');
         details.className = 'log-detail';
+        /* An error's detail is the reason the row exists; opening it by hand
+           on every one was the complaint. */
+        details.open = entry.level === 'error';
         const summary = document.createElement('summary');
         summary.textContent = 'detail';
         const pre = document.createElement('pre');
-        try {
-          pre.textContent = JSON.stringify(JSON.parse(entry.detail), null, 2);
-        } catch {
-          pre.textContent = entry.detail;
-        }
+        pre.textContent = pretty(entry.detail);
         details.append(summary, pre);
         host.append(details);
       }
       return host;
     }
 
-    const filter = () => ({
+    const filter = (): LogFilter => ({
       source: source.value || undefined,
       level: levels.find(input => input.checked)?.value || undefined,
     });
+    const filtered = () => Boolean(source.value || levels.find(input => input.checked)?.value);
 
-    async function load(append = false) {
-      const button = append ? more : refresh;
-      setBusy(button, true, append ? 'Loading…' : 'Reading…');
+    /* The label says what the button will do. Its text is its own span so
+       the icon beside it survives. */
+    const paintClear = () => {
+      clearLabel.textContent = filtered() ? 'Clear shown' : 'Clear';
+    };
+
+    async function load(direction: 'fresh' | 'older' | 'newer' = 'fresh') {
+      const button = direction === 'older' ? more : direction === 'newer' ? newer : refresh;
+      setBusy(button, true, direction === 'fresh' ? 'Reading…' : 'Loading…');
       try {
-        const page = await listLogs({ ...filter(), before: append ? oldest : undefined });
-        if (!append) list.replaceChildren();
-        for (const entry of page.rows) list.append(row(entry));
-        if (page.rows.length) oldest = page.rows[page.rows.length - 1].id;
+        const page = await listLogs({
+          ...filter(),
+          ...(direction === 'older' ? { before: oldest } : {}),
+          ...(direction === 'newer' ? { after: newest } : {}),
+        });
+        /* A newer page that came back empty is the top: stay put. */
+        if (direction !== 'fresh' && !page.rows.length) return;
+        pageIndex = direction === 'fresh' ? 0 : direction === 'older' ? pageIndex + 1 : Math.max(0, pageIndex - 1);
+        pageSize = page.page;
+
+        list.replaceChildren(...page.rows.map(row));
+        if (page.rows.length) {
+          newest = page.rows[0].id;
+          oldest = page.rows[page.rows.length - 1].id;
+        }
         empty.hidden = list.childElementCount > 0;
-        more.hidden = page.rows.length < page.page;
-        stamp.textContent = `${page.total} of up to ${page.cap} rows kept · read ${new Date().toLocaleTimeString()}`;
+
+        const from = pageIndex * pageSize + 1;
+        const to = pageIndex * pageSize + page.rows.length;
+        range.textContent = page.rows.length ? `rows ${from}–${to} of ${page.total}` : '';
+        newer.hidden = pageIndex === 0;
+        more.hidden = to >= page.total;
+        stamp.textContent = `${page.kept} of up to ${page.cap} rows kept · read ${new Date().toLocaleTimeString()}`;
         say('');
       } catch (error) {
         say(error instanceof Error ? error.message : 'Could not read the log.', 'error');
@@ -229,16 +337,48 @@ const ACTIONS = `${site.repo}/actions/workflows/daily-journal.yml`;
     }
 
     refresh.addEventListener('click', () => void load());
-    more.addEventListener('click', () => void load(true));
-    source.addEventListener('change', () => void load());
-    levels.forEach(input => input.addEventListener('change', () => void load()));
+    more.addEventListener('click', () => void load('older'));
+    newer.addEventListener('click', () => void load('newer'));
+    source.addEventListener('change', () => {
+      paintClear();
+      void load();
+    });
+    levels.forEach(input =>
+      input.addEventListener('change', () => {
+        paintClear();
+        void load();
+      }),
+    );
 
-    /* Two clicks, like every delete on this surface: the rows do not come back. */
+    /* The archive: every row the filter matches, newest first, as a file —
+       walked page by page through the endpoint the screen already reads. */
+    exportBtn.addEventListener('click', async () => {
+      setBusy(exportBtn, true, 'Collecting…');
+      try {
+        const rows = await listAllLogs(filter());
+        const day = new Date().toISOString().slice(0, 10);
+        const blob = new Blob([JSON.stringify(rows, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `logs-${day}.json`;
+        link.click();
+        URL.revokeObjectURL(url);
+        toast(`Downloaded ${rows.length} rows as logs-${day}.json.`, { tone: 'success' });
+      } catch (error) {
+        toast(error instanceof Error ? error.message : 'Could not export the log.', { tone: 'error' });
+      } finally {
+        setBusy(exportBtn, false);
+      }
+    });
+
+    /* Two clicks, like every delete on this surface: the rows do not come
+       back. Scoped to the filter, so a screen showing errors clears errors. */
     let armed = false;
     clear.addEventListener('click', async () => {
       if (!armed) {
         armed = true;
-        setLabel(clear, 'Confirm clear');
+        setLabel(clear, filtered() ? 'Confirm clear shown' : 'Confirm clear');
         window.setTimeout(() => {
           armed = false;
           setLabel(clear, null);
@@ -250,7 +390,7 @@ const ACTIONS = `${site.repo}/actions/workflows/daily-journal.yml`;
       setBusy(clear, true, 'Clearing…');
       const pending = toast('Clearing the log…', { tone: 'pending' });
       try {
-        const { removed } = await clearLogs();
+        const { removed } = await clearLogs(filter());
         pending.update(`Cleared ${removed} rows.`, { tone: 'success' });
         await load();
       } catch (error) {
@@ -260,6 +400,7 @@ const ACTIONS = `${site.repo}/actions/workflows/daily-journal.yml`;
       }
     });
 
+    paintClear();
     void load();
   });
 </script>
@@ -273,7 +414,8 @@ const ACTIONS = `${site.repo}/actions/workflows/daily-journal.yml`;
   .lg-side { display: flex; flex-direction: column; gap: var(--space-4); }
   .lg-controls { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; margin-bottom: var(--space-3); }
   .lg-links { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); align-items: flex-start; }
-  .lg-foot { display: flex; justify-content: center; margin-top: var(--space-3); }
+  .lg-foot { display: flex; justify-content: center; align-items: center; gap: var(--space-3); margin-top: var(--space-3); }
+  .lg-range { font-family: var(--font-mono); font-size: 11px; }
   .lg-list { display: flex; flex-direction: column; }
 
   /* Built in script, so these hang off the server-rendered host — the same
@@ -292,10 +434,12 @@ const ACTIONS = `${site.repo}/actions/workflows/daily-journal.yml`;
   #log-list :global(.log-level) { font-size: 10px; }
   #log-list :global(.log-row[data-level='error'] .log-level) { color: var(--color-accent-700); border-color: currentColor; }
   #log-list :global(.log-source) { letter-spacing: 0.04em; text-transform: uppercase; }
+  #log-list :global(.log-acts) { display: inline-flex; gap: var(--space-1); margin-left: auto; }
+  #log-list :global(.log-act) { font-size: 11px; padding: 2px 8px; min-height: 0; font-family: var(--font-body); }
   #log-list :global(.log-text) { margin: 4px 0 0; font-size: 13px; overflow-wrap: anywhere; }
   #log-list :global(.log-detail) { margin-top: 4px; font-size: 11px; }
   #log-list :global(.log-detail summary) { cursor: pointer; font-family: var(--font-mono); color: color-mix(in srgb, var(--color-text) 60%, transparent); }
-  #log-list :global(.log-detail pre) { margin: 4px 0 0; padding: var(--space-2); background: var(--color-surface); overflow-x: auto; font-size: 11px; }
+  #log-list :global(.log-detail pre) { margin: 4px 0 0; padding: var(--space-2); background: var(--color-surface); overflow-x: auto; font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; }
 
   @media (max-width: 1000px) {
     .lg-grid { grid-template-columns: 1fr; }

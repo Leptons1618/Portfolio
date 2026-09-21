@@ -1,0 +1,474 @@
+---
+/**
+ * The daily journal's schedule: the one form on the Journal screen that is
+ * not about a post.
+ *
+ * Lifted whole from `/admin/ai`, where it was the third tab, because the thing
+ * it configures is a *journal* job — what gets written, when, and as what —
+ * and the author looking for it looked under Journal. Decision 64. What it
+ * writes and reads did not move: one `documents` singleton (`journal-auto`)
+ * through the one write endpoint, clamped again on the server so nothing typed
+ * here can raise its own limits, and the endpoint's own run record
+ * (`journal-auto-run`) beside it, which is read and never written from a
+ * screen. Half this panel is not a form at all — "when is the next one" and
+ * "what did the last one do" are the endpoint's answers, re-read rather than
+ * remembered.
+ *
+ * Self-contained on purpose. Its script registers its own `onAdminPage` root,
+ * carries its own Save button and message line, and reads the provider rows
+ * itself for the model picker, so the page that mounts it only has to render
+ * it. The number fields are server-rendered from `AUTO_DEFAULTS`: filling them
+ * needs a session, and a signed-out fork used to show three empty boxes.
+ *
+ * Every hour stored here is UTC and stays UTC — the tick is a GitHub cron and
+ * `hourFor()` hashes a UTC date. The screen translates for the reader and
+ * never writes a converted number back; see `journal-auto.ts`.
+ */
+import { AUTO_DEFAULTS } from '../lib/journal-auto';
+---
+<div class="dj-panel" id="dj-panel">
+  <div class="dj-actions">
+    <p class="admin-note dj-message" id="dj-message"></p>
+    <button type="button" class="btn btn-primary" id="dj-save">Save schedule</button>
+  </div>
+
+  <div class="dj-grid">
+    <div class="dj-col">
+      <section class="card elev-sm dj-switch-card">
+        <p class="admin-eyebrow">Daily journal</p>
+        <label class="ai-switch">
+          <input type="checkbox" id="dj-enabled" />
+          <span>Draft a post every day</span>
+        </label>
+        <p class="text-muted admin-note">
+          Once a day, at a time picked at random inside the window on the right, the
+          assistant writes a whole post and saves it as a <strong>draft</strong>
+          or — if you choose it below — publishes it directly.
+        </p>
+        <div class="field">
+          <label>Create as</label>
+          <div class="seg" role="radiogroup" aria-label="Create as">
+            <label class="seg-opt">
+              <input type="radio" name="dj-publish" value="draft" checked />
+              Draft
+            </label>
+            <label class="seg-opt">
+              <input type="radio" name="dj-publish" value="published" />
+              Published
+            </label>
+          </div>
+          <p class="text-muted admin-note" id="dj-publish-help">
+            A draft is invisible to visitors until you open it in the journal
+            editor and publish. Published goes live the moment the job writes —
+            nobody reads it first. The default is a draft on purpose.
+          </p>
+        </div>
+        <p class="text-muted admin-note">
+          The clock is <code>.github/workflows/daily-journal.yml</code>, which
+          calls this site once an hour; the hour that writes is derived from the
+          date, so every tick agrees on it. A tick that fails leaves the day
+          unwritten and the next hour tries again. Every attempt, and how it
+          ended, is a row on the Logs screen.
+        </p>
+      </section>
+
+      <section class="card elev-sm">
+        <p class="admin-eyebrow">What to write about</p>
+        <div class="field">
+          <label for="dj-topics">Topics (one per line)</label>
+          <textarea
+            class="input dj-topics"
+            id="dj-topics"
+            placeholder="Shipping a Worker on a free tier&#10;What YOLO gets wrong on small objects&#10;Reading a flame graph"
+          ></textarea>
+          <p class="text-muted admin-note">
+            One is chosen per day, rotating. Leave it empty and the assistant picks
+            its own angle out of what you have already published — it is told to
+            check the index first and to write the part an existing post left out.
+          </p>
+        </div>
+        <div class="field">
+          <label for="dj-instruction">Standing instruction</label>
+          <textarea
+            class="input dj-instruction"
+            id="dj-instruction"
+            placeholder="e.g. Keep them under 800 words. Always include one code listing."
+          ></textarea>
+          <p class="text-muted admin-note">
+            Appended to every day's prompt, on top of the house style notes on the
+            AI screen's Public assistant tab.
+          </p>
+        </div>
+      </section>
+    </div>
+
+    <aside class="dj-side">
+      <section class="card elev-sm">
+        <p class="admin-eyebrow">When</p>
+        <div class="dj-pair">
+          <div class="field">
+            <label for="dj-start">From (UTC)</label>
+            <input class="input" id="dj-start" type="number" min="0" max="23" value={AUTO_DEFAULTS.windowStart} />
+          </div>
+          <div class="field">
+            <label for="dj-end">To (UTC)</label>
+            <input class="input" id="dj-end" type="number" min="1" max="24" value={AUTO_DEFAULTS.windowEnd} />
+          </div>
+        </div>
+        <p class="text-muted admin-note">
+          The hour is chosen inside this window and is the same for every tick of
+          a given day. The boxes are UTC because the hourly workflow is; the line
+          below is the same window on your own clock.
+        </p>
+        <p class="text-muted admin-note dj-local" id="dj-window-local">—</p>
+        <div class="field">
+          <label for="dj-attempts">Attempts per day</label>
+          <input class="input" id="dj-attempts" type="number" min="1" max="6" value={AUTO_DEFAULTS.maxAttempts} />
+          <p class="text-muted admin-note">
+            How many times a bad day may retry before giving up until tomorrow.
+            Every attempt is a whole post's worth of generation, so this is the
+            ceiling on what a broken provider costs.
+          </p>
+        </div>
+        <div class="field">
+          <label for="dj-model">Model</label>
+          <select class="input" id="dj-model"><option value="">Default</option></select>
+          <p class="text-muted admin-note">
+            One of your configured models, or the usual walk. Effort starts at low
+            here — nobody is watching, and every token spent deliberating comes
+            out of the same ceiling the post has to fit in — and a model that
+            spends the whole run thinking is asked once more with reasoning off.
+          </p>
+        </div>
+      </section>
+
+      <section class="card elev-sm">
+        <p class="admin-eyebrow">Status</p>
+        <p class="text-muted admin-note" id="dj-status">Reading…</p>
+        <p class="text-muted admin-note dj-local" id="dj-due-local" hidden></p>
+        <hr class="rule dj-rule" />
+        <p class="admin-eyebrow">Last run</p>
+        <p class="text-muted admin-note" id="dj-last">—</p>
+        <hr class="rule dj-rule" />
+        <button type="button" class="btn btn-secondary" id="dj-run">Run now</button>
+        <p class="text-muted admin-note">
+          Writes today's draft immediately, whatever the clock says. It does not
+          spend one of the day's automatic attempts, but it does count as the
+          day's post — the schedule will not write a second one.
+        </p>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+  import { onAdminPage, setBusy, toast, trackDirty, type DirtyField } from '../lib/admin';
+  import { loadAutoJournal, loadOverview, runAutoJournalNow, saveAutoJournal } from '../lib/ai-store';
+  import { getToken } from '../lib/github';
+  import { clampAutoSettings, dayOf, hourFor, type AutoJournalSettings } from '../lib/journal-auto';
+
+  onAdminPage('#dj-panel', () => {
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+    const root = $('dj-panel');
+    const message = $('dj-message');
+    const saveBtn = $<HTMLButtonElement>('dj-save');
+    const runBtn = $<HTMLButtonElement>('dj-run');
+
+    const say = (text: string, tone: 'info' | 'error' = 'info') => {
+      message.dataset.tone = tone;
+      message.textContent = text;
+    };
+    const fail = (error: unknown, button?: HTMLButtonElement) => {
+      const text = error instanceof Error ? error.message : 'That did not work.';
+      say(text, 'error');
+      toast(text, { tone: 'error' });
+      if (button) setBusy(button, false);
+    };
+
+    const fields = {
+      enabled: $<HTMLInputElement>('dj-enabled'),
+      topics: $<HTMLTextAreaElement>('dj-topics'),
+      instruction: $<HTMLTextAreaElement>('dj-instruction'),
+      windowStart: $<HTMLInputElement>('dj-start'),
+      windowEnd: $<HTMLInputElement>('dj-end'),
+      maxAttempts: $<HTMLInputElement>('dj-attempts'),
+      model: $<HTMLSelectElement>('dj-model'),
+    };
+    const publishInputs = Array.from(root.querySelectorAll<HTMLInputElement>('input[name="dj-publish"]'));
+    const currentPublish = (): 'draft' | 'published' =>
+      (publishInputs.find(i => i.checked)?.value ?? 'draft') as 'draft' | 'published';
+
+    function read(): AutoJournalSettings {
+      /* Through the same clamp the server runs, so the form and the row cannot
+         disagree about what a window of `20`–`3` means. It is not a second
+         validation — the server clamps whatever arrives regardless — it is the
+         screen showing the author the number it is actually about to save. */
+      return clampAutoSettings({
+        enabled: fields.enabled.checked,
+        windowStart: Number(fields.windowStart.value),
+        windowEnd: Number(fields.windowEnd.value),
+        maxAttempts: Number(fields.maxAttempts.value),
+        model: fields.model.value,
+        instruction: fields.instruction.value,
+        topics: fields.topics.value.split('\n'),
+        publish: currentPublish() === 'published',
+      });
+    }
+
+    function fill(settings: AutoJournalSettings) {
+      fields.enabled.checked = settings.enabled;
+      $('dj-window-local').textContent = localWindow(settings);
+      fields.topics.value = settings.topics.join('\n');
+      fields.instruction.value = settings.instruction;
+      fields.windowStart.value = String(settings.windowStart);
+      fields.windowEnd.value = String(settings.windowEnd);
+      fields.maxAttempts.value = String(settings.maxAttempts);
+      fields.model.value = settings.model;
+      for (const input of publishInputs) {
+        input.checked = (input.value === 'published') === settings.publish;
+      }
+    }
+
+    /* Filled once, so re-reading the status does not discard what is
+       half-typed. Save stays disabled until the form differs from the row. */
+    let filled = false;
+    const dirty = getToken()
+      ? trackDirty(() => [...Object.values(fields), ...publishInputs] as DirtyField[], saveBtn, 'No changes to save yet.')
+      : null;
+
+    /* — the same schedule, on the reader's clock —
+
+       Everything stored here is UTC and has to stay UTC: the tick is a GitHub
+       cron, `hourFor` hashes a UTC date, and `decide()` compares against
+       `getUTCHours()`. Making the *field* local would mean a stored value that
+       shifts twice a year in half the world, which is a bug that only appears
+       in March. So the boxes keep the hours the job actually uses and the
+       screen translates them, which is the half a person needs: "20:00 UTC" is
+       not an answer to "will this post while I am asleep".
+
+       The zone is the browser's, not `site.timezone` — the author reading this
+       screen is in the zone their machine is in. */
+    const localZone = (() => {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || 'local time';
+      } catch {
+        return 'local time';
+      }
+    })();
+
+    /** A UTC hour on `day`, as `HH:MM` where the reader is. */
+    function localClock(day: string, hour: number): string {
+      const at = new Date(`${day}T${String(hour).padStart(2, '0')}:00:00Z`);
+      return at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
+
+    /** An ISO instant from the run record, as a date and time the reader keeps. */
+    function localStamp(iso: string): string {
+      const at = new Date(iso);
+      /* A record written by hand, or by a version of this job that wrote
+         something else into the field, must not turn the status card into
+         "Invalid Date" — the raw string is worse to read but it is true. */
+      if (Number.isNaN(at.getTime())) return iso;
+      return at.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+    }
+
+    /**
+     * The window as the reader's clock reads it.
+     *
+     * A day is named because the answer depends on one: every zone that
+     * observes daylight saving gives the same UTC hour two different local
+     * clock times across a year. The end can land on the following local day
+     * — `+05:30` turns 20:00 UTC into 01:30 tomorrow — and saying so is most
+     * of why this line is worth rendering. `windowEnd` is exclusive and may be
+     * 24, which `setUTCHours` rolls into midnight of the next UTC day.
+     */
+    function localWindow(settings: AutoJournalSettings): string {
+      const day = dayOf(new Date());
+      const start = new Date(`${day}T00:00:00Z`);
+      start.setUTCHours(settings.windowStart);
+      const end = new Date(`${day}T00:00:00Z`);
+      end.setUTCHours(settings.windowEnd);
+
+      const clock = (at: Date) => at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+      const spill = start.toLocaleDateString() === end.toLocaleDateString() ? '' : ' next day';
+      const utc = (hour: number) => `${String(hour).padStart(2, '0')}:00`;
+
+      return (
+        `${clock(start)}–${clock(end)}${spill} in ${localZone}` +
+        ` · ${utc(settings.windowStart)}–${utc(settings.windowEnd)} UTC`
+      );
+    }
+
+    async function refresh() {
+      const status = $('dj-status');
+      const last = $('dj-last');
+      const dueLocal = $('dj-due-local');
+      try {
+        const [data, overview] = await Promise.all([loadAutoJournal(), loadOverview()]);
+
+        /* The model picker is built from the configured rows rather than typed,
+           for the same reason the panel's is: a model id in a settings row is
+           still a value deciding what the owner's key pays for, and the
+           endpoint ignores one that is not on a row. Rebuilt each time because
+           a provider may have been edited on the AI screen a moment ago. */
+        const chosen = filled ? fields.model.value : data.settings.model;
+        fields.model.replaceChildren(new Option('Default', ''));
+        for (const provider of overview.providers) {
+          for (const model of [provider.model, ...provider.fallbackModels]) {
+            if (model) fields.model.append(new Option(`${provider.label} · ${model}`, model));
+          }
+        }
+        fields.model.value = chosen;
+
+        if (!filled) {
+          fill(data.settings);
+          filled = true;
+          dirty?.reset();
+        }
+
+        status.textContent = !data.scheduled
+          ? 'No CRON_SECRET is set on the Worker, so the hourly schedule cannot call in. ' +
+            'Run now still works. Set it with `wrangler secret put CRON_SECRET` and add the ' +
+            'same value as the repository secret the workflow reads.'
+          : data.next;
+        status.dataset.tone = data.scheduled ? 'info' : 'error';
+
+        /* The server says "Due at 14:00 UTC" because that is the number the job
+           runs on; this is the same instant on the reader's clock. Only while
+           the schedule is on and today is still unwritten. */
+        const dueOn = data.settings.enabled && !data.run.slug ? dayOf(new Date()) : '';
+        dueLocal.hidden = !dueOn;
+        if (dueOn) {
+          const hour = hourFor(dueOn, data.settings);
+          dueLocal.textContent =
+            `Today's slot is ${String(hour).padStart(2, '0')}:00 UTC — ${localClock(dueOn, hour)} in ${localZone}.`;
+        }
+
+        last.textContent = data.run.at
+          ? `${localStamp(data.run.at)} · ${data.run.attempts} attempt${data.run.attempts === 1 ? '' : 's'} · ${data.run.note}`
+          : 'Nothing has run yet.';
+      } catch (error) {
+        status.textContent = error instanceof Error ? error.message : 'Could not read the schedule.';
+        status.dataset.tone = 'error';
+      }
+    }
+
+    /* The window line follows the boxes as they are typed in, not only as
+       they are saved. Rendered once here from the server-filled defaults, so
+       the line is true before the first request answers — and stays true if
+       it never does. */
+    $('dj-window-local').textContent = localWindow(read());
+    for (const field of [fields.windowStart, fields.windowEnd]) {
+      field.addEventListener('input', () => {
+        $('dj-window-local').textContent = localWindow(read());
+      });
+    }
+
+    saveBtn.addEventListener('click', async () => {
+      const settings = read();
+      /* Written back before the save, so a window the clamp widened or a topic
+         it dropped is visible on screen rather than only in the row. */
+      fill(settings);
+      setBusy(saveBtn, true, 'Saving…');
+      try {
+        await saveAutoJournal(settings);
+        say(
+          !settings.enabled
+            ? 'Saved. The daily journal is off; nothing will be written.'
+            : settings.publish
+              ? 'Saved. A post will be published directly each day inside the window.'
+              : 'Saved. A draft will be written each day inside the window.',
+        );
+        toast('Schedule saved.', { tone: 'success' });
+        await refresh();
+      } catch (error) {
+        fail(error, saveBtn);
+        return;
+      }
+      setBusy(saveBtn, false);
+      dirty?.reset();
+    });
+
+    runBtn.addEventListener('click', async () => {
+      /* A whole post on a slow model, and the button is the only thing saying
+         so — there is no stream to watch here, unlike everywhere else the
+         assistant runs. */
+      setBusy(runBtn, true, 'Writing…');
+      const pending = toast(`Writing today's ${currentPublish() === 'published' ? 'post' : 'draft'}…`, { tone: 'pending' });
+      try {
+        const result = await runAutoJournalNow();
+        if (result.status === 'written' && result.slug) {
+          if (currentPublish() === 'published' && result.live) {
+            say(`Published "${result.title}". It is live now.`);
+            pending.update(`Published "${result.title}".`, { tone: 'success', action: { label: 'view ↗', href: result.live } });
+          } else {
+            say(`Drafted "${result.title}". It is a draft: open it to publish.`);
+            pending.update(`Drafted "${result.title}".`, { tone: 'success' });
+          }
+        } else {
+          say(result.reason ?? 'Nothing was written.', 'error');
+          pending.update(result.reason ?? 'Nothing was written.', { tone: 'error' });
+        }
+        await refresh();
+      } catch (error) {
+        const text = error instanceof Error ? error.message : 'The daily post failed.';
+        say(text, 'error');
+        pending.update(text, { tone: 'error' });
+      }
+      setBusy(runBtn, false);
+    });
+
+    /* The status is a fact about the world — what the last run did, what the
+       next one will do — so the page re-reads it whenever this panel is shown
+       again, not only at boot. One D1 read and no tokens. */
+    root.addEventListener('dj-refresh', () => void refresh());
+
+    if (!getToken()) {
+      say('Sign in with GitHub to change the schedule.', 'error');
+      $('dj-status').textContent = 'Signed out.';
+      for (const button of [saveBtn, runBtn]) {
+        button.disabled = true;
+        button.title = 'Sign in with GitHub to change the schedule.';
+      }
+      return;
+    }
+    void refresh();
+  });
+</script>
+
+<style>
+  .dj-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+    margin-bottom: var(--space-4);
+  }
+  .dj-message { min-height: 18px; font-size: 12px; margin: 0; }
+  .dj-message[data-tone='error'] { color: var(--color-accent-700); }
+  #dj-status[data-tone='error'] { color: var(--color-accent-700); }
+
+  .dj-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-4); align-items: start; }
+  .dj-col, .dj-side { display: flex; flex-direction: column; gap: var(--space-4); }
+  .dj-pair { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
+  .dj-rule { margin: var(--space-3) 0; }
+  .dj-switch-card { border-color: var(--color-accent-400); }
+  .dj-topics { min-height: 72px; }
+  .dj-instruction { min-height: 96px; }
+
+  /* The stored schedule read back on the reader's own clock. Mono and faint,
+     because it is a *reading* of the numbers in the boxes above it rather than
+     a second sentence about them. */
+  .dj-local {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-text-faint);
+    margin-top: var(--space-2);
+  }
+
+  code { font-size: 12px; background: var(--color-surface); padding: 1px 5px; }
+
+  @media (max-width: 960px) {
+    .dj-grid { grid-template-columns: 1fr; }
+  }
+</style>

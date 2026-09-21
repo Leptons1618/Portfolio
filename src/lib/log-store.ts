@@ -17,9 +17,17 @@ export type { LogRow };
 
 export interface LogPage {
   rows: LogRow[];
+  /** Rows matching the filter, not only the ones on this page. */
   total: number;
+  /** Rows in the whole table, against `cap`. */
+  kept: number;
   cap: number;
   page: number;
+}
+
+export interface LogFilter {
+  source?: string;
+  level?: string;
 }
 
 const authorized = (): HeadersInit => {
@@ -35,17 +43,39 @@ async function call<T>(url: string, init: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
-export function listLogs(filter: { source?: string; level?: string; before?: number } = {}): Promise<LogPage> {
-  const query = new URLSearchParams();
-  if (filter.source) query.set('source', filter.source);
-  if (filter.level) query.set('level', filter.level);
-  if (filter.before) query.set('before', String(filter.before));
-  const qs = query.toString();
-  return call<LogPage>(`/api/logs${qs ? `?${qs}` : ''}`);
+const query = (filter: LogFilter & { before?: number; after?: number; id?: number }): string => {
+  const params = new URLSearchParams();
+  if (filter.source) params.set('source', filter.source);
+  if (filter.level) params.set('level', filter.level);
+  if (filter.before) params.set('before', String(filter.before));
+  if (filter.after) params.set('after', String(filter.after));
+  if (filter.id) params.set('id', String(filter.id));
+  const qs = params.toString();
+  return `/api/logs${qs ? `?${qs}` : ''}`;
+};
+
+/** One page, newest first. `before` reads the older page, `after` the newer. */
+export const listLogs = (filter: LogFilter & { before?: number; after?: number } = {}): Promise<LogPage> =>
+  call<LogPage>(query(filter));
+
+/** Every row the filter matches, newest first — for the export. */
+export async function listAllLogs(filter: LogFilter = {}): Promise<LogRow[]> {
+  const rows: LogRow[] = [];
+  let before: number | undefined;
+  for (;;) {
+    const page = await listLogs({ ...filter, before });
+    rows.push(...page.rows);
+    if (page.rows.length < page.page) return rows;
+    before = page.rows[page.rows.length - 1].id;
+  }
 }
 
-export const clearLogs = (): Promise<{ ok: boolean; removed: number }> =>
-  call('/api/logs', { method: 'DELETE' });
+/** Remove what the filter shows — or, with no filter, everything. */
+export const clearLogs = (filter: LogFilter = {}): Promise<{ ok: boolean; removed: number }> =>
+  call(query(filter), { method: 'DELETE' });
+
+export const deleteLog = (id: number): Promise<{ ok: boolean; removed: number }> =>
+  call(query({ id }), { method: 'DELETE' });
 
 let faultsFiled = 0;
 const FAULT_CAP = 5;

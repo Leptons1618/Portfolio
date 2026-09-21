@@ -57,8 +57,8 @@ import { record } from '../../../lib/log';
  *     environment, that door is shut — a missing secret is not an open one.
  *   - **The owner** presents their GitHub token, exactly like every admin write,
  *     and may pass `force` to run one now regardless of the clock. That is the
- *     "Run now" button on the AI screen, and it is how the feature is tested
- *     without waiting for an hour to come round.
+ *     "Run now" button on the Journal screen's Daily journal tab, and it is how
+ *     the feature is tested without waiting for an hour to come round.
  *
  * ## It writes a draft
  *
@@ -66,7 +66,8 @@ import { record } from '../../../lib/log';
  * and 404s for everyone else until the owner reads it and presses publish. An
  * unattended model with the owner's byline is exactly the thing decision 13
  * refuses to build, and a status column is what makes refusing it cheap. The
- * `publish` setting on the Daily journal tab is the owner choosing otherwise.
+ * `publish` setting on the Journal screen's Daily journal tab is the owner
+ * choosing otherwise.
  */
 
 export const prerender = false;
