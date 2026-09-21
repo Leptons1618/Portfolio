@@ -623,7 +623,12 @@ html[data-theme='paper'] .footer-copy {
    3. A card under the pointer lifts *and* turns a fraction of a degree, the
       way a real index card sits when you pick it up off a stack.
    4. Section rules are ruled in by hand: they draw from the left on reveal,
-      a little slower than Blueprint's plotter because a hand is. */
+      a little slower than Blueprint's plotter because a hand is.
+   5. The portrait rocks, very slowly, around its tilt: a print whose top
+      corner is not quite stuck down. Under half a degree either way over
+      nine seconds — this theme's answer to the disc drifting on Geometry,
+      and the one thing on the sheet allowed to move by itself, because a
+      loose corner does. On `rotate`, which is the tilt's own property. */
 
 @media (prefers-reduced-motion: no-preference) {
   html.reveal-ready[data-theme='paper'] .hero [data-reveal].is-revealed .highlight {
@@ -644,6 +649,10 @@ html[data-theme='paper'] .footer-copy {
 
   :root[data-theme='paper'] a.card:hover {
     transform: translate(-2px, -2px) rotate(-0.4deg);
+  }
+
+  :root[data-theme='paper'] .hero-photo {
+    animation: paper-loose 9s ease-in-out infinite;
   }
 
   html.reveal-ready[data-theme='paper'] [data-reveal].is-revealed .rule {
@@ -668,6 +677,11 @@ html[data-theme='paper'] .footer-copy {
 @keyframes paper-rule {
   from { transform: scaleX(0); }
   to { transform: scaleX(1); }
+}
+
+@keyframes paper-loose {
+  0%, 100% { rotate: -1.2deg; }
+  50% { rotate: -0.75deg; }
 }
 
 } /* @media screen */

@@ -604,6 +604,7 @@ html[data-theme='geometry'] .hero-figure {
 @media (min-width: 761px) {
   html[data-theme='geometry'] .hero-figure {
     max-width: none;
+    margin-right: 0;
     justify-self: stretch;
   }
 }

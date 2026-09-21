@@ -249,18 +249,22 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
     /* The vignette below hangs off this. Geometry replaces the whole figure
        with the orbit and sets its own; both are `relative` either way. */
     position: relative;
-    /* Small, and against the column's outer edge. Left to the grid the
-       photograph filled the whole 0.8fr lane — 360-odd pixels of portrait
-       beside 52px type — and read as the page's subject rather than its
-       author. 160px is what Geometry's disc comes to (38% of the lane), so
-       the three themes now agree on how much portrait a hero gets. Capping
-       the *figure* rather than the image keeps every theme's marks — crop
-       ticks, ghost outline, veil — on the photograph, because they are all
-       drawn on this box; the cap includes the rule's padding. Geometry lifts
-       it: the orbit wants the lane. */
+    /* Small, and on the disc's line. Left to the grid the photograph filled
+       the whole 0.8fr lane — 360-odd pixels of portrait beside 52px type —
+       and read as the page's subject rather than its author. 160px is what
+       Geometry's disc comes to (38% of the lane), so the three themes now
+       agree on how much portrait a hero gets, and the plate is centred in
+       the lane the way the disc is: the right margin is the rule and its
+       padding, so the *photograph* — not the figure box — sits on the lane's
+       centre line. Capping the figure rather than the image keeps every
+       theme's marks — crop ticks, ghost outline, veil — on the photograph,
+       because they are all drawn on this box. Geometry lifts all of it: the
+       orbit wants the lane. */
     --hero-photo: 160px;
-    max-width: calc(var(--hero-photo) + var(--space-6));
-    justify-self: end;
+    --hero-rule: calc(var(--space-6) + 2px);
+    max-width: calc(var(--hero-photo) + var(--hero-rule));
+    margin-right: var(--hero-rule);
+    justify-self: center;
   }
 
   /* 4:5 rather than square, and the eyeline a little higher.
@@ -389,8 +393,10 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
       border-top: 2px solid var(--color-divider);
       padding-left: 0;
       padding-top: var(--space-6);
-      /* The rule's padding moved to the top, so the cap is the photo alone. */
+      /* The rule moved to the top edge: the cap is the photo alone, and
+         there is no margin to centre against. */
       max-width: var(--hero-photo);
+      margin-right: 0;
       justify-self: start;
     }
     /* The inset followed the padding, which has moved to the top edge. */
