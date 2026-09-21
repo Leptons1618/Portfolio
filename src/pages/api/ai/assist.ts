@@ -7,6 +7,7 @@ import {
   callChat,
   getAiSettings,
   modelsFor,
+  runReport,
   usableProviders,
   type Provider,
 } from '../../../lib/ai';
@@ -15,7 +16,7 @@ import { buildIndex } from '../../../lib/ai-corpus';
 import { MAX_TOOL_CALLS, runTool, toolSummary, toolsFor } from '../../../lib/ai-tools';
 import { getCaseStudies, getPosts, getProjects } from '../../../lib/content';
 import { getResume } from '../../../lib/resume';
-import { ASSIST_TASKS, assistPrompt, isAssistTask } from '../../../lib/assist-tasks';
+import { ASSIST_TASKS, assistPrompt, isAssistTask, parseFields } from '../../../lib/assist-tasks';
 import { site } from '../../../lib/site';
 import { record } from '../../../lib/log';
 
@@ -127,6 +128,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   const { DB } = locals.runtime.env;
+  const started = Date.now();
 
   const payload = (await request.json().catch(() => ({}))) as AssistBody;
   if (!isAssistTask(payload.task)) {
@@ -268,6 +270,31 @@ export const POST: APIRoute = async ({ request, locals }) => {
         messages,
         runTool: (name, args) => runTool(DB, name, args, { githubToken }),
         maxCalls: MAX_TOOL_CALLS,
+        /* One row per run, whatever it did — decision 64. The owner is the
+           only caller here, so the row may say what the answer looked like:
+           for a `document` task, whether it parsed into fields at all, and
+           the opening of it when it did not. That is the line the panel
+           shows as "the model answered without using the field format", kept
+           where it can be read back tomorrow. */
+        onEnd: summary => {
+          const ms = Date.now() - started;
+          const report = runReport(summary, ms);
+          const shaped = task.format === 'document' && task.keys ? parseFields(summary.answer, task.keys) : null;
+          const unrecognised = Boolean(shaped && !shaped.recognised && summary.answerChars > 0);
+          return record(
+            DB,
+            unrecognised && report.level === 'info' ? 'warn' : report.level,
+            'assist',
+            `${task.label}: ${unrecognised ? 'answered in no field shape' : report.outcome} · ${summary.model} · ${(ms / 1000).toFixed(1)} s`,
+            {
+              task: payload.task,
+              effort,
+              ...report.detail,
+              ...(shaped ? { shape: shaped.recognised ? 'fields' : 'unrecognised' } : {}),
+              ...(unrecognised ? { head: summary.answer.slice(0, 600) } : {}),
+            },
+          );
+        },
       }),
       {
         headers: {

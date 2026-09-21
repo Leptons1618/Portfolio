@@ -62,6 +62,7 @@ const {
   callChat,
   agentStream,
   agentComplete,
+  textToolCalls,
   effectiveMaxTokens,
   thinkingBudget,
   THINKING_HEADROOM,
@@ -3161,13 +3162,181 @@ await checkAsync('a completion that only deliberated is asked of the next model,
   assert.equal(result.text, 'An answer.');
 });
 
-await checkAsync('a completion with no fallback reports the deliberation rather than looping', async () => {
+await checkAsync('a completion with no fallback is asked once more with reasoning off', async () => {
+  /* Decision 64: a row with one model has nowhere to hand a deliberation-only
+     round, so the same model is asked again with `reasoning_effort: none` —
+     once. A second round of nothing but thinking is the answer, not a loop. */
   const { result, sent } = await runComplete([
     completion({ role: 'assistant', content: '', reasoning: 'thinking, thinking' }),
   ]);
-  assert.equal(sent.length, 1);
+  assert.equal(sent.length, 2);
+  assert.equal(sent[0].reasoning_effort, undefined);
+  assert.equal(sent[1].reasoning_effort, 'none');
+  assert.equal(sent[1].model, 'primary');
   assert.equal(result.text, '');
   assert.match(result.reasoning, /thinking/);
+  assert.equal(result.rounds, 2);
+  assert.equal(result.model, 'Provider · primary');
+
+  /* A row already at `none` has nowhere left to go. */
+  const stayed = await runComplete(
+    [completion({ role: 'assistant', content: '', reasoning: 'thinking' })],
+    {},
+    [row({ reasoningEffort: 'none' })],
+  );
+  assert.equal(stayed.sent.length, 1);
+});
+
+await checkAsync('a completion reads the token counts a vendor sends back, and never asks for them', async () => {
+  const { result, sent } = await runComplete([
+    { ...completion({ role: 'assistant', content: 'Hello.' }), usage: { prompt_tokens: 120, completion_tokens: 8 } },
+  ]);
+  assert.deepEqual(result.usage, { prompt: 120, completion: 8 });
+  assert.equal(sent[0].stream_options, undefined);
+  const none = await runComplete([completion({ role: 'assistant', content: 'Hello.' })]);
+  assert.equal(none.result.usage, undefined);
+});
+
+/* ---------- a tool call written as text ----------
+ *
+ * Decision 64, measured on the free pool: told its lookups were withdrawn, a
+ * model wrote its next call as `<tool_call>…</tool_call>` text and every
+ * surface read the markup as the answer. What is pinned is that the shape is
+ * recognised, that it never reaches an editor as answer text, that the model
+ * is nudged exactly once, and that the loop still ends.
+ */
+
+const TAGGED_CALL =
+  '<tool_call>\n<function=read_repo_file>\n<parameter=repo>\nLeptons1618/artifact-report\n</parameter>\n' +
+  '<parameter=path>\nSKILL.md\n</parameter>\n</function>\n</tool_call>';
+
+check('a tool call written as text is read in both shapes, and prose is not', () => {
+  const calls = textToolCalls(TAGGED_CALL, 2);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].name, 'read_repo_file');
+  assert.deepEqual(JSON.parse(calls[0].arguments), { repo: 'Leptons1618/artifact-report', path: 'SKILL.md' });
+  assert.equal(calls[0].id, 'text_2_0');
+
+  const json = '<tool_call>{"name": "read_post", "arguments": {"slug": "queues"}}</tool_call>';
+  assert.equal(textToolCalls(json)[0].name, 'read_post');
+  assert.deepEqual(JSON.parse(textToolCalls(json)[0].arguments), { slug: 'queues' });
+
+  /* An answer that mentions a call in passing is an answer. */
+  assert.equal(textToolCalls(`${'word '.repeat(60)}${json}`), null);
+  assert.equal(textToolCalls('TITLE: Queues\nBODY:\nDone.'), null);
+  assert.equal(textToolCalls('<tool_call>not a call</tool_call>'), null);
+  assert.equal(textToolCalls(''), null);
+});
+
+await checkAsync('a completion that writes its lookup as text is nudged once, then answers', async () => {
+  const { result, sent } = await runComplete(
+    [completion({ role: 'assistant', content: TAGGED_CALL }), completion({ role: 'assistant', content: 'TITLE: Queues' })],
+    { call: { maxTokens: 100 } },
+  );
+  assert.equal(result.text, 'TITLE: Queues');
+  assert.equal(sent.length, 2);
+  const nudge = sent[1].messages.slice(-2);
+  assert.equal(nudge[0].role, 'assistant');
+  assert.equal(nudge[0].content, TAGGED_CALL);
+  assert.equal(nudge[1].role, 'user');
+  assert.match(nudge[1].content, /No lookups are available/);
+
+  /* Twice is the answer: the run ends with a reason, not a third request. */
+  await assert.rejects(
+    runComplete([completion({ role: 'assistant', content: TAGGED_CALL })], { call: { maxTokens: 100 } }),
+    /kept asking for lookups/,
+  );
+});
+
+await checkAsync('a completion that writes its lookup as text while still offered tools runs it', async () => {
+  const { result, calls, sent } = await runComplete([
+    completion({ role: 'assistant', content: TAGGED_CALL }),
+    completion({ role: 'assistant', content: 'Done.' }),
+  ]);
+  assert.deepEqual(calls, [{ name: 'read_repo_file', args: { repo: 'Leptons1618/artifact-report', path: 'SKILL.md' } }]);
+  assert.equal(result.text, 'Done.');
+  assert.equal(result.calls, 1);
+  const replay = sent[1].messages.slice(-2);
+  assert.equal(replay[0].tool_calls[0].id, 'text_0_0');
+  assert.equal(replay[1].tool_call_id, 'text_0_0');
+});
+
+await checkAsync('a streamed lookup written as text never reaches a field, and the model is nudged once', async () => {
+  const bodies = [];
+  /* A stubborn model writes the call again after the nudge. */
+  let stubborn = false;
+  const real = globalThis.fetch;
+  globalThis.fetch = async (_, init) => {
+    const body = JSON.parse(init.body);
+    bodies.push(body);
+    const last = body.messages.at(-1);
+    return new Response(
+      sse(
+        last?.role === 'user' && /No lookups/.test(last.content) && !stubborn
+          ? [text('TITLE: Queues'), { choices: [{ finish_reason: 'stop' }] }]
+          : [text(TAGGED_CALL.slice(0, 40)), text(TAGGED_CALL.slice(40)), { choices: [{ finish_reason: 'stop' }] }],
+      ),
+      { status: 200 },
+    );
+  };
+  const run = async () => {
+    const stream = agentStream({
+      first: {
+        response: new Response(sse([text(TAGGED_CALL.slice(0, 40)), text(TAGGED_CALL.slice(40)), { choices: [{ finish_reason: 'stop' }] }])),
+        provider: row({}),
+      },
+      which: 'assist',
+      call: { maxTokens: 100, stream: true },
+      messages: [{ role: 'user', content: 'go' }],
+      runTool: async () => ({ ok: true, text: 'x', detail: 'x' }),
+    });
+    return (await new Response(stream).text()).trim().split('\n').map(line => JSON.parse(line));
+  };
+  try {
+    const frames = await run();
+    assert.equal(frames.filter(f => f.delta).map(f => f.delta).join(''), 'TITLE: Queues');
+    assert.ok(!frames.some(f => /<tool_call/.test(f.delta ?? '')), 'the markup streamed as answer text');
+    assert.ok(frames.some(f => /<tool_call>/.test(f.thinking ?? '')), 'the markup was not shown as thinking');
+    assert.ok(frames.some(f => /lookups were withdrawn/.test(f.thinking ?? '')), 'the nudge is not announced');
+    assert.equal(bodies.length, 1);
+    assert.match(bodies[0].messages.at(-1).content, /No lookups are available/);
+    assert.equal(frames[frames.length - 1].done, true);
+
+    /* Stubborn: the nudged round writes the call again. One nudge, then a
+       reason, then the end. */
+    bodies.length = 0;
+    stubborn = true;
+    const twice = await run();
+    assert.ok(twice.some(f => /kept asking for lookups/.test(f.error ?? '')), 'a second text call was not reported');
+    assert.ok(!twice.some(f => /<tool_call/.test(f.delta ?? '')));
+    assert.equal(bodies.length, 1, 'the model was nudged more than once');
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+await checkAsync('a streamed lookup written as text while tools are offered is run like any other', async () => {
+  const { frames, calls } = await runAgent([
+    [text(TAGGED_CALL)],
+    [text('Done.'), { choices: [{ finish_reason: 'stop' }] }],
+  ]);
+  assert.deepEqual(calls, [{ name: 'read_repo_file', args: { repo: 'Leptons1618/artifact-report', path: 'SKILL.md' } }]);
+  assert.equal(frames.filter(f => f.delta).map(f => f.delta).join(''), 'Done.');
+  assert.ok(frames.some(f => f.tool?.status === 'running' && f.tool.name === 'read_repo_file'));
+  assert.ok(!frames.some(f => /<tool_call/.test(f.delta ?? '')), 'the markup streamed as answer text');
+});
+
+await checkAsync('an ordinary answer on a round without tools is not held back', async () => {
+  /* The hold for text-shaped calls must cost a plain answer nothing: two
+     deltas in, two out, the first one at once. */
+  const long = 'word '.repeat(60);
+  const { frames } = await runAgent(
+    [[text(long.slice(0, 150)), text(long.slice(150)), { choices: [{ finish_reason: 'stop' }] }]],
+    { call: { maxTokens: 100 } },
+  );
+  const deltas = frames.filter(f => f.delta).map(f => f.delta);
+  assert.equal(deltas.join(''), long);
+  assert.ok(deltas.length >= 2, 'a plain answer was held back whole');
 });
 
 await checkAsync('a completion whose body is an error is a provider failure, not an answer', async () => {
@@ -3340,6 +3509,95 @@ await checkAsync('a model that only thinks hands the run to the next model, once
     assert.ok(twice.some(f => /spent this whole run thinking/.test(f.error ?? '')));
   } finally {
     globalThis.fetch = real;
+  }
+});
+
+await checkAsync('a model that only thinks, on a row with no other model, is asked again with reasoning off', async () => {
+  /* Decision 64. The handover above needs a second model; a row with one
+     used to end here with "pick a model that does not deliberate". Now the
+     same model is asked once more with `reasoning_effort: none`. */
+  const bodies = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = async (_, init) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(sse([text('TITLE: Answered.'), { choices: [{ finish_reason: 'stop' }] }]), { status: 200 });
+  };
+  const run = async (provider, call) => {
+    const stream = agentStream({
+      first: { response: new Response(sse([thinks(5000), { choices: [{ finish_reason: 'length' }] }])), provider },
+      which: 'assist',
+      call,
+      messages: [{ role: 'user', content: 'go' }],
+      runTool: async () => ({ ok: true, text: 'x', detail: 'x' }),
+    });
+    return (await new Response(stream).text()).trim().split('\n').map(line => JSON.parse(line));
+  };
+  try {
+    const frames = await run(row({}), { maxTokens: 100, stream: true, effort: 'high' });
+    assert.equal(bodies.length, 1, 'exactly one more request');
+    assert.equal(bodies[0].model, 'primary');
+    assert.equal(bodies[0].reasoning_effort, 'none');
+    assert.ok(frames.some(f => /reasoning off/.test(f.thinking ?? '')), 'the retry is not announced');
+    assert.equal(frames.filter(f => f.delta).map(f => f.delta).join(''), 'TITLE: Answered.');
+    assert.ok(!frames.some(f => f.error), 'the thinking-only round still reached the editor as an error');
+
+    /* A row already at `none` has nowhere to go, and says so. */
+    bodies.length = 0;
+    const stayed = await run(row({ reasoningEffort: 'none' }), { maxTokens: 100, stream: true });
+    assert.equal(bodies.length, 0);
+    assert.ok(stayed.some(f => /spent this whole run thinking/.test(f.error ?? '')));
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+await checkAsync('a streamed run is tallied for the log, and token counts ride along when sent', async () => {
+  /* `onEnd` is what the routes log from. It has to fire on the shortcut path
+     and the loop alike, after the last frame, with what the frames said. */
+  let summary = null;
+  const { frames } = await runAgent(
+    [
+      [wantsTool('c1', 'read_post', '{"slug":"live"}')],
+      [
+        { choices: [{ delta: { reasoning: 'hmm' } }] },
+        text('It is about queues.'),
+        { choices: [{ finish_reason: 'stop' }], usage: { prompt_tokens: 50, completion_tokens: 7 } },
+      ],
+    ],
+    { onEnd: s => { summary = s; } },
+  );
+  assert.ok(summary, 'onEnd never fired');
+  assert.equal(summary.model, 'Provider · primary');
+  assert.equal(summary.lookups, 1);
+  assert.equal(summary.answer, 'It is about queues.');
+  assert.equal(summary.answerChars, 'It is about queues.'.length);
+  assert.equal(summary.thinkingChars, 3);
+  assert.equal(summary.stopReason, 'stop');
+  assert.deepEqual(summary.usage, { prompt: 50, completion: 7 });
+  assert.equal(summary.error, undefined);
+  assert.ok(frames.some(f => f.usage?.completion === 7), 'the usage frame was not forwarded');
+
+  /* The shortcut path — no tools, nowhere to retry — reports too. */
+  summary = null;
+  await runAgent(
+    [[text('Plain.'), { choices: [{ finish_reason: 'length' }] }]],
+    { call: { maxTokens: 100 }, first: { response: new Response(sse([text('Plain.'), { choices: [{ finish_reason: 'length' }] }])), provider: row({ reasoningEffort: 'none' }) }, onEnd: s => { summary = s; } },
+  );
+  assert.equal(summary?.answer, 'Plain.');
+  assert.equal(summary?.stopReason, 'length');
+
+  /* A throw inside `onEnd` is the log's problem, not the answer's. */
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    const { frames: still } = await runAgent(
+      [[text('Fine.'), { choices: [{ finish_reason: 'stop' }] }]],
+      { onEnd: () => { throw new Error('D1 is down'); } },
+    );
+    assert.equal(still.filter(f => f.delta).map(f => f.delta).join(''), 'Fine.');
+    assert.equal(still[still.length - 1].done, true);
+  } finally {
+    console.error = quiet;
   }
 });
 
