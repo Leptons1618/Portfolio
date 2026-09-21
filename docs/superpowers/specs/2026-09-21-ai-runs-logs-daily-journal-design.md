@@ -1,6 +1,6 @@
 # AI runs, the log, and the daily journal — design
 
-**Date:** 2026-09-21 · **Status:** proposed · **Branch:** `fix/assist-long-runs`
+**Date:** 2026-09-21 · **Status:** implemented (decision 64) · **Branch:** `fix/assist-long-runs`
 
 ## Context
 
@@ -158,7 +158,9 @@ assistant's Thinking select already renders from `EFFORT_LEVELS`.
   rescues in the loop.
 
 `npm run probe:ai --model nvidia/nemotron-3.5-lightning:free` after
-implementation, to see the real model's behaviour end to end.
+implementation, to see the real model's behaviour end to end. (Not run: the
+`OPENROUTER_API_KEY` in the local `.env` answers 401 "User not found"; the
+working key is the one in D1. Run it with a valid key before merging.)
 
 ---
 
