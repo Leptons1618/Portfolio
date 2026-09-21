@@ -6,6 +6,7 @@ import {
   getAiSettings,
   modelsFor,
   usableProviders,
+  type Completion,
   type Provider,
 } from '../../../lib/ai';
 import { buildIndex } from '../../../lib/ai-corpus';
@@ -56,8 +57,8 @@ import { record } from '../../../lib/log';
  *     environment, that door is shut — a missing secret is not an open one.
  *   - **The owner** presents their GitHub token, exactly like every admin write,
  *     and may pass `force` to run one now regardless of the clock. That is the
- *     "Run now" button on the AI screen, and it is how the feature is tested
- *     without waiting for an hour to come round.
+ *     "Run now" button on the Journal screen's Daily journal tab, and it is how
+ *     the feature is tested without waiting for an hour to come round.
  *
  * ## It writes a draft
  *
@@ -65,7 +66,8 @@ import { record } from '../../../lib/log';
  * and 404s for everyone else until the owner reads it and presses publish. An
  * unattended model with the owner's byline is exactly the thing decision 13
  * refuses to build, and a status column is what makes refusing it cheap. The
- * `publish` setting on the Daily journal tab is the owner choosing otherwise.
+ * `publish` setting on the Journal screen's Daily journal tab is the owner
+ * choosing otherwise.
  */
 
 export const prerender = false;
@@ -210,13 +212,54 @@ const DAILY_BUDGET_MS = 240_000;
  */
 const DAILY_ATTEMPT_MS = 180_000;
 
+/**
+ * A generation that came back unusable, with what it actually was.
+ *
+ * The run record gets the sentence; the log gets `detail` beside it — the
+ * model that answered, how the round ended, what it spent, and the first six
+ * hundred characters of what it wrote. That last field is the whole reason
+ * this class exists: "the model answered in no recognisable shape" was the
+ * only record of a fortnight of failures, and nothing anywhere said what the
+ * shape had been. It is the model's own text; no visitor is involved.
+ */
+class ComposeError extends Error {
+  constructor(
+    message: string,
+    readonly detail: Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = 'ComposeError';
+  }
+}
+
+/** What the log is told about a finished generation, good or bad. */
+const describe = (done: Completion) => ({
+  model: done.model,
+  stopReason: done.stopReason,
+  calls: done.calls,
+  rounds: done.rounds,
+  reasoningChars: done.reasoning.length,
+  answerChars: done.text.length,
+  ...(done.usage ? { usage: done.usage } : {}),
+});
+
+/** The post's fields, plus what the log is told about producing them. */
+interface Composed {
+  title: string;
+  summary: string;
+  tags: string[];
+  readTime: string;
+  body: string;
+  detail: ReturnType<typeof describe>;
+}
+
 /** Generate one post, or throw with a reason worth writing into the run record. */
 async function compose(
   db: D1Database,
   providers: Provider[],
   settings: AutoJournalSettings,
   day: string,
-): Promise<{ title: string; summary: string; tags: string[]; readTime: string; body: string }> {
+): Promise<Composed> {
   const task = ASSIST_TASKS.compose;
   const aiSettings = await getAiSettings(db);
 
@@ -269,7 +312,7 @@ async function compose(
      lookups, still hands a deliberation-only round to the next model once, and
      still strips reasoning out of the answer — decision 29 holds off the
      browser because it is a property of what comes back, not of how. */
-  const { text, reasoning, stopReason } = await agentComplete({
+  const done = await agentComplete({
     providers,
     which: 'assist',
     call,
@@ -277,11 +320,19 @@ async function compose(
     runTool: (name, args) => runTool(db, name, args),
     maxCalls: MAX_TOOL_CALLS,
   });
+  const { text, reasoning, stopReason } = done;
+  /* Every refusal below carries the same account of the round, plus the
+     opening of what the model wrote — the one thing the old rows lacked. */
+  const refuse = (why: string): never => {
+    throw new ComposeError(why, { ...describe(done), head: text.slice(0, 600) });
+  };
 
   if (!text.trim()) {
-    throw new Error(
+    refuse(
       reasoning
-        ? `The model spent this whole run thinking — about ${Math.round(reasoning.length / 4)} tokens of deliberation and no answer. Pick a model that does not deliberate on the Daily journal tab.`
+        ? `The model spent this whole run thinking — about ${Math.round(reasoning.length / 4)} tokens of ` +
+            'deliberation and no answer, and a retry with reasoning off did the same. Pick a different ' +
+            'model on the Daily journal tab of the Journal screen.'
         : 'The model finished without writing anything.',
     );
   }
@@ -289,7 +340,7 @@ async function compose(
      publish. Better no entry than one that stops mid-sentence under the
      author's name; the next tick is the retry. */
   if (stopReason === 'length') {
-    throw new Error('The model hit the token ceiling before finishing the post.');
+    refuse('The model hit the token ceiling before finishing the post.');
   }
 
   const parsed = parseFields(text, POST_KEYS);
@@ -298,15 +349,16 @@ async function compose(
        not salvaged as body text. That fallback is how a reasoning model's
        deliberation ended up inside a post — decision 29 — and an unattended job
        is the last place to reintroduce it. */
-    throw new Error('The model answered in no recognisable shape.');
+    refuse('The model answered in no recognisable shape.');
   }
 
   const title = parsed.values.title?.trim() ?? '';
   const body = parsed.values.body?.trim() ?? '';
-  if (!title || !body) throw new Error('The post came back without a title or a body.');
+  if (!title || !body) refuse('The post came back without a title or a body.');
 
   const summary = parsed.values.summary?.trim() ?? '';
   return {
+    detail: describe(done),
     title,
     body,
     /* NOT NULL on the column, and a generated post is not worth failing an
@@ -377,7 +429,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   try {
-    const post = await compose(DB, providers, settings, verdict.day);
+    const { detail, ...post } = await compose(DB, providers, settings, verdict.day);
     const base = slugify(post.title);
     if (!base) throw new Error(`The title produced no usable slug: "${post.title}".`);
     const slug = await freeSlug(DB, base);
@@ -401,6 +453,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       attempt: force ? 'forced' : today.attempts + 1,
       caller,
       ms: Date.now() - startedAt,
+      ...detail,
     });
 
     return json({
@@ -430,6 +483,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
       attempt: force ? 'forced' : today.attempts + 1,
       caller,
       ms: Date.now() - startedAt,
+      /* What the model was and what it wrote, when the generation itself is
+         what failed — see `ComposeError`. A provider refusal carries its
+         status instead. */
+      ...(error instanceof ComposeError ? error.detail : {}),
+      ...(error instanceof ProviderError ? { status: error.status } : {}),
     });
 
     /* A 502 rather than a 200, so the workflow's step goes red and the failure

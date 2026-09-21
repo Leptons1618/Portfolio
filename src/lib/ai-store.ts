@@ -253,7 +253,7 @@ export async function saveAutoJournal(settings: AutoJournalSettings): Promise<Wr
   if (!response.ok) {
     throw new ContentError(data.error ?? `Save failed (${response.status}).`, response.status);
   }
-  return { slug: AUTO_KEY, url: '/admin/ai' };
+  return { slug: AUTO_KEY, url: '/admin/journal' };
 }
 
 /**

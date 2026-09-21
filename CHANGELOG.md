@@ -14,6 +14,20 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Every AI run is logged.** The public assistant, the writing assistant
+  and the daily job each leave one row per run: which model answered, how
+  long it took, lookups, answer and thinking sizes, the stop reason, and
+  token counts where the vendor sends them. An authoring run that produced
+  no field labels, and a daily refusal, carry the opening of what the model
+  wrote — the line every failure had been missing. The public rows never
+  carry a question or an answer. Decision **64**.
+- **The Logs screen copies, deletes, exports and pages both ways.** Copy and
+  a two-click Delete on every row; error rows open their detail; `Newer` /
+  `Older` with a range line; Export downloads what the filter shows as JSON;
+  Clear is scoped to the filter.
+- **Off, as a reasoning effort.** `none` joins the levels on every picker —
+  the panel's, the provider row's and the public assistant's — and is what a
+  deliberation-only round is retried with.
 - **A Logs screen.** `/admin/logs` reads the site's own record — a daily
   journal tick and how it ended, a content write, an upload, a provider that
   refused, a screen that faulted — out of a new `logs` table written only by
@@ -22,6 +36,17 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Logs and Metrics for the invocations the platform killed, which never got
   to write a line. The admin error boundary files its faults there too, five
   a page at most. Decision **62**.
+
+### Changed
+
+- **The daily journal's schedule is a tab on the Journal screen.** Lifted
+  whole from `/admin/ai` into `DailyJournalPanel.astro`; the AI screen is two
+  tabs again. Nothing about what it stores or calls moved. Decision **64**.
+- **The page behind two dialogs is veiled, not darkened.** A fixed scrim the
+  colour of a modal's backdrop replaces the brightness filter; the page is
+  still inert. Toasts move off the dock column so a pending one cannot sit
+  on the assistant's composer, and the projects grid keeps two columns
+  beside a docked panel.
 
 ### Security
 
@@ -39,6 +64,17 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fixture.
 
 ### Fixed
+
+- **A lookup written as text no longer ends a run as garbage.** Told its
+  lookups were withdrawn, a free-pool model wrote its next call as
+  `<tool_call>…</tool_call>` in the answer; the panel showed the markup and
+  the daily job refused it as "no recognisable shape". Both loops now read
+  the block as the call it is — run when tools were offered, answered with
+  one "write it now" turn when they were not — and never stream it into a
+  field. Decision **64**.
+- **A run that only deliberated is retried with reasoning off** before it is
+  declared failed — the handover to the next model did nothing on a row with
+  one model, and the daily job lost days to it. Decision **64**.
 
 - **The daily journal stopped failing on error 1102, and stopped reporting
   its failures as successes.** Cloudflare's 1102 is the Workers Free plan's

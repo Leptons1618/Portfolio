@@ -194,8 +194,15 @@ export function clampOutputCeiling(raw: unknown): number | null {
  * key. The absent case is the default and is deliberately *not* one of these
  * values — sending `medium` to a model with no notion of effort is a body field
  * for nothing, and sending it to one that has is a decision nobody made.
+ *
+ * `none` is "do not think at all": OpenRouter maps it to reasoning disabled on
+ * every model that can switch it off, and Groq and the newer OpenAI models take
+ * it natively. A model that *cannot* stop reasoning answers 400, which
+ * `callChat` treats as that attempt failing — so it is offered, and it is also
+ * what a deliberation-only round is retried with when the row has no other
+ * model to hand it to. See `agentComplete()` and `agentLines()` in `ai.ts`.
  */
-export const EFFORT_LEVELS = ['low', 'medium', 'high'] as const;
+export const EFFORT_LEVELS = ['none', 'low', 'medium', 'high'] as const;
 export type ReasoningEffort = (typeof EFFORT_LEVELS)[number];
 
 /** The stored effort, or `null` for "send nothing". */

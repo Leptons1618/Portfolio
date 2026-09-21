@@ -29,8 +29,9 @@
  *     handling.
  *
  * The settings and the run record are two `documents` singletons rather than
- * one, because they have two writers: the AI screen writes the settings whole,
- * and the endpoint writes the run record on every tick. One row would mean each
+ * one, because they have two writers: the Journal screen's Daily journal tab
+ * writes the settings whole, and the endpoint writes the run record on every
+ * tick. One row would mean each
  * writer overwriting the other's half on a schedule.
  *
  * **This module imports nothing**, and that is load-bearing twice over. It is
@@ -42,7 +43,7 @@
  * genuinely need a database live in `/api/ai/daily` beside their only caller.
  */
 
-/** The owner's configuration. Written by `/admin/ai`, read by `/api/ai/daily`. */
+/** The owner's configuration. Written by the Journal screen's Daily journal tab, read by `/api/ai/daily`. */
 export const AUTO_KEY = 'journal-auto';
 
 /** What the job did, and when. Written only by the endpoint. */

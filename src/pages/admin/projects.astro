@@ -1928,11 +1928,14 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
 
   /* Track count comes from the available width rather than from a breakpoint:
      each card holds a 2×2 field grid whose longest value is a full `owner/name`
-     in mono, and 440px is where that stops wrapping. `min()` keeps the track
+     in mono. 440px was where that never wrapped, and it was also one column
+     beside a docked assistant panel — the manifest keeps ~770px there at
+     1794px. 360px is two columns in that room and three at full width, at the
+     price of a long repository name wrapping once. `min()` keeps the track
      from overflowing a viewport narrower than the minimum. */
   .pm-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(100%, 440px), 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr));
     gap: var(--space-4);
   }
 

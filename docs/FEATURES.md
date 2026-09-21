@@ -205,7 +205,7 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 
 | Feature | State | Notes |
 | --- | --- | --- |
-| A post a day, at a random hour | ✅ | `/admin/ai` → Daily journal. The hour is *hashed from the date* inside a configured UTC window, so all twenty-four of the day's ticks agree on it with no stored roll and no lock, and it moves between days. Twenty-three ticks answer `skipped` after one D1 read and no tokens — decision 52 |
+| A post a day, at a random hour | ✅ | `/admin/journal` → Daily journal (a tab on the AI screen until decision 64). The hour is *hashed from the date* inside a configured UTC window, so all twenty-four of the day's ticks agree on it with no stored roll and no lock, and it moves between days. Twenty-three ticks answer `skipped` after one D1 read and no tokens — decision 52 |
 | It writes a draft, never a published post | ✅ | `status = 'draft'`: in the admin's list, 404 for everyone else, live only when the author reads it and presses publish. Decision 13's rule applied to a machine with a timer |
 | Retry, and fallback, and they are different things | ✅ | A failed tick leaves the day unwritten and the next hour tries again, up to `maxAttempts` — that is the retry, and the attempt is recorded *before* the generation so an isolate killed mid-run still counts. `callChat` walking models and then providers is the fallback inside one attempt. A rate-limited vendor and a retired model id are two failures and both are handled |
 | Topic rotation | ✅ | One topic per day from the configured list, chosen by the same hash as the hour — so it rotates without repeating on consecutive days and needs nothing stored. Empty is supported and is not an unconfigured state: the model is told to find its own angle out of the index and to write the part an existing post left out |
@@ -214,8 +214,22 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 | The clock is GitHub Actions, not a Cron Trigger | ✅ | Astro's adapter emits a Worker exporting `fetch` and nothing else; a Cron Trigger needs a `scheduled` export beside it, which means wrapping the generated bundle — an unsupported build step a future adapter release breaks silently. An hourly `curl` needs no wrapper. Gated on a `DAILY_JOURNAL` repository variable so an unset fork does not fail hourly — decision 52 |
 | Authorised by a secret that buys one thing | ✅ | `CRON_SECRET`, a Worker secret compared in constant time and *shut* when unset. It authorises asking whether it is time; it cannot force a run, name a model, or reach `/api/content` |
 | Deliberation cannot reach the post | ✅ | The answer is drained through the same streaming path every surface uses, so `thinking` and `delta` stay separate off the browser too, and an unlabelled response is refused rather than salvaged as body text — decisions 29 and 52 |
+| A run that only deliberated is retried with reasoning off | ✅ | The next model on the row first; on a row with one model, the same model again with `reasoning_effort: none`, once. A refusal names what the model wrote and how the round ended, in the log row's detail — decision 64 |
+| A lookup written as text is run, or nudged | ✅ | `<tool_call>…</tool_call>` in the answer channel is read as the call it is: run when tools were offered, answered with one "write it now" turn when they had been withdrawn, and never streamed into a field — decision 64 |
 | Auto-publish after a grace period | ✂️ | Cut on purpose. A second piece of scheduled state for a decision the author makes in one click, and the failure mode is a machine's draft going live because nobody looked |
-| Per-day cost accounting | ⬜ | `maxAttempts` bounds what a bad day can spend in generations, not in tokens. Would need the `usage` block off each completion — the same gap as the usage panel |
+| Per-day cost accounting | 🟡 | `maxAttempts` bounds what a bad day can spend in generations. Token counts land in the log row for every run whose vendor sends a `usage` block (OpenRouter does); nothing sums them yet |
+
+---
+
+## Admin — the log
+
+| Feature | State | Notes |
+| --- | --- | --- |
+| The site's own record | ✅ | `/admin/logs` over the owner-only `/api/logs`: a daily tick and how it ended, a content write, an upload, a screen fault, and every AI run — which model answered, how long, what it spent, how it ended. Written only by `record()`, capped at 2,000 rows, never per anonymous request — decisions 62 and 64 |
+| What the model actually wrote | ✅ | A daily refusal and an authoring run that produced no field labels carry the first six hundred characters of the answer in their detail; the public assistant's rows never carry a question or an answer |
+| Copy, delete, export, clear shown | ✅ | Copy and a two-click Delete on every row; Export downloads what the filter shows as JSON — that is the archive; Clear removes what the filter shows, or everything with no filter |
+| Paging both ways | ✅ | Keyset cursors in both directions (`before`, `after`), 100 a page, with a range line. No offsets: the cursor is the row id |
+| An archive that stays in D1 | ✂️ | Cut on purpose. The cap is what keeps the table small; a row worth keeping past it is a row worth keeping outside D1, and Export is that |
 
 ---
 

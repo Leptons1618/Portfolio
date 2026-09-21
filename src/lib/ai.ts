@@ -1462,25 +1462,30 @@ export function ndjsonFromSSE(
   /** See `STREAM_IDLE_MS`. A parameter so `check:ai` need not wait it out. */
   idleMs = STREAM_IDLE_MS,
 ): ReadableStream<Uint8Array> {
-  return linesToStream(
-    (async function* () {
-      /* Carried to the end rather than emitted where it arrives. `length` is
-         the difference between "the model had nothing more to add" and "the
-         ceiling cut it off mid-sentence", and nothing else on either surface
-         can tell those apart — so it rides on the `done` frame, which is the
-         one every reader already waits for. */
-      let stopReason = '';
-      for await (const event of sseEvents(upstream, thinkBudget, idleMs)) {
-        if (event.kind === 'stop') {
-          stopReason = event.reason;
-          continue;
-        }
-        const frame = frameFor(event);
-        if (frame) yield frame;
-      }
-      yield stopReason ? { done: true, stopReason } : { done: true };
-    })(),
-  );
+  return linesToStream(sseLines(upstream, thinkBudget, idleMs));
+}
+
+/** One round's frames, as objects — what `ndjsonFromSSE` encodes and `agentStream` tallies. */
+async function* sseLines(
+  upstream: ReadableStream<Uint8Array>,
+  thinkBudget = 0,
+  idleMs = STREAM_IDLE_MS,
+): AsyncGenerator<unknown> {
+  /* Carried to the end rather than emitted where it arrives. `length` is the
+     difference between "the model had nothing more to add" and "the ceiling
+     cut it off mid-sentence", and nothing else on either surface can tell
+     those apart — so it rides on the `done` frame, which is the one every
+     reader already waits for. */
+  let stopReason = '';
+  for await (const event of sseEvents(upstream, thinkBudget, idleMs)) {
+    if (event.kind === 'stop') {
+      stopReason = event.reason;
+      continue;
+    }
+    const frame = frameFor(event);
+    if (frame) yield frame;
+  }
+  yield stopReason ? { done: true, stopReason } : { done: true };
 }
 
 /* ---------- the decoder both stream builders run on ---------- */
@@ -1493,7 +1498,9 @@ type SseEvent =
   | { kind: 'error'; message: string; thinkingOnly?: true }
   | { kind: 'stop'; reason: string }
   /** Emitted once, at the end of a round, when the model asked to call something. */
-  | { kind: 'tools'; calls: ToolCall[] };
+  | { kind: 'tools'; calls: ToolCall[] }
+  /** Token counts, when a chunk carried them. Read, never asked for. */
+  | { kind: 'usage'; prompt: number; completion: number };
 
 /** The NDJSON line an event becomes, or `null` for the ones that are state. */
 function frameFor(event: SseEvent): Record<string, unknown> | null {
@@ -1504,6 +1511,10 @@ function frameFor(event: SseEvent): Record<string, unknown> | null {
       return { delta: event.text };
     case 'error':
       return { error: event.message };
+    case 'usage':
+      /* Forwarded, not consumed: the readers ignore a key they do not know,
+         and the tally in `agentStream` counts it for the log. */
+      return { usage: { prompt: event.prompt, completion: event.completion } };
     default:
       /* `stop` and `tools` are not text and belong to whoever is orchestrating
          the round; `ndjsonFromSSE` has no orchestrator and drops them. */
@@ -1613,6 +1624,7 @@ async function* sseEvents(
             finish_reason?: string | null;
           }[];
           error?: { message?: string };
+          usage?: unknown;
         };
         try {
           parsed = JSON.parse(data);
@@ -1626,6 +1638,13 @@ async function* sseEvents(
           yield { kind: 'error', message: parsed.error.message ?? 'The model stopped.' };
           continue;
         }
+
+        /* OpenRouter and the OpenAI-compatible vendors that count tokens put a
+           `usage` object on the last chunk. Nothing is sent to ask for it —
+           `stream_options` is a body field a strict vendor 400s on — so it is
+           read where it appears and absent where it does not. */
+        const usage = readUsage(parsed.usage);
+        if (usage) yield { kind: 'usage', ...usage };
 
         const choice = parsed.choices?.[0];
         if (choice?.finish_reason) stopReason = choice.finish_reason;
@@ -1791,6 +1810,42 @@ export interface AgentOptions {
   maxRounds?: number;
   /** How many tool calls one answer may make in total. */
   maxCalls?: number;
+  /**
+   * Called once, when the stream is over — however it ended, the client
+   * hanging up included — with what the run did. The routes log it. Awaited
+   * before the response closes, and a throw inside it is swallowed: a log
+   * write cannot fail the answer it is describing.
+   */
+  onEnd?: (summary: RunSummary) => Promise<void> | void;
+  /**
+   * The tally `agentStream()` keeps for `onEnd`, handed in so the loop can
+   * write the things frames do not carry — which model answered after a
+   * switch. Callers never set it.
+   */
+  summary?: RunSummary;
+}
+
+/**
+ * What one streamed run did, for the log.
+ *
+ * Counted from the frames on their way out, which is the one place every
+ * path — the tool loop and the no-tools shortcut — already passes through.
+ * `answer` is the text itself, kept so a route can check its shape at the
+ * end (did a `document` task actually produce fields?); it is never written
+ * to the log whole.
+ */
+export interface RunSummary {
+  /** `label · model` of the row that answered, after any switch. */
+  model: string;
+  answerChars: number;
+  thinkingChars: number;
+  /** Lookups actually started. */
+  lookups: number;
+  stopReason: string;
+  /** The `error` frame's text, or the message of a throw. */
+  error?: string;
+  usage?: TokenUsage;
+  answer: string;
 }
 
 /**
@@ -1825,21 +1880,99 @@ export interface AgentOptions {
  * opening.
  */
 export function agentStream(options: AgentOptions): ReadableStream<Uint8Array> {
-  /* No tools were sent, so there is no loop to run — one round, one encoder,
-     and exactly the frames every reader already handles. Not an optimisation:
-     it is what says out loud that the loop exists *only* for lookups, and it
-     keeps `ndjsonFromSSE` the thing both paths agree the frame protocol is. */
-  if (
+  const summary: RunSummary = {
+    model: modelName(options.first.provider),
+    answerChars: 0,
+    thinkingChars: 0,
+    lookups: 0,
+    stopReason: '',
+    answer: '',
+  };
+  /* No tools were sent and nowhere to hand a deliberation-only round, so
+     there is no loop to run — one round, and exactly the frames every reader
+     already handles. Not an optimisation: it is what says out loud that the
+     loop exists *only* for lookups and retries, and it keeps `sseLines` the
+     thing both paths agree the frame protocol is. */
+  const lines =
     !options.call.tools?.length &&
     options.first.response.body &&
-    !nextModel(options.first.provider, options.which)
-  ) {
-    return ndjsonFromSSE(
-      options.first.response.body,
-      thinkingBudget(options.first.provider, options.call.maxTokens),
-    );
+    !retryFor(options.first.provider, options.which, options.call)
+      ? sseLines(options.first.response.body, thinkingBudget(options.first.provider, options.call.maxTokens))
+      : agentLines({ ...options, summary });
+  return linesToStream(options.onEnd ? tallied(lines, summary, options.onEnd) : lines);
+}
+
+/**
+ * How a finished run should be logged: its level, one phrase, and the facts.
+ *
+ * The routes turn this into a `record()` row. Level is the reader's triage:
+ * `error` for a run that failed or reported, `warn` for one that finished but
+ * is worth a look — cut off by the ceiling, or wrote nothing — and `info` for
+ * the rest. `ms` is the route's, measured from the request, because the tally
+ * only sees the stream.
+ */
+export function runReport(
+  summary: RunSummary,
+  ms: number,
+): { level: 'info' | 'warn' | 'error'; outcome: string; detail: Record<string, unknown> } {
+  const detail = {
+    model: summary.model,
+    ms,
+    lookups: summary.lookups,
+    answerChars: summary.answerChars,
+    thinkingChars: summary.thinkingChars,
+    stopReason: summary.stopReason,
+    ...(summary.usage ? { usage: summary.usage } : {}),
+  };
+  if (summary.error) return { level: 'error', outcome: summary.error, detail };
+  if (summary.stopReason === 'length') return { level: 'warn', outcome: 'cut off by the token ceiling', detail };
+  if (!summary.answerChars) return { level: 'warn', outcome: 'wrote nothing', detail };
+  return { level: 'info', outcome: 'answered', detail };
+}
+
+/**
+ * The frames, counted on their way out, and `onEnd` told when they stop.
+ *
+ * `finally` rather than after the loop, so a client that hangs up (which
+ * `linesToStream` turns into `return()`) and a round that throws both report.
+ * The append per `delta` is the cost, and `agentLines` already pays it once
+ * per round as `said`.
+ */
+async function* tallied(
+  lines: AsyncGenerator<unknown>,
+  summary: RunSummary,
+  onEnd: (summary: RunSummary) => Promise<void> | void,
+): AsyncGenerator<unknown> {
+  try {
+    for await (const frame of lines) {
+      const f = frame as {
+        delta?: string;
+        thinking?: string;
+        tool?: { status?: string };
+        error?: string;
+        stopReason?: string;
+        usage?: TokenUsage;
+      };
+      if (typeof f.delta === 'string') {
+        summary.answerChars += f.delta.length;
+        summary.answer += f.delta;
+      } else if (typeof f.thinking === 'string') summary.thinkingChars += f.thinking.length;
+      else if (f.tool?.status === 'running') summary.lookups += 1;
+      else if (typeof f.error === 'string') summary.error = f.error;
+      else if (f.usage) summary.usage = f.usage;
+      if (typeof f.stopReason === 'string') summary.stopReason = f.stopReason;
+      yield frame;
+    }
+  } catch (error) {
+    summary.error = error instanceof Error ? error.message : String(error);
+    throw error;
+  } finally {
+    try {
+      await onEnd(summary);
+    } catch (error) {
+      console.error('[ai] onEnd failed:', error);
+    }
   }
-  return linesToStream(agentLines(options));
 }
 
 async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
@@ -1857,6 +1990,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
      all-thinking handover below. */
   let provider = first.provider;
   let switched = false;
+  let nudged = false;
   let spent = 0;
   let stopReason = '';
   /* Withdrawn rather than refused, once the budget is gone.
@@ -1873,6 +2007,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
       yield { error: 'The model returned nothing.' };
       return;
     }
+    const armed = Boolean(call.tools?.length);
 
     /* The answer text of this round, kept because a model that both spoke and
        asked for a tool has to have what it said carried into the next round —
@@ -1888,16 +2023,20 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
        of sentence it is until the round ends, so the first `HOLD_CHARS` wait:
        a round that turns into a lookup hands them over as thinking, and one
        that keeps going is an answer and streams as before, a beat late.
-       Decision **60**. */
+       Decision **60**.
+
+       A round *without* tools streams at once — except while its opening could
+       still be a tool call written as text (`looksLikeTextCall`), which is
+       held until the round ends and then sent as thinking, never as answer. */
     let held = '';
-    let flowing = !call.tools?.length;
-    /* Set when this round was nothing but deliberation and another model is
-       configured to ask instead. Held rather than sent, because the editors
+    let flowing = false;
+    /* Set when this round was nothing but deliberation and there is somewhere
+       to hand it — see `retryFor`. Held rather than sent, because the editors
        end a run on any `error` frame. */
     let thoughtOnly = '';
 
     for await (const event of sseEvents(response.body, thinkBudget)) {
-      if (event.kind === 'error' && event.thinkingOnly && !switched && nextModel(provider, which)) {
+      if (event.kind === 'error' && event.thinkingOnly && !switched && retryFor(provider, which, call)) {
         thoughtOnly = event.message;
         continue;
       }
@@ -1905,7 +2044,8 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
         said += event.text;
         if (!flowing) {
           held += event.text;
-          if (held.length >= HOLD_CHARS) {
+          const callish = looksLikeTextCall(held);
+          if (!callish && (!armed || held.length >= HOLD_CHARS)) {
             flowing = true;
             yield { delta: held };
             held = '';
@@ -1930,35 +2070,63 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
       if (frame) yield frame;
     }
 
-    if (held) yield asked.length ? { thinking: held } : { delta: held };
+    /* A lookup the model wrote as text rather than as `tool_calls` — see
+       `textToolCalls`. Decided before the held opening goes out, because
+       that decides which channel it goes out on. */
+    const written = asked.length ? null : textToolCalls(said, round);
 
-    /* A round that only deliberated, handed to the next model once.
+    if (held) yield asked.length || written ? { thinking: held } : { delta: held };
+
+    /* A round that only deliberated, tried once more.
 
        Measured on OpenRouter's free pool: the same frontmatter request that one
        model answers in twenty seconds, another spends two minutes thinking
        about and never writes. That is a property of the model, not of the
        request, so the next model on the row is asked with the same messages —
-       once per run, announced in the thinking channel, and on the answer
-       round's own clock when the lookup window has closed. Decision **60**. */
+       or, on a row with no other model, the same one with reasoning off. Once
+       per run, announced in the thinking channel, and on the answer round's
+       own clock when the lookup window has closed. Decisions **60** and 64. */
     if (thoughtOnly) {
-      const next = nextModel(provider, which)!;
-      switched = true;
-      stopReason = '';
-      yield {
-        thinking: `\n\n[${provider.model} spent its whole allowance thinking and wrote nothing — asking ${next.model} instead.]\n\n`,
-      };
-      const retry =
+      const base =
         call.tools?.length && timeLeft(options.call.deadline) > 0
           ? call
           : answerCall((({ tools, ...rest }) => rest)(call));
+      const retry = retryFor(provider, which, base)!;
+      switched = true;
+      stopReason = '';
+      yield {
+        thinking: `\n\n[${provider.model} spent its whole allowance thinking and wrote nothing — ${retry.note}.]\n\n`,
+      };
       try {
-        const again = await callChat([next], { ...retry, messages }, which);
+        const again = await callChat([retry.provider], { ...retry.call, messages }, which);
         response = again.response;
         provider = again.provider;
-        call = retry;
+        if (options.summary) options.summary.model = modelName(provider);
+        call = retry.call;
         continue;
       } catch {
         yield { error: thoughtOnly };
+        break;
+      }
+    }
+
+    if (written) {
+      if (armed) {
+        asked = written;
+      } else if (!nudged) {
+        /* Told once more, in a `user` turn — there is no call id to answer
+           with a `tool` one — and asked again on the answer round's clock. */
+        nudged = true;
+        stopReason = '';
+        messages.push({ role: 'assistant', content: said });
+        messages.push({ role: 'user', content: NUDGE });
+        yield {
+          thinking: '\n\n[The model asked for a lookup after its lookups were withdrawn — asking it to answer from what it has.]\n\n',
+        };
+        response = await nextRound(messages, which, answerCall(call), provider);
+        continue;
+      } else {
+        yield { error: 'The model kept asking for lookups after they were withdrawn.' };
         break;
       }
     }
@@ -2196,6 +2364,123 @@ function nextModel(provider: Provider, which: 'chat' | 'assist'): Provider | nul
   return { ...provider, assistModel: '', model: rest[0], fallbackModels: rest.slice(1) };
 }
 
+/**
+ * Where a round that was nothing but deliberation goes next, or `null`.
+ *
+ * Two rungs, tried once per run. The next model on the row first — the same
+ * key, a different set of weights, which is the one thing measured to fix
+ * this. Failing that, the **same model with reasoning switched off**: a model
+ * that spent its whole ceiling thinking and wrote nothing is asked again with
+ * `reasoning_effort: none`, which the routers map to "do not think" wherever
+ * the model allows it. A row with one model and a model that ignores `low`
+ * used to end here with "pick a model that does not deliberate"; on a job
+ * that runs while nobody is watching that was a day's post lost to a setting.
+ * A model that cannot stop reasoning answers 400 and the retry fails like
+ * any other attempt. Nothing to try when the round already went out at
+ * `none`.
+ */
+function retryFor(
+  provider: Provider,
+  which: 'chat' | 'assist',
+  call: Omit<CallOptions, 'messages'>,
+): { provider: Provider; call: Omit<CallOptions, 'messages'>; note: string } | null {
+  const next = nextModel(provider, which);
+  if (next) return { provider: next, call, note: `asking ${next.model} instead` };
+  const effort = call.effort === undefined ? provider.reasoningEffort : call.effort;
+  if (effort === 'none') return null;
+  return {
+    provider: { ...provider, assistModel: '' },
+    call: { ...call, effort: 'none' },
+    note: 'asking again with reasoning off',
+  };
+}
+
+/* ---------- a tool call written as text ---------- */
+
+/**
+ * The turn sent after a model asked for a lookup it was no longer offered.
+ *
+ * A `user` turn rather than a `tool` one, because there is no real call id to
+ * answer and one or two strict routers refuse a `tool` message that does not
+ * follow `tool_calls`. Sent at most once per run.
+ */
+const NUDGE =
+  'No lookups are available for this answer. Write it now, from what you already have, ' +
+  'and say plainly if something is missing.';
+
+const TEXT_CALL = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g;
+const TEXT_FN = /^<function=([\w.:-]+)>\s*([\s\S]*?)\s*<\/function>$/;
+const TEXT_PARAM = /<parameter=([\w.:-]+)>\s*([\s\S]*?)\s*<\/parameter>/g;
+
+/**
+ * Tool calls a model wrote into its answer instead of into `tool_calls`.
+ *
+ * Measured on OpenRouter's free pool (`nvidia/nemotron-3.5-lightning:free`,
+ * decision 64): told in a tool result that its lookups were withdrawn, and
+ * with the `tools` field gone from the request, the model wrote its next call
+ * anyway — as text, in the `<tool_call><function=…><parameter=…>` shape its
+ * chat template uses — and every surface read that as the answer. The daily
+ * job refused it as "no recognisable shape"; the panel showed the markup
+ * with "the model answered without using the field format".
+ *
+ * Two shapes are read: the tag-per-parameter one above, and the JSON one,
+ * `<tool_call>{"name": …, "arguments": {…}}</tool_call>`. Anything else
+ * inside a block is not a call. Parameters become the JSON string a real
+ * call carries, so `parseArguments` and the tools see exactly what they see
+ * from the API.
+ *
+ * `null` unless at least one block parsed **and** the text outside the
+ * blocks is short — an answer that mentions a call in passing is an answer,
+ * and is left alone. Ids are synthesised: the model gave none.
+ *
+ * Exported for `check:ai`.
+ */
+export function textToolCalls(content: string, round = 0): ToolCall[] | null {
+  const calls: ToolCall[] = [];
+  let outside = content;
+  for (const match of content.matchAll(TEXT_CALL)) {
+    outside = outside.replace(match[0], '');
+    const inner = match[1];
+    const id = `text_${round}_${calls.length}`;
+
+    const tagged = inner.match(TEXT_FN);
+    if (tagged) {
+      const args: Record<string, string> = {};
+      for (const param of tagged[2].matchAll(TEXT_PARAM)) args[param[1]] = param[2];
+      calls.push({ id, name: tagged[1], arguments: JSON.stringify(args) });
+      continue;
+    }
+
+    try {
+      const json = JSON.parse(inner) as { name?: unknown; arguments?: unknown; parameters?: unknown };
+      if (typeof json.name === 'string' && json.name.trim()) {
+        const args = json.arguments ?? json.parameters;
+        calls.push({
+          id,
+          name: json.name.trim(),
+          arguments: JSON.stringify(args && typeof args === 'object' && !Array.isArray(args) ? args : {}),
+        });
+      }
+    } catch {
+      /* Not a call. The block is left in the answer for the reader to see. */
+    }
+  }
+  if (!calls.length || outside.trim().length >= HOLD_CHARS) return null;
+  return calls;
+}
+
+/**
+ * Whether streamed text so far could still be a text-shaped tool call.
+ *
+ * True while the answer is a prefix of `<tool_call>` or opens with one, which
+ * is what keeps `agentLines` holding those characters back instead of
+ * streaming them into an editor field. Anything else flows at once.
+ */
+function looksLikeTextCall(text: string): boolean {
+  const head = text.trimStart();
+  return head.startsWith('<tool_call') || '<tool_call>'.startsWith(head);
+}
+
 /* ---------- the tool loop, without a stream ---------- */
 
 /** What `agentComplete()` hands back: the answer, the deliberation, and how it ended. */
@@ -2206,7 +2491,32 @@ export interface Completion {
   stopReason: string;
   /** Lookups actually run. */
   calls: number;
+  /** Requests sent, the answering one included. */
+  rounds: number;
+  /** `label · model` of the row that answered — after any switch. */
+  model: string;
+  /** Token counts, when the vendor's body carried them. Never sent for; only read. */
+  usage?: TokenUsage;
 }
+
+/** Token counts a vendor reports back. Read where present, never requested. */
+export interface TokenUsage {
+  prompt: number;
+  completion: number;
+}
+
+/** `usage` as the OpenAI-compatible vendors write it, or `undefined`. */
+function readUsage(raw: unknown): TokenUsage | undefined {
+  const usage = raw as { prompt_tokens?: unknown; completion_tokens?: unknown } | null | undefined;
+  if (!usage || typeof usage !== 'object') return undefined;
+  const prompt = Number(usage.prompt_tokens);
+  const completion = Number(usage.completion_tokens);
+  if (!Number.isFinite(prompt) && !Number.isFinite(completion)) return undefined;
+  return { prompt: Number.isFinite(prompt) ? prompt : 0, completion: Number.isFinite(completion) ? completion : 0 };
+}
+
+/** The name a log row calls the model that answered. */
+export const modelName = (provider: Provider): string => `${provider.label} · ${provider.model}`;
 
 /**
  * One answer, with lookups, as a string — the non-streaming twin of `agentStream()`.
@@ -2245,7 +2555,9 @@ export async function agentComplete(
   let call: Omit<CallOptions, 'messages'> = { ...options.call, stream: false };
   let candidates = options.providers;
   let switched = false;
+  let nudged = false;
   let spent = 0;
+  let usage: TokenUsage | undefined;
 
   for (let round = 0; ; round += 1) {
     const armed = Boolean(call.tools?.length);
@@ -2268,27 +2580,48 @@ export async function agentComplete(
         };
         finish_reason?: string | null;
       }[];
+      usage?: unknown;
     } | null;
     if (!body || body.error) {
       const detail = typeof body?.error === 'string' ? body.error : body?.error?.message;
       throw new ProviderError(`${provider.label} (${provider.model}) failed: ${detail ?? 'no readable answer.'}`);
     }
+    usage = readUsage(body.usage) ?? usage;
     const choice = body.choices?.[0];
     const message = choice?.message ?? {};
     const content = message.content ?? '';
     const reasoning = message.reasoning ?? message.reasoning_content ?? '';
-    const asked: ToolCall[] = (message.tool_calls ?? [])
+    let asked: ToolCall[] = (message.tool_calls ?? [])
       .filter(c => c.function?.name)
       .map((c, i) => ({ id: c.id || `call_${round}_${i}`, name: c.function!.name!, arguments: c.function!.arguments ?? '' }));
 
-    /* A round that only deliberated, handed to the next model once — the same
-       rule, for the same measured reason, as the streamed loop. */
+    /* A round that only deliberated, tried once more — the next model on the
+       row, or the same one with reasoning off. The same rule, for the same
+       measured reason, as the streamed loop; see `retryFor`. */
     if (!content.trim() && !asked.length && reasoning && !switched) {
-      const next = nextModel(provider, which);
-      if (next) {
+      const retry = retryFor(provider, which, call);
+      if (retry) {
         switched = true;
-        candidates = [next];
+        candidates = [retry.provider];
+        call = retry.call;
         continue;
+      }
+    }
+
+    /* A lookup the model wrote as text rather than as `tool_calls`. Offered
+       tools, it is run like any other ask; with them withdrawn, the model is
+       told once more to answer — see `textToolCalls`. */
+    const written = asked.length ? null : textToolCalls(content, round);
+    if (written) {
+      if (armed) {
+        asked = written;
+      } else if (!nudged) {
+        nudged = true;
+        messages.push({ role: 'assistant', content });
+        messages.push({ role: 'user', content: NUDGE });
+        continue;
+      } else {
+        throw new Error('The model kept asking for lookups after they were withdrawn.');
       }
     }
 
@@ -2301,6 +2634,9 @@ export async function agentComplete(
         reasoning: reasoning + a.reasoning + b.reasoning,
         stopReason: choice?.finish_reason ?? '',
         calls: spent,
+        rounds: round + 1,
+        model: modelName(provider),
+        ...(usage ? { usage } : {}),
       };
     }
 

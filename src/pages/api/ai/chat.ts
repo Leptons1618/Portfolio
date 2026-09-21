@@ -6,6 +6,7 @@ import {
   agentStream,
   callChat,
   getAiSettings,
+  runReport,
   usableProviders,
 } from '../../../lib/ai';
 import { buildIndex } from '../../../lib/ai-corpus';
@@ -86,6 +87,7 @@ const refusalStream = (answer: string) =>
 
 export const POST: APIRoute = async ({ request, locals }) => {
   const { DB } = locals.runtime.env;
+  const started = Date.now();
 
   const settings = await getAiSettings(DB);
   if (!settings.enabled) {
@@ -217,6 +219,21 @@ export const POST: APIRoute = async ({ request, locals }) => {
            rounds over that is looping, and every round is billed. */
         maxRounds: 2,
         maxCalls: MAX_TOOL_CALLS,
+        /* One row per *charged* run — the provider is only called after
+           `charge()`, so this stays inside decision 62's rule and is bounded
+           by the day's budget. The row is the model, the timing and the
+           counts, and never the question or the answer. Decision 64. */
+        onEnd: summary => {
+          const ms = Date.now() - started;
+          const report = runReport(summary, ms);
+          return record(
+            DB,
+            report.level,
+            'chat',
+            `Public question: ${report.outcome} · ${summary.model} · ${(ms / 1000).toFixed(1)} s`,
+            report.detail,
+          );
+        },
       }),
       {
         headers: {
