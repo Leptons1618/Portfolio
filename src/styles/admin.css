@@ -1188,17 +1188,25 @@ textarea[data-grow] { max-height: 60vh; }
 }
 
 /* The frozen look behind two coexisting dialogs, on every admin screen.
-   Applied to the page's own content rather than as an overlay: every dialog
-   here is a sibling of it, so no stacking order — however the browser
-   resolves one — can ever dim one by accident, and `:not(dialog)` is the
-   whole rule rather than a list of ids. Instant, deliberately: a fade that
-   restarts on every recompute reads as flicker. Set and cleared with the
-   `inert` itself, by `syncFreeze()` in `src/lib/modal.ts` — which is where
-   it lives now, rather than in one screen's script, because the same
-   coexistence happens on `/admin/ai` and wherever the media library opens. */
-body[data-asx-freeze] .admin-main > :not(dialog),
-body[data-asx-freeze] .admin-sidebar {
-  filter: brightness(0.55) saturate(0.6);
+
+   A scrim — the same translucent veil a lone modal gets from its
+   `::backdrop` — rather than the `brightness()` filter this used to be: a
+   page turned dark grey read as a broken screen, where a veil reads as
+   "something is open over this", which is the truth. It is a fixed
+   pseudo-element on `<body>` at 64, so it sits over the page, the sticky tab
+   bar (20) and the route progress (60) and under a stepped-down dialog (65),
+   the assistant (70) and the toasts (80, top layer). Instant, deliberately: a
+   fade that restarts on every recompute reads as flicker. Set and cleared
+   with the `inert` itself, by `syncFreeze()` in `src/lib/modal.ts` — which is
+   where it lives, rather than in one screen's script, because the same
+   coexistence happens on `/admin/ai` and wherever the media library opens.
+   Decisions 59 and 64. */
+body[data-asx-freeze]::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 64;
+  background: color-mix(in srgb, var(--color-neutral-900) 45%, transparent);
 }
 
 /* A frozen page must not scroll under two live dialogs; their own inner
@@ -2008,6 +2016,19 @@ body[data-asx-freeze] {
   }
   body[data-asx-dock='left'] .admin-main {
     padding-left: max(0px, min(var(--asx-dock-w, 608px), calc(100vw - 800px)));
+  }
+
+  /* The toasts move over too. Both are anchored bottom-right, so a docked
+     panel had the pending toast sitting on its composer for as long as the
+     write it reported took — seven minutes, for a daily post. Same column
+     the stepped-down dialogs clear; a floated panel is left alone. */
+  body[data-asx-dock='right'] .toast-host {
+    right: calc(var(--asx-dock-w, 608px) + var(--space-4));
+  }
+  body[data-asx-dock='left'] .toast-host {
+    left: calc(var(--asx-dock-w, 608px) + var(--space-4));
+    right: auto;
+    align-items: flex-start;
   }
 }
 
