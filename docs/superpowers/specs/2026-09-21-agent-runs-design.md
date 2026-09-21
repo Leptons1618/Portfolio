@@ -344,10 +344,12 @@ boolean, started: number }` and does one step:
      'running' } }` first, the model's frames, then — once the model's
      frames have all arrived — runs `applyStep()` on the tallied answer,
      saves, and yields `{ step: { …, status: 'done' | 'error', ms, note }
-     }` and `{ run: <public summary> }` before the final `done`. A stream
-     the client cancels applies **nothing**: the wrapper's `finally` only
-     clears the lock, so a stopped section is not stored half-written.
-     Returns the `Response`. The route wraps nothing else.
+     }` and `{ run: <public summary> }` before the final `done`. A partial
+     answer is never stored: a client that hangs up returns the wrapper at
+     its next yield, before the fold, and its `finally` only clears the lock
+     and logs `stopped`. (A step the model finishes after the client left is
+     stored — that is a finished step.) Returns the `Response`. The route
+     wraps nothing else.
 4. The lock: `run.lock = { by: caller, at: now }` is written before the
    step and cleared after. `advance()` refuses to start when another caller
    holds a lock younger than `LOCK_MS` (4 min) — the cron tick answers
