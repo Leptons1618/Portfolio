@@ -93,7 +93,7 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
         class="grayscale hero-photo"
         src={site.photo}
         srcset="/images/ui/portrait-320.webp 320w, /images/ui/portrait.webp 439w"
-        sizes="(max-width: 760px) 320px, 400px"
+        sizes="160px"
         alt={site.name}
         width="440"
         height="550"
@@ -249,6 +249,18 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
     /* The vignette below hangs off this. Geometry replaces the whole figure
        with the orbit and sets its own; both are `relative` either way. */
     position: relative;
+    /* Small, and against the column's outer edge. Left to the grid the
+       photograph filled the whole 0.8fr lane — 360-odd pixels of portrait
+       beside 52px type — and read as the page's subject rather than its
+       author. 160px is what Geometry's disc comes to (38% of the lane), so
+       the three themes now agree on how much portrait a hero gets. Capping
+       the *figure* rather than the image keeps every theme's marks — crop
+       ticks, ghost outline, veil — on the photograph, because they are all
+       drawn on this box; the cap includes the rule's padding. Geometry lifts
+       it: the orbit wants the lane. */
+    --hero-photo: 160px;
+    max-width: calc(var(--hero-photo) + var(--space-6));
+    justify-self: end;
   }
 
   /* 4:5 rather than square, and the eyeline a little higher.
@@ -377,7 +389,9 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
       border-top: 2px solid var(--color-divider);
       padding-left: 0;
       padding-top: var(--space-6);
-      max-width: 320px;
+      /* The rule's padding moved to the top, so the cap is the photo alone. */
+      max-width: var(--hero-photo);
+      justify-self: start;
     }
     /* The inset followed the padding, which has moved to the top edge. */
     .hero-figure::after { inset: var(--space-6) 0 0; }
