@@ -123,6 +123,13 @@ const AI_PROVIDER_COLUMNS: ColumnMap = {
      becomes `max_tokens` in a request body; `clampOutputCeiling()` bounds it
      again on read, for the same reason `clampParams()` exists. */
   maxOutputTokens: ['max_output_tokens', 'number'],
+  /* USD per million tokens, from the vendor's listing when a model is picked —
+     the same moment `maxOutputTokens` is filled in, and shown on the picker's
+     own rows. `number`; `clampPrice()` in `ai.ts` refuses a negative one on
+     read, because OpenRouter's `-1` means "depends which model this routes
+     to" and would otherwise render as a negative cost. */
+  pricePrompt: ['price_prompt', 'number'],
+  priceCompletion: ['price_completion', 'number'],
   reasoningEffort: ['reasoning_effort', 'text'],
   promptCache: ['prompt_cache', 'bool'],
   toolsEnabled: ['tools_enabled', 'bool'],

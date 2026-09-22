@@ -1349,6 +1349,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
                field — the same rule, and the same reason: only `delta` is the
                answer. */
             onTool: frame => turn.tool(frame),
+            onUsage: frame => turn.usage(frame),
             onDone: reason => {
               truncated = reason === 'length';
             },

@@ -350,6 +350,32 @@ export interface ToolFrame {
   status: 'running' | 'done' | 'error';
   detail?: string;
   ms?: number;
+  /**
+   * The opening of what the lookup returned, on the outcome frame.
+   *
+   * Capped server-side at 600 characters, and the same published content the
+   * model was handed — a preview for the reader, not a second copy of the
+   * result. Absent on `running` frames and on the synthetic limit rows.
+   */
+  preview?: string;
+}
+
+/**
+ * Token counts one round reported, and what it cost where the row is priced.
+ *
+ * `cached` is how much of `prompt` the vendor served from its prompt cache;
+ * absent means the vendor said nothing, which is not zero. `cost` is USD and
+ * an **upper bound** — cached tokens are charged at the full input rate here
+ * because the discounted cache rate is a field the model listing does not
+ * carry — so the panel prints it with a `≈`.
+ */
+export interface UsageFrame {
+  prompt: number;
+  completion: number;
+  cached?: number;
+  cost?: number;
+  /** `label · model` of the row that answered, after any switch. */
+  model?: string;
 }
 
 export interface StreamHandlers {
@@ -373,6 +399,15 @@ export interface StreamHandlers {
    * never write it into a field. See the header of `src/lib/ai.ts`.
    */
   onThinking?: (text: string) => void;
+  /**
+   * Token counts for a round, where the vendor reported any.
+   *
+   * Arrives once per round that carried a `usage` block, so a run with lookups
+   * can report two or three of them; the panel keeps the last, which is the
+   * whole conversation's count on the vendors that send cumulative usage, and
+   * the answering round's on the ones that send per-round counts.
+   */
+  onUsage?: (usage: UsageFrame) => void;
   /** Why the generation ended, when upstream said. `length` means truncated. */
   onDone?: (stopReason?: string) => void;
 }
@@ -419,6 +454,9 @@ export async function readStream(response: Response, handlers: StreamHandlers): 
         delta?: string;
         thinking?: string;
         tool?: ToolFrame;
+        usage?: UsageFrame;
+        /** The row that answered, on the same frame as `usage`. */
+        model?: string;
         error?: string;
         done?: boolean;
         stopReason?: string;
@@ -431,6 +469,9 @@ export async function readStream(response: Response, handlers: StreamHandlers): 
       if (frame.error) throw new ContentError(frame.error, 502);
       if (frame.thinking) handlers.onThinking?.(frame.thinking);
       if (frame.tool) handlers.onTool?.(frame.tool);
+      if (frame.usage) {
+        handlers.onUsage?.(frame.model ? { ...frame.usage, model: frame.model } : frame.usage);
+      }
       if (frame.delta) {
         text += frame.delta;
         handlers.onDelta(frame.delta);

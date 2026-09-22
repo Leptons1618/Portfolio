@@ -107,6 +107,7 @@ const {
   clampEffort,
   clampOutputCeiling,
   clampParams,
+  clampPrice,
   normaliseModels,
   presetForUrl,
   supportsCacheControl,
@@ -1697,6 +1698,8 @@ const row = fields => ({
   fallbackModels: [],
   params: {},
   maxOutputTokens: null,
+  pricePrompt: null,
+  priceCompletion: null,
   reasoningEffort: null,
   promptCache: true,
   toolsEnabled: true,
@@ -2491,6 +2494,23 @@ check('a stored output ceiling is clamped, and blank means unset', () => {
   assert.equal(clampOutputCeiling(1e9), MAX_OUTPUT_CEILING);
 });
 
+check('a stored price is per million, and an unknown one is not free', () => {
+  /* The AI screen copies these out of the vendor's listing, so this is a
+     third party's number landing in a cost estimate. A negative one is refused
+     for the reason `normaliseModels()` refuses one: OpenRouter's `-1` means
+     "depends which model this routes to", and passed through it renders as a
+     negative cost. */
+  assert.equal(clampPrice(''), null);
+  assert.equal(clampPrice(null), null);
+  assert.equal(clampPrice(undefined), null);
+  assert.equal(clampPrice('not a number'), null);
+  assert.equal(clampPrice(-1), null);
+  /* Zero is a real price — a free model — and is kept as one. */
+  assert.equal(clampPrice(0), 0);
+  assert.equal(clampPrice('3'), 3);
+  assert.equal(clampPrice(0.15), 0.15);
+});
+
 check('a task ceiling is the answer it asked for plus room to think in', () => {
   /* The failure this shape exists to end: the old rule was
      `max(requested, min(row, HEADROOM))`, which for any task asking for
@@ -3003,11 +3023,32 @@ await checkAsync('a tool call is run, announced, and answered in a second round'
   /* Both halves carry the same id, which is what lets a UI update one row
      rather than printing two. */
   assert.equal(tools[0].id, tools[1].id);
+  /* The result's opening rides back with the outcome, for the panel's
+     disclosure; the running frame has nothing to preview yet. */
+  assert.equal(tools[0].preview, undefined);
+  assert.equal(tools[1].preview, 'result for read_post');
 
   assert.equal(frames.filter(f => f.delta).map(f => f.delta).join(''), 'It is about queues.');
   /* `tool_calls` is not a truncation, and reporting it as the stop reason would
      have every surface announce a complete answer as cut off. */
   assert.equal(frames[frames.length - 1].stopReason, 'stop');
+});
+
+await checkAsync('a tool result preview is capped, and only the opening travels', async () => {
+  /* The whole result goes to the model; the browser gets a fixed window on it.
+     A `read_post` can be eight thousand characters, and this frame is rendered
+     under a disclosure in a panel, not stored. */
+  const { frames } = await runAgent(
+    [
+      [wantsTool('c1', 'read_post', '{"slug":"live"}')],
+      [text('It is about queues.'), { choices: [{ finish_reason: 'stop' }] }],
+    ],
+    { runTool: async () => ({ ok: true, text: 'x'.repeat(2000), detail: 'ok' }) },
+  );
+  const outcome = frames.find(f => f.tool?.status === 'done').tool;
+  assert.equal(outcome.preview.length, 601);
+  assert.ok(outcome.preview.endsWith('…'), 'a truncated preview is not marked as one');
+  assert.equal(outcome.preview.slice(0, 600), 'x'.repeat(600));
 });
 
 await checkAsync('a model that keeps asking is stopped and told', async () => {
@@ -3189,12 +3230,28 @@ await checkAsync('a completion with no fallback is asked once more with reasonin
 
 await checkAsync('a completion reads the token counts a vendor sends back, and never asks for them', async () => {
   const { result, sent } = await runComplete([
-    { ...completion({ role: 'assistant', content: 'Hello.' }), usage: { prompt_tokens: 120, completion_tokens: 8 } },
+    {
+      ...completion({ role: 'assistant', content: 'Hello.' }),
+      usage: {
+        prompt_tokens: 120,
+        completion_tokens: 8,
+        prompt_tokens_details: { cached_tokens: 100 },
+      },
+    },
   ]);
-  assert.deepEqual(result.usage, { prompt: 120, completion: 8 });
+  /* Cached tokens ride along where a vendor reports them — OpenAI spells it
+     `prompt_tokens_details.cached_tokens`; the aliases Anthropic and DeepSeek
+     use are read by the same reader. */
+  assert.deepEqual(result.usage, { prompt: 120, completion: 8, cached: 100 });
   assert.equal(sent[0].stream_options, undefined);
   const none = await runComplete([completion({ role: 'assistant', content: 'Hello.' })]);
   assert.equal(none.result.usage, undefined);
+  /* A vendor that says nothing about its cache reports no `cached`, which is
+     not the same as a cache miss. */
+  const uncached = await runComplete([
+    { ...completion({ role: 'assistant', content: 'Hello.' }), usage: { prompt_tokens: 10, completion_tokens: 2 } },
+  ]);
+  assert.deepEqual(uncached.result.usage, { prompt: 10, completion: 2 });
 });
 
 /* ---------- a tool call written as text ----------
@@ -3599,6 +3656,51 @@ await checkAsync('a streamed run is tallied for the log, and token counts ride a
   } finally {
     console.error = quiet;
   }
+});
+
+await checkAsync('a usage frame carries cached tokens, and a cost only where the row is priced', async () => {
+  /* The panel's per-answer footer reads this frame. Counts are the vendor's;
+     the cost is an estimate made from the prices the AI screen copied out of
+     the model listing, and it is absent — never zero — on a row that has none,
+     because a free model and an unknown one must not read alike. */
+  const round = [
+    { choices: [{ delta: { content: 'Hello.' } }] },
+    {
+      choices: [{ finish_reason: 'stop' }],
+      usage: {
+        prompt_tokens: 1_000_000,
+        completion_tokens: 1_000_000,
+        prompt_tokens_details: { cached_tokens: 250_000 },
+      },
+    },
+  ];
+
+  const unpriced = await runAgent([round]);
+  const usage = unpriced.frames.find(f => f.usage).usage;
+  assert.deepEqual(usage, { prompt: 1_000_000, completion: 1_000_000, cached: 250_000 });
+  assert.equal(usage.cost, undefined);
+
+  /* $3 per million in, $15 per million out: 1M of each is $18. Cached tokens
+     are charged at the full input rate — the discounted rate is not a field
+     the listing carries — so the estimate is an upper bound. */
+  const priced = await runAgent([round], {
+    first: {
+      response: new Response(sse(round)),
+      provider: row({ pricePrompt: 3, priceCompletion: 15 }),
+    },
+  });
+  const pricedUsage = priced.frames.find(f => f.usage).usage;
+  assert.equal(pricedUsage.cached, 250_000);
+  assert.equal(pricedUsage.cost, 18);
+
+  /* A row with only half a price is not a row whose cost can be estimated. */
+  const half = await runAgent([round], {
+    first: {
+      response: new Response(sse(round)),
+      provider: row({ pricePrompt: 3, priceCompletion: null }),
+    },
+  });
+  assert.equal(half.frames.find(f => f.usage).usage.cost, undefined);
 });
 
 await checkAsync('a stream that goes silent is ended, not waited on forever', async () => {

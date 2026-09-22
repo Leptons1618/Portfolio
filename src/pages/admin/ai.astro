@@ -31,6 +31,7 @@ import {
   MIN_OUTPUT_CEILING,
   PARAM_SPECS,
   PROVIDER_PRESETS,
+  clampPrice,
   type ReasoningEffort,
 } from '../../lib/ai-catalog';
 
@@ -391,6 +392,43 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
         </div>
       </div>
 
+      {/* What the vendor charges, copied from the listing the moment a model
+          is picked above — the same event that fills the ceiling in, and the
+          only place the number exists. Used for the approximate cost under an
+          answer in the writing assistant; never for anything that spends.
+          Empty means "unknown" and reads as no estimate rather than as free. */}
+      <div class="field field-row">
+        <div>
+          <label for="ai-f-price-in">Price per 1M in (USD)</label>
+          <input
+            class="input"
+            type="number"
+            id="ai-f-price-in"
+            min="0"
+            step="0.01"
+            placeholder="from the model"
+          />
+        </div>
+        <div>
+          <label for="ai-f-price-out">Price per 1M out (USD)</label>
+          <input
+            class="input"
+            type="number"
+            id="ai-f-price-out"
+            min="0"
+            step="0.01"
+            placeholder="from the model"
+          />
+        </div>
+      </div>
+      <p class="text-muted admin-note">
+        Filled in from the vendor's own listing when a model is picked. The writing
+        assistant shows an <strong>approximate</strong> cost per answer from these — cached
+        prompt tokens are charged at the full input rate here, so it is an upper bound, and
+        the vendor's dashboard is the authority on spend. A vendor that publishes no prices
+        (OpenAI's listing is ids only) leaves these empty and the panel prints no cost.
+      </p>
+
       <div class="field">
         <label class="ai-switch ai-switch-inline">
           <input type="checkbox" id="ai-f-tools" />
@@ -534,6 +572,7 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
     clampEffort,
     clampOutputCeiling,
     clampParams,
+    clampPrice,
     presetFor,
     presetForUrl,
     type ModelInfo,
@@ -692,6 +731,12 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
         provider.fallbackModels.length ? `then ${provider.fallbackModels.join(', ')}` : '',
         provider.assistModel ? `writing: ${provider.assistModel}` : '',
         provider.maxOutputTokens ? `${provider.maxOutputTokens.toLocaleString()} out` : '',
+        /* Only when the vendor priced it. The panel's per-answer cost estimate
+           is built from these, so a row that shows them is a row whose answers
+           will carry one. */
+        provider.pricePrompt !== null && provider.priceCompletion !== null
+          ? `$${provider.pricePrompt}/M in · $${provider.priceCompletion}/M out`
+          : '',
         provider.reasoningEffort ? `effort ${provider.reasoningEffort}` : '',
         /* Only when it is *off*, which is the state worth reading: on is the
            default and a row saying so nine times is nine things that say
@@ -838,6 +883,8 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
       assist: $<HTMLInputElement>('ai-f-assist'),
       fallbacks: $<HTMLInputElement>('ai-f-fallbacks'),
       maxOut: $<HTMLInputElement>('ai-f-maxout'),
+      priceIn: $<HTMLInputElement>('ai-f-price-in'),
+      priceOut: $<HTMLInputElement>('ai-f-price-out'),
       effort: $<HTMLSelectElement>('ai-f-effort'),
       tools: $<HTMLInputElement>('ai-f-tools'),
       cache: $<HTMLInputElement>('ai-f-cache'),
@@ -933,6 +980,14 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
       /* A stored number belongs to whoever saved it. Clearing the flag is what
          stops the picker overwriting it the next time a model is browsed. */
       delete dialogFields.maxOut.dataset.auto;
+      dialogFields.priceIn.value = provider?.pricePrompt === null || provider?.pricePrompt === undefined
+        ? ''
+        : String(provider.pricePrompt);
+      dialogFields.priceOut.value = provider?.priceCompletion === null || provider?.priceCompletion === undefined
+        ? ''
+        : String(provider.priceCompletion);
+      delete dialogFields.priceIn.dataset.auto;
+      delete dialogFields.priceOut.dataset.auto;
       /* Says what to do, for the case this field exists to fix: a row written
          before it did, on a model that thinks. The picker fills it in, and a
          row that never opens the picker would otherwise sit on each task's own
@@ -1006,6 +1061,10 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
            would leave the old number in place — the same trap the key field
            has, with the opposite resolution, because this one is readable. */
         maxOutputTokens: clampOutputCeiling(dialogFields.maxOut.value),
+        /* Blank is `null` — "unknown", which the panel prints as no estimate.
+           Zero survives as a real price. */
+        pricePrompt: clampPrice(dialogFields.priceIn.value),
+        priceCompletion: clampPrice(dialogFields.priceOut.value),
         reasoningEffort: dialogFields.effort.value,
         toolsEnabled: dialogFields.tools.checked,
         promptCache: dialogFields.cache.checked,
@@ -1293,7 +1352,7 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
         $('ai-param-support').textContent = info?.supported.length
           ? `${info.id} accepts: ${info.supported.join(', ')}.`
           : '';
-        if (info) applyModelCeiling(info);
+        if (info) applyModelFacts(info);
       }
       modelsDialog.close();
       /* The picker writes programmatically, which fires no events. */
@@ -1331,32 +1390,58 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
       note.hidden = !text;
     }
 
-    function applyModelCeiling(model: ModelInfo) {
-      const field = dialogFields.maxOut;
-      const mine = 'auto' in field.dataset;
-      if (field.value.trim() && !mine) return;
-
+    /**
+     * What the picked model's own listing says about spending on it.
+     *
+     * The ceiling and the two prices are filled together because they arrive
+     * together — one listing payload, one pick — but each field keeps its own
+     * `auto` flag: a number the author typed is theirs, and touching one field
+     * must not stop the other two being filled.
+     */
+    function applyModelFacts(model: ModelInfo) {
+      const maxField = dialogFields.maxOut;
       const stated = model.maxOutput;
       const guessed = model.contextLength ? Math.round(model.contextLength / 4) : null;
       const ceiling = clampOutputCeiling(stated ?? guessed);
 
-      if (ceiling === null) {
-        delete field.dataset.auto;
-        return;
+      if (!maxField.value.trim() || 'auto' in maxField.dataset) {
+        if (ceiling === null) {
+          delete maxField.dataset.auto;
+        } else {
+          maxField.value = String(ceiling);
+          maxField.dataset.auto = '';
+          ceilingHint(stated
+            ? `${ceiling.toLocaleString()} tokens — the largest completion ${model.id} accepts, as its listing reports it.`
+            : `${ceiling.toLocaleString()} tokens — a quarter of ${model.id}'s ${(model.contextLength ?? 0).toLocaleString()}-token context, because the listing does not state a completion limit. Lower it if the vendor refuses.`);
+        }
       }
 
-      field.value = String(ceiling);
-      field.dataset.auto = '';
+      /* USD per million, the unit the picker's badges are already in. A vendor
+         that publishes no prices (OpenAI's listing is ids only) leaves the
+         fields alone, and the panel prints no estimate for that row. */
+      const prices: [HTMLInputElement, number | null][] = [
+        [dialogFields.priceIn, model.promptPrice],
+        [dialogFields.priceOut, model.completionPrice],
+      ];
+      for (const [field, price] of prices) {
+        if (price === null) continue;
+        if (field.value.trim() && !('auto' in field.dataset)) continue;
+        field.value = String(price);
+        field.dataset.auto = '';
+      }
+
       providerDirty?.check();
-      ceilingHint(stated
-        ? `${ceiling.toLocaleString()} tokens — the largest completion ${model.id} accepts, as its listing reports it.`
-        : `${ceiling.toLocaleString()} tokens — a quarter of ${model.id}'s ${(model.contextLength ?? 0).toLocaleString()}-token context, because the listing does not state a completion limit. Lower it if the vendor refuses.`);
     }
 
     /* A number the author types is theirs, and this screen stops filling it in. */
     dialogFields.maxOut.addEventListener('input', () => {
       delete dialogFields.maxOut.dataset.auto;
     });
+    for (const field of [dialogFields.priceIn, dialogFields.priceOut]) {
+      field.addEventListener('input', () => {
+        delete field.dataset.auto;
+      });
+    }
 
     /* A different endpoint serves a different catalogue. */
     dialogFields.baseUrl.addEventListener('input', () => {

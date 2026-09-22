@@ -2429,6 +2429,7 @@ body[data-asx-freeze] {
 
 .asx-tool-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
   padding: 3px var(--space-2);
@@ -2473,6 +2474,53 @@ body[data-asx-freeze] {
 .asx-tool-row[data-status='running'] .asx-tool-state {
   color: var(--color-accent);
   animation: asx-pulse 1.2s ease-in-out infinite;
+}
+
+/* — what a lookup returned —
+
+   The opening of the result, closed by default. `flex: 1 0 100%` is what puts
+   it on its own line inside the row's flex container, so the trace line above
+   keeps its single-row shape. */
+.asx-tool-detail {
+  flex: 1 0 100%;
+  margin-top: 2px;
+}
+
+.asx-tool-detail-summary {
+  cursor: pointer;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--color-text-faint);
+  list-style: none;
+}
+
+.asx-tool-detail-summary::-webkit-details-marker { display: none; }
+.asx-tool-detail-summary::before { content: '▸ '; }
+.asx-tool-detail[open] .asx-tool-detail-summary::before { content: '▾ '; }
+
+.asx-tool-detail-body {
+  margin: 4px 0 0;
+  padding: var(--space-2);
+  max-height: 220px;
+  overflow: auto;
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+/* — what the round cost —
+
+   Under the message, quiet: it is a footnote, and on a row with no vendor
+   prices it carries counts only. The exact numbers are in the `title`. */
+.asx-usage {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--color-text-faint);
 }
 
 @keyframes asx-pulse {

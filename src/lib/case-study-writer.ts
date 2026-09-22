@@ -25,7 +25,7 @@
  * and the author presses Save, the same as every other task.
  */
 
-import { runAssist, type ToolFrame } from './ai-store';
+import { runAssist, type ToolFrame, type UsageFrame } from './ai-store';
 import {
   LONG_CASE_STUDY_WORDS,
   cleanSection,
@@ -61,6 +61,8 @@ export interface LongRunOptions {
   onDraft: (markdown: string) => void;
   onThinking?: (chunk: string) => void;
   onTool?: (frame: ToolFrame) => void;
+  /** What a step cost, where the vendor reported counts. Last one wins. */
+  onUsage?: (usage: UsageFrame) => void;
   /** How long the whole thing aims to be. */
   totalWords?: number;
   /** Called whenever a step finishes, so a run stopped by hand can resume too. */
@@ -144,6 +146,7 @@ export async function writeLongCaseStudy(options: LongRunOptions): Promise<{
   const handlers = {
     onThinking: options.onThinking,
     onTool: options.onTool,
+    onUsage: options.onUsage,
   };
   const joined = (extra = '') => [...state.sections, extra].filter(Boolean).join('\n\n');
 
