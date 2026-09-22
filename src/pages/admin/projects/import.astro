@@ -1,0 +1,1501 @@
+---
+/**
+ * Import from GitHub — its own screen.
+ *
+ * The import used to be two stacked modal `<dialog>`s on the projects
+ * manifest: a repository list that closed itself to open a form, with no URL,
+ * no way back to the list and no guard on either. This page is the same two
+ * steps as ordinary sections of one document — the list is the page, and
+ * choosing a repository reveals the form below it and puts the repository in
+ * the URL (`?repo=owner/name`). A reload or a back press lands back on that
+ * form, not on nothing.
+ *
+ * Creation is the only thing here. Editing a project that exists is
+ * `/admin/projects/<slug>`. Note that `/admin/projects/import` is a static
+ * route and therefore wins over the `[slug]` page: a project whose slug is
+ * literally `import` has no detail page. No imported title slugifies to that.
+ *
+ * The route reads D1 per request, like every admin screen: which repositories
+ * are already in the portfolio is a fact about the database, and prerendering
+ * it would show the author a stale answer to exactly the question this screen
+ * asks.
+ */
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import AssistPanel from '../../../components/AssistPanel.astro';
+import Illustration from '../../../components/Illustration.astro';
+import { Icon } from 'astro-icon/components';
+import { getCaseStudies, getProjects } from '../../../lib/content';
+import {
+  PROJECT_CATEGORIES,
+  PROJECT_STATUSES,
+  caseStudyPath,
+  type ProjectFields,
+} from '../../../lib/content-store';
+import { grantAccessUrl } from '../../../lib/github';
+import { site } from '../../../lib/site';
+
+export const prerender = false;
+
+const { DB } = Astro.locals.runtime.env;
+const projects = await getProjects(DB, true);
+const caseStudies = await getCaseStudies(DB);
+const GITHUB_USER = site.githubUser;
+
+/* The seed answers one question — which repositories the portfolio already
+   has — and pre-fills the form's case-study select. The project's title is
+   editable and often is not the repository name, so rows are matched on
+   `repoUrl` rather than on a name. `<` is escaped because this lands inside a
+   script element. */
+const seed = {
+  projects: Object.fromEntries(
+    projects.map(project => [project.slug, project.data as ProjectFields])
+  ),
+  caseStudies: caseStudies.map(entry => ({ slug: entry.slug, title: entry.data.title })),
+};
+const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
+---
+<AdminLayout title="Import from GitHub">
+  <div class="admin-main-wide" id="admin-import" data-user={GITHUB_USER}>
+    <a class="btn btn-ghost btn-sm import-back" href="/admin/projects">
+      <Icon name="lucide:arrow-left" class="admin-nav-icon" />All projects
+    </a>
+
+    <div class="admin-head">
+      <div>
+        <p class="admin-eyebrow-mono">MODULE: IMPORT</p>
+        <h1 class="admin-title">Import from GitHub</h1>
+        <p class="text-muted admin-note import-lede" id="import-status">Loading repositories…</p>
+      </div>
+      <div class="admin-actions">
+        <a class="btn btn-secondary" href={grantAccessUrl()} target="_blank" rel="noopener">
+          <Icon name="lucide:shield-check" class="admin-nav-icon" />Repository access
+        </a>
+        <a class="btn btn-secondary" href="/admin/" id="connect-github">Connect to GitHub</a>
+      </div>
+    </div>
+
+    {/* Signed in, this screen can import; signed out it is a list of public
+        repositories that says so, rather than buttons that fail on press. */}
+    <section class="card elev-sm import-session">
+      <div class="source-identity">
+        <img class="source-avatar" id="source-avatar" alt="" width="40" height="40" hidden />
+        <div>
+          <p class="source-account" id="source-account">Connected Account: @{GITHUB_USER}</p>
+          <div class="source-tags">
+            <span class="tag tag-neutral" id="session-pill">not signed in · read only</span>
+          </div>
+        </div>
+      </div>
+      <p class="text-muted admin-note import-note" id="write-note">
+        Signed out, this screen lists public repositories and cannot import. Signing in with
+        the site owner's GitHub account is what writes a row.
+      </p>
+    </section>
+
+    <section class="card elev-sm import-picker">
+      <div class="import-controls">
+        <input
+          class="input import-search"
+          id="import-search"
+          type="search"
+          placeholder="Search repositories…"
+          aria-label="Search repositories"
+          autocomplete="off"
+        />
+        <div class="seg" role="group" aria-label="Filter repositories">
+          <label class="seg-opt"><input type="radio" name="import-filter" value="all" />All</label>
+          <label class="seg-opt"><input type="radio" name="import-filter" value="imported" />In portfolio</label>
+          <label class="seg-opt"><input type="radio" name="import-filter" value="granted" />Granted</label>
+          <label class="seg-opt"><input type="radio" name="import-filter" value="ungranted" />Not granted</label>
+        </div>
+        <button type="button" class="btn btn-secondary btn-sm import-refresh" id="import-refresh">
+          <Icon name="lucide:refresh-cw" class="admin-nav-icon" />Refresh
+        </button>
+      </div>
+
+      <div class="import-list" id="import-list"></div>
+
+      <template id="import-empty">
+        <div class="admin-empty">
+          <div class="admin-empty-art admin-empty-art-sm"><Illustration name="empty-mailbox" /></div>
+          <p class="admin-empty-copy">
+            No repository matches that search and filter. "Not granted" hides everything the
+            App can already see — try All.
+          </p>
+        </div>
+      </template>
+
+      <p class="text-muted admin-note import-foot">
+        "Granted" means the GitHub App is installed on that repository, so this session can
+        read it here — a private one will not appear at all otherwise. The App is read-only
+        and nothing on this site writes to a repository; importing copies the metadata into
+        this portfolio's own database. Anything not granted needs
+        <a href={grantAccessUrl()} target="_blank" rel="noopener">the App's repository
+        access</a> widening first — "All repositories", or "Only select repositories"
+        with that one added.
+      </p>
+    </section>
+
+    {/* — the form —
+
+        Revealed below the list rather than opened over it. GitHub answers seven
+        of the nine required fields; `category` is an enum and `highlights` is
+        prose, so an import can never be one click if every row that lands is to
+        be schema-valid. */}
+    <section class="card elev-sm import-form" id="import-form-card" hidden aria-labelledby="import-form-title">
+      <div class="import-form-head">
+        <div class="import-form-copy">
+          <p class="admin-eyebrow-mono">MODULE: IMPORT_FORM</p>
+          <h2 class="admin-title admin-title-sm" id="import-form-title">
+            Import <code id="pf-repo-name">…</code>
+          </h2>
+          <p class="text-muted admin-note">
+            Inserts <code id="pf-path">projects/…</code>. Fields left blank are left unset
+            when they are optional.
+          </p>
+        </div>
+        <button type="button" class="btn btn-icon" id="pf-cancel" aria-label="Close the import form">
+          <Icon name="lucide:x" class="admin-nav-icon" />
+        </button>
+      </div>
+
+      <hr class="rule" />
+
+      <div class="pf-grid">
+        <div class="field pf-wide">
+          <label for="pf-title">Title</label>
+          <input class="input" id="pf-title" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-summary">Summary</label>
+          <textarea class="input pf-summary" id="pf-summary" data-grow></textarea>
+        </div>
+        <div class="field">
+          <label for="pf-category">Category</label>
+          <select class="input" id="pf-category">
+            {PROJECT_CATEGORIES.map(([value, label]) => <option value={value}>{label}</option>)}
+          </select>
+        </div>
+        <div class="field">
+          <label for="pf-status">Status</label>
+          <select class="input" id="pf-status">
+            {PROJECT_STATUSES.map(([value, label]) => <option value={value}>{label}</option>)}
+          </select>
+        </div>
+        <div class="field">
+          <label for="pf-year">Year</label>
+          <input class="input" id="pf-year" type="number" min="1990" max="2100" />
+        </div>
+        <div class="field">
+          <label for="pf-rank">Featured rank (blank = not featured)</label>
+          <input class="input" id="pf-rank" type="number" min="1" max="99" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-tags">Tags (comma separated)</label>
+          <input class="input" id="pf-tags" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-stack">Stack (comma separated)</label>
+          <input class="input" id="pf-stack" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-repo">Repository URL</label>
+          <input class="input" id="pf-repo" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-demo">Demo URL (optional)</label>
+          <input class="input" id="pf-demo" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-hero">Hero image (optional)</label>
+          <input class="input" id="pf-hero" placeholder="/images/project.jpg" />
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-highlights">Highlights (one per line)</label>
+          <textarea class="input pf-highlights" id="pf-highlights" data-grow></textarea>
+        </div>
+        <div class="field pf-wide">
+          <label for="pf-case">Case study</label>
+          <select class="input" id="pf-case">
+            <option value="">— none —</option>
+            {caseStudies.map(entry => <option value={entry.slug}>{entry.data.title} ({entry.slug})</option>)}
+            <option value="__new__">+ scaffold a new case study from this project</option>
+            <option value="__ai__">+ write a new case study from the repository (AI)</option>
+          </select>
+          <p class="text-muted admin-note">
+            Scaffolding inserts <code>{caseStudyPath('<slug>')}</code> with the structured
+            fields filled in from this project and a placeholder body, then links the two.
+            The AI option writes the same header and the write-up under it from the README —
+            two calls, so creating takes a little while — and it is editable afterwards on
+            the project's own page like anything else.
+          </p>
+        </div>
+      </div>
+
+      <p class="admin-note pf-message" id="pf-message"></p>
+
+      <div class="import-form-actions">
+        {/* Reads the repository — its metadata and its README — and writes the
+            summary, category, tags, stack and highlights. The same task the
+            project's own page runs as `/write-frontmatter`, on the same
+            endpoint: an import is where those fields are emptiest, and it is
+            the moment the README has actually been read by anybody. */}
+        <button type="button" class="btn btn-secondary pf-draft" id="pf-draft">
+          <Icon name="lucide:sparkles" class="admin-nav-icon" />Draft with AI
+        </button>
+        <button type="button" class="btn btn-secondary" id="pf-cancel-foot">Cancel</button>
+        <button type="button" class="btn btn-primary" id="pf-save">Create project</button>
+      </div>
+    </section>
+  </div>
+
+  {/* The same panel the project's own page and the journal editor mount. It is
+      here so "Draft with AI" has somewhere to show its thinking and its
+      lookups — it opens beside the form rather than over it (the panel is a
+      modeless dock), and the form stays editable while the answer streams. */}
+  <AssistPanel
+    surface="project"
+    sub="Writes into the import form as it answers. Nothing is created until you press Create project."
+  />
+
+  <script is:inline type="application/json" id="import-seed" set:html={seedJson}></script>
+</AdminLayout>
+
+<script>
+  import { navigate } from 'astro:transitions/client';
+  import { onAdminPage, setBusy, setLabel, toast } from '../../../lib/admin';
+  import { relativeTime } from '../../../lib/format';
+  import {
+    createCaseStudy,
+    createProject,
+    fieldsFromRepo,
+    patchProject,
+    projectPath,
+    slugify,
+    type ProjectFields,
+  } from '../../../lib/content-store';
+  import {
+    canWriteContent,
+    fetchRepoLanguages,
+    fetchRepoReadme,
+    getToken,
+    getUser,
+    grantAccessUrl,
+    listRepositories,
+    parseRepoUrl,
+    repoFacts,
+    type RepoSummary,
+  } from '../../../lib/github';
+  import { runAssist } from '../../../lib/ai-store';
+  import { mountAssistPanel } from '../../../lib/assist-panel';
+  import {
+    ASSIST_MENU,
+    ASSIST_TASKS,
+    CASE_STUDY_KEYS,
+    PROJECT_KEYS,
+    parseEdit,
+    parseFields,
+    type AssistTask,
+    type AssistTaskName,
+  } from '../../../lib/assist-tasks';
+  import { copyText } from '../../../lib/clipboard';
+  import { attachImageUpload } from '../../../lib/image-upload';
+
+  /* The dirty guard is read from `window` rather than closed over by a
+     listener, because the client router swaps the document's body while this
+     module stays evaluated: the listeners are registered once and the page
+     state they read is replaced on every visit. */
+  const GUARD_KEY = '__adminImportGuard';
+
+  interface ImportGuard {
+    touched: () => boolean;
+    /** Forget the edits — called once the page that owns them is gone. */
+    release: () => void;
+  }
+
+  /** The page whose guard is current, or null once it has been swapped out. */
+  const guardFor = (): ImportGuard | undefined => {
+    const guard = (window as unknown as Record<string, ImportGuard | undefined>)[GUARD_KEY];
+    if (!guard) return undefined;
+    /* Stale guard: a client-side navigation left the import page behind, and
+       the `window` slot outlives the module that set it. Reading a detached
+       form's flag would prompt on every later navigation. */
+    if (!document.getElementById('admin-import')) {
+      guard.release();
+      return undefined;
+    }
+    return guard;
+  };
+
+  window.addEventListener('beforeunload', event => {
+    if (!guardFor()?.touched()) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+
+  /**
+   * Leaving with unsaved edits, guarded at the click.
+   *
+   * `astro:before-preparation` is not the seam: the router does not cancel on
+   * `preventDefault()` there, it falls back to a full page load of the
+   * destination — which discards the edits anyway. The router's own click
+   * handler bails when the event is already `defaultPrevented`, so a capture
+   * listener runs first, asks, and hands the navigation to `navigate()` when
+   * the answer is yes.
+   */
+  document.addEventListener('click', event => {
+    if (!guardFor()?.touched()) return;
+    if (event.defaultPrevented || event.button !== 0) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+    const link = (event.target as Element | null)?.closest?.('a[href]') as HTMLAnchorElement | null;
+    if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+    const url = new URL(link.href, location.href);
+    if (url.origin !== location.origin) return;
+
+    event.preventDefault();
+    if (!confirm('This import has unsaved edits. Leave and discard them?')) return;
+    guardFor()?.release();
+    void navigate(url.href);
+  }, true);
+
+  onAdminPage('#admin-import', () => {
+    interface Seed {
+      projects: Record<string, ProjectFields>;
+      caseStudies: { slug: string; title: string }[];
+    }
+
+    const seed: Seed = JSON.parse(document.getElementById('import-seed')!.textContent || '{}');
+    const root = document.getElementById('admin-import')!;
+    const signedIn = Boolean(getToken() && getUser());
+    const message = (error: unknown) => (error instanceof Error ? error.message : 'Request failed.');
+
+    /* `site.githubUser` is a frontmatter constant, so a client script cannot
+       see it — the `data-user` attribute on the root is the seam, the same one
+       `listRepositories()` reads it through. */
+    const OWNER = root.dataset.user!;
+
+    const params = () => new URLSearchParams(location.search);
+    const setParam = (name: string, value: string | null, push: boolean) => {
+      const url = new URL(location.href);
+      if (value) url.searchParams.set(name, value);
+      else url.searchParams.delete(name);
+      if (push) history.pushState(history.state, '', url);
+      else history.replaceState(history.state, '', url);
+    };
+
+    let touched = false;
+    let openRepoFullName: string | null = null;
+    (window as unknown as Record<string, ImportGuard | undefined>)[GUARD_KEY] = {
+      touched: () => touched,
+      release: () => { touched = false; },
+    };
+
+    // ------------------------------------------------------- session banner
+
+    /* Signed in, Create writes a row; signed out none of it does anything at
+       all. The screen says which of the two it is in rather than looking
+       identical in both states. */
+    const account = getUser();
+    if (signedIn && account) {
+      document.getElementById('source-account')!.textContent = `Connected Account: @${account.login}`;
+      const pill = document.getElementById('session-pill')!;
+      pill.textContent = 'signed in · checking access…';
+      pill.className = 'tag tag-neutral';
+      const avatar = document.getElementById('source-avatar') as HTMLImageElement;
+      avatar.src = account.avatarUrl;
+      avatar.alt = `@${account.login}`;
+      avatar.hidden = false;
+      document.getElementById('connect-github')!.remove();
+
+      /* Holding a token is not the same as being able to write. Ask GitHub
+         who the token belongs to — the same question `requireOwner()` asks
+         server-side, and the one that decides whether a create lands. */
+      const note = document.getElementById('write-note')!;
+      canWriteContent().then(allowed => {
+        pill.textContent = allowed ? 'signed in · writes enabled' : 'signed in · not the site owner';
+        pill.className = allowed ? 'tag tag-accent' : 'tag tag-neutral';
+
+        if (allowed) {
+          note.textContent =
+            'Importing copies repository metadata into this portfolio\'s database. Nothing is written to the repository.';
+          return;
+        }
+
+        const link = document.createElement('a');
+        link.href = grantAccessUrl();
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = 'the App’s installation ↗';
+        note.dataset.tone = 'error';
+        note.replaceChildren(
+          document.createTextNode(
+            'GitHub does not report this session as the owner of this site, so Create will be ' +
+              `refused — the write endpoint admits one account and it is @${OWNER}. Sign out and ` +
+              'back in with that account, then widen '
+          ),
+          link,
+          document.createTextNode(' if the repository is private.')
+        );
+        toast('This session is signed in, but not as the site owner — creates will be refused.', {
+          tone: 'error',
+        });
+      });
+    }
+
+    function say(host: HTMLElement, text: string, tone: 'info' | 'error' = 'info') {
+      host.dataset.tone = tone;
+      host.textContent = text;
+    }
+
+    // ------------------------------------------------------------- the list
+
+    const importStatus = document.getElementById('import-status')!;
+    const importList = document.getElementById('import-list')!;
+    const importSearch = document.getElementById('import-search') as HTMLInputElement;
+    const importFilters = Array.from(
+      document.querySelectorAll<HTMLInputElement>('input[name="import-filter"]')
+    );
+
+    /* Repositories are matched on their URL, not their name: the project's
+       title is editable and often is not the repository name. Trailing slashes
+       and a `.git` suffix are stripped so a hand-typed `repoUrl` still lines up
+       with what the API returns. */
+    const repoKey = (url: string) => url.toLowerCase().replace(/\.git$/, '').replace(/\/+$/, '');
+
+    const importState = {
+      repos: [] as RepoSummary[],
+      loaded: false,
+      slugByRepo: new Map(
+        Object.entries(seed.projects)
+          .map(([slug, project]) => (project.repoUrl ? [repoKey(project.repoUrl), slug] : null))
+          .filter(Boolean) as [string, string][],
+      ),
+    };
+
+    type RepoState = 'imported' | 'granted' | 'ungranted';
+
+    function stateOf(repo: RepoSummary): RepoState {
+      if (importState.slugByRepo.has(repoKey(repo.htmlUrl))) return 'imported';
+      return repo.granted ? 'granted' : 'ungranted';
+    }
+
+    const STATE_LABEL: Record<RepoState, string> = {
+      imported: 'in portfolio',
+      granted: 'granted, not imported',
+      ungranted: 'not granted',
+    };
+
+    function activeFilter(): string {
+      return importFilters.find(input => input.checked)?.value ?? 'all';
+    }
+
+    /* Search and filter live in the URL as well as the state, so a reload
+       keeps the list the reader was looking at. `replaceState` because typing
+       is not a navigation — the back button should leave the list, not step
+       through every keystroke. */
+    function syncListParams() {
+      setParam('q', importSearch.value.trim() || null, false);
+      setParam('show', activeFilter() === 'all' ? null : activeFilter(), false);
+    }
+
+    function renderImportList() {
+      const term = importSearch.value.trim().toLowerCase();
+      const filter = activeFilter();
+
+      const visible = importState.repos.filter(repo => {
+        const state = stateOf(repo);
+        if (filter !== 'all' && filter !== state) return false;
+        if (!term) return true;
+        return `${repo.fullName} ${repo.description ?? ''}`.toLowerCase().includes(term);
+      });
+
+      importList.replaceChildren(...visible.map(repoRow));
+
+      /* Cloned from the markup rather than built here: the empty state carries
+         an inlined illustration, and duplicating that in a script would put a
+         second copy of the artwork in the bundle. */
+      if (!visible.length) {
+        importList.appendChild(
+          (document.getElementById('import-empty') as HTMLTemplateElement).content.cloneNode(true)
+        );
+      }
+    }
+
+    /* Built node by node rather than from a template string: the name, the
+       description and the URL all come back from GitHub, and none of them is
+       worth handing to an HTML parser. */
+    function repoRow(repo: RepoSummary): HTMLElement {
+      const state = stateOf(repo);
+      const row = document.createElement('div');
+      row.className = 'repo-row';
+      row.dataset.state = state;
+
+      const identity = document.createElement('div');
+      identity.className = 'repo-id';
+
+      const name = document.createElement('a');
+      name.className = 'repo-name';
+      name.href = repo.htmlUrl;
+      name.target = '_blank';
+      name.rel = 'noopener';
+      name.textContent = repo.fullName;
+      identity.appendChild(name);
+
+      const badges = document.createElement('span');
+      badges.className = 'repo-badges';
+      const flag = document.createElement('span');
+      flag.className = 'tag repo-flag';
+      flag.textContent = STATE_LABEL[state];
+      badges.appendChild(flag);
+      if (repo.isPrivate) badges.appendChild(chip('private'));
+      if (repo.archived) badges.appendChild(chip('archived'));
+      identity.appendChild(badges);
+
+      if (repo.description) {
+        const description = document.createElement('p');
+        description.className = 'text-muted repo-desc';
+        description.textContent = repo.description;
+        identity.appendChild(description);
+      }
+
+      /* What the listing already answered, and what deciding between twenty
+         repositories actually turns on. It costs no request — every field here
+         came back with the row — and the same facts are what the assistant is
+         handed when this one is imported, so what is on screen and what the
+         model is told are the same thing. */
+      const meta = document.createElement('div');
+      meta.className = 'repo-meta';
+
+      const facts = [
+        repo.language,
+        repo.stars ? `★ ${repo.stars}` : '',
+        repo.pushedAt ? `pushed ${relativeTime(repo.pushedAt)}` : '',
+        repo.license,
+        repo.homepage ? 'has a homepage' : '',
+      ].filter(Boolean);
+      if (facts.length) {
+        const line = document.createElement('span');
+        line.className = 'text-muted repo-facts';
+        line.textContent = facts.join(' · ');
+        meta.appendChild(line);
+      }
+
+      /* The author's own words for what the thing is. Four, because the row is
+         one line tall and a repository with fifteen topics would take the list
+         over. */
+      for (const topic of repo.topics.slice(0, 4)) meta.appendChild(chip(topic));
+
+      if (meta.childElementCount) identity.appendChild(meta);
+
+      const line = document.createElement('p');
+      line.className = 'text-muted admin-note repo-line';
+      line.dataset.role = 'status';
+
+      row.appendChild(identity);
+      row.appendChild(repoAction(repo, state, line));
+      row.appendChild(line);
+
+      return row;
+    }
+
+    function chip(text: string): HTMLElement {
+      const element = document.createElement('span');
+      element.className = 'tag tag-neutral';
+      element.textContent = text;
+      return element;
+    }
+
+    function repoAction(repo: RepoSummary, state: RepoState, line: HTMLElement): HTMLElement {
+      const host = document.createElement('div');
+      host.className = 'repo-action';
+
+      if (state === 'ungranted') {
+        const grant = document.createElement('a');
+        grant.className = 'btn btn-secondary btn-sm';
+        grant.href = grantAccessUrl();
+        grant.target = '_blank';
+        grant.rel = 'noopener';
+        grant.textContent = 'Grant access ↗';
+        host.appendChild(grant);
+        return host;
+      }
+
+      if (state === 'imported') {
+        const slug = importState.slugByRepo.get(repoKey(repo.htmlUrl))!;
+        const toggle = document.createElement('button');
+        toggle.type = 'button';
+        toggle.className = 'toggle';
+        toggle.setAttribute('role', 'switch');
+        toggle.dataset.slug = slug;
+        toggle.setAttribute('aria-checked', String(!seed.projects[slug]?.hidden));
+        toggle.setAttribute('aria-label', `Toggle visibility for ${slug}`);
+        toggle.appendChild(document.createElement('span'));
+        bindToggle(toggle, line);
+        host.appendChild(toggle);
+
+        /* A link out to the project's own page, not a second form in a second
+           dialog on top of the first. */
+        const edit = document.createElement('a');
+        edit.className = 'btn btn-secondary btn-sm';
+        edit.href = `/admin/projects/${slug}`;
+        edit.textContent = 'Edit';
+        host.appendChild(edit);
+        return host;
+      }
+
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'btn btn-primary btn-sm';
+      add.textContent = 'Add';
+      if (!signedIn) {
+        add.disabled = true;
+        add.title = 'Sign in with GitHub to import.';
+      }
+      add.addEventListener('click', async () => {
+        setBusy(add, true, 'Reading…');
+        try {
+          await chooseRepo(repo);
+        } finally {
+          setBusy(add, false);
+        }
+      });
+      host.appendChild(add);
+      return host;
+    }
+
+    /* The list while it is being fetched. Six is roughly a screenful and is
+       not a guess at how many repositories there are; the status line is where
+       that answer goes. Built with `createElement` like `repoRow()`, so every
+       rule for it has to come through the `#import-list :global(…)` door. */
+    function renderImportSkeleton() {
+      const rows = Array.from({ length: 6 }, () => {
+        const row = document.createElement('div');
+        row.className = 'repo-row repo-skeleton';
+        row.setAttribute('aria-hidden', 'true');
+
+        const identity = document.createElement('div');
+        identity.className = 'repo-id';
+        const name = document.createElement('div');
+        name.className = 'skeleton skeleton-line repo-skeleton-name';
+        const description = document.createElement('div');
+        description.className = 'skeleton skeleton-line-sm repo-skeleton-desc';
+        identity.append(name, description);
+
+        const action = document.createElement('div');
+        action.className = 'repo-action';
+        const button = document.createElement('div');
+        button.className = 'skeleton repo-skeleton-action';
+        action.appendChild(button);
+
+        row.append(identity, action);
+        return row;
+      });
+      importList.replaceChildren(...rows);
+    }
+
+    async function loadRepositories() {
+      importStatus.textContent = 'Reading repositories…';
+      renderImportSkeleton();
+      importList.setAttribute('aria-busy', 'true');
+      try {
+        importState.repos = await listRepositories(OWNER);
+        importState.loaded = true;
+        const granted = importState.repos.filter(repo => repo.granted).length;
+        const imported = importState.repos.filter(repo => stateOf(repo) === 'imported').length;
+        importStatus.textContent = signedIn
+          ? `${importState.repos.length} repositories · ${granted} granted to the app · ${imported} already in the portfolio`
+          : `${importState.repos.length} public repositories. Sign in to see which the app has access to, and to import.`;
+        renderImportList();
+      } catch (error) {
+        importStatus.textContent = message(error);
+        /* The skeleton is a promise that rows are coming. When they are not,
+           it has to come down and say so. */
+        importList.replaceChildren();
+        toast(message(error), { tone: 'error' });
+      } finally {
+        importList.removeAttribute('aria-busy');
+      }
+    }
+
+    importSearch.addEventListener('input', () => {
+      renderImportList();
+      syncListParams();
+    });
+    importFilters.forEach(input => {
+      input.addEventListener('change', () => {
+        renderImportList();
+        syncListParams();
+      });
+    });
+    document.getElementById('import-refresh')!.addEventListener('click', () => void loadRepositories());
+
+    // -------------------------------------------------------- the URL state
+
+    /* The chosen repository is the URL. A reload rebuilds the form from the
+       listing's own facts, so the state that matters (which repository) does
+       not depend on anything stored in this browser. */
+    async function chooseRepo(repo: RepoSummary) {
+      if (touched && openRepoFullName !== repo.fullName) {
+        if (!confirm('This import has unsaved edits. Discard them and open the other repository?')) return;
+      }
+      await openRepo(repo, true);
+    }
+
+    async function openRepo(repo: RepoSummary, push: boolean) {
+      /* `stack` is worth one extra call: languages are the only field GitHub
+         can fill that the form would otherwise leave empty. A failure is not
+         worth surfacing — `fetchRepoLanguages` returns an empty list and the
+         field is editable. */
+      const languages = await fetchRepoLanguages(repo.owner, repo.name);
+      openForm(repo, languages, push);
+    }
+
+    function closeForm(push: boolean) {
+      if (touched && !confirm('Discard this unsaved import?')) return false;
+      formCard.hidden = true;
+      touched = false;
+      openRepoFullName = null;
+      if (push) setParam('repo', null, true);
+      return true;
+    }
+
+    window.addEventListener('popstate', () => {
+      const wanted = params().get('repo');
+      if (!wanted) {
+        if (!formCard.hidden) {
+          /* The browser's back button cannot be cancelled; when there are
+             edits, the entry is pushed back instead of asking a question whose
+             "no" has nowhere to go. */
+          if (touched) {
+            if (openRepoFullName) setParam('repo', openRepoFullName, true);
+            return;
+          }
+          formCard.hidden = true;
+          touched = false;
+          openRepoFullName = null;
+        }
+        return;
+      }
+      if (!importState.loaded || !formCard.hidden || wanted === openRepoFullName) return;
+      const repo = importState.repos.find(row => row.fullName.toLowerCase() === wanted.toLowerCase());
+      if (repo) void openRepo(repo, false);
+      else say(importStatus, `No repository named ${wanted} in this list.`, 'error');
+    });
+
+    // ---------------------------------------------------------- the form
+
+    const formCard = document.getElementById('import-form-card') as HTMLElement;
+    const formPath = document.getElementById('pf-path')!;
+    const formRepoName = document.getElementById('pf-repo-name')!;
+    const formMessage = document.getElementById('pf-message')!;
+    const saveButton = document.getElementById('pf-save') as HTMLButtonElement;
+    const field = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+    const inputs = {
+      title: field<HTMLInputElement>('pf-title'),
+      summary: field<HTMLTextAreaElement>('pf-summary'),
+      category: field<HTMLSelectElement>('pf-category'),
+      status: field<HTMLSelectElement>('pf-status'),
+      year: field<HTMLInputElement>('pf-year'),
+      rank: field<HTMLInputElement>('pf-rank'),
+      tags: field<HTMLInputElement>('pf-tags'),
+      stack: field<HTMLInputElement>('pf-stack'),
+      repo: field<HTMLInputElement>('pf-repo'),
+      demo: field<HTMLInputElement>('pf-demo'),
+      hero: field<HTMLInputElement>('pf-hero'),
+      highlights: field<HTMLTextAreaElement>('pf-highlights'),
+      caseStudy: field<HTMLSelectElement>('pf-case'),
+    };
+
+    /* The filename follows the title for the same reason the project's own
+       does: on this form nothing has been written yet, so the title is still
+       the only name the project has. */
+    attachImageUpload(inputs.hero, {
+      dir: 'images/projects',
+      name: () => `${slugify(inputs.title.value)}-hero`,
+    });
+
+    /* `touched` guards leaving with edits, and is deliberately not the same
+       question as "can this be created". The form opens pre-filled from the
+       repository — that content *is* worth writing, so Create is live from the
+       moment the form is open. Only a change or a streamed draft marks this
+       import as work that would be lost. */
+    formCard.addEventListener('input', () => { touched = true; });
+    formCard.addEventListener('change', () => { touched = true; });
+
+    let target: ProjectFields | null = null;
+
+    /**
+     * The repository this form was opened on, and what has been read of it.
+     *
+     * The listing already answered everything but the README, so `facts` is
+     * built once on open and costs nothing; `readme` is fetched on the first
+     * press of Draft with AI, because it can be twenty kilobytes and most
+     * imports never ask for it. Cleared with the form, so a second import
+     * cannot be drafted from the first one's repository.
+     */
+    let source: { facts: string; readme: string | null } | null = null;
+
+    const csv = (value: string) => value.split(',').map(part => part.trim()).filter(Boolean);
+    const lines = (value: string) => value.split('\n').map(part => part.trim()).filter(Boolean);
+
+    /**
+     * Fill the form from a repository's metadata.
+     *
+     * Creation only — the slug is derived from the title on save, because the
+     * title is editable right up until the file is written and the filename is
+     * where Astro gets the slug from.
+     */
+    function openForm(repo: RepoSummary, languages: string[], push: boolean) {
+      const fields = fieldsFromRepo(repo, languages);
+      const slug = slugify(repo.name);
+
+      target = fields;
+      source = { facts: repoFacts(repo, languages), readme: null };
+      openRepoFullName = repo.fullName;
+      touched = false;
+
+      formRepoName.textContent = repo.fullName;
+      formPath.textContent = projectPath(slug);
+      say(formMessage, '');
+
+      inputs.title.value = fields.title ?? '';
+      inputs.summary.value = fields.summary ?? '';
+      inputs.category.value = fields.category ?? 'other';
+      inputs.status.value = fields.status ?? 'active';
+      inputs.year.value = String(fields.year ?? new Date().getFullYear());
+      inputs.rank.value = fields.featuredRank === undefined ? '' : String(fields.featuredRank);
+      inputs.tags.value = (fields.tags ?? []).join(', ');
+      inputs.stack.value = (fields.stack ?? []).join(', ');
+      inputs.repo.value = fields.repoUrl ?? '';
+      inputs.demo.value = fields.demoUrl ?? '';
+      inputs.hero.value = fields.heroImage ?? '';
+      inputs.highlights.value = (fields.highlights ?? []).join('\n');
+      inputs.caseStudy.value = fields.caseStudySlug ?? '';
+
+      formCard.hidden = false;
+      setParam('repo', repo.fullName, push);
+
+      /* Pre-filled content is a real import waiting to happen, so Create is
+         live immediately — the button's disabled state only marks the moment
+         before a repository has been picked. */
+      saveButton.disabled = false;
+      saveButton.removeAttribute('title');
+
+      formCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      inputs.title.focus({ preventScroll: true });
+    }
+
+    /** The form as schema-shaped fields, or a sentence saying what is wrong. */
+    function readForm(): ProjectFields | string {
+      const title = inputs.title.value.trim();
+      const summary = inputs.summary.value.trim();
+      const repoUrl = inputs.repo.value.trim();
+      const year = Number(inputs.year.value);
+
+      if (!title) return 'A title is required — it is also what the filename comes from.';
+      if (!summary) return 'A summary is required: it is the card body and the meta description.';
+      /* An empty URL is allowed: it is how a project whose repository is
+         private stops showing a Repo button that 404s. Present, it has to
+         parse. */
+      if (repoUrl) {
+        try {
+          new URL(repoUrl);
+        } catch {
+          return 'The repository URL has to be an absolute URL.';
+        }
+      }
+      if (!Number.isInteger(year)) return 'Year has to be a whole number.';
+
+      const rank = inputs.rank.value.trim();
+      return {
+        title,
+        summary,
+        category: inputs.category.value as ProjectFields['category'],
+        tags: csv(inputs.tags.value),
+        stack: csv(inputs.stack.value),
+        repoUrl: repoUrl || undefined,
+        demoUrl: inputs.demo.value.trim() || undefined,
+        featuredRank: rank === '' ? undefined : Number(rank),
+        status: inputs.status.value as ProjectFields['status'],
+        year,
+        heroImage: inputs.hero.value.trim() || undefined,
+        highlights: lines(inputs.highlights.value),
+      };
+    }
+
+    /** That repository's README, read once per form. */
+    async function readme(): Promise<string> {
+      if (!source) return '';
+      if (source.readme === null) {
+        const url = inputs.repo.value.trim();
+        try {
+          const { owner, name } = parseRepoUrl(url);
+          source.readme = await fetchRepoReadme(owner, name);
+        } catch {
+          /* No README, or a repository this session cannot read. The facts from
+             the listing are still worth writing from, and saying so is better
+             than refusing. */
+          source.readme = '';
+        }
+      }
+      return source.readme;
+    }
+
+    // ------------------------------------------------------- the assistant
+
+    let assisting: AbortController | null = null;
+
+    /** The import form as one task's context, sliced to the fields it declares. */
+    async function assistContext(task: AssistTask): Promise<Record<string, string>> {
+      const available: Record<string, string> = {
+        repo: source?.facts ?? '',
+        readme: task.context.includes('readme') ? await readme() : '',
+        title: inputs.title.value,
+        summary: inputs.summary.value,
+        tags: inputs.tags.value,
+        stack: inputs.stack.value,
+        highlights: inputs.highlights.value,
+      };
+      const context: Record<string, string> = {};
+      for (const key of task.context) context[key] = available[key] ?? '';
+      return context;
+    }
+
+    /**
+     * One run, from wherever it started to the panel.
+     *
+     * `given` is for the two case-study tasks, whose context is the seed being
+     * assembled during a save rather than the form on screen. Everything else
+     * reads the form. It never throws: a failure is a note on the message and
+     * an empty string to the caller, because the callers are a save that has a
+     * scaffold to fall back on and a panel that has already shown the error.
+     */
+    async function runTurn(
+      name: AssistTaskName,
+      instruction: string,
+      given?: Record<string, string>,
+    ): Promise<string> {
+      const task: AssistTask = ASSIST_TASKS[name];
+      const item = ASSIST_MENU.find(entry => entry.name === name) ?? null;
+
+      panel.open();
+      const turn = panel.begin(task.label, item?.command ?? null);
+      panel.running(true);
+
+      assisting?.abort();
+      const controller = new AbortController();
+      assisting = controller;
+
+      const again = { label: 'Try again', run: () => void runTurn(name, instruction, given) };
+      const copy = (text: string) => ({
+        label: 'Copy',
+        run: () => void copyText(text).then(() => toast('Copied.', { tone: 'success' })),
+      });
+
+      /* `project` is the only task on this screen with a field to stream into.
+         A chat reply that *opens* with a labelled field is an edit of the form
+         rather than an answer about it — the same discriminator, and the same
+         reasoning, as the project's own page. Decision 48. */
+      const live = name === 'project';
+
+      let raw = '';
+      let thought = '';
+
+      try {
+        turn.status(live ? 'Reading the repository…' : 'Thinking…');
+        const context = given ?? (await assistContext(task));
+        turn.status('Writing…');
+
+        const answer = await runAssist(
+          name,
+          context,
+          instruction,
+          {
+            onDelta: chunk => {
+              raw += chunk;
+              if (live) fillDraft(raw);
+              else turn.answer(raw);
+            },
+            onThinking: chunk => {
+              thought += chunk;
+              turn.thinking(chunk);
+            },
+            onTool: frame => turn.tool(frame),
+            onUsage: frame => turn.usage(frame),
+          },
+          controller.signal,
+          name === 'chat' ? panel.history() : undefined,
+          panel.runOptions(),
+        );
+
+        if (!answer.trim()) {
+          throw new Error(
+            thought
+              ? 'The model spent the whole token budget thinking and never wrote an answer. Open Thinking above to read it, then lower the effort in the toolbar or pick a model that deliberates less.'
+              : 'The model finished without writing anything. Try again, or pick a different model on the AI screen.',
+          );
+        }
+
+        const applies = live || (name === 'chat' && Boolean(parseEdit(answer, PROJECT_KEYS)));
+
+        if (applies && !parseFields(answer, PROJECT_KEYS).recognised) {
+          turn.answer(answer);
+          turn.actions([copy(answer), again]);
+          turn.note('The model answered without using the field format, so nothing was written.', 'error');
+          turn.end(answer);
+          say(formMessage, 'The reply was not in the field format, so nothing was written.', 'error');
+          return answer;
+        }
+
+        if (applies) {
+          fillDraft(answer);
+          turn.status('It is in the form. Nothing is created until you press Create project.');
+          turn.actions([again]);
+          say(formMessage, 'Written from the repository. Edit anything, then create.');
+        } else {
+          turn.answer(answer);
+          turn.actions([copy(answer), again]);
+        }
+        turn.end(answer);
+        return answer;
+      } catch (error) {
+        /* Whatever arrived stays in the fields — that is what writing straight
+           into the form means, and the fields were empty a moment ago. */
+        const text =
+          error instanceof DOMException && error.name === 'AbortError'
+            ? 'Stopped.'
+            : message(error);
+        turn.note(text, 'error');
+        turn.actions([again]);
+        turn.end(raw);
+        return '';
+      } finally {
+        panel.running(false);
+        if (assisting === controller) assisting = null;
+      }
+    }
+
+    /**
+     * Write a partly-arrived frontmatter response into the form.
+     *
+     * Every branch is guarded on a parsed value, which is what makes a response
+     * that recognised nothing write nothing — the same rule the project page's
+     * `applyLive` follows, and the reason there is no half-applied state to
+     * unpick. Decision 29.
+     */
+    function fillDraft(raw: string) {
+      const { values, tailStarted } = parseFields(raw, PROJECT_KEYS);
+      if (values.title) inputs.title.value = values.title;
+      if (values.summary) inputs.summary.value = values.summary;
+      if (values.tags) inputs.tags.value = values.tags;
+      if (values.stack) inputs.stack.value = values.stack;
+
+      /* A model handed a closed list still answers outside it now and then, and
+         assigning an unknown value to a `<select>` clears the selection rather
+         than leaving the previous one. `select.ts` overrides the setter, so a
+         value that *is* in the list also repaints the custom dropdown. */
+      const category = values.category.trim().toLowerCase();
+      if (category && Array.from(inputs.category.options).some(o => o.value === category)) {
+        inputs.category.value = category;
+      }
+
+      /* The tail may legitimately be empty while it is arriving — it is written
+         from the moment its label lands, so the box fills line by line. */
+      if (tailStarted) {
+        inputs.highlights.value = values.highlights
+          .split('\n')
+          .map(line => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim())
+          .filter(Boolean)
+          .join('\n');
+      }
+
+      /* Programmatic writes fire no events, so the streamed draft has to say
+         that it changed something. */
+      touched = true;
+    }
+
+    const panel = mountAssistPanel({
+      surface: 'project',
+      /* No row exists yet, so the conversation is filed under the slug the
+         title would produce. */
+      docSlug: () => slugify(inputs.title.value),
+      stop: () => assisting?.abort(),
+      run: (item, instruction) => void runTurn(item ? item.name : 'chat', instruction),
+      /* Two of this surface's three commands write case-study fields, and this
+         form has none of them — the case study is written on save, or on the
+         project's own page. Blocked here rather than filtered out of the menu,
+         because the menu is `task.surface` and that is data the screen which
+         *does* have those fields shares. */
+      blocked: item =>
+        item.name === 'project'
+          ? null
+          : 'That one writes case-study fields, and this form has none. Create the project, then open its page.',
+    });
+
+    const draftButton = document.getElementById('pf-draft') as HTMLButtonElement;
+    if (!signedIn) {
+      draftButton.disabled = true;
+      draftButton.title = 'Sign in with GitHub to use the assistant.';
+    }
+
+    draftButton.addEventListener('click', () => {
+      if (!signedIn || !source) return;
+      panel.open();
+      panel.send(`/${ASSIST_TASKS.project.command}`);
+    });
+
+    // ---------------------------------------------------------- the save
+
+    /**
+     * Write the case study the select asked for, after the project exists.
+     *
+     * Order matters. This used to run *before* `createProject`, so a failed
+     * create left a case-study row for a project that was never written — an
+     * orphan with no page and no card. The project is the thing being created
+     * here; the case study is an attachment to it, and a failure to attach is
+     * reported as a partial success rather than as a failed import.
+     */
+    async function writeCaseStudy(slug: string, fields: ProjectFields): Promise<void> {
+      const choice = inputs.caseStudy.value;
+
+      const seedFields = {
+        title: fields.title,
+        subtitle: fields.summary,
+        problem: 'Describe the problem this project set out to solve.',
+        solution: 'Describe the approach that solved it.',
+        achievements: fields.highlights.length ? fields.highlights : ['Add an achievement.'],
+        stack: fields.stack,
+        repoUrl: fields.repoUrl,
+        demoUrl: fields.demoUrl,
+        date: new Date().toISOString().slice(0, 10),
+      };
+      let body: string | undefined;
+
+      if (choice === '__ai__') {
+        /* Two calls, in order, because the second one reads the first: the
+           prose has to agree with the problem and solution above it. Neither
+           throws — `runTurn` reports a failure into the panel and answers with
+           an empty string — so a model that falls over leaves the scaffold
+           rather than abandoning the import. */
+        say(formMessage, 'Writing the case study from the repository…');
+        const header = await runTurn('casestudy', '', {
+          repo: source?.facts ?? '',
+          readme: await readme(),
+          title: fields.title,
+          summary: fields.summary,
+          stack: fields.stack.join(', '),
+          highlights: fields.highlights.join('\n'),
+        });
+
+        const { values, recognised } = parseFields(header, CASE_STUDY_KEYS);
+        if (recognised) {
+          if (values.title.trim()) seedFields.title = values.title.trim();
+          if (values.subtitle.trim()) seedFields.subtitle = values.subtitle.trim();
+          if (values.problem.trim()) seedFields.problem = values.problem.trim();
+          if (values.solution.trim()) seedFields.solution = values.solution.trim();
+          const achievements = lines(values.achievements).map(line =>
+            line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim(),
+          );
+          if (achievements.length) seedFields.achievements = achievements;
+          if (values.stack.trim()) seedFields.stack = csv(values.stack);
+        }
+
+        say(formMessage, 'Writing the write-up under it…');
+        const prose = await runTurn('casestudybody', '', {
+          repo: source?.facts ?? '',
+          readme: await readme(),
+          title: seedFields.title,
+          summary: seedFields.subtitle,
+          stack: seedFields.stack.join(', '),
+          highlights: seedFields.achievements.join('\n'),
+          problem: seedFields.problem,
+          solution: seedFields.solution,
+        });
+        if (prose.trim()) body = prose.trim();
+        say(formMessage, 'Creating…');
+      }
+
+      await createCaseStudy(slug, seedFields, body);
+      await patchProject(slug, { caseStudySlug: slug });
+    }
+
+    saveButton.addEventListener('click', async () => {
+      if (!target) return;
+      if (!signedIn) return say(formMessage, 'Sign in with GitHub to save.', 'error');
+
+      const fields = readForm();
+      if (typeof fields === 'string') return say(formMessage, fields, 'error');
+
+      const slug = slugify(fields.title);
+      if (!slug) return say(formMessage, 'That title does not produce a usable slug.', 'error');
+
+      setBusy(saveButton, true, 'Creating…');
+      say(formMessage, 'Creating…');
+      const pending = toast(`Creating ${slug}…`, { tone: 'pending' });
+
+      try {
+        const choice = inputs.caseStudy.value;
+        const wantsNew = choice === '__new__' || choice === '__ai__';
+
+        /* `hidden` is deliberately not written: it belongs to the visibility
+           switch, and an explicit `hidden: false` on every imported row would
+           be noise the hand-authored ones do not carry. */
+        await createProject(
+          slug,
+          wantsNew ? fields : { ...fields, caseStudySlug: choice || undefined },
+        );
+        /* The project exists from here on. Disarm the button before the case
+           study runs: a second press would only come back "already exists". */
+        target = null;
+        setLabel(saveButton, 'Project created');
+
+        if (wantsNew) {
+          try {
+            await writeCaseStudy(slug, fields);
+          } catch (error) {
+            touched = false;
+            const link = document.createElement('a');
+            link.href = `/admin/projects/${slug}`;
+            link.textContent = 'open its page →';
+            formMessage.dataset.tone = 'error';
+            formMessage.replaceChildren(
+              document.createTextNode(
+                `${slug} was created and is live, but the case study was not: ${message(error)}. Add it from `
+              ),
+              link,
+              document.createTextNode('.'),
+            );
+            pending.update(`${slug} created; the case study failed.`, {
+              tone: 'error',
+              action: { label: 'open its page →', href: `/admin/projects/${slug}`, external: false },
+            });
+            return;
+          }
+        }
+
+        touched = false;
+        pending.update(`${slug} created and live.`, {
+          tone: 'success',
+          action: { label: 'open its page →', href: `/admin/projects/${slug}`, external: false },
+        });
+        /* If the create was slower than the panel's log, the panel is the only
+           place the run is visible; navigation is the report. The import page
+           has no cards of its own, which is why this goes to the project's own
+           page rather than back to a manifest that would not have changed.
+           `navigate()` rather than `location.assign()`: the toast host is
+           persisted across client transitions, so the success toast survives
+           the move, and a full reload would throw it away. */
+        void navigate(`/admin/projects/${slug}?created=1`);
+      } catch (error) {
+        say(formMessage, message(error), 'error');
+        pending.update(message(error), { tone: 'error' });
+        setBusy(saveButton, false);
+      }
+    });
+
+    document.getElementById('pf-cancel')!.addEventListener('click', () => closeForm(true));
+    document.getElementById('pf-cancel-foot')!.addEventListener('click', () => closeForm(true));
+
+    // ------------------------------------------------- visibility switches
+
+    /**
+     * The switch a repository row carries when it is already imported.
+     *
+     * The row is the only truth; signed out there is nowhere to write, so the
+     * switch is disabled rather than recording an intention in this browser
+     * that nothing will ever apply. The toast is the second report and it is
+     * the one that gets read — the row is in a long list, and its status line
+     * is frequently off screen by the time the request comes back.
+     */
+    function bindToggle(toggle: HTMLButtonElement, line: HTMLElement) {
+      if (!signedIn) {
+        toggle.disabled = true;
+        toggle.title = 'Sign in with GitHub to change visibility.';
+        return;
+      }
+
+      toggle.addEventListener('click', async () => {
+        const slug = toggle.dataset.slug!;
+        const visible = toggle.getAttribute('aria-checked') !== 'true';
+        toggle.setAttribute('aria-checked', String(visible));
+        toggle.disabled = true;
+
+        say(line, visible ? 'Publishing…' : 'Hiding…');
+        const pending = toast(`${visible ? 'Publishing' : 'Hiding'} ${slug}…`, { tone: 'pending' });
+        try {
+          const result = await patchProject(slug, { hidden: !visible });
+          syncToggles(slug, visible);
+          if (visible) {
+            const anchor = document.createElement('a');
+            anchor.href = result.url;
+            anchor.target = '_blank';
+            anchor.rel = 'noopener';
+            anchor.textContent = 'view live ↗';
+            line.dataset.tone = 'info';
+            line.replaceChildren(document.createTextNode('Visible now — '), anchor);
+            pending.update(`${slug} is visible.`, {
+              tone: 'success',
+              action: { label: 'view live ↗', href: result.url },
+            });
+          } else {
+            say(line, 'Hidden — its page now 404s.');
+            pending.update(`${slug} is hidden. Its page now 404s.`, { tone: 'success' });
+          }
+        } catch (error) {
+          toggle.setAttribute('aria-checked', String(!visible));
+          say(line, message(error), 'error');
+          pending.update(message(error), { tone: 'error' });
+        } finally {
+          toggle.disabled = false;
+        }
+      });
+    }
+
+    function syncToggles(slug: string, visible: boolean) {
+      document
+        .querySelectorAll<HTMLButtonElement>(`.toggle[data-slug="${CSS.escape(slug)}"]`)
+        .forEach(toggle => toggle.setAttribute('aria-checked', String(visible)));
+      if (seed.projects[slug]) seed.projects[slug].hidden = !visible;
+    }
+
+    // ------------------------------------------------------------ initial
+
+    /* The list's own state comes back from the URL before the first render,
+       so a reload lands on the same view rather than resetting the filters. */
+    const initial = params();
+    importSearch.value = initial.get('q') ?? '';
+    const initialShow = initial.get('show') ?? 'all';
+    for (const input of importFilters) input.checked = input.value === initialShow;
+
+    void loadRepositories().then(() => {
+      const wanted = params().get('repo');
+      if (!wanted) return;
+      const repo = importState.repos.find(row => row.fullName.toLowerCase() === wanted.toLowerCase());
+      if (repo) void openRepo(repo, false);
+      else say(importStatus, `No repository named ${wanted} in this list.`, 'error');
+    });
+  });
+</script>
+
+<style>
+  .import-back { margin-bottom: var(--space-3); }
+  .import-lede { margin: 6px 0 0; }
+
+  .import-session {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    margin-top: var(--space-5);
+    margin-bottom: var(--space-4);
+  }
+  .source-identity { display: flex; align-items: center; gap: var(--space-3); }
+  .source-avatar { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--color-divider); flex: none; }
+  .source-account { margin: 0; font-weight: 600; font-size: 14px; }
+  .source-tags { display: flex; gap: 8px; margin-top: 6px; flex-wrap: wrap; }
+  .import-note { max-width: 60ch; margin: 0; }
+
+  .import-picker { margin-bottom: var(--space-4); }
+  .import-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .import-search { max-width: 320px; flex: 1 1 200px; }
+  .import-refresh { margin-left: auto; }
+  .import-foot { margin: var(--space-4) 0 0; }
+
+  /* — import rows —
+
+     Every one of these is built by `repoRow()` with `createElement`, so none of
+     the nodes carries this page's `data-astro-cid` and a plain scoped selector
+     would silently match nothing. `:global()` under `#import-list`, which *is*
+     server-rendered and does carry the attribute, is the same seam the resume
+     editor's generated fields use. Anything added to `repoRow()` has to be
+     declared through this door too. */
+  #import-list :global(.repo-row) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--color-divider);
+  }
+  #import-list :global(.repo-row:last-child) { border-bottom: 0; }
+  #import-list :global(.repo-id) { min-width: 0; }
+  #import-list :global(.repo-name) { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
+  #import-list :global(.repo-badges) { display: inline-flex; gap: 6px; margin-left: var(--space-2); flex-wrap: wrap; }
+  #import-list :global(.repo-desc) { font-size: 12px; margin: 4px 0 0; }
+  #import-list :global(.repo-meta) {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  #import-list :global(.repo-facts) { font-size: 11px; letter-spacing: 0.02em; }
+  #import-list :global(.repo-action) { display: flex; align-items: center; gap: var(--space-2); flex: none; }
+  #import-list :global(.repo-line) { grid-column: 1 / -1; margin: 0; }
+  #import-list :global(.repo-line:empty) { display: none; }
+  #import-list :global(.repo-line[data-tone='error']) { color: var(--color-accent-700); }
+
+  /* The loading rows. Same grid as a real one, so the list does not reflow when
+     the response replaces them — that is the entire point of them being here
+     rather than a spinner in the middle of an empty box. */
+  #import-list :global(.repo-skeleton) { pointer-events: none; }
+  #import-list :global(.repo-skeleton-name) { width: 42%; max-width: 260px; }
+  #import-list :global(.repo-skeleton-desc) { width: 72%; max-width: 420px; margin-top: 8px; }
+  #import-list :global(.repo-skeleton-action) { width: 76px; height: 26px; }
+
+  /* State reads off the row, so the row builder sets one attribute rather than
+     picking between three global tag variants. */
+  #import-list :global(.repo-row[data-state='imported'] .repo-flag) {
+    background: var(--color-accent-2-100);
+    color: var(--color-accent-2-800);
+  }
+  #import-list :global(.repo-row[data-state='granted'] .repo-flag) {
+    background: var(--color-accent-100);
+    color: var(--color-accent-800);
+  }
+  #import-list :global(.repo-row[data-state='ungranted'] .repo-flag) {
+    background: var(--color-neutral-100);
+    color: var(--color-neutral-800);
+  }
+
+  @media (max-width: 640px) {
+    #import-list :global(.repo-row) { grid-template-columns: minmax(0, 1fr); }
+    .import-search { max-width: none; flex-basis: auto; }
+    .import-refresh { margin-left: 0; }
+  }
+
+  /* — the form — */
+
+  .import-form { margin-top: var(--space-4); }
+  .import-form[hidden] { display: none; }
+  .import-form-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-3); }
+  .import-form-head code { font-size: 13px; }
+  .import-form-copy { min-width: 0; }
+  .import-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    margin-top: var(--space-4);
+  }
+  .import-form-actions .pf-draft { margin-right: auto; }
+
+  .pf-message:empty { display: none; }
+  .pf-message[data-tone='error'] { color: var(--color-accent-700); }
+  .pf-message a { text-decoration: underline; }
+
+  #write-note[data-tone='error'] { color: var(--color-accent-700); }
+
+  /* An anchor that the row builder makes for the visibility success line — the
+     scoped attribute is absent from generated nodes, hence `:global`. */
+  #import-list :global(.repo-line a) { text-decoration: underline; }
+</style>

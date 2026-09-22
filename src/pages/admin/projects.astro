@@ -1,17 +1,10 @@
 ---
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import AdminProjectCard from '../../components/AdminProjectCard.astro';
-import AssistPanel from '../../components/AssistPanel.astro';
 import Illustration from '../../components/Illustration.astro';
 import { Icon } from 'astro-icon/components';
-import { getCaseStudies, getDeepDiveSelection, getProjects } from '../../lib/content';
-import {
-  PROJECT_CATEGORIES,
-  PROJECT_STATUSES,
-  caseStudyPath,
-  projectPath,
-  type ProjectFields,
-} from '../../lib/content-store';
+import { getDeepDiveSelection, getProjects } from '../../lib/content';
+import { PROJECT_CATEGORIES, projectPath } from '../../lib/content-store';
 import { grantAccessUrl, parseRepoUrl } from '../../lib/github';
 import { site } from '../../lib/site';
 
@@ -25,7 +18,6 @@ export const prerender = false;
 const { DB } = Astro.locals.runtime.env;
 
 const projects = await getProjects(DB, true);
-const caseStudies = await getCaseStudies(DB);
 const GITHUB_USER = site.githubUser;
 
 const rows = projects.map(project => {
@@ -43,20 +35,6 @@ const rows = projects.map(project => {
     data: project.data,
   };
 });
-
-/* The edit form prefills from the real frontmatter rather than from what the
-   card happens to display, so a field the card never shows still round-trips.
-   `<` is escaped because this lands inside a script element — and note that
-   the tag is spelled out in prose rather than written literally: Vite's
-   dependency scanner regex-matches `<script …>` in the *raw* `.astro` source,
-   comments included, and hands whatever follows to esbuild as JavaScript. */
-const seed = {
-  projects: Object.fromEntries(
-    rows.map(row => [row.slug, row.data as ProjectFields])
-  ),
-  caseStudies: caseStudies.map(entry => ({ slug: entry.slug, title: entry.data.title })),
-};
-const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
 
 const hiddenCount = rows.filter(row => row.data.hidden).length;
 const linkedCount = rows.filter(row => row.data.caseStudySlug).length;
@@ -101,14 +79,14 @@ const leadRows = lineUp.map(slug => rowBySlug.get(slug)!);
 const restRows = rows.filter(row => !inLineUp.has(row.slug));
 ---
 <AdminLayout title="Project Manager">
-  <div class="admin-main-wide" id="admin-projects">
+  <div class="admin-main-wide" id="admin-projects" data-user={GITHUB_USER}>
     <p class="admin-eyebrow-mono">MODULE: PROJECT_MGMT</p>
     <h1 class="pm-title">Project Portfolio</h1>
     <p class="pm-desc">
-      Import repositories and manage what is visible. <strong>Edit</strong> on a card
-      opens that project's own page, where the fields and its case study live. Every
-      change here writes a row in <code>projects</code> and is live on the site
-      immediately — there is no build to wait for.
+      Import repositories and manage what is visible. <strong>Import</strong> has a screen of
+      its own; <strong>Edit</strong> on a card opens that project's page, where the fields
+      and its case study live. Every change here writes a row in <code>projects</code> and is
+      live on the site immediately — there is no build to wait for.
     </p>
 
     <section class="card elev-sm source-control">
@@ -123,9 +101,9 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
           <a class="btn btn-secondary" href={grantAccessUrl()} target="_blank" rel="noopener">
             <Icon name="lucide:shield-check" class="admin-nav-icon" />Repository access
           </a>
-          <button type="button" class="btn btn-primary" id="import-open" data-user={GITHUB_USER}>
+          <a class="btn btn-primary" href="/admin/projects/import">
             <Icon name="lucide:git-branch" class="admin-nav-icon" />Import from GitHub
-          </button>
+          </a>
           <a class="btn btn-secondary" href="/admin/" id="connect-github">Connect to GitHub</a>
         </div>
       </div>
@@ -201,9 +179,9 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
             the site as soon as you save.
           </p>
           <div class="admin-empty-actions">
-            <button type="button" class="btn btn-primary btn-sm" id="import-open-empty">
+            <a class="btn btn-primary btn-sm" href="/admin/projects/import">
               <Icon name="lucide:git-branch" class="admin-nav-icon" />Import from GitHub
-            </button>
+            </a>
           </div>
         </div>
       </div>
@@ -290,266 +268,29 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
       all need a GitHub session, because each one writes to the live database.
     </p>
   </div>
-
-  {/* — import modal —
-
-      Three honest states per repository, which only became possible once
-      sign-in was a GitHub App: the installation says what this session can
-      actually read — private repositories included — and the public listing
-      says what else exists that access could be granted to. */}
-  {/* `.modal-fixed` because the list arrives over the network. Sized by its
-      content, this dialog opened as a head and a foot with a two-line gap
-      between them and then snapped to full height a second later as the
-      repositories landed — every control in the foot moving several hundred
-      pixels while it was being read, and the search field jumping out from
-      under the pointer already on it. The height is decided before the fetch;
-      the skeleton rows below give the *inside* of the body the same treatment. */}
-  <dialog class="modal modal-fixed" id="import-modal" aria-labelledby="import-title">
-    {/* Head and foot are pinned by `.modal`; the repository list is the band
-        that scrolls. With twenty-odd rows, scrolling the whole dialog put the
-        search field out of reach exactly when it was needed. */}
-    <div class="modal-head">
-      <div class="modal-head-copy">
-        <p class="admin-eyebrow-mono">MODULE: IMPORT</p>
-        <h2 class="modal-title" id="import-title">Import from GitHub</h2>
-        <p class="text-muted admin-note modal-lede" id="import-status">Loading repositories…</p>
-      </div>
-      <form method="dialog" class="modal-close-form">
-        <button class="btn btn-icon" value="cancel" aria-label="Close">
-          <Icon name="lucide:x" class="admin-nav-icon" />
-        </button>
-      </form>
-    </div>
-
-    <div class="modal-body">
-      <div class="modal-controls">
-        <input
-          class="input modal-search"
-          id="import-search"
-          type="search"
-          placeholder="Search repositories…"
-          aria-label="Search repositories"
-        />
-        <div class="seg" role="group" aria-label="Filter repositories">
-          <label class="seg-opt"><input type="radio" name="import-filter" value="all" checked />All</label>
-          <label class="seg-opt"><input type="radio" name="import-filter" value="imported" />In portfolio</label>
-          <label class="seg-opt"><input type="radio" name="import-filter" value="granted" />Granted</label>
-          <label class="seg-opt"><input type="radio" name="import-filter" value="ungranted" />Not granted</label>
-        </div>
-      </div>
-
-      <div class="modal-list" id="import-list"></div>
-
-      <template id="import-empty">
-        <div class="admin-empty">
-          <div class="admin-empty-art admin-empty-art-sm"><Illustration name="empty-mailbox" /></div>
-          <p class="admin-empty-copy">
-            No repository matches that search and filter. "Not granted" hides everything the
-            App can already see — try All.
-          </p>
-        </div>
-      </template>
-    </div>
-
-    <div class="modal-foot">
-      <p class="text-muted modal-foot-note">
-        "Granted" means the GitHub App is installed on that repository, so this session can
-        read it here — a private one will not appear at all otherwise. The App is read-only
-        and nothing on this site writes to a repository; importing copies the metadata into
-        this portfolio's own database. Anything not granted needs
-        <a href={grantAccessUrl()} target="_blank" rel="noopener">the App's repository
-        access</a> widening first — "All repositories", or "Only select repositories"
-        with that one added.
-      </p>
-    </div>
-  </dialog>
-
-  {/* — import form —
-
-      Creation only. GitHub answers seven of the nine required fields;
-      `category` is an enum and `highlights` is prose, so an import can never be
-      one click if every file that lands is to be schema-valid. Editing a
-      project that already exists is `/admin/projects/<slug>`, which has room
-      for the case study too. */}
-  <dialog class="modal" id="project-modal" aria-labelledby="project-form-title">
-    <div class="modal-head">
-      <div class="modal-head-copy">
-        <p class="admin-eyebrow-mono">MODULE: IMPORT_FORM</p>
-        <h2 class="modal-title" id="project-form-title">Import project</h2>
-        <p class="text-muted admin-note modal-lede">
-          Inserts <code id="pf-path">projects/…</code>. Fields left blank are left unset
-          when they are optional.
-        </p>
-      </div>
-      <form method="dialog" class="modal-close-form">
-        <button class="btn btn-icon" value="cancel" aria-label="Close">
-          <Icon name="lucide:x" class="admin-nav-icon" />
-        </button>
-      </form>
-    </div>
-
-    <div class="modal-body">
-      <div class="pf-grid">
-        <div class="field pf-wide">
-          <label for="pf-title">Title</label>
-          <input class="input" id="pf-title" />
-        </div>
-        <div class="field pf-wide">
-          <label for="pf-summary">Summary</label>
-          <textarea class="input pf-summary" id="pf-summary" data-grow></textarea>
-        </div>
-        <div class="field">
-          <label for="pf-category">Category</label>
-          <select class="input" id="pf-category">
-            {PROJECT_CATEGORIES.map(([value, label]) => <option value={value}>{label}</option>)}
-          </select>
-        </div>
-        <div class="field">
-          <label for="pf-status">Status</label>
-          <select class="input" id="pf-status">
-            {PROJECT_STATUSES.map(([value, label]) => <option value={value}>{label}</option>)}
-          </select>
-        </div>
-        <div class="field">
-          <label for="pf-year">Year</label>
-          <input class="input" id="pf-year" type="number" min="1990" max="2100" />
-        </div>
-        <div class="field">
-          <label for="pf-rank">Featured rank (blank = not featured)</label>
-          <input class="input" id="pf-rank" type="number" min="1" max="99" />
-        </div>
-        <div class="field pf-wide">
-          <label for="pf-tags">Tags (comma separated)</label>
-          <input class="input" id="pf-tags" />
-        </div>
-        <div class="field pf-wide">
-          <label for="pf-stack">Stack (comma separated)</label>
-          <input class="input" id="pf-stack" />
-        </div>
-        <div class="field pf-wide">
-          <label for="pf-repo">Repository URL</label>
-          <input class="input" id="pf-repo" />
-        </div>
-        <div class="field pf-wide">
-          <label for="pf-demo">Demo URL (optional)</label>
-          <input class="input" id="pf-demo" />
-        </div>
-        <div class="field pf-wide">
-          <label for="pf-hero">Hero image (optional)</label>
-          <input class="input" id="pf-hero" placeholder="/images/project.jpg" />
-        </div>
-        <div class="field pf-wide">
-          <label for="pf-highlights">Highlights (one per line)</label>
-          <textarea class="input pf-highlights" id="pf-highlights" data-grow></textarea>
-        </div>
-        <div class="field pf-wide">
-          <label for="pf-case">Case study</label>
-          <select class="input" id="pf-case">
-            <option value="">— none —</option>
-            {caseStudies.map(entry => <option value={entry.slug}>{entry.data.title} ({entry.slug})</option>)}
-            <option value="__new__">+ scaffold a new case study from this project</option>
-            <option value="__ai__">+ write a new case study from the repository (AI)</option>
-          </select>
-          <p class="text-muted admin-note">
-            Scaffolding inserts <code>{caseStudyPath('<slug>')}</code> with the structured
-            fields filled in from this project and a placeholder body, then links the two.
-            The AI option writes the same header and the write-up under it from the README —
-            two calls, so creating takes a little while — and it is editable afterwards on
-            the project's own page like anything else.
-          </p>
-        </div>
-      </div>
-
-      <p class="admin-note pf-message" id="pf-message"></p>
-    </div>
-
-    <div class="modal-foot">
-      <div class="modal-actions">
-        {/* Reads the repository — its metadata and its README — and writes the
-            summary, category, tags, stack and highlights. The same task the
-            project's own page runs as `/write-frontmatter`, on the same
-            endpoint: an import is where those fields are emptiest, and it is
-            the moment the README has actually been read by anybody. */}
-        <button type="button" class="btn btn-secondary pf-draft" id="pf-draft">
-          <Icon name="lucide:sparkles" class="admin-nav-icon" />Draft with AI
-        </button>
-        <form method="dialog"><button class="btn btn-secondary" value="cancel">Cancel</button></form>
-        <button type="button" class="btn btn-primary" id="pf-save">Create project</button>
-      </div>
-    </div>
-  </dialog>
-
-  {/* The same panel the project's own page and the journal editor mount. It is
-      here so an import's "Draft with AI" has somewhere to show its work — it
-      opens over the form, which is a modal `<dialog>`. */}
-  <AssistPanel
-    surface="project"
-    sub="Writes into the import form as it answers. Nothing is created until you press Create project."
-  />
-
-  <script is:inline type="application/json" id="projects-seed" set:html={seedJson}></script>
 </AdminLayout>
 
 <script>
-  import { onAdminPage, setBusy, setLabel, toast, trackDirty, type DirtyField } from '../../lib/admin';
-  import { showAdminModal } from '../../lib/modal';
+  import { onAdminPage, setBusy, setLabel, toast } from '../../lib/admin';
   import { relativeTime } from '../../lib/format';
+  import { patchProject, removeProject, saveDeepDives } from '../../lib/content-store';
   import {
-    createCaseStudy,
-    createProject,
-    fieldsFromRepo,
-    patchProject,
-    projectPath,
-    removeProject,
-    saveDeepDives,
-    slugify,
-    type ProjectFields,
-  } from '../../lib/content-store';
-  import {
-    CONTENT_REPO,
     canWriteContent,
-    fetchRepoLanguages,
     fetchRepoMeta,
-    fetchRepoReadme,
     getToken,
     getUser,
     grantAccessUrl,
-    listRepositories,
-    parseRepoUrl,
-    repoFacts,
-    type RepoSummary,
   } from '../../lib/github';
-  import { runAssist } from '../../lib/ai-store';
-  import { mountAssistPanel } from '../../lib/assist-panel';
-  import {
-    ASSIST_MENU,
-    ASSIST_TASKS,
-    CASE_STUDY_KEYS,
-    PROJECT_KEYS,
-    parseEdit,
-    parseFields,
-    type AssistTask,
-    type AssistTaskName,
-  } from '../../lib/assist-tasks';
-  import { copyText } from '../../lib/clipboard';
-  import { attachImageUpload } from '../../lib/image-upload';
 
   /* The admin client-routes, so this runs on first paint and again every time
      you come back to this screen — see `onAdminPage`. */
   onAdminPage('#admin-projects', () => {
-    interface Seed {
-      projects: Record<string, ProjectFields>;
-      caseStudies: { slug: string; title: string }[];
-    }
-
-    const seed: Seed = JSON.parse(document.getElementById('projects-seed')!.textContent || '{}');
     const signedIn = Boolean(getToken() && getUser());
     const message = (error: unknown) => (error instanceof Error ? error.message : 'Request failed.');
 
     /* `site.githubUser` is a frontmatter constant, so a client script cannot
-       see it — the `data-user` attribute on the import button is the seam, the
-       same one `listRepositories()` reads it through. */
-    const OWNER = (document.getElementById('import-open') as HTMLElement).dataset.user!;
+       see it — the `data-user` attribute on the root is the seam. */
+    const OWNER = (document.getElementById('admin-projects') as HTMLElement).dataset.user!;
 
     /* — session banner —
 
@@ -600,7 +341,7 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
             'GitHub does not report this session as the owner of this site, so visibility, ' +
               'editing and delete will all be refused — the write endpoint admits one account ' +
               `and it is @${OWNER}. Sign out and back in with that account. Repository ` +
-              `access for the import list is a separate grant on ${CONTENT_REPO}, at `
+              `access for the import list is a separate grant on the site's repository, at `
           ),
           link,
           document.createTextNode('.')
@@ -708,9 +449,7 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
 
     /* Visibility. The row is the only truth; signed out there is nowhere to
        write, so the switch is disabled rather than recording an intention in
-       this browser that nothing will ever apply. `line` is where this switch
-       reports, which differs between the card and the import modal — the same
-       project can carry both.
+       this browser that nothing will ever apply.
 
        The toast is the second report, and on this control it is the one that
        gets read: the switch is on a card in a grid, and the line under it is
@@ -753,12 +492,9 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
       });
     }
 
-    /* A project has a switch on its card and, once the modal has been opened,
-       another one in the import list. Both show the same field.
-
-       `data-hidden` on the card is that same field a third time — read by the
+    /* `data-hidden` on the card is the same field a second time — read by the
        visibility filter above, and by the rule that a hidden project cannot
-       lead the home page. It is written here so the three cannot drift apart. */
+       lead the home page. It is written here so the two cannot drift apart. */
     function syncToggles(slug: string, visible: boolean) {
       document
         .querySelectorAll<HTMLButtonElement>(`.toggle[data-slug="${CSS.escape(slug)}"]`)
@@ -766,7 +502,6 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
       cards
         .filter(card => card.dataset.slug === slug)
         .forEach(card => { card.dataset.hidden = visible ? '0' : '1'; });
-      if (seed.projects[slug]) seed.projects[slug].hidden = !visible;
       onHidden(slug, !visible);
     }
 
@@ -839,832 +574,6 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
         }
       });
     });
-
-    // -------------------------------------------------- the import form
-
-    const projectModal = document.getElementById('project-modal') as HTMLDialogElement;
-    const formPath = document.getElementById('pf-path')!;
-    const formMessage = document.getElementById('pf-message')!;
-    const saveButton = document.getElementById('pf-save') as HTMLButtonElement;
-    const field = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-
-    const inputs = {
-      title: field<HTMLInputElement>('pf-title'),
-      summary: field<HTMLTextAreaElement>('pf-summary'),
-      category: field<HTMLSelectElement>('pf-category'),
-      status: field<HTMLSelectElement>('pf-status'),
-      year: field<HTMLInputElement>('pf-year'),
-      rank: field<HTMLInputElement>('pf-rank'),
-      tags: field<HTMLInputElement>('pf-tags'),
-      stack: field<HTMLInputElement>('pf-stack'),
-      repo: field<HTMLInputElement>('pf-repo'),
-      demo: field<HTMLInputElement>('pf-demo'),
-      hero: field<HTMLInputElement>('pf-hero'),
-      highlights: field<HTMLTextAreaElement>('pf-highlights'),
-      caseStudy: field<HTMLSelectElement>('pf-case'),
-    };
-
-    /* The filename follows the title for the same reason the project's own does:
-       on this form nothing has been written yet, so the title is still the only
-       name the project has. */
-    attachImageUpload(inputs.hero, {
-      dir: 'images/projects',
-      name: () => `${slugify(inputs.title.value)}-hero`,
-    });
-
-    /* Create stays disabled until the form differs from what the last open
-       put there — an untouched import has nothing to write. Reset on every
-       open, checked on every streamed draft (whose assignments fire no
-       events), and the dialog closes itself on a good create. */
-    const formDirty = trackDirty(
-      () => Object.values(inputs) as DirtyField[],
-      saveButton,
-      'Fill in the form to create the project.',
-    );
-
-    let target: ProjectFields | null = null;
-
-    /**
-     * The repository this form was opened on, and what has been read of it.
-     *
-     * The listing already answered everything but the README, so `facts` is
-     * built once on open and costs nothing; `readme` is fetched on the first
-     * press of Draft with AI, because it can be twenty kilobytes and most
-     * imports never ask for it. Cleared with the form, so a second import
-     * cannot be drafted from the first one's repository.
-     */
-    let source: { facts: string; readme: string | null } | null = null;
-
-    const csv = (value: string) => value.split(',').map(part => part.trim()).filter(Boolean);
-    const lines = (value: string) => value.split('\n').map(part => part.trim()).filter(Boolean);
-
-    /**
-     * Open the import form on a repository's metadata.
-     *
-     * Creation only — the slug is derived from the title on save, because the
-     * title is editable right up until the file is written and the filename is
-     * where Astro gets the slug from.
-     */
-    function openForm(slug: string, fields: ProjectFields, repo: RepoSummary, languages: string[]) {
-      target = fields;
-      source = { facts: repoFacts(repo, languages), readme: null };
-
-      formPath.textContent = projectPath(slug);
-      say(formMessage, '');
-
-      inputs.title.value = fields.title ?? '';
-      inputs.summary.value = fields.summary ?? '';
-      inputs.category.value = fields.category ?? 'other';
-      inputs.status.value = fields.status ?? 'active';
-      inputs.year.value = String(fields.year ?? new Date().getFullYear());
-      inputs.rank.value = fields.featuredRank === undefined ? '' : String(fields.featuredRank);
-      inputs.tags.value = (fields.tags ?? []).join(', ');
-      inputs.stack.value = (fields.stack ?? []).join(', ');
-      inputs.repo.value = fields.repoUrl ?? '';
-      inputs.demo.value = fields.demoUrl ?? '';
-      inputs.hero.value = fields.heroImage ?? '';
-      inputs.highlights.value = (fields.highlights ?? []).join('\n');
-      inputs.caseStudy.value = fields.caseStudySlug ?? '';
-
-      /* A fresh open is clean by definition — whatever the last import left
-         in these inputs is gone, so the snapshot goes with it. */
-      formDirty.reset();
-      showAdminModal(projectModal);
-      inputs.title.focus();
-    }
-
-    /** The form as schema-shaped fields, or a sentence saying what is wrong. */
-    function readForm(): ProjectFields | string {
-      const title = inputs.title.value.trim();
-      const summary = inputs.summary.value.trim();
-      const repoUrl = inputs.repo.value.trim();
-      const year = Number(inputs.year.value);
-
-      if (!title) return 'A title is required — it is also what the filename comes from.';
-      if (!summary) return 'A summary is required: it is the card body and the meta description.';
-      /* An empty URL is allowed: it is how a project whose repository is
-         private stops showing a Repo button that 404s. Present, it has to
-         parse. */
-      if (repoUrl) {
-        try {
-          new URL(repoUrl);
-        } catch {
-          return 'The repository URL has to be an absolute URL.';
-        }
-      }
-      if (!Number.isInteger(year)) return 'Year has to be a whole number.';
-
-      const rank = inputs.rank.value.trim();
-      return {
-        title,
-        summary,
-        category: inputs.category.value as ProjectFields['category'],
-        tags: csv(inputs.tags.value),
-        stack: csv(inputs.stack.value),
-        repoUrl: repoUrl || undefined,
-        demoUrl: inputs.demo.value.trim() || undefined,
-        featuredRank: rank === '' ? undefined : Number(rank),
-        status: inputs.status.value as ProjectFields['status'],
-        year,
-        heroImage: inputs.hero.value.trim() || undefined,
-        highlights: lines(inputs.highlights.value),
-      };
-    }
-
-    /** That repository's README, read once per form. */
-    async function readme(): Promise<string> {
-      if (!source) return '';
-      if (source.readme === null) {
-        const url = inputs.repo.value.trim();
-        try {
-          const { owner, name } = parseRepoUrl(url);
-          source.readme = await fetchRepoReadme(owner, name);
-        } catch {
-          /* No README, or a repository this session cannot read. The facts from
-             the listing are still worth writing from, and saying so is better
-             than refusing — this is the same tolerance `repoContext()` on a
-             project's own page has. */
-          source.readme = '';
-        }
-      }
-      return source.readme;
-    }
-
-    /**
-     * Write the frontmatter from the repository, into the fields as it arrives.
-     *
-     * The same task the project's own page runs as `/write-frontmatter`, on the
-     * same endpoint and against the same key set. It used to run *here*, behind
-     * a disabled button and a one-line status: twenty seconds whose only sign
-     * of life was the fields filling in, and none at all while the model
-     * deliberated first — which on a reasoning model is most of it. It goes
-     * through the panel now, so the thinking and the lookups show where they do
-     * on every other screen. The answer still streams into the form, which was
-     * never the part that was wrong.
-     */
-    const draftButton = document.getElementById('pf-draft') as HTMLButtonElement;
-    if (!signedIn) {
-      draftButton.disabled = true;
-      draftButton.title = 'Sign in with GitHub to use the assistant.';
-    }
-
-    draftButton.addEventListener('click', () => {
-      if (!signedIn || !source) return;
-      panel.open();
-      panel.send(`/${ASSIST_TASKS.project.command}`);
-    });
-
-    /**
-     * Write a partly-arrived frontmatter response into the form.
-     *
-     * Every branch is guarded on a parsed value, which is what makes a response
-     * that recognised nothing write nothing — the same rule the project page's
-     * `applyLive` follows, and the reason there is no half-applied state to
-     * unpick. Decision 29.
-     */
-    function fillDraft(raw: string) {
-      const { values, tailStarted } = parseFields(raw, PROJECT_KEYS);
-      if (values.title) inputs.title.value = values.title;
-      if (values.summary) inputs.summary.value = values.summary;
-      if (values.tags) inputs.tags.value = values.tags;
-      if (values.stack) inputs.stack.value = values.stack;
-
-      /* A model handed a closed list still answers outside it now and then, and
-         assigning an unknown value to a `<select>` clears the selection rather
-         than leaving the previous one. `select.ts` overrides the setter, so a
-         value that *is* in the list also repaints the custom dropdown. */
-      const category = values.category.trim().toLowerCase();
-      if (category && Array.from(inputs.category.options).some(o => o.value === category)) {
-        inputs.category.value = category;
-      }
-
-      /* The tail may legitimately be empty while it is arriving — it is written
-         from the moment its label lands, so the box fills line by line. */
-      if (tailStarted) {
-        inputs.highlights.value = values.highlights
-          .split('\n')
-          .map(line => line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim())
-          .filter(Boolean)
-          .join('\n');
-      }
-
-      /* Programmatic writes fire no events, so the streamed draft would leave
-         Create disabled without this. */
-      formDirty.check();
-    }
-
-    // ------------------------------------------------------- the assistant
-
-    /**
-     * The panel both authoring screens mount, on the screen that had none.
-     *
-     * Every run this screen makes goes through it — the frontmatter draft and
-     * the two case-study writes an `__ai__` import makes on save — so the
-     * thinking, the lookups and the failures land where the author is already
-     * looking rather than in a one-line status under the fields.
-     *
-     * It opens *beside* the import form and both stay usable: `open()` in
-     * `assist-panel.ts` steps any open modal down to modeless (see
-     * `src/lib/modal.ts`), because a modal panel in the top layer would make
-     * the form below it inert — the fields still fill in as the answer
-     * streams, and the form can be edited while it does.
-     */
-    let assisting: AbortController | null = null;
-
-    /** The import form as one task's context, sliced to the fields it declares. */
-    async function assistContext(task: AssistTask): Promise<Record<string, string>> {
-      const available: Record<string, string> = {
-        repo: source?.facts ?? '',
-        readme: task.context.includes('readme') ? await readme() : '',
-        title: inputs.title.value,
-        summary: inputs.summary.value,
-        tags: inputs.tags.value,
-        stack: inputs.stack.value,
-        highlights: inputs.highlights.value,
-      };
-      const context: Record<string, string> = {};
-      for (const key of task.context) context[key] = available[key] ?? '';
-      return context;
-    }
-
-    /**
-     * One run, from wherever it started to the panel.
-     *
-     * `given` is for the two case-study tasks, whose context is the seed being
-     * assembled during a save rather than the form on screen. Everything else
-     * reads the form. It never throws: a failure is a note on the message and
-     * an empty string to the caller, because the callers are a save that has a
-     * scaffold to fall back on and a panel that has already shown the error.
-     */
-    async function runTurn(
-      name: AssistTaskName,
-      instruction: string,
-      given?: Record<string, string>,
-    ): Promise<string> {
-      const task: AssistTask = ASSIST_TASKS[name];
-      const item = ASSIST_MENU.find(entry => entry.name === name) ?? null;
-
-      panel.open();
-      const turn = panel.begin(task.label, item?.command ?? null);
-      panel.running(true);
-
-      assisting?.abort();
-      const controller = new AbortController();
-      assisting = controller;
-
-      const again = { label: 'Try again', run: () => void runTurn(name, instruction, given) };
-      const copy = (text: string) => ({
-        label: 'Copy',
-        run: () => void copyText(text).then(() => toast('Copied.', { tone: 'success' })),
-      });
-
-      /* `project` is the only task on this screen with a field to stream into.
-         A chat reply that *opens* with a labelled field is an edit of the form
-         rather than an answer about it — the same discriminator, and the same
-         reasoning, as the project's own page. Decision 48. */
-      const live = name === 'project';
-
-      let raw = '';
-      let thought = '';
-
-      try {
-        turn.status(live ? 'Reading the repository…' : 'Thinking…');
-        const context = given ?? (await assistContext(task));
-        turn.status('Writing…');
-
-        const answer = await runAssist(
-          name,
-          context,
-          instruction,
-          {
-            onDelta: chunk => {
-              raw += chunk;
-              if (live) fillDraft(raw);
-              else turn.answer(raw);
-            },
-            onThinking: chunk => {
-              thought += chunk;
-              turn.thinking(chunk);
-            },
-            onTool: frame => turn.tool(frame),
-          },
-          controller.signal,
-          name === 'chat' ? panel.history() : undefined,
-          panel.runOptions(),
-        );
-
-        if (!answer.trim()) {
-          throw new Error(
-            thought
-              ? 'The model spent the whole token budget thinking and never wrote an answer. Open Thinking above to read it, then lower the effort in the toolbar or pick a model that deliberates less.'
-              : 'The model finished without writing anything. Try again, or pick a different model on the AI screen.',
-          );
-        }
-
-        const applies = live || (name === 'chat' && Boolean(parseEdit(answer, PROJECT_KEYS)));
-
-        if (applies && !parseFields(answer, PROJECT_KEYS).recognised) {
-          turn.answer(answer);
-          turn.actions([copy(answer), again]);
-          turn.note('The model answered without using the field format, so nothing was written.', 'error');
-          turn.end(answer);
-          say(formMessage, 'The reply was not in the field format, so nothing was written.', 'error');
-          return answer;
-        }
-
-        if (applies) {
-          fillDraft(answer);
-          turn.status('It is in the form. Nothing is created until you press Create project.');
-          turn.actions([again]);
-          say(formMessage, 'Written from the repository. Edit anything, then create.');
-        } else {
-          turn.answer(answer);
-          turn.actions([copy(answer), again]);
-        }
-        turn.end(answer);
-        return answer;
-      } catch (error) {
-        /* Whatever arrived stays in the fields — that is what writing straight
-           into the form means, and the fields were empty a moment ago. */
-        const text =
-          error instanceof DOMException && error.name === 'AbortError'
-            ? 'Stopped.'
-            : message(error);
-        turn.note(text, 'error');
-        turn.actions([again]);
-        turn.end(raw);
-        return '';
-      } finally {
-        panel.running(false);
-        if (assisting === controller) assisting = null;
-      }
-    }
-
-    const panel = mountAssistPanel({
-      surface: 'project',
-      /* No row exists yet, so the conversation is filed under the slug the
-         title would produce. */
-      docSlug: () => slugify(inputs.title.value),
-      stop: () => assisting?.abort(),
-      run: (item, instruction) => void runTurn(item ? item.name : 'chat', instruction),
-      /* Two of this surface's three commands write case-study fields, and this
-         form has none of them — the case study is written on save, or on the
-         project's own page. Blocked here rather than filtered out of the menu,
-         because the menu is `task.surface` and that is data the screen which
-         *does* have those fields shares. */
-      blocked: item =>
-        item.name === 'project'
-          ? null
-          : 'That one writes case-study fields, and this form has none. Create the project, then open its page.',
-    });
-
-    /**
-     * Resolve the case-study select into a slug, creating one first when that
-     * is what was asked for. Returns `undefined` for "none", which
-     * `patchProject` reads as "remove the field".
-     *
-     * Two ways to create: `__new__` scaffolds the header from this form and a
-     * placeholder body, and `__ai__` writes both from the repository. The
-     * second is the one that produces something worth reading — a case study
-     * whose body is the scaffold paragraph is a page with a header and nothing
-     * under it, which is what every one of them was until the write-up had a
-     * task and a field of its own.
-     */
-    async function resolveCaseStudy(slug: string, fields: ProjectFields): Promise<string | undefined> {
-      const choice = inputs.caseStudy.value;
-      if (choice !== '__new__' && choice !== '__ai__') return choice || undefined;
-
-      const seedFields = {
-        title: fields.title,
-        subtitle: fields.summary,
-        problem: 'Describe the problem this project set out to solve.',
-        solution: 'Describe the approach that solved it.',
-        achievements: fields.highlights.length ? fields.highlights : ['Add an achievement.'],
-        stack: fields.stack,
-        repoUrl: fields.repoUrl,
-        demoUrl: fields.demoUrl,
-        date: new Date().toISOString().slice(0, 10),
-      };
-      let body: string | undefined;
-
-      if (choice === '__ai__') {
-        /* Two calls, in order, because the second one reads the first: the
-           prose has to agree with the problem and solution above it. Neither
-           throws — `runTurn` reports a failure into the panel and answers with
-           an empty string — so a model that falls over leaves the scaffold
-           rather than abandoning the import. The project is the thing being
-           created here, and a case study that needs rewriting is recoverable
-           from its own page.
-
-           They go through the panel for the same reason the frontmatter does:
-           this is a minute of work with nothing on screen otherwise. */
-        say(formMessage, 'Writing the case study from the repository…');
-        const header = await runTurn('casestudy', '', {
-          repo: source?.facts ?? '',
-          readme: await readme(),
-          title: fields.title,
-          summary: fields.summary,
-          stack: fields.stack.join(', '),
-          highlights: fields.highlights.join('\n'),
-        });
-
-        const { values, recognised } = parseFields(header, CASE_STUDY_KEYS);
-        if (recognised) {
-          if (values.title.trim()) seedFields.title = values.title.trim();
-          if (values.subtitle.trim()) seedFields.subtitle = values.subtitle.trim();
-          if (values.problem.trim()) seedFields.problem = values.problem.trim();
-          if (values.solution.trim()) seedFields.solution = values.solution.trim();
-          const achievements = lines(values.achievements).map(line =>
-            line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim(),
-          );
-          if (achievements.length) seedFields.achievements = achievements;
-          if (values.stack.trim()) seedFields.stack = csv(values.stack);
-        }
-
-        say(formMessage, 'Writing the write-up under it…');
-        const prose = await runTurn('casestudybody', '', {
-          repo: source?.facts ?? '',
-          readme: await readme(),
-          title: seedFields.title,
-          summary: seedFields.subtitle,
-          stack: seedFields.stack.join(', '),
-          highlights: seedFields.achievements.join('\n'),
-          problem: seedFields.problem,
-          solution: seedFields.solution,
-        });
-        if (prose.trim()) body = prose.trim();
-        say(formMessage, 'Creating…');
-      }
-
-      await createCaseStudy(slug, seedFields, body);
-
-      /* The new case study exists in the database but not in this page's
-         render, so add it to the select rather than leaving the next save
-         unable to find it. */
-      const option = document.createElement('option');
-      option.value = slug;
-      option.textContent = `${seedFields.title} (${slug})`;
-      /* Above the two "create one" entries at the bottom of the list, which is
-         where the existing case studies are. */
-      inputs.caseStudy.insertBefore(option, inputs.caseStudy.querySelector('option[value="__new__"]'));
-      inputs.caseStudy.value = slug;
-      return slug;
-    }
-
-    saveButton.addEventListener('click', async () => {
-      if (!target) return;
-      if (!signedIn) return say(formMessage, 'Sign in with GitHub to save.', 'error');
-
-      const fields = readForm();
-      if (typeof fields === 'string') return say(formMessage, fields, 'error');
-
-      const slug = slugify(fields.title);
-      if (!slug) return say(formMessage, 'That title does not produce a usable slug.', 'error');
-
-      setBusy(saveButton, true, 'Creating…');
-      say(formMessage, 'Creating…');
-      /* The toast matters more here than anywhere else on this screen: this
-         message line is inside a dialog, and the dialog is the first thing that
-         gets closed once the button has been pressed. */
-      const pending = toast(`Creating ${slug}…`, { tone: 'pending' });
-
-      try {
-        const caseStudySlug = await resolveCaseStudy(slug, fields);
-
-        /* `hidden` is deliberately not written: it belongs to the visibility
-           switch, and an explicit `hidden: false` on every imported row would
-           be noise the hand-authored ones do not carry. */
-        const result = await createProject(slug, { ...fields, caseStudySlug });
-        afterCreate(slug, { ...fields, caseStudySlug });
-
-        const live = document.createElement('a');
-        live.href = result.url;
-        live.target = '_blank';
-        live.rel = 'noopener';
-        live.textContent = 'view live ↗';
-
-        const detail = document.createElement('a');
-        detail.href = `/admin/projects/${slug}`;
-        detail.textContent = 'open its page →';
-
-        formMessage.dataset.tone = 'info';
-        formMessage.replaceChildren(
-          document.createTextNode('Created and live. Reload this screen to see its card — '),
-          live,
-          document.createTextNode(' · '),
-          detail
-        );
-        pending.update(`${slug} created and live.`, {
-          tone: 'success',
-          action: { label: 'open its page →', href: `/admin/projects/${slug}`, external: false },
-        });
-        /* The work is done and the toast carries the onward links, so the
-           form closes itself rather than sitting on a stale success. */
-        projectModal.close();
-      } catch (error) {
-        say(formMessage, message(error), 'error');
-        pending.update(message(error), { tone: 'error' });
-      } finally {
-        setBusy(saveButton, false);
-      }
-    });
-
-    /* This screen's cards were rendered from the rows that existed when the
-       request came in, so a create does not change what is on screen — the new
-       project has no card until this page is reloaded. What *can* be corrected
-       is the import list's idea of what exists, so the row it came from stops
-       offering to import it a second time. */
-    function afterCreate(slug: string, fields: ProjectFields) {
-      seed.projects[slug] = fields;
-      /* Clearing the target disarms the button: clicking Create twice would
-         come back with "already exists", which is true and useless. */
-      target = null;
-      if (fields.repoUrl) importState.slugByRepo.set(repoKey(fields.repoUrl), slug);
-      if (importState.loaded) renderImportList();
-    }
-
-    // --------------------------------------------------------- import modal
-
-    const importModal = document.getElementById('import-modal') as HTMLDialogElement;
-    const importOpen = document.getElementById('import-open') as HTMLButtonElement;
-    const importStatus = document.getElementById('import-status')!;
-    const importList = document.getElementById('import-list')!;
-    const importSearch = document.getElementById('import-search') as HTMLInputElement;
-    const importFilters = Array.from(
-      document.querySelectorAll<HTMLInputElement>('input[name="import-filter"]')
-    );
-
-    /* Repositories are matched on their URL, not their name: the project's
-       title is editable and often is not the repository name. Trailing slashes
-       and a `.git` suffix are stripped so a hand-typed `repoUrl` still lines up
-       with what the API returns. */
-    const repoKey = (url: string) => url.toLowerCase().replace(/\.git$/, '').replace(/\/+$/, '');
-
-    const importState = {
-      repos: [] as RepoSummary[],
-      loaded: false,
-      slugByRepo: new Map(
-        Object.entries(seed.projects)
-          .map(([slug, project]) => (project.repoUrl ? [repoKey(project.repoUrl), slug] : null))
-          .filter(Boolean) as [string, string][],
-      ),
-    };
-
-    type RepoState = 'imported' | 'granted' | 'ungranted';
-
-    function stateOf(repo: RepoSummary): RepoState {
-      if (importState.slugByRepo.has(repoKey(repo.htmlUrl))) return 'imported';
-      return repo.granted ? 'granted' : 'ungranted';
-    }
-
-    const STATE_LABEL: Record<RepoState, string> = {
-      imported: 'in portfolio',
-      granted: 'granted, not imported',
-      ungranted: 'not granted',
-    };
-
-    function renderImportList() {
-      const term = importSearch.value.trim().toLowerCase();
-      const filter = importFilters.find(input => input.checked)?.value ?? 'all';
-
-      const visible = importState.repos.filter(repo => {
-        const state = stateOf(repo);
-        if (filter !== 'all' && filter !== state) return false;
-        if (!term) return true;
-        return `${repo.fullName} ${repo.description ?? ''}`.toLowerCase().includes(term);
-      });
-
-      importList.replaceChildren(...visible.map(repoRow));
-
-      /* Cloned from the markup rather than built here: the empty state carries
-         an inlined illustration, and duplicating that in a script would put a
-         second copy of the artwork in the bundle. */
-      if (!visible.length) {
-        importList.appendChild(
-          (document.getElementById('import-empty') as HTMLTemplateElement).content.cloneNode(true)
-        );
-      }
-    }
-
-    /* Built node by node rather than from a template string: the name, the
-       description and the URL all come back from GitHub, and none of them is
-       worth handing to an HTML parser. */
-    function repoRow(repo: RepoSummary): HTMLElement {
-      const state = stateOf(repo);
-      const row = document.createElement('div');
-      row.className = 'repo-row';
-      row.dataset.state = state;
-
-      const identity = document.createElement('div');
-      identity.className = 'repo-id';
-
-      const name = document.createElement('a');
-      name.className = 'repo-name';
-      name.href = repo.htmlUrl;
-      name.target = '_blank';
-      name.rel = 'noopener';
-      name.textContent = repo.fullName;
-      identity.appendChild(name);
-
-      const badges = document.createElement('span');
-      badges.className = 'repo-badges';
-      const flag = document.createElement('span');
-      flag.className = 'tag repo-flag';
-      flag.textContent = STATE_LABEL[state];
-      badges.appendChild(flag);
-      if (repo.isPrivate) badges.appendChild(chip('private'));
-      if (repo.archived) badges.appendChild(chip('archived'));
-      identity.appendChild(badges);
-
-      if (repo.description) {
-        const description = document.createElement('p');
-        description.className = 'text-muted repo-desc';
-        description.textContent = repo.description;
-        identity.appendChild(description);
-      }
-
-      /* What the listing already answered, and what deciding between twenty
-         repositories actually turns on. It costs no request — every field here
-         came back with the row — and the same facts are what the assistant is
-         handed when this one is imported, so what is on screen and what the
-         model is told are the same thing. */
-      const meta = document.createElement('div');
-      meta.className = 'repo-meta';
-
-      const facts = [
-        repo.language,
-        repo.stars ? `★ ${repo.stars}` : '',
-        repo.pushedAt ? `pushed ${relativeTime(repo.pushedAt)}` : '',
-        repo.license,
-        repo.homepage ? 'has a homepage' : '',
-      ].filter(Boolean);
-      if (facts.length) {
-        const line = document.createElement('span');
-        line.className = 'text-muted repo-facts';
-        line.textContent = facts.join(' · ');
-        meta.appendChild(line);
-      }
-
-      /* The author's own words for what the thing is. Four, because the row is
-         one line tall and a repository with fifteen topics would take the
-         dialog over. */
-      for (const topic of repo.topics.slice(0, 4)) meta.appendChild(chip(topic));
-
-      if (meta.childElementCount) identity.appendChild(meta);
-
-      const line = document.createElement('p');
-      line.className = 'text-muted admin-note repo-line';
-      line.dataset.role = 'status';
-
-      row.appendChild(identity);
-      row.appendChild(repoAction(repo, state, line));
-      row.appendChild(line);
-
-      return row;
-    }
-
-    function chip(text: string): HTMLElement {
-      const element = document.createElement('span');
-      element.className = 'tag tag-neutral';
-      element.textContent = text;
-      return element;
-    }
-
-    function repoAction(repo: RepoSummary, state: RepoState, line: HTMLElement): HTMLElement {
-      const host = document.createElement('div');
-      host.className = 'repo-action';
-
-      if (state === 'ungranted') {
-        const grant = document.createElement('a');
-        grant.className = 'btn btn-secondary btn-sm';
-        grant.href = grantAccessUrl();
-        grant.target = '_blank';
-        grant.rel = 'noopener';
-        grant.textContent = 'Grant access ↗';
-        host.appendChild(grant);
-        return host;
-      }
-
-      if (state === 'imported') {
-        const slug = importState.slugByRepo.get(repoKey(repo.htmlUrl))!;
-        const toggle = document.createElement('button');
-        toggle.type = 'button';
-        toggle.className = 'toggle';
-        toggle.setAttribute('role', 'switch');
-        toggle.dataset.slug = slug;
-        toggle.setAttribute('aria-checked', String(!seed.projects[slug]?.hidden));
-        toggle.setAttribute('aria-label', `Toggle visibility for ${slug}`);
-        toggle.appendChild(document.createElement('span'));
-        bindToggle(toggle, line);
-        host.appendChild(toggle);
-
-        /* A link out to the project's own page, not a second form in a second
-           dialog on top of the first. */
-        const edit = document.createElement('a');
-        edit.className = 'btn btn-secondary btn-sm';
-        edit.href = `/admin/projects/${slug}`;
-        edit.textContent = 'Edit';
-        host.appendChild(edit);
-        return host;
-      }
-
-      const add = document.createElement('button');
-      add.type = 'button';
-      add.className = 'btn btn-primary btn-sm';
-      add.textContent = 'Add';
-      add.addEventListener('click', async () => {
-        setBusy(add, true, 'Reading…');
-        /* `stack` is worth one extra call: languages are the only field GitHub
-           can fill that the form would otherwise leave empty. A failure is not
-           worth surfacing — `fetchRepoLanguages` returns an empty list and the
-           field is editable. */
-        const languages = await fetchRepoLanguages(repo.owner, repo.name);
-        setBusy(add, false);
-        importModal.close();
-        openForm(slugify(repo.name), fieldsFromRepo(repo, languages), repo, languages);
-      });
-      host.appendChild(add);
-      return host;
-    }
-
-    /* The list while it is being fetched.
-
-       The dialog's height is fixed by `.modal-fixed`, so the frame no longer
-       moves — this is the other half: the *rows* have a shape before they have
-       content, so nothing inside the body jumps either when the response lands.
-       Six is roughly a screenful at this height and is not a guess at how many
-       repositories there are; the count in the head is where that answer goes.
-
-       Built with `createElement` like `repoRow()`, so every rule for it has to
-       come through the `#import-list :global(…)` door for the same reason. */
-    function renderImportSkeleton() {
-      const rows = Array.from({ length: 6 }, () => {
-        const row = document.createElement('div');
-        row.className = 'repo-row repo-skeleton';
-        row.setAttribute('aria-hidden', 'true');
-
-        const identity = document.createElement('div');
-        identity.className = 'repo-id';
-        const name = document.createElement('div');
-        name.className = 'skeleton skeleton-line repo-skeleton-name';
-        const description = document.createElement('div');
-        description.className = 'skeleton skeleton-line-sm repo-skeleton-desc';
-        identity.append(name, description);
-
-        const action = document.createElement('div');
-        action.className = 'repo-action';
-        const button = document.createElement('div');
-        button.className = 'skeleton repo-skeleton-action';
-        action.appendChild(button);
-
-        row.append(identity, action);
-        return row;
-      });
-      importList.replaceChildren(...rows);
-    }
-
-    async function loadRepositories() {
-      importStatus.textContent = 'Reading repositories…';
-      renderImportSkeleton();
-      try {
-        importState.repos = await listRepositories(importOpen.dataset.user!);
-        importState.loaded = true;
-        const granted = importState.repos.filter(repo => repo.granted).length;
-        const imported = importState.repos.filter(repo => stateOf(repo) === 'imported').length;
-        importStatus.textContent = signedIn
-          ? `${importState.repos.length} repositories · ${granted} granted to the app · ${imported} already in the portfolio`
-          : `${importState.repos.length} public repositories. Sign in to see which the app has access to, and to import.`;
-        renderImportList();
-      } catch (error) {
-        importStatus.textContent = message(error);
-        /* The skeleton is a promise that rows are coming. When they are not,
-           it has to come down and say so — six shimmering placeholders over a
-           failure message is the worst of both. */
-        importList.replaceChildren();
-        toast(message(error), { tone: 'error' });
-      }
-    }
-
-    function openImport() {
-      showAdminModal(importModal);
-      if (!importState.loaded) loadRepositories();
-    }
-
-    importOpen.addEventListener('click', openImport);
-    /* The empty state's call to action is the same one as the header's. */
-    document.getElementById('import-open-empty')?.addEventListener('click', openImport);
-
-    importSearch.addEventListener('input', renderImportList);
-    importFilters.forEach(input => input.addEventListener('change', renderImportList));
-
-    /* A `<dialog>` closes on Escape by itself; clicking the backdrop is not
-       part of the element, so it is wired up here for the two of them. */
-    [importModal, projectModal].forEach(modal => {
-      modal.addEventListener('click', event => {
-        if (event.target === modal) modal.close();
-      });
-    });
-
 
     // -------------------------------------------------- the deep dives line-up
 
@@ -1949,72 +858,6 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
   /* Set when the access check comes back read-only — the one case where this
      footnote is reporting a fault rather than describing the screen. */
   .visibility-note[data-tone='error'] { color: var(--color-accent-700); }
-
-  /* The dialogs, the field grid and the visibility switch's captions all live
-     in `admin.css` — this screen shares every one of them with a project's own
-     page. What is left here is this screen's own layout. */
-
-  /* — import rows —
-
-     Every one of these is built by `repoRow()` with `createElement`, so none of
-     the nodes carries this page's `data-astro-cid` and a plain scoped selector
-     would silently match nothing — the rows rendered as unstyled stacked divs,
-     which is what "the import dialog looks broken" was. `:global()` under
-     `#import-list`, which *is* server-rendered and does carry the attribute, is
-     the same seam the resume editor's generated fields use. Anything added to
-     `repoRow()` has to be declared through this door too. */
-  #import-list :global(.repo-row) {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: var(--space-2) var(--space-3);
-    padding: var(--space-3) 0;
-    border-bottom: 1px solid var(--color-divider);
-  }
-  #import-list :global(.repo-row:last-child) { border-bottom: 0; }
-  #import-list :global(.repo-id) { min-width: 0; }
-  #import-list :global(.repo-name) { font-weight: 600; font-size: 14px; overflow-wrap: anywhere; }
-  #import-list :global(.repo-badges) { display: inline-flex; gap: 6px; margin-left: var(--space-2); flex-wrap: wrap; }
-  #import-list :global(.repo-desc) { font-size: 12px; margin: 4px 0 0; }
-  #import-list :global(.repo-meta) {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 6px;
-  }
-  #import-list :global(.repo-facts) { font-size: 11px; letter-spacing: 0.02em; }
-  #import-list :global(.repo-action) { display: flex; align-items: center; gap: var(--space-2); flex: none; }
-  #import-list :global(.repo-line) { grid-column: 1 / -1; margin: 0; }
-  #import-list :global(.repo-line:empty) { display: none; }
-  #import-list :global(.repo-line[data-tone='error']) { color: var(--color-accent-700); }
-
-  /* The loading rows. Same grid as a real one, so the list does not reflow when
-     the response replaces them — that is the entire point of them being here
-     rather than a spinner in the middle of an empty box. */
-  #import-list :global(.repo-skeleton) { pointer-events: none; }
-  #import-list :global(.repo-skeleton-name) { width: 42%; max-width: 260px; }
-  #import-list :global(.repo-skeleton-desc) { width: 72%; max-width: 420px; margin-top: 8px; }
-  #import-list :global(.repo-skeleton-action) { width: 76px; height: 26px; }
-
-  /* State reads off the row, so the row builder sets one attribute rather than
-     picking between three global tag variants. */
-  #import-list :global(.repo-row[data-state='imported'] .repo-flag) {
-    background: var(--color-accent-2-100);
-    color: var(--color-accent-2-800);
-  }
-  #import-list :global(.repo-row[data-state='granted'] .repo-flag) {
-    background: var(--color-accent-100);
-    color: var(--color-accent-800);
-  }
-  #import-list :global(.repo-row[data-state='ungranted'] .repo-flag) {
-    background: var(--color-neutral-100);
-    color: var(--color-neutral-800);
-  }
-
-  @media (max-width: 640px) {
-    #import-list :global(.repo-row) { grid-template-columns: minmax(0, 1fr); }
-  }
 
   /* — the two regions —
 
