@@ -40,6 +40,7 @@
  */
 
 import { setLabel, toast } from './admin';
+import { copyText } from './clipboard';
 import { downgradeOpenModals, restoreDowngradedModals } from './modal';
 import {
   appendMessage,
@@ -52,6 +53,7 @@ import {
   runAssist,
   type ChatSummary,
   type ToolFrame,
+  type UsageFrame,
 } from './ai-store';
 import { ASSIST_MENU, parseCommand, pickTask, type AssistMenuItem, type AssistScreen } from './assist-tasks';
 
@@ -86,6 +88,16 @@ export interface AssistTurn {
   actions(items: { label: string; run: () => void; primary?: boolean }[]): void;
   /** Rendered SVG, for the diagram task. Mermaid's own output, nothing else. */
   preview(svg: string): void;
+  /**
+   * What the round cost, where the vendor reported it.
+   *
+   * One per round that carried a `usage` block, so a run with lookups may
+   * report two or three; the last one is kept, because that is the answering
+   * round on the vendors that count per round and the whole run on the ones
+   * that send a running total. Rendered as a quiet footer under the message —
+   * counts, cache share, and an approximate cost where the row is priced.
+   */
+  usage(usage: UsageFrame): void;
   /** The panel's own voice, under the message. Stored as a `note` row. */
   note(text: string, tone?: 'info' | 'error'): void;
   /** Finish the turn and store it. `text` is what is remembered as the answer. */
@@ -149,6 +161,7 @@ interface Bubble {
   preview: HTMLElement;
   options: HTMLElement;
   actions: HTMLElement;
+  usage: HTMLElement;
   note: HTMLElement;
 }
 
@@ -170,6 +183,54 @@ function ago(iso: string): string {
   const days = Math.round(hours / 24);
   if (days < 7) return `${days}d ago`;
   return new Date(then).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+/** `940`, `1.2k`, `12k`, `1.1M` — the scale a footer needs, not an exact count. */
+function compactTokens(n: number): string {
+  if (n < 1000) return String(Math.round(n));
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+/**
+ * The one-line cost, in the units a footer has room for.
+ *
+ * A tenth of a cent rendered as `$0.0000` is a number that reads as zero, so
+ * the two small cases get their own spelling: `<$0.0001` and four decimals
+ * under a cent. Everything the panel prints is an estimate — the tooltip says
+ * why — and the vendor's dashboard is the authority.
+ */
+function formatCost(cost: number): string {
+  if (cost <= 0) return 'free';
+  if (cost < 0.0001) return '<$0.0001';
+  return `$${cost.toFixed(cost < 0.01 ? 4 : 2)}`;
+}
+
+/** The footer under a finished answer: counts, cache share, cost, model. */
+function usageLine(usage: UsageFrame): string {
+  const parts = [`${compactTokens(usage.prompt)} in`, `${compactTokens(usage.completion)} out`];
+  if (usage.cached !== undefined && usage.prompt > 0) {
+    parts.push(`${Math.round((usage.cached / usage.prompt) * 100)}% cached`);
+  }
+  if (usage.cost !== undefined) parts.push(usage.cost === 0 ? 'free' : `≈${formatCost(usage.cost)}`);
+  if (usage.model) parts.push(usage.model);
+  return parts.join(' · ');
+}
+
+/** The same facts, exact, for the footer's `title`. */
+function usageTitle(usage: UsageFrame): string {
+  const parts = [
+    `${usage.prompt.toLocaleString()} prompt tokens`,
+    `${usage.completion.toLocaleString()} completion tokens`,
+  ];
+  if (usage.cached !== undefined) parts.push(`${usage.cached.toLocaleString()} served from cache`);
+  if (usage.cost !== undefined) {
+    parts.push(
+      `≈$${usage.cost.toFixed(4)} at the prices on the AI screen — cached tokens charged at the input rate, so this is an upper bound`,
+    );
+  }
+  if (usage.model) parts.push(usage.model);
+  return parts.join(' · ');
 }
 
 export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
@@ -239,14 +300,20 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     options.hidden = true;
     const actions = el('div', 'asx-msg-actions');
     actions.hidden = true;
+    /* Below the answer rather than above it: what a round cost is a footnote,
+       and the footer it is modelled on sits after the text. Hidden until a
+       vendor reports a count — a row that said "usage unknown" on every message
+       would be noise on the providers that never send one. */
+    const usage = el('div', 'asx-usage');
+    usage.hidden = true;
     const note = el('p', 'asx-msg-note');
     note.hidden = true;
 
-    root.append(think, tools, body, preview, options, actions, note);
+    root.append(think, tools, body, preview, options, actions, usage, note);
     log.append(root);
     follow();
 
-    return { root, think, thinkBody, thinkSummary, tools, body, preview, options, actions, note };
+    return { root, think, thinkBody, thinkSummary, tools, body, preview, options, actions, usage, note };
   }
 
   /**
@@ -296,6 +363,25 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
         frame.status === 'running'
           ? 'looking…'
           : [frame.detail, frame.ms === undefined ? '' : `${frame.ms} ms`].filter(Boolean).join(' · ');
+    }
+
+    /* The opening of what the lookup returned, behind a disclosure. A result is
+       up to eight thousand characters and this row is a trace, so it is closed
+       by default and opened deliberately — but it is there, because "the model
+       read a post" without the post is a claim the reader has to take on
+       trust. The server caps it at 600 characters. */
+    if (frame.preview) {
+      let detail = row.querySelector<HTMLDetailsElement>('.asx-tool-detail');
+      if (!detail) {
+        detail = el<HTMLDetailsElement>('details', 'asx-tool-detail');
+        const summary = el('summary', 'asx-tool-detail-summary');
+        summary.textContent = 'Result';
+        const pre = el('pre', 'asx-tool-detail-body');
+        detail.append(summary, pre);
+        row.append(detail);
+      }
+      const pre = detail.querySelector('pre');
+      if (pre) pre.textContent = frame.preview;
     }
 
     follow();
@@ -408,6 +494,34 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
     void remember('note', text);
   }
 
+  /**
+   * The button row under a message.
+   *
+   * Shared by a live turn and a restored one, because the two have to look
+   * identical — a reopened conversation used to lose every action it had, and
+   * the fix is not a second renderer but the same one.
+   */
+  function paintActions(
+    view: Bubble,
+    items: { label: string; run: () => void; primary?: boolean }[],
+  ) {
+    view.actions.replaceChildren();
+    view.actions.hidden = !items.length;
+    for (const item of items) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = `btn ${item.primary ? 'btn-primary' : 'btn-secondary'} btn-sm`;
+      button.textContent = item.label;
+      button.addEventListener('click', () => item.run());
+      view.actions.append(button);
+    }
+  }
+
+  const copyAction = (text: string) => ({
+    label: 'Copy',
+    run: () => void copyText(text).then(() => toast('Copied.', { tone: 'success' })),
+  });
+
   /* ---------- an assistant turn ---------- */
 
   function begin(label: string, task: string | null): AssistTurn {
@@ -495,16 +609,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
       },
 
       actions(items) {
-        view.actions.replaceChildren();
-        view.actions.hidden = !items.length;
-        for (const item of items) {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.className = `btn ${item.primary ? 'btn-primary' : 'btn-secondary'} btn-sm`;
-          button.textContent = item.label;
-          button.addEventListener('click', () => item.run());
-          view.actions.append(button);
-        }
+        paintActions(view, items);
         follow();
       },
 
@@ -515,6 +620,13 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
            with `htmlLabels: false`, which is what makes every label a text node
            rather than markup. See `src/lib/diagram.ts`. */
         view.preview.innerHTML = svg;
+        follow();
+      },
+
+      usage(frame) {
+        view.usage.hidden = false;
+        view.usage.textContent = usageLine(frame);
+        view.usage.title = usageTitle(frame);
         follow();
       },
 
@@ -541,10 +653,32 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
 
   /* ---------- the composer ---------- */
 
+  /**
+   * Follow-ups typed while a run is in flight, sent when it ends.
+   *
+   * A run can take a minute, and the answer is often what prompts the next
+   * question — a composer that goes dead for that minute loses it. So the
+   * field stays typeable and Enter queues instead of dropping: the line keeps
+   * its place in the conversation, the input clears for the next one, and the
+   * queue drains in order when `running(false)` lands.
+   */
+  const queued: string[] = [];
+  let busy = false;
+  const hint = $('assist-hint');
+  const hintIdle = hint.textContent ?? '';
+
   function running(on: boolean) {
+    busy = on;
     stopBtn.hidden = !on;
     sendBtn.disabled = on;
-    input.disabled = on;
+    if (!on) {
+      hint.textContent = hintIdle;
+      const next = queued.shift();
+      if (next) {
+        input.value = next;
+        submit();
+      }
+    }
   }
 
   /* The command list, filtered by whatever has been typed after the slash.
@@ -612,6 +746,18 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
   function submit() {
     const line = input.value.trim();
     if (!line) return;
+
+    /* Queued, not refused: the run in flight owns the panel until it ends, and
+       a line typed during it is the author's next thought, not an interruption
+       of the current one. The hint says where it went, because a composer that
+       silently swallows Enter is a broken composer. */
+    if (busy) {
+      queued.push(line);
+      input.value = '';
+      closeMenu();
+      hint.textContent = `Queued — it will send when this run finishes (${queued.length} waiting).`;
+      return;
+    }
 
     const { task, instruction, unknown } = parseCommand(line);
 
@@ -824,6 +970,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
       turns = [];
       log.replaceChildren();
 
+      let lastUser = '';
       for (const message of messages) {
         if (message.role === 'note') {
           const note = bubble('note');
@@ -836,6 +983,26 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
           view.think.hidden = false;
           view.thinkBody.textContent = message.thinking;
           view.thinkSummary.textContent = `Thinking · ${message.thinking.length.toLocaleString()} characters`;
+        }
+        if (message.role === 'user') {
+          lastUser = message.content;
+        } else {
+          /* What a reopened answer keeps: Copy, and — for a plain conversation
+             — Try again, which re-sends the question above it. The page-owned
+             actions (Insert, Undo, chips) are deliberately not restored: their
+             targets are fields on a page that may have moved on since, and an
+             Insert that writes into a stale form is worse than no Insert. */
+          const actions = [copyAction(message.content)];
+          if ((!message.task || message.task === 'chat') && lastUser) {
+            actions.push({
+              label: 'Try again',
+              run: () => {
+                input.value = lastUser;
+                submit();
+              },
+            });
+          }
+          paintActions(view, actions);
         }
         turns.push({ role: message.role, content: message.content });
       }
@@ -912,6 +1079,7 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
           },
           onThinking: chunk => turn.thinking(chunk),
           onTool: frame => turn.tool(frame),
+          onUsage: frame => turn.usage(frame),
         },
         undefined,
         turns,

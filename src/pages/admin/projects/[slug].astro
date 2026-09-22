@@ -37,6 +37,11 @@ const slug = Astro.params.slug ?? '';
 const project = slug ? await getProject(DB, slug, true) : undefined;
 if (!project) return new Response(null, { status: 404 });
 
+/* Set by the import page's redirect. The banner is the one piece of state the
+   URL carries here, and it is read-only — a reload keeps it, which is what a
+   reader who just landed on the page wants. */
+const created = Astro.url.searchParams.get('created') === '1';
+
 /* The whole list, not just the linked one: the select below offers every case
    study, and a page that only knew its own could not re-point. */
 const caseStudies = await getCaseStudies(DB);
@@ -129,6 +134,11 @@ const STATUS_VARIANT: Record<string, string> = {
         </div>
       </div>
     </div>
+
+    <p class="admin-note pd-created" id="pd-created" role="status" hidden={!created}>
+      Imported from GitHub and live on the site. Review the summary and the highlights — those
+      are the two fields the repository could not answer — then press Save.
+    </p>
 
     <p class="admin-note pd-message" id="pd-message"></p>
 
@@ -1598,6 +1608,7 @@ const STATUS_VARIANT: Record<string, string> = {
                 turn.thinking(chunk);
               },
               onTool: frame => turn.tool(frame),
+              onUsage: frame => turn.usage(frame),
             },
             controller.signal,
             /* The last entry is the message this call is *about*, and the route
@@ -1793,6 +1804,7 @@ const STATUS_VARIANT: Record<string, string> = {
               turn.thinking(chunk);
             },
             onTool: frame => turn.tool(frame),
+            onUsage: frame => turn.usage(frame),
             onDone: reason => {
               truncated = reason === 'length';
             },
@@ -1955,6 +1967,7 @@ const STATUS_VARIANT: Record<string, string> = {
           },
           onThinking: chunk => turn.thinking(chunk),
           onTool: frame => turn.tool(frame),
+          onUsage: frame => turn.usage(frame),
           onState: state => {
             progress = state;
           },
@@ -2073,6 +2086,19 @@ const STATUS_VARIANT: Record<string, string> = {
 
   .pd-message { min-height: 18px; font-size: 12px; margin: 0 0 var(--space-4); }
   .pd-message[data-tone='error'] { color: var(--color-accent-700); }
+
+  /* The import page's landing note. A card outline rather than a bare line,
+     because it is the first thing read on a page the reader has never seen. */
+  .pd-created {
+    margin: 0 0 var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-divider);
+    border-left: 3px solid var(--color-accent-2-600);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    max-width: 80ch;
+  }
+  .pd-created[hidden] { display: none; }
 
   .pd-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-4); align-items: start; }
   /* The panel is what the two columns share, and the docked assistant takes

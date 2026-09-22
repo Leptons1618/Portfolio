@@ -1588,6 +1588,7 @@ const seed = {
               turn.thinking(chunk);
             },
             onTool: frame => turn.tool(frame),
+            onUsage: frame => turn.usage(frame),
           },
           controller.signal,
           /* The last entry is the message this call is *about*, and the route

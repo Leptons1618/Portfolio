@@ -72,6 +72,7 @@ import {
   MAX_OUTPUT_CEILING,
   clampEffort,
   clampOutputCeiling,
+  clampPrice,
   clampParams,
   supportsCacheControl,
   type ReasoningEffort,
@@ -314,6 +315,16 @@ export interface Provider {
    * settings asked for", which is what an unconfigured row does.
    */
   maxOutputTokens: number | null;
+  /**
+   * What a million tokens costs on this row's model, in USD, or `null`.
+   *
+   * Filled in from the vendor's listing at the same moment `maxOutputTokens`
+   * is. Only ever used to estimate what a run cost — the vendor's dashboard is
+   * the authority on spend — and `null` on either half means no estimate is
+   * printed rather than a zero.
+   */
+  pricePrompt: number | null;
+  priceCompletion: number | null;
   /** `low` / `medium` / `high`, or `null` to send no effort field at all. */
   reasoningEffort: ReasoningEffort | null;
   /** Whether to mark a cache breakpoint on the stable half of the prompt. */
@@ -341,6 +352,9 @@ export interface ProviderSummary {
   active: boolean;
   priority: number;
   updatedAt: string;
+  /** USD per million tokens, or `null` — see the comment on `Provider`. */
+  pricePrompt: number | null;
+  priceCompletion: number | null;
   /** Whether a key is stored at all — the difference between "off" and "broken". */
   hasKey: boolean;
   /** `sk-or…9f2a`, or `null`. Enough to tell two keys apart, useless as one. */
@@ -357,6 +371,8 @@ type ProviderRow = {
   fallback_models: string | null;
   params: string | null;
   max_output_tokens: number | null;
+  price_prompt: number | null;
+  price_completion: number | null;
   reasoning_effort: string | null;
   prompt_cache: number | null;
   tools_enabled: number | null;
@@ -397,6 +413,8 @@ const toProvider = (r: ProviderRow): Provider => ({
      here becomes `max_tokens` in a request body, and the column is written by a
      form and editable by hand. */
   maxOutputTokens: clampOutputCeiling(r.max_output_tokens),
+  pricePrompt: clampPrice(r.price_prompt),
+  priceCompletion: clampPrice(r.price_completion),
   reasoningEffort: clampEffort(r.reasoning_effort),
   /* Both default to on for a row written before the columns existed — the
      migration's DEFAULT covers new writes, and `null` here is the read of a
@@ -443,6 +461,8 @@ export const summarise = (p: Provider): ProviderSummary => ({
      they have already been through the allowlist on the way out of the row. */
   params: p.params,
   maxOutputTokens: p.maxOutputTokens,
+  pricePrompt: p.pricePrompt,
+  priceCompletion: p.priceCompletion,
   reasoningEffort: p.reasoningEffort,
   promptCache: p.promptCache,
   toolsEnabled: p.toolsEnabled,
@@ -1470,6 +1490,8 @@ async function* sseLines(
   upstream: ReadableStream<Uint8Array>,
   thinkBudget = 0,
   idleMs = STREAM_IDLE_MS,
+  /** The row the round went out on, for the cost estimate on the usage frame. */
+  provider?: Provider,
 ): AsyncGenerator<unknown> {
   /* Carried to the end rather than emitted where it arrives. `length` is the
      difference between "the model had nothing more to add" and "the ceiling
@@ -1482,7 +1504,7 @@ async function* sseLines(
       stopReason = event.reason;
       continue;
     }
-    const frame = frameFor(event);
+    const frame = frameFor(event, provider);
     if (frame) yield frame;
   }
   yield stopReason ? { done: true, stopReason } : { done: true };
@@ -1500,10 +1522,10 @@ type SseEvent =
   /** Emitted once, at the end of a round, when the model asked to call something. */
   | { kind: 'tools'; calls: ToolCall[] }
   /** Token counts, when a chunk carried them. Read, never asked for. */
-  | { kind: 'usage'; prompt: number; completion: number };
+  | { kind: 'usage'; prompt: number; completion: number; cached?: number };
 
 /** The NDJSON line an event becomes, or `null` for the ones that are state. */
-function frameFor(event: SseEvent): Record<string, unknown> | null {
+function frameFor(event: SseEvent, provider?: Provider): Record<string, unknown> | null {
   switch (event.kind) {
     case 'thinking':
       return { thinking: event.text };
@@ -1511,10 +1533,23 @@ function frameFor(event: SseEvent): Record<string, unknown> | null {
       return { delta: event.text };
     case 'error':
       return { error: event.message };
-    case 'usage':
+    case 'usage': {
       /* Forwarded, not consumed: the readers ignore a key they do not know,
-         and the tally in `agentStream` counts it for the log. */
-      return { usage: { prompt: event.prompt, completion: event.completion } };
+         and the tally in `agentStream` counts it for the log. `cached`, `cost`
+         and `model` are additions to a frame readers already tolerate — the
+         panel reads them for the per-answer footer, and everything older
+         ignores them. `cost` is present only when the answering row carries
+         prices. */
+      const usage: Record<string, number> = { prompt: event.prompt, completion: event.completion };
+      if (event.cached !== undefined) usage.cached = event.cached;
+      const cost = estimateCost(event, provider);
+      if (cost !== null) usage.cost = cost;
+      /* Which row answered, after any switch — the panel's model picker is a
+         request, not a promise, and a fallback that answered is worth naming.
+         A sibling of `usage`, not a member of it: `usage` is the vendor's
+         TokenUsage and the run tally stores it whole. */
+      return provider ? { usage, model: modelName(provider) } : { usage };
+    }
     default:
       /* `stop` and `tools` are not text and belong to whoever is orchestrating
          the round; `ndjsonFromSSE` has no orchestrator and drops them. */
@@ -1897,7 +1932,12 @@ export function agentStream(options: AgentOptions): ReadableStream<Uint8Array> {
     !options.call.tools?.length &&
     options.first.response.body &&
     !retryFor(options.first.provider, options.which, options.call)
-      ? sseLines(options.first.response.body, thinkingBudget(options.first.provider, options.call.maxTokens))
+      ? sseLines(
+          options.first.response.body,
+          thinkingBudget(options.first.provider, options.call.maxTokens),
+          undefined,
+          options.first.provider,
+        )
       : agentLines({ ...options, summary });
   return linesToStream(options.onEnd ? tallied(lines, summary, options.onEnd) : lines);
 }
@@ -1974,6 +2014,13 @@ async function* tallied(
     }
   }
 }
+
+/** How much of a lookup's result travels to the browser as a preview. */
+const TOOL_PREVIEW_CHARS = 600;
+
+/** The opening of a tool result, for the panel's disclosure. */
+const previewOf = (text: string): string =>
+  text.length > TOOL_PREVIEW_CHARS ? `${text.slice(0, TOOL_PREVIEW_CHARS)}…` : text;
 
 async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
   const { first, which, runTool } = options;
@@ -2066,7 +2113,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
         asked = event.calls;
         continue;
       }
-      const frame = frameFor(event);
+      const frame = frameFor(event, provider);
       if (frame) yield frame;
     }
 
@@ -2242,6 +2289,13 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
           status: outcome.ok ? 'done' : 'error',
           detail: outcome.detail,
           ms: Date.now() - started,
+          /* The beginning of what the lookup returned, for the reader watching
+             the panel. The whole text is what the model was handed; this is
+             capped because it is a UI affordance, not a second copy of the
+             result, and a `read_post` can be eight thousand characters. It is
+             the same published content the model was given, so nothing here
+             can reach a reader that a `curl` could not. */
+          preview: previewOf(outcome.text),
         },
       };
 
@@ -2503,16 +2557,66 @@ export interface Completion {
 export interface TokenUsage {
   prompt: number;
   completion: number;
+  /**
+   * How much of `prompt` the vendor served from its own prompt cache.
+   *
+   * Read from whichever name a vendor uses — OpenAI's
+   * `prompt_tokens_details.cached_tokens`, Anthropic's
+   * `cache_read_input_tokens`, DeepSeek's `prompt_cache_hit_tokens` — and
+   * absent when it says nothing, which is not the same as zero.
+   */
+  cached?: number;
 }
+
+/** A token count a vendor may or may not have sent, or `undefined`. */
+const count = (raw: unknown): number | undefined => {
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
+};
 
 /** `usage` as the OpenAI-compatible vendors write it, or `undefined`. */
 function readUsage(raw: unknown): TokenUsage | undefined {
-  const usage = raw as { prompt_tokens?: unknown; completion_tokens?: unknown } | null | undefined;
+  const usage = raw as {
+    prompt_tokens?: unknown;
+    completion_tokens?: unknown;
+    prompt_tokens_details?: { cached_tokens?: unknown } | null;
+    cache_read_input_tokens?: unknown;
+    prompt_cache_hit_tokens?: unknown;
+  } | null | undefined;
   if (!usage || typeof usage !== 'object') return undefined;
   const prompt = Number(usage.prompt_tokens);
   const completion = Number(usage.completion_tokens);
   if (!Number.isFinite(prompt) && !Number.isFinite(completion)) return undefined;
-  return { prompt: Number.isFinite(prompt) ? prompt : 0, completion: Number.isFinite(completion) ? completion : 0 };
+  /* The first name that answers, in the order the vendors are most likely to
+     be. They are mutually exclusive in practice; summing them would count the
+     same tokens twice on a vendor that reported two spellings. */
+  const cached =
+    count(usage.prompt_tokens_details?.cached_tokens) ??
+    count(usage.cache_read_input_tokens) ??
+    count(usage.prompt_cache_hit_tokens);
+  return {
+    prompt: Number.isFinite(prompt) ? prompt : 0,
+    completion: Number.isFinite(completion) ? completion : 0,
+    ...(cached !== undefined ? { cached } : {}),
+  };
+}
+
+/**
+ * What one round cost, in USD, or `null` when the row carries no prices.
+ *
+ * An **upper bound**, not a bill: cached prompt tokens are charged at the full
+ * input rate here, while the vendors that discount cache reads (OpenRouter,
+ * Anthropic) bill them lower, and their discounted rate is a field
+ * `normaliseModels()` does not read. The panel prints it with a `≈` for that
+ * reason. The vendor's dashboard remains the authority.
+ */
+function estimateCost(
+  usage: { prompt: number; completion: number },
+  provider?: Provider,
+): number | null {
+  if (!provider || provider.pricePrompt === null || provider.priceCompletion === null) return null;
+  const perMillion = (tokens: number, price: number) => (tokens / 1_000_000) * price;
+  return perMillion(usage.prompt, provider.pricePrompt) + perMillion(usage.completion, provider.priceCompletion);
 }
 
 /** The name a log row calls the model that answered. */

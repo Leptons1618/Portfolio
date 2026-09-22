@@ -187,6 +187,25 @@ export function clampOutputCeiling(raw: unknown): number | null {
 }
 
 /**
+ * A stored price, USD per million tokens, from the column or the form.
+ *
+ * `null` — not zero — for absent, negative or unreadable, because zero is a
+ * real price (a free model) and the difference between "free" and "unknown" is
+ * the difference between a cost estimate that is right and one that is wrong.
+ * A negative number is refused for the reason `normaliseModels()` refuses one:
+ * OpenRouter's `-1` means "depends which model this routes to".
+ *
+ * Deliberately not clamped at the top. A ceiling bounds a bill; a price is
+ * what the vendor says it is, and the honest use of a large one is to show it.
+ */
+export function clampPrice(raw: unknown): number | null {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return n;
+}
+
+/**
  * How hard a model should think, where the vendor implements the idea.
  *
  * `reasoning_effort` is OpenAI's field name and the one OpenRouter, Groq and
