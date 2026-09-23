@@ -39,6 +39,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **The journal editor's preview is the post's renderer.** The Preview tab
+  was a hand-rolled markdown subset — paragraphs, headings, lists, bold,
+  links — so a table, a fence with a language, a heading id or a smart quote
+  previewed as something the page would never serve. `POST /api/preview` now
+  runs the same `renderBody()` a save runs, the pane carries `.prose` rather
+  than a private type scale, and fenced code is framed and coloured by the
+  same `code-fx` the public pages mount. Debounced, owner-only, and signed
+  out it says so instead of fetching. Decision **67**.
 - **The daily journal's schedule is a tab on the Journal screen.** Lifted
   whole from `/admin/ai` into `DailyJournalPanel.astro`; the AI screen is two
   tabs again. Nothing about what it stores or calls moved. Decision **64**.

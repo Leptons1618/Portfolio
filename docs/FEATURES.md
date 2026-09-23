@@ -107,7 +107,7 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 | Feature | State | Notes |
 | --- | --- | --- |
 | A manifest at `/admin/journal`, a page per entry underneath | ✅ | `journal/new` and `journal/<slug>` are the same `JournalEditor.astro`; the URL is the state — decision 13 |
-| Write a post, Markdown preview, focus mode | ✅ | Write and Preview are tabs, not two panels in one column. The preview is a deliberate subset with escaping and a link-scheme allowlist |
+| Write a post, Markdown preview, focus mode | ✅ | Write and Preview are tabs, not two panels in one column. The preview *is* the post's renderer: `POST /api/preview` runs the same `renderBody()` a save runs, and the pane carries `.prose` — so tables, fences, heading ids and smart punctuation are all previewed as the page will serve them, and fenced code is lit by the same `code-fx` the public pages mount. Decision 67 |
 | Local draft in `localStorage` | ✅ | This browser only; cleared from the dashboard |
 | Export `.md` | ✅ | The path that works signed out |
 | Commit to the repository | ✅ | `src/content/journal/<slug>.md` |
