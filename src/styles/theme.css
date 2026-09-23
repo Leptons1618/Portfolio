@@ -2,7 +2,7 @@
    Base tokens — what every theme shares, and nothing any theme decides.
 
    This file used to be a theme (Classic: ivory, Instrument Serif, terracotta)
-   and the attribute-less default. It is now the floor the three themes stand
+   and the attribute-less default. It is now the floor the themes stand
    on: spacing, radii, motion, page widths, the grain plumbing and the section
    geometry hooks. Every *colour* and *font* lives in `src/styles/themes/*.css`,
    selected by `data-theme` on `<html>` — an attribute the layouts always
@@ -82,6 +82,13 @@
   --sep-ink: var(--color-divider);
   --hatch-ink: color-mix(in srgb, var(--color-divider) 70%, transparent);
   --hatch-step: 9px;
+  /* Card stock — the ground a card draws when it has no photograph to show
+     (`src/pages/journal/index.astro`). Deliberately not the band's tokens: a
+     boundary is drawn to be *read*, a surface is drawn to be *felt*, and at
+     the band's own step an empty card reads as an image that failed to load,
+     which is the thing the plate exists to stop. */
+  --plate-ink: color-mix(in srgb, var(--color-divider) 30%, transparent);
+  --plate-step: 5px;
   --node-size: 10px;
   /* Square, on every theme. The nodes are registration marks on a drawing,
      and the rest of the page's corners keep the same geometry — cards,

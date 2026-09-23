@@ -1098,24 +1098,15 @@ textarea[data-grow] { max-height: 60vh; }
 .tab-panel { display: block; }
 .tab-panel[hidden] { display: none; }
 
-/* — editor live preview — */
-.preview-md h1,
-.preview-md h2,
-.preview-md h3 {
-  font-family: var(--font-heading);
-  margin: 0.6em 0 0.3em;
-}
+/* — editor live preview —
 
-.preview-md h1 { font-size: 22px; }
-.preview-md h2 { font-size: 18px; }
-.preview-md h3 { font-size: 16px; }
-.preview-md p { margin: 0 0 0.6em; font-size: 14px; line-height: 1.6; }
-.preview-md ul, .preview-md ol { padding-left: 20px; margin: 0 0 0.6em; font-size: 14px; }
-.preview-md ul { list-style: disc; }
-.preview-md ol { list-style: decimal; }
-.preview-md code { background: var(--color-neutral-200); padding: 1px 5px; font-size: 12px; font-family: var(--font-mono); }
-.preview-md pre { background: var(--color-neutral-200); padding: var(--space-3); overflow-x: auto; font-size: 12px; margin: 0 0 0.6em; }
-.preview-md pre code { background: none; padding: 0; }
+   There is nothing to style. The journal editor's preview pane carries
+   `.prose`, the same class the post's own page renders its body under, and the
+   HTML inside it comes from `POST /api/preview` — `renderBody()`, the call a
+   save makes. The subset this file used to size (`.preview-md`) was a second
+   renderer with a second set of type sizes, which is what decision 67 removed;
+   the pane's only rules are the two states in `JournalEditor.astro`'s own
+   block. */
 
 /* — dialogs —
 

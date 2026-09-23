@@ -2,7 +2,7 @@
 /**
  * `renderBody`, as assertions.
  *
- * Same shape as `scripts/test-shiki-strip.mjs`: plain `node:assert`, importing
+ * Same shape as `scripts/test-resume.mjs`: plain `node:assert`, importing
  * the `.ts` module through `scripts/ts-resolve.mjs`. Run by
  * `npm run check:markdown`, and by `npm run check`.
  *

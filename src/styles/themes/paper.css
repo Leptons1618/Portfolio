@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Paper — the fourth theme.
+   Paper — the drafting system on textured stock.
 
    Blueprint's drafting-table system carried onto textured stock: the same
    24px pencil grid, dashed rules, hard-offset shadows and monospaced
@@ -76,7 +76,7 @@
      left to each theme's body. The bar's layout has to be identical under
      every theme — Geometry is the default, so a page resolving into this one
      must not shift the link row by a single pixel — and this is the only face
-     the three themes agree on measuring. Declared by every layout, so using
+     the themes agree on measuring. Declared by every layout, so using
      it here costs nothing extra. */
   --font-nav: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
 

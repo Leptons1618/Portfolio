@@ -94,7 +94,7 @@ Short records of the choices that are not obvious from the code. Newest last.
 - After the exchange, `login` must equal `site.githubUser`. *Any* GitHub user can complete the flow; only the owner keeps the token.
 - The Worker allowlists `Origin` and pins `redirect_uri` to the calling origin, so it is not a general-purpose exchange oracle.
 - **`/admin/*` is still prerendered public HTML.** The pre-paint redirect hides the editors, it does not protect them. What is protected is the *repository* — GitHub rejects a write without a token. Do not add anything to an admin page that would be a secret if read.
-- Not mitigated: an XSS on an admin page could read the token. There is no server to bind it to. The journal preview's escaping and link-scheme allowlist are load-bearing for this reason.
+- Not mitigated: an XSS on an admin page could read the token. There is no server to bind it to. The journal preview's escaping and link-scheme allowlist were load-bearing for this reason, and still are — they are `renderBody()`'s tree walk now rather than a regex in the editor (decision 67).
 
 **Consequences.** The build needs `PUBLIC_GITHUB_CLIENT_ID` and `PUBLIC_GITHUB_OAUTH_WORKER`. When they are unset the sign-in button explains itself and `AdminLayout` does not gate, so a fork still works. `settings` keeps its export-only flow: its JSON has to be hand-applied to `src/lib/site.ts`, so committing it verbatim would create junk. (`projects` also did, until decision 8.) Setup lives in `workers/github-oauth/README.md`.
 
@@ -1503,3 +1503,60 @@ The workflow now sets `pipefail` — the pipeline's status was `tail`'s, which i
 **Consequences.** `check:ai` grows three checks (203 at the time of writing): `clampPrice` refuses what is not a price and keeps zero; a usage frame carries `cached` and a cost only where both prices exist; a tool preview is capped and marked with an ellipsis. The log's `usage` detail now carries `cached` for free, since `runReport()` spreads the tally. The public widget ignores the new keys, as it ignores every key it does not know. The remote database needs `npm run db:migrate` before a deploy that reads the new columns; the local database was migrated with `db:migrate:local`.
 
 **Rejected.** `stream_options: {include_usage: true}` — decision 64's comment already says why: it is a body field strict vendors 400 on, and the counts arrive anyway on the vendors that count. A third column for the cached-read price — a vendor-specific field this site does not read, for an estimate the panel already labels as an upper bound. Showing usage in the public chat — it is the owner's cost, and a visitor has no use for it. Persisting usage on transcript rows — the footer is about the run, and the log is where a run is recorded.
+
+## 67. The journal preview is the post's renderer, because the second one was never going to agree
+
+**Status:** accepted
+
+**Extends decision 40 to the third surface that had the same fault. Nothing in that decision is reopened.**
+
+**Context.** The journal editor's Preview tab was a hand-rolled markdown subset in the editor's client script: paragraphs, headings, lists, blockquotes, bold, italics, inline code, links — a regex over the textarea, with its own escaping and its own link-scheme allowlist, and its own type scale under `.preview-md`. It could not be anything else without a parser in the admin bundle.
+
+What it previewed was therefore a *dialect*, not the page. The page's HTML is Astro's markdown processor, run on write by `renderBody()`, and the two disagreed on everything the subset did not know it did not know: GFM tables, fenced blocks with a language, heading ids, smart punctuation, ordered-list numbering, nested lists, reference links, images, raw HTML shown escaped rather than dropped. An author wrote a table, previewed a paragraph containing pipes, saved, and found a table on the page.
+
+The pane's own copy admitted it — "A small hand-rolled Markdown subset… Saving renders the real thing, and the post's page is what shows it" — which is the shape decision 40 names: the preview not matching is not a bug to fix, it is the arrangement.
+
+**Decision.** `POST /api/preview` renders the body with `renderBody()` — the same function, the same processor, the same `safeMarkdown` walk, the same `syntaxHighlight: false` that `POST /api/content` calls on the way into `body_html` — and the editor assigns the returned string to the pane. `renderMarkdown`, `inline`, `escapeHtml` and `safeHref` are gone from `JournalEditor.astro`, and so is every `.preview-md` rule: the pane carries `.prose`, the class the post's own page renders under.
+
+**The pane is a round trip, not a regex, and it is shaped like one.** Debounced 350 ms behind the last keystroke, so typing does not put a whole post on the wire per character; a run counter so a reply that arrives after a newer one cannot paint over it; nothing fetched while the Write tab is showing; a render dims the pane and the previous body stays readable underneath it. Switching to Preview paints immediately rather than waiting out the debounce.
+
+**Fenced code is lit by the same module.** The pane lazily imports `src/lib/code-fx.ts` and calls `mountCode(previewBody)` after each paint — the call `BaseLayout` makes on the public pages — so a fence in the preview is the framed, coloured, copyable block a reader gets, not a grey slab. `mountCode`'s `data-code` guard was written for exactly this caller; every paint replaces the pane's children, so each render frames its own.
+
+**The renderer is on the server for the same reason it is on the write path.** Shiki's WebAssembly module cannot be instantiated on `workerd`, which is why the processor runs with the highlighter off, and it is why there is no browser-side parser here: the only renderer that can agree with the page is the one the page was rendered by, and that one runs where the row is written.
+
+**Owner-only, and it says so instead of failing.** The route is behind `requireOwner()` like every other one here, though it reads no row and spends no money — it is an authoring surface, and the save it previews is refused without a session anyway. Signed out, the pane names the reason rather than fetching a 401. A body over 200,000 characters is refused with its own length quoted: a guard against a runaway paste being rendered per debounce, not a limit on what may be saved.
+
+**The XSS question decision 13 raised is answered by the same walk.** The string lands in `innerHTML` on a page holding a GitHub token, so what makes that safe is not escaping done at the sink — it is that `renderBody()` has already turned raw HTML into text and unwrapped unsafe link schemes (decision 63), server-side, before the string exists. The endpoint's `html` is the same string a save would store.
+
+**Consequences.** One more route, one more `prerender = false`, and one more thing `npm run check:content` covers by construction: `preview.ts` imports `renderBody` rather than building a processor, which is what keeps `syntaxHighlight: false` true of every path that renders markdown. `docs/FEATURES.md` and `.claude/rules/admin-surface.md` both described the subset as the design and were wrong the moment this landed. The case-study body is unaffected — it is a plain textarea with no preview at all, deliberately (decision 46).
+
+**Rejected.** A parser in the admin bundle — a second implementation of the same dialect, in a bundle that then has to stay in step with Astro's plugin list, and one that would still be a different renderer. A `renderBody()` call in a page's frontmatter — the preview is per keystroke and the page is served once; the endpoint is the only shape that re-renders. `stripShikiDark()` on the way out — the processor's highlighter is off, so a fresh render carries no `astro-code` class or inline style to strip. *(That function is now deleted outright: it was added for rows saved before decision 45, and a production scan found none — 31 rows, zero with any attribute on a `<pre>` — so the read path no longer runs a regex over every long-form body. Decision 45's flag and `check:content` are what keep it unnecessary.)* Previewing the case study's body too — decision 46 keeps that field a plain textarea, and a preview there is a separate decision rather than a side effect of this one.
+
+## 68. Two drawing themes and a cabinet, from the references they were drawn from
+
+**Status:** accepted
+
+**Extends decision 7's mechanism to five themes. Nothing in that decision is reopened: a theme is still a token override file plus the marks tokens cannot express, and a page still never knows which one is on.**
+
+**Context.** `docs/referenceUI/056-architectural-blueprint.html` is a drawing set: a cyanotype sheet with a 12px/60px ruled ground, a sheet border, poché, dimension lines and a title block — and a *pencil mode* that redraws the same system in graphite on cream stock. `docs/referenceUI/011-victorian-herbarium.html` is a specimen cabinet: foxed cream paper, brown ink, madder and botanical green, a serif in small capitals, dotted ledger leaders, gummed tape, soft shadows.
+
+The Blueprint theme predated the first of those and had never been the sheet it was named for. Its dark mode was a near-black navy — a dimmed version of the light theme, which is what a cyanotype is not — and it used none of the reference's marks. The site had three themes, all of them the same two grotesque faces at different temperatures.
+
+**Decision.** Three things.
+
+**Blueprint is updated to the reference.** Dark mode becomes the cyanotype itself: the print's own ground (`#0b3d91`), pale-blue lines, the ruled ground drawn in light at the reference's two weights, and hard offsets cast in the print's deepest blue. The ruled ground moves to the reference's cells — 12px fine, 60px major — in both modes. Poché is drawn at its weight and angle, the sheet gains the reference's inner border on screens wide enough to show it, and `.detail-glance` — the site's own run of label/value pairs — is set as a **title block**, which is the one structural mark the reference has that a page here already draws the shape of.
+
+**Herbarium is new, from the cabinet.** A foxed ground (radial gradients at the reference's own positions), the printer's madder and the pressed leaf's green, a serif, small-caps labels, dotted rules with the ledger's leaders, lozenge registration marks, letterpress buttons with a double keyline, soft shadows and a slight tilt on every card, a drop cap on a post's first paragraph, and the section numbering a cabinet would use (`No. 01 ·`, `Plate 01 ·`). It is the first theme here that is not a grotesque.
+
+**Graphite is new, and it is the merge.** Paper is Blueprint's system on warm stock, so merging Paper *into* Blueprint would have produced a fourth name for the third thing. The reference merges them itself, in its pencil mode: the same ruled ground and frame, in graphite on cream, with no colour on the sheet. That is Graphite — the drafting system on stock with **no accent at all** — and it is why it is not Paper (which has two accents) and not Blueprint (which is a print, not a sketch). Its one other voice is non-photo blue, the drafting lead that does not reproduce, kept for code strings and nothing structural.
+
+**Four properties hold across all three.**
+
+- **The serif is a system stack** — Iowan Old Style, Palatino, P052, Book Antiqua, Georgia — so the cabinet costs no request and no new dependency. The mono stays for what mono is for: code, keys, numbers.
+- **`--font-nav` is untouched**, because the header's row must not move by a pixel when the theme changes.
+- **The tilt is `rotate`, not `transform`.** The reveal system animates `transform`; a theme that wrote its tilt there would have it cancelled the moment a card was revealed. This is the same reason the band's nodes are positioned with `translate` in the shared layer.
+- **A theme may style a page's classes** (`.detail-glance`, `.media-plate`, `.hero-photo`) — what it may not do is the reverse. No page changed for any of this.
+
+**Consequences.** `THEMES` holds five, the header toggle cycles them, and the `themeColor` pairs follow the new grounds. Three comments that said "the three themes" now say "the themes". The `--plate-*` tokens are set per theme, so the journal's photograph-less card is drawn in each theme's own stock. No new dependency, no new request, no markup change: the entire feature is three stylesheets and one array.
+
+**Rejected.** A webfont serif — a network request, a preload and a licence for a face every platform already ships. Scoping the serif to the public pages only — the admin is themed by the same mechanism, it was checked in Herbarium, and the two faces it uses there (serif body, mono labels) read as intended. Making Graphite "Paper with different accents" — that is Paper. Adding a per-theme screenshot to the colophon — it would be five plates per screen for a page whose point is the architecture.

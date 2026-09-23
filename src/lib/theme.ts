@@ -40,8 +40,10 @@ export const MODE_KEY = 'om-mode';
  */
 export const THEMES = [
   { id: 'geometry', label: 'Geometry', themeColor: { light: '#fafafa', dark: '#0a0a0c' } },
-  { id: 'blueprint', label: 'Blueprint', themeColor: { light: '#f9f9ff', dark: '#0a111e' } },
+  { id: 'blueprint', label: 'Blueprint', themeColor: { light: '#f9f9ff', dark: '#0b3d91' } },
+  { id: 'graphite', label: 'Graphite', themeColor: { light: '#f2efe8', dark: '#1b1b19' } },
   { id: 'paper', label: 'Paper', themeColor: { light: '#f7f2e9', dark: '#16110c' } },
+  { id: 'herbarium', label: 'Herbarium', themeColor: { light: '#efe6d2', dark: '#191209' } },
 ] as const;
 
 export type ThemeId = (typeof THEMES)[number]['id'];

@@ -14,6 +14,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Two themes: Graphite and Herbarium.** Graphite is the pencil sibling of
+  Blueprint — the same ruled ground and drafting frame in graphite on cream
+  stock, with no accent colour at all — which is the merge the blueprint and
+  paper references were asking for, drawn the way the reference draws it.
+  Herbarium is a Victorian specimen cabinet: foxed paper, madder and botanical
+  green, a serif in small capitals, dotted ledger rules, lozenges at the band's
+  corners, letterpress buttons, a slight tilt on every card and a drop cap on a
+  post's first paragraph. Five themes now, cycled by the header toggle; neither
+  costs a request or a dependency. Decision **68**.
 - **Every AI run is logged.** The public assistant, the writing assistant
   and the daily job each leave one row per run: which model answered, how
   long it took, lookups, answer and thinking sizes, the stop reason, and
@@ -39,6 +48,34 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Blueprint is the cyanotype sheet it was named for.** Dark mode was a
+  near-black navy — a dimmed light theme, which is what a blueprint is not —
+  and is now the print itself: the reference's own ground, pale-blue lines and
+  a ruled ground drawn in light. The grid moves to the reference's cells
+  (12px fine, 60px major), the band's hatch to its poché, and a project's facts
+  are set as a **title block**, the labelled cells a drawing set ends in. The
+  hero's photograph is keylined twice and the sheet gains an inner border where
+  there is room for one. Decision **68**.
+- **The journal editor's preview is the post's renderer.** The Preview tab
+  was a hand-rolled markdown subset — paragraphs, headings, lists, bold,
+  links — so a table, a fence with a language, a heading id or a smart quote
+  previewed as something the page would never serve. `POST /api/preview` now
+  runs the same `renderBody()` a save runs, the pane carries `.prose` rather
+  than a private type scale, and fenced code is framed and coloured by the
+  same `code-fx` the public pages mount. Debounced, owner-only, and signed
+  out it says so instead of fetching. Decision **67**.
+- **The Shiki strip is gone from the read path.** `stripShikiDark()` removed a
+  `github-dark` render — an `astro-code` class and inline styles — from stored
+  bodies written before the highlighter was switched off. A scan of the live
+  database found none in any of the 31 long-form rows, and raw HTML can no
+  longer produce a `<pre>` at all, so every request was running two regexes
+  over every body to change nothing. `npm run check:shiki` goes with it.
+- **The journal archive keeps one rhythm, with or without a photograph.**
+  Every card in the grid now carries the same 16:9 media block. A post with a
+  hero image shows it as before; a post without one gets a drawn plate — its
+  file path, its tags and its read time on hatched card stock — instead of a
+  card stretched to the row height with its date and title pinned to the
+  bottom, which read as a photograph that had failed to load.
 - **The daily journal's schedule is a tab on the Journal screen.** Lifted
   whole from `/admin/ai` into `DailyJournalPanel.astro`; the AI screen is two
   tabs again. Nothing about what it stores or calls moved. Decision **64**.
@@ -65,6 +102,11 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **A case study's contents can no longer list a line of code.** The list was
+  scanned out of the markdown line by line, so a `## ` comment inside a shell
+  or markdown sample was read as a section heading and printed in the
+  contents. Fenced regions are dropped before the scan, which is what the
+  page does with them anyway. No existing write-up was affected.
 - **A lookup written as text no longer ends a run as garbage.** Told its
   lookups were withdrawn, a free-pool model wrote its next call as
   `<tool_call>…</tool_call>` in the answer; the panel showed the markup and
