@@ -29,7 +29,7 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 | Hiding a project retires its write-up too | ✅ | `getPublicCaseStudies()` drops a study whose *every* linking project is hidden, and it is what the case-study page, its prev/next arrows, the sitemap and the public assistant's index read. A study nothing links to is unlinked, not retired, and stays reachable — decision 53 |
 | Project → case-study link | ✅ | One-way; `check-content.mjs` fails a dangling `caseStudySlug` |
 | Journal listing + post pages | ✅ | Published posts only in production |
-| Two themes (Modernist default, Blueprint) | ✅ | Token overrides, not a second component layer — decision 7 |
+| Five themes (Geometry default, Blueprint, Graphite, Paper, Herbarium) | ✅ | Token overrides in `src/styles/themes/*.css`, not a second component layer — decision 7. `THEMES` in `src/lib/theme.ts` owns the list and the header toggle cycles it. Blueprint is the cyanotype sheet and Graphite its pencil sibling, both from `docs/referenceUI/056-architectural-blueprint.html`; Herbarium is the Victorian cabinet from `docs/referenceUI/011-victorian-herbarium.html` and the only theme set in a serif. Decision **68** |
 | Secondary buttons carry the card's elevation | ✅ | `--shadow-sm` at rest, `--shadow-md` on hover, flat on `:active`, written once on the shared class against theme tokens — so Blueprint gets the same three steps as a hard offset without a rule of its own. `:not(:disabled)` throughout |
 | Sitemap, robots, canonical URLs, OG tags | ✅ | Origin agreement enforced by `check-content.mjs` — decision 4 |
 | Inline SVG illustrations | ✅ | `src/components/Illustration.astro` |

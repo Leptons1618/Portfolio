@@ -1531,3 +1531,32 @@ The pane's own copy admitted it — "A small hand-rolled Markdown subset… Savi
 **Consequences.** One more route, one more `prerender = false`, and one more thing `npm run check:content` covers by construction: `preview.ts` imports `renderBody` rather than building a processor, which is what keeps `syntaxHighlight: false` true of every path that renders markdown. `docs/FEATURES.md` and `.claude/rules/admin-surface.md` both described the subset as the design and were wrong the moment this landed. The case-study body is unaffected — it is a plain textarea with no preview at all, deliberately (decision 46).
 
 **Rejected.** A parser in the admin bundle — a second implementation of the same dialect, in a bundle that then has to stay in step with Astro's plugin list, and one that would still be a different renderer. A `renderBody()` call in a page's frontmatter — the preview is per keystroke and the page is served once; the endpoint is the only shape that re-renders. `stripShikiDark()` on the way out — the processor's highlighter is off, so a fresh render carries no `astro-code` class or inline style to strip. *(That function is now deleted outright: it was added for rows saved before decision 45, and a production scan found none — 31 rows, zero with any attribute on a `<pre>` — so the read path no longer runs a regex over every long-form body. Decision 45's flag and `check:content` are what keep it unnecessary.)* Previewing the case study's body too — decision 46 keeps that field a plain textarea, and a preview there is a separate decision rather than a side effect of this one.
+
+## 68. Two drawing themes and a cabinet, from the references they were drawn from
+
+**Status:** accepted
+
+**Extends decision 7's mechanism to five themes. Nothing in that decision is reopened: a theme is still a token override file plus the marks tokens cannot express, and a page still never knows which one is on.**
+
+**Context.** `docs/referenceUI/056-architectural-blueprint.html` is a drawing set: a cyanotype sheet with a 12px/60px ruled ground, a sheet border, poché, dimension lines and a title block — and a *pencil mode* that redraws the same system in graphite on cream stock. `docs/referenceUI/011-victorian-herbarium.html` is a specimen cabinet: foxed cream paper, brown ink, madder and botanical green, a serif in small capitals, dotted ledger leaders, gummed tape, soft shadows.
+
+The Blueprint theme predated the first of those and had never been the sheet it was named for. Its dark mode was a near-black navy — a dimmed version of the light theme, which is what a cyanotype is not — and it used none of the reference's marks. The site had three themes, all of them the same two grotesque faces at different temperatures.
+
+**Decision.** Three things.
+
+**Blueprint is updated to the reference.** Dark mode becomes the cyanotype itself: the print's own ground (`#0b3d91`), pale-blue lines, the ruled ground drawn in light at the reference's two weights, and hard offsets cast in the print's deepest blue. The ruled ground moves to the reference's cells — 12px fine, 60px major — in both modes. Poché is drawn at its weight and angle, the sheet gains the reference's inner border on screens wide enough to show it, and `.detail-glance` — the site's own run of label/value pairs — is set as a **title block**, which is the one structural mark the reference has that a page here already draws the shape of.
+
+**Herbarium is new, from the cabinet.** A foxed ground (radial gradients at the reference's own positions), the printer's madder and the pressed leaf's green, a serif, small-caps labels, dotted rules with the ledger's leaders, lozenge registration marks, letterpress buttons with a double keyline, soft shadows and a slight tilt on every card, a drop cap on a post's first paragraph, and the section numbering a cabinet would use (`No. 01 ·`, `Plate 01 ·`). It is the first theme here that is not a grotesque.
+
+**Graphite is new, and it is the merge.** Paper is Blueprint's system on warm stock, so merging Paper *into* Blueprint would have produced a fourth name for the third thing. The reference merges them itself, in its pencil mode: the same ruled ground and frame, in graphite on cream, with no colour on the sheet. That is Graphite — the drafting system on stock with **no accent at all** — and it is why it is not Paper (which has two accents) and not Blueprint (which is a print, not a sketch). Its one other voice is non-photo blue, the drafting lead that does not reproduce, kept for code strings and nothing structural.
+
+**Four properties hold across all three.**
+
+- **The serif is a system stack** — Iowan Old Style, Palatino, P052, Book Antiqua, Georgia — so the cabinet costs no request and no new dependency. The mono stays for what mono is for: code, keys, numbers.
+- **`--font-nav` is untouched**, because the header's row must not move by a pixel when the theme changes.
+- **The tilt is `rotate`, not `transform`.** The reveal system animates `transform`; a theme that wrote its tilt there would have it cancelled the moment a card was revealed. This is the same reason the band's nodes are positioned with `translate` in the shared layer.
+- **A theme may style a page's classes** (`.detail-glance`, `.media-plate`, `.hero-photo`) — what it may not do is the reverse. No page changed for any of this.
+
+**Consequences.** `THEMES` holds five, the header toggle cycles them, and the `themeColor` pairs follow the new grounds. Three comments that said "the three themes" now say "the themes". The `--plate-*` tokens are set per theme, so the journal's photograph-less card is drawn in each theme's own stock. No new dependency, no new request, no markup change: the entire feature is three stylesheets and one array.
+
+**Rejected.** A webfont serif — a network request, a preload and a licence for a face every platform already ships. Scoping the serif to the public pages only — the admin is themed by the same mechanism, it was checked in Herbarium, and the two faces it uses there (serif body, mono labels) read as intended. Making Graphite "Paper with different accents" — that is Paper. Adding a per-theme screenshot to the colophon — it would be five plates per screen for a page whose point is the architecture.

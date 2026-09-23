@@ -1,10 +1,12 @@
 @import './theme.css';
-/* The three themes. Each file is inert until `<html>` carries its
+/* The themes. Each file is inert until `<html>` carries its
    `data-theme` — which it always does; see `src/lib/theme.ts` — and each wins
    on specificity rather than on source order. Geometry is the default. */
 @import './themes/geometry.css';
 @import './themes/blueprint.css';
+@import './themes/graphite.css';
 @import './themes/paper.css';
+@import './themes/herbarium.css';
 /* The resume sheet. Global rather than page-scoped because three surfaces
    render the same markup — the public page, the admin preview and the printed
    PDF — and a stylesheet only one of them could see is how the preview drifted
@@ -1142,7 +1144,7 @@ select.input.is-auto {
 
    Every visual decision is a token (`--rule-style`, `--rail-ink`,
    `--hatch-ink`, `--hatch-step`, `--node-size`, `--node-radius`,
-   `--sep-height`, all in `theme.css`), so the three themes share one frame
+   `--sep-height`, all in `theme.css`), so every theme shares one frame
    and none of them has to redraw it. The column edge is
    `calc(50% - min(50%, var(--wrap-wide) / 2))`: half the viewport minus half
    the column, clamped so a viewport narrower than the column puts the edge at

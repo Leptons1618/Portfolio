@@ -14,6 +14,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Two themes: Graphite and Herbarium.** Graphite is the pencil sibling of
+  Blueprint — the same ruled ground and drafting frame in graphite on cream
+  stock, with no accent colour at all — which is the merge the blueprint and
+  paper references were asking for, drawn the way the reference draws it.
+  Herbarium is a Victorian specimen cabinet: foxed paper, madder and botanical
+  green, a serif in small capitals, dotted ledger rules, lozenges at the band's
+  corners, letterpress buttons, a slight tilt on every card and a drop cap on a
+  post's first paragraph. Five themes now, cycled by the header toggle; neither
+  costs a request or a dependency. Decision **68**.
 - **Every AI run is logged.** The public assistant, the writing assistant
   and the daily job each leave one row per run: which model answered, how
   long it took, lookups, answer and thinking sizes, the stop reason, and
@@ -39,6 +48,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Blueprint is the cyanotype sheet it was named for.** Dark mode was a
+  near-black navy — a dimmed light theme, which is what a blueprint is not —
+  and is now the print itself: the reference's own ground, pale-blue lines and
+  a ruled ground drawn in light. The grid moves to the reference's cells
+  (12px fine, 60px major), the band's hatch to its poché, and a project's facts
+  are set as a **title block**, the labelled cells a drawing set ends in. The
+  hero's photograph is keylined twice and the sheet gains an inner border where
+  there is room for one. Decision **68**.
 - **The journal editor's preview is the post's renderer.** The Preview tab
   was a hand-rolled markdown subset — paragraphs, headings, lists, bold,
   links — so a table, a fence with a language, a heading id or a smart quote

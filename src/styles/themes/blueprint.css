@@ -1,8 +1,11 @@
 /* ==========================================================================
-   Blueprint Technical — the second theme.
+   Blueprint Technical — the cyanotype sheet.
 
    Ported from Stitch project 15389477938522710269; the written spec is
-   `DESIGN.md` at the repo root. Selected at runtime by `data-theme="blueprint"`
+   `DESIGN.md` at the repo root, and the drawing set it draws is
+   `docs/referenceUI/056-architectural-blueprint.html` — a cyanotype sheet with
+   a 12px/60px ruled ground, a sheet border, poché, dimension lines and a title
+   block of labelled cells. Selected at runtime by `data-theme="blueprint"`
    on `<html>` (see `src/lib/theme.ts`), which is why every rule here is scoped
    to that attribute — with no attribute the file contributes nothing and
    Classic renders untouched.
@@ -12,9 +15,9 @@
    1. Token overrides. Because every component in `global.css` already reads
       `var(--color-*)` / `var(--font-*)` / `var(--radius-*)`, rebinding the
       tokens carries most of the theme on its own.
-   2. The signature overrides tokens cannot express: the 24px pencil grid, the
-      dashed rules, the hard offset shadows, the monospaced metadata, and the
-      bracketed wordmark.
+   2. The signature overrides tokens cannot express: the ruled ground, the
+      dashed rules, the hard offset shadows, the monospaced metadata, the
+      bracketed wordmark, and the title block.
 
    Nothing here may be referenced by a page. Pages know about tokens and about
    the component classes in `global.css`; they never know which theme is on.
@@ -76,7 +79,7 @@
      left to each theme's body. The bar's layout has to be identical under
      every theme — Geometry is the default, so a page resolving into this one
      must not shift the link row by a single pixel — and this is the only face
-     the three themes agree on measuring. Declared by every layout, so using
+     the themes agree on measuring. Declared by every layout, so using
      it here costs nothing extra. */
   --font-nav: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
 
@@ -93,16 +96,21 @@
   --color-text-muted: color-mix(in srgb, var(--color-text) 65%, transparent);
   --color-text-faint: color-mix(in srgb, var(--color-text) 55%, transparent);
 
-  /* The 24px grid the whole system is drawn on. Kept as a token so the
-     background rule below and any future motif stay in step. */
-  --grid-step: 24px;
-  --grid-ink: color-mix(in srgb, var(--color-text) 5%, transparent);
+  /* The ruled ground: the reference's own two cells — a 12px fine rule with a
+     heavier line every fifth (60px), so the eye can count squares the way it
+     does on the real sheet. Kept as tokens so the background rule below and
+     any future motif stay in step. */
+  --grid-step: 12px;
+  --grid-ink: color-mix(in srgb, var(--color-text) 4%, transparent);
 }
 
 /* --------------------------------------------------------------------------
-   Blueprint, dark — the drafting table at night. Cyanotype rather than
-   pencil-on-white: a navy ground, a paler rust that still clears 4.5:1, and a
-   grid drawn in light instead of graphite.
+   Blueprint, dark — the cyanotype sheet.
+
+   The reference's own ground: a saturated blue print with pale blue lines, the
+   way a real drawing reads on the ammonia print it was pulled from. This is
+   not a dimmed version of the light theme and never was — a cyanotype is a
+   different object, which is why the ground is a colour rather than a shade.
 
    Written twice for the reason `theme.css` explains at length and does not
    need repeating: `data-mode` is absent until someone presses the switch, so
@@ -120,50 +128,56 @@
 :root[data-theme='blueprint'][data-mode='dark'] {
   color-scheme: dark;
 
-  --color-bg: #0a111e;
-  --color-surface: #131d2e;
-  --color-text: #e4ebf7;
-  --color-accent: #f08a86;
-  --color-accent-2: #8aa4cf;
-  --color-divider: #2b384c;
+  --color-bg: #0b3d91;
+  --color-surface: #08307a;
+  --color-text: #e8f1ff;
+  --color-accent: #ff9d94;
+  --color-accent-2: #9fd3ff;
+  --color-divider: #2b62b8;
 
-  --color-neutral-100: #101a29;
-  --color-neutral-200: #162133;
-  --color-neutral-300: #1d2a3e;
-  --color-neutral-400: #2b384c;
-  --color-neutral-500: #3d4c63;
-  --color-neutral-600: #6b7891;
-  --color-neutral-700: #96a2b8;
-  --color-neutral-800: #c3ccdd;
-  --color-neutral-900: #e4ebf7;
+  --color-neutral-100: #0a2d6a;
+  --color-neutral-200: #11387a;
+  --color-neutral-300: #1a468f;
+  --color-neutral-400: #2254a3;
+  --color-neutral-500: #2b62b8;
+  --color-neutral-600: #5884c9;
+  --color-neutral-700: #7ea1d7;
+  --color-neutral-800: #a0bbe4;
+  --color-neutral-900: #bed2ef;
 
-  --color-accent-100: #2a1210;
-  --color-accent-200: #3d1a17;
-  --color-accent-300: #5c2723;
-  --color-accent-400: #8a3a35;
-  --color-accent-500: #c04f49;
-  --color-accent-600: #dd6d67;
-  --color-accent-700: #f08a86;
-  --color-accent-800: #ffb3ad;
-  --color-accent-900: #ffdad6;
+  /* Red pencil — what an architect annotates a blue print with, and the one
+     warm thing on the sheet. */
+  --color-accent-100: #542419;
+  --color-accent-200: #773d32;
+  --color-accent-300: #a65e54;
+  --color-accent-400: #d07c72;
+  --color-accent-500: #ff9d94;
+  --color-accent-600: #ffaea6;
+  --color-accent-700: #ffbcb5;
+  --color-accent-800: #ffc8c2;
+  --color-accent-900: #ffd4ce;
 
-  --color-accent-2-100: #101d2f;
-  --color-accent-2-200: #16273d;
-  --color-accent-2-300: #1e3a5f;
-  --color-accent-2-400: #2d486d;
-  --color-accent-2-500: #455f87;
-  --color-accent-2-600: #6d87b0;
-  --color-accent-2-700: #8aa4cf;
-  --color-accent-2-800: #adc8f5;
-  --color-accent-2-900: #d5e3ff;
+  /* The print's own pale blue, which is what every line on the sheet is drawn
+     in — rails, poché, the ruled ground. */
+  --color-accent-2-100: #0e377f;
+  --color-accent-2-200: #15448f;
+  --color-accent-2-300: #1e54a4;
+  --color-accent-2-400: #2663b8;
+  --color-accent-2-500: #2f74cd;
+  --color-accent-2-600: #5b92d9;
+  --color-accent-2-700: #80abe3;
+  --color-accent-2-800: #a2c2ec;
+  --color-accent-2-900: #bfd6f4;
 
-  /* Hard offsets need a colour that is visible *against* the ground, so they
-     cast in the ramp's dark end rather than its light one. */
-  --shadow-sm: 2px 2px 0 0 var(--color-neutral-500);
-  --shadow-md: 2px 2px 0 0 var(--color-neutral-600);
-  --shadow-lg: 4px 4px 0 0 var(--color-accent-2-500);
+  /* Hard offsets cast in the print's deepest blue: on a sheet this light a
+     shadow can only be another line, so it is drawn as one. */
+  --shadow-sm: 2px 2px 0 0 var(--color-neutral-100);
+  --shadow-md: 2px 2px 0 0 var(--color-neutral-100);
+  --shadow-lg: 4px 4px 0 0 var(--color-neutral-100);
 
-  --grid-ink: color-mix(in srgb, var(--color-text) 8%, transparent);
+  /* The ruled ground in light, at the reference's two weights. */
+  --grid-ink: color-mix(in srgb, var(--color-accent-2-900) 10%, transparent);
+  --grid-ink-major: color-mix(in srgb, var(--color-accent-2-900) 20%, transparent);
 }
 
 } /* @media screen — the dark ramp is a screen palette. See above. */
@@ -172,48 +186,49 @@
   :root[data-theme='blueprint']:not([data-mode='light']) {
     color-scheme: dark;
 
-    --color-bg: #0a111e;
-    --color-surface: #131d2e;
-    --color-text: #e4ebf7;
-    --color-accent: #f08a86;
-    --color-accent-2: #8aa4cf;
-    --color-divider: #2b384c;
+    --color-bg: #0b3d91;
+    --color-surface: #08307a;
+    --color-text: #e8f1ff;
+    --color-accent: #ff9d94;
+    --color-accent-2: #9fd3ff;
+    --color-divider: #2b62b8;
 
-    --color-neutral-100: #101a29;
-    --color-neutral-200: #162133;
-    --color-neutral-300: #1d2a3e;
-    --color-neutral-400: #2b384c;
-    --color-neutral-500: #3d4c63;
-    --color-neutral-600: #6b7891;
-    --color-neutral-700: #96a2b8;
-    --color-neutral-800: #c3ccdd;
-    --color-neutral-900: #e4ebf7;
+    --color-neutral-100: #0a2d6a;
+    --color-neutral-200: #11387a;
+    --color-neutral-300: #1a468f;
+    --color-neutral-400: #2254a3;
+    --color-neutral-500: #2b62b8;
+    --color-neutral-600: #5884c9;
+    --color-neutral-700: #7ea1d7;
+    --color-neutral-800: #a0bbe4;
+    --color-neutral-900: #bed2ef;
 
-    --color-accent-100: #2a1210;
-    --color-accent-200: #3d1a17;
-    --color-accent-300: #5c2723;
-    --color-accent-400: #8a3a35;
-    --color-accent-500: #c04f49;
-    --color-accent-600: #dd6d67;
-    --color-accent-700: #f08a86;
-    --color-accent-800: #ffb3ad;
-    --color-accent-900: #ffdad6;
+    --color-accent-100: #542419;
+    --color-accent-200: #773d32;
+    --color-accent-300: #a65e54;
+    --color-accent-400: #d07c72;
+    --color-accent-500: #ff9d94;
+    --color-accent-600: #ffaea6;
+    --color-accent-700: #ffbcb5;
+    --color-accent-800: #ffc8c2;
+    --color-accent-900: #ffd4ce;
 
-    --color-accent-2-100: #101d2f;
-    --color-accent-2-200: #16273d;
-    --color-accent-2-300: #1e3a5f;
-    --color-accent-2-400: #2d486d;
-    --color-accent-2-500: #455f87;
-    --color-accent-2-600: #6d87b0;
-    --color-accent-2-700: #8aa4cf;
-    --color-accent-2-800: #adc8f5;
-    --color-accent-2-900: #d5e3ff;
+    --color-accent-2-100: #0e377f;
+    --color-accent-2-200: #15448f;
+    --color-accent-2-300: #1e54a4;
+    --color-accent-2-400: #2663b8;
+    --color-accent-2-500: #2f74cd;
+    --color-accent-2-600: #5b92d9;
+    --color-accent-2-700: #80abe3;
+    --color-accent-2-800: #a2c2ec;
+    --color-accent-2-900: #bfd6f4;
 
-    --shadow-sm: 2px 2px 0 0 var(--color-neutral-500);
-    --shadow-md: 2px 2px 0 0 var(--color-neutral-600);
-    --shadow-lg: 4px 4px 0 0 var(--color-accent-2-500);
+    --shadow-sm: 2px 2px 0 0 var(--color-neutral-100);
+    --shadow-md: 2px 2px 0 0 var(--color-neutral-100);
+    --shadow-lg: 4px 4px 0 0 var(--color-neutral-100);
 
-    --grid-ink: color-mix(in srgb, var(--color-text) 8%, transparent);
+    --grid-ink: color-mix(in srgb, var(--color-accent-2-900) 10%, transparent);
+    --grid-ink-major: color-mix(in srgb, var(--color-accent-2-900) 20%, transparent);
   }
 }
 
@@ -223,12 +238,11 @@
   display: none;
 }
 
-/* — the pencil grid ————————————————————————————————————————————————————
-   Graph paper, properly: a fine 24px rule with a heavier line every fifth
-   cell, so the eye can count squares the way it does on the real thing. The
-   major line is the same ink at twice the weight — one colour, two values —
-   and both layers are fixed, so the sheet reads as the drafting surface the
-   page sits on rather than as texture printed onto the content. */
+/* — the ruled ground ————————————————————————————————————————————————————
+   The reference's sheet, at its own numbers: a 12px fine rule and a heavier
+   line every fifth cell (60px), both fixed, so the sheet reads as the drafting
+   surface the page sits on rather than as texture printed onto the content.
+   The major line is the same ink at a higher weight — one colour, two values. */
 [data-theme='blueprint'] body {
   font-size: 16px;
   background-image:
@@ -245,38 +259,33 @@
 }
 
 :root[data-theme='blueprint'] {
-  --grid-ink-major: color-mix(in srgb, var(--color-text) 10%, transparent);
+  --grid-ink-major: color-mix(in srgb, var(--color-text) 11%, transparent);
 
-  /* The drafting frame in this theme's voice: cut lines, pencil hatch, and
-     square registration nodes. The band is a grid module tall — three cells —
-     so the frame lands on the paper's own lines, which is also the shared
-     `--sep-height`, so it no longer needs saying twice.
+  /* The drafting frame in this theme's voice: cut lines, poché hatch, and
+     square registration marks. The band is a grid module tall — five cells of
+     the 12px rule — so the frame lands on the sheet's own lines, which is also
+     the shared `--sep-height`, so it no longer needs saying twice.
 
      `--sep-ink` is a real step down the neutral ramp rather than
      `--color-divider`: a dashed hairline in the divider grey over a ruled
-     grid of nearly the same grey is a boundary you have to go looking for,
+     ground of nearly the same grey is a boundary you have to go looking for,
      and the marks at its corners were paler still. The corner radius went
      with it — `--radius-sm` on a 10px square is a soft blob at the one place
-     on the page whose whole job is to be a precise mark. */
+     on the page whose whole job is to be a precise mark.
+
+     The hatch is the reference's poché, drawn at its own weight: a cut wall is
+     filled to be *read* as solid, and at 45° the way a section is hatched. */
   --rule-style: dashed;
   --rail-ink: var(--color-divider);
   --sep-ink: var(--color-neutral-600);
-  --hatch-ink: color-mix(in srgb, var(--color-text) 13%, transparent);
-  --hatch-step: 8px;
+  --hatch-ink: color-mix(in srgb, var(--color-text) 16%, transparent);
+  --hatch-step: 7px;
   --node-size: 10px;
 }
 
-@media screen {
-  :root[data-theme='blueprint'][data-mode='dark'] {
-    --grid-ink-major: color-mix(in srgb, var(--color-text) 14%, transparent);
-  }
-}
-
-@media screen and (prefers-color-scheme: dark) {
-  :root[data-theme='blueprint']:not([data-mode='light']) {
-    --grid-ink-major: color-mix(in srgb, var(--color-text) 14%, transparent);
-  }
-}
+/* The grid's two weights are stated per mode in the ramp blocks above — the
+   dark sheet draws them in light, which no `color-mix` on the text colour can
+   express, so the overrides that used to live here are gone. */
 
 [data-theme='blueprint'] h1 {
   font-size: 48px;
@@ -675,4 +684,74 @@ html[data-theme='blueprint'] .hero-figure::before {
 @keyframes bp-calipers {
   0%, 100% { margin: calc(var(--bp-gap) * -1); }
   50% { margin: calc(var(--bp-gap) * -1 - 4px); }
+}
+
+/* — the title block ————————————————————————————————————————————————————
+   Every drawing set ends in one: a run of labelled cells, each holding a
+   caption over a value, divided by hairlines and outlined like the drawing it
+   describes. The site already draws exactly that shape — `.detail-glance` on a
+   project page is a `<dl>` of label/value pairs — so it is given the block's
+   grammar rather than a component of its own, and the project's facts read as
+   the sheet's own specification. */
+html[data-theme='blueprint'] .detail-glance,
+html[data-theme='blueprint'] .cs-glance {
+  gap: 0;
+  padding-bottom: 0;
+  border: 1px solid var(--color-divider);
+  background: var(--color-neutral-100);
+  box-shadow: var(--shadow-sm);
+}
+
+html[data-theme='blueprint'] .detail-glance-item,
+html[data-theme='blueprint'] .cs-glance-item {
+  gap: 0;
+  padding: var(--space-2) var(--space-3);
+  border-right: 1px solid var(--color-divider);
+}
+
+html[data-theme='blueprint'] .detail-glance-item:last-child,
+html[data-theme='blueprint'] .cs-glance-item:last-child {
+  border-right: 0;
+}
+
+html[data-theme='blueprint'] .detail-glance-item dt,
+html[data-theme='blueprint'] .cs-glance-item dt {
+  font-size: 9px;
+  letter-spacing: 0.16em;
+}
+
+html[data-theme='blueprint'] .detail-glance-item dd,
+html[data-theme='blueprint'] .cs-glance-item dd {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+/* — the sheet's inner border ————————————————————————————————————————————
+   The reference frames its drawing twice: a rule at the trim, and a lighter
+   one inset from it. The site's frame already draws the outer pair — rails at
+   the column edges, rules above the header and below the footer — so this is
+   the inner one: a hairline inset from the *viewport*, fixed, which is what
+   makes a screen of content read as a sheet on a board rather than as a page
+   that happens to have rules on it.
+
+   Only where there is room outside the rails for it to be seen at all; below
+   that width it would cross the content instead of framing it. */
+@media (min-width: 1200px) {
+  [data-theme='blueprint'] body::after {
+    content: '';
+    position: fixed;
+    inset: 10px;
+    border: 1px solid var(--color-accent-2-300);
+    opacity: 0.5;
+    pointer-events: none;
+    z-index: 2;
+  }
+}
+
+/* The photograph is a detail plate on this sheet, so it is keylined the way
+   the reference keylines one: the drawn edge, and a second rule inset from it
+   — the same double border the sheet itself carries. */
+[data-theme='blueprint'] .hero-photo {
+  outline: 1px solid var(--color-accent-2-400);
+  outline-offset: 4px;
 }
