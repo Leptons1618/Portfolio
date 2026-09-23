@@ -25,9 +25,15 @@ const [study, everyProject] = await Promise.all([
 ]);
 
 /* The write-up's own section headings, as its table of contents. Read from the
-   markdown the page already has rather than parsed out of the HTML. */
+   markdown the page already has rather than parsed out of the HTML.
+
+   Fences are dropped first: a `## ` inside one is a comment or a sample, and
+   listing it would put a line of code in the contents. Removing the whole
+   fenced region is the same thing the page does with it — a fence renders as
+   code, never as a heading — so the two cannot disagree. */
 const contents = study
   ? study.body
+      .replace(/```[\s\S]*?```/g, '')
       .split('\n')
       .map(line => line.match(/^##\s+(.+?)\s*#*$/)?.[1]?.replace(/[*_`]/g, '').trim())
       .filter((heading): heading is string => Boolean(heading))

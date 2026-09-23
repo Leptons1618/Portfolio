@@ -334,6 +334,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     buildPostMarkdown,
     createPost,
     postPath,
+    slugify as sharedSlugify,
     updatePost,
     type PostFields,
     type PostStatus,
@@ -400,8 +401,9 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     const stamp = $('save-stamp');
     const commitBtn = $<HTMLButtonElement>('commit-md');
 
-    const slugify = (s: string) =>
-      s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'untitled';
+    /* The shared rule — the same one `image-upload.ts` names a file with — plus
+       this screen's fallback for a title that slugs to nothing. */
+    const slugify = (s: string) => sharedSlugify(s) || 'untitled';
 
     const STATUS_HELP: Record<string, string> = {
       draft: 'Off the public site in production. Visible here, and in local development.',
@@ -437,17 +439,19 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
        newer render starts is exactly the one that would paint over it. Nothing
        is fetched at all while the Write tab is showing. */
     const PREVIEW_DEBOUNCE = 350;
-    const PREVIEW_NOTE =
-      "The post's own renderer: Astro's markdown processor, on the server, the same call a save makes. " +
-      'Fenced code is lit in the browser, as it is on the page.';
+    /* Read back off the markup rather than written a second time: the note is
+       server-rendered so a reader with no JavaScript still gets the
+       explanation, and this is that same sentence, collapsed. */
+    const PREVIEW_NOTE = (previewNote.textContent ?? '').replace(/\s+/g, ' ').trim();
     const NO_SESSION =
       'Sign in with GitHub to render the preview — the export and the local snapshot still work.';
+    const previewHeading = () => fields.title.value.trim() || 'Post Title...';
 
     let previewing = false;
     let previewTimer: ReturnType<typeof setTimeout> | undefined;
     let previewRun = 0;
-    /** The highlighter chunk, fetched the first time a render has a fence in it. */
-    let codeFx: Promise<typeof import('../lib/code-fx')> | undefined;
+    /** The body the pane is currently showing, so an unchanged one costs nothing. */
+    let lastRendered: string | null = null;
 
     function say(text: string, tone?: 'error'): void {
       previewNote.textContent = text;
@@ -456,22 +460,39 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     }
 
     async function paintPreview(): Promise<void> {
-      previewTitle.textContent = fields.title.value || 'Post Title...';
+      previewTitle.textContent = previewHeading();
+
+      /* Before anything below can return early: every paint supersedes whatever
+         is in flight, so a response for text that is no longer in the textarea
+         cannot land on a pane that this paint decided not to touch. */
+      const run = (previewRun += 1);
 
       const token = getToken();
       if (!token) {
         say(NO_SESSION);
         previewBody.replaceChildren();
+        delete previewBody.dataset.state;
+        lastRendered = null;
         return;
       }
 
-      const run = (previewRun += 1);
+      const markdown = fields.body.value;
+      /* Nothing to ask for. A title keystroke, a tab flip and the autosave all
+         re-check the same body, and the whole body goes on the wire — so the
+         pane is only re-rendered when the text it would render has changed.
+         The render this superseded left the pane dimmed and will never land;
+         un-dimming it is this branch's whole job. */
+      if (markdown === lastRendered) {
+        delete previewBody.dataset.state;
+        return;
+      }
+
       previewBody.dataset.state = 'rendering';
       try {
         const response = await fetch('/api/preview', {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ markdown: fields.body.value }),
+          body: JSON.stringify({ markdown }),
         });
         const data = (await response.json().catch(() => ({}))) as { html?: string; error?: string };
         if (!response.ok || typeof data.html !== 'string') {
@@ -481,23 +502,25 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
            describes what is in the textarea now. */
         if (run !== previewRun) return;
 
+        lastRendered = markdown;
         previewBody.innerHTML = data.html;
         delete previewBody.dataset.state;
         say(PREVIEW_NOTE);
 
         /* Fenced code, framed and coloured by the same module the post's page
-           mounts — lazily, because the lexer is a chunk and a post with no
-           fence in it should not fetch one. `mountCode` skips a `<pre>` it has
-           already framed, and every paint replaces these children, so each
-           render lights up its own. */
+           mounts, and only fetched once there is a fence to light up. The
+           import is cached by the module map, so this is one request for the
+           session however many renders ask for it. */
         if (previewBody.querySelector('pre')) {
-          codeFx ??= import('../lib/code-fx');
-          void codeFx.then(module => module.mountCode(previewBody)).catch(() => {});
+          void import('../lib/code-fx').then(module => module.mountCode(previewBody)).catch(() => {});
         }
       } catch (error) {
         if (run !== previewRun) return;
         /* The pane keeps the last render it had — a body one pause out of date
-           is still worth reading — and the line under it says what happened. */
+           is still worth reading — and the line under it says what happened.
+           `lastRendered` is dropped so the next trigger retries rather than
+           treating a failure as the current render. */
+        lastRendered = null;
         delete previewBody.dataset.state;
         say(error instanceof Error ? error.message : 'The preview could not be rendered.', 'error');
       }
@@ -505,7 +528,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
     function render() {
       if (previewing) {
-        previewTitle.textContent = fields.title.value || 'Post Title...';
+        previewTitle.textContent = previewHeading();
         clearTimeout(previewTimer);
         previewTimer = setTimeout(() => void paintPreview(), PREVIEW_DEBOUNCE);
       }
@@ -522,10 +545,13 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
     wireTabs($('je-tabs'), id => {
       previewing = id === 'je-panel-preview';
+      /* Cancelled in both directions: leaving the tab drops what was armed
+         while it was showing, because nobody is reading a hidden pane and the
+         block above promises no render is fetched for one. */
+      clearTimeout(previewTimer);
       if (previewing) {
         /* Immediately on arrival, not through the debounce: the author asked
            for this pane, and a pause with nothing in it reads as broken. */
-        clearTimeout(previewTimer);
         void paintPreview();
       }
     });

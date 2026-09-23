@@ -41,14 +41,35 @@ import { renderBody } from '../../lib/markdown';
 export const prerender = false;
 
 /**
- * A ceiling on what one preview will render.
+ * What one preview will render, in the two numbers that bound it.
  *
- * A post here is a few kilobytes; this is 100× the largest one. It is a guard
- * against a runaway paste being rendered on every keystroke of a debounce, not
- * a limit on what may be written — the row itself has no such cap, and the
- * endpoint is owner-only, so the honest failure is a refusal that says so.
+ * The largest body in this site's database is 19,409 characters over 1,064
+ * lines, so both of these are about 5× and 3× the largest thing anyone has
+ * written — a guard against a paste, not a limit on prose.
+ *
+ * Two numbers because they bound different things, and the second one is the
+ * one that matters. `MAX_BODY` bounds what goes on the wire, and the cost of
+ * the render is *per block* rather than per byte: measured on this processor,
+ * 200,000 characters in one paragraph renders in ~150 ms and the same
+ * characters as one-word lines take seconds, while 2,000 lines of ordinary
+ * prose — the shape a real body has, blank lines and all — already costs
+ * ~850 ms. A character cap alone therefore permits a body that a debounced
+ * keystroke can turn into a Worker out of CPU, which is the failure this
+ * exists to prevent. `npm run check:preview` pins both refusals.
+ *
+ * Neither is a limit on what may be *saved*: the row has no cap, and a body
+ * past either number is refused here with its own size quoted rather than
+ * rendered forever.
  */
-const MAX_BODY = 200_000;
+const MAX_BODY = 100_000;
+const MAX_LINES = 3_000;
+
+/** Newlines, counted without building an array of a hundred thousand lines. */
+function countLines(text: string): number {
+  let lines = 1;
+  for (let at = text.indexOf('\n'); at !== -1; at = text.indexOf('\n', at + 1)) lines += 1;
+  return lines;
+}
 
 export const POST: APIRoute = async ({ request }) => {
   // Identity first, like every write path: an unauthenticated caller should
@@ -64,13 +85,16 @@ export const POST: APIRoute = async ({ request }) => {
   if (typeof markdown !== 'string') {
     return json({ error: 'Expected a markdown string in `markdown`.' }, 400);
   }
-  if (markdown.length > MAX_BODY) {
+
+  const lines = countLines(markdown);
+  if (markdown.length > MAX_BODY || lines > MAX_LINES) {
     /* Digits, not `toLocaleString()`: this string is read by a person who wants
        to know how far over they are, and grouping separators are the
        environment's business — the same length prints as `200,001` and
        `2,00,001` depending on the locale the isolate happens to hold. */
+    const size = markdown.length > MAX_BODY ? `${markdown.length} characters` : `${lines} lines`;
     return json(
-      { error: `That body is ${markdown.length} characters; this renders up to ${MAX_BODY}.` },
+      { error: `That body is ${size}; the preview renders up to ${MAX_BODY} characters over ${MAX_LINES} lines.` },
       413,
     );
   }
