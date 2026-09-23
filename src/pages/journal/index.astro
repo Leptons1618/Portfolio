@@ -58,14 +58,32 @@ const [featured, ...archive] = posts;
       <div class="archive-grid">
         {archive.map(post => (
           <a href={`/journal/${post.slug}`} class="card elev-sm archive-card">
-            {post.data.heroImage && (
-              <div class="post-media">
+            {/* Every card in this grid carries the same 16:9 media block, so the
+                rows keep one rhythm. A post with a photograph gets the
+                photograph; a post without one gets the plate — the same frame
+                drawn instead of photographed, carrying what the card knows
+                (its file path, its tags) rather than an empty hole where an
+                image would have been. */}
+            <div class="post-media">
+              {post.data.heroImage ? (
                 <div class="grayscale media-frame"><img src={post.data.heroImage} alt={post.data.title} loading="lazy" decoding="async" width="640" height="360" /></div>
-                {(post.data.videoDuration ?? post.data.readTime) && (
-                  <span class="tag tag-neutral media-duration">{post.data.videoDuration ?? post.data.readTime}</span>
-                )}
-              </div>
-            )}
+              ) : (
+                <div class="media-frame media-plate">
+                  {/* The path is the plate's drawing, not its content: it
+                      repeats the link's own target, so a screen reader gets
+                      the tags and the read time without it. */}
+                  <span class="plate-path" aria-hidden="true">~/journal/{post.slug}</span>
+                  {post.data.tags.length > 0 && (
+                    <div class="plate-tags">
+                      {post.data.tags.slice(0, 2).map(tag => <span class="tag tag-neutral">{formatTag(tag)}</span>)}
+                    </div>
+                  )}
+                </div>
+              )}
+              {(post.data.videoDuration ?? post.data.readTime) && (
+                <span class="tag tag-neutral media-duration">{post.data.videoDuration ?? post.data.readTime}</span>
+              )}
+            </div>
             <span class="text-muted archive-date">{formatShortDate(post.data.date)}</span>
             <h3 class="card-title archive-title">{post.data.title}</h3>
           </a>
@@ -123,6 +141,37 @@ const [featured, ...archive] = posts;
   .media-duration { position: absolute; bottom: 8px; right: 8px; font-family: var(--font-mono); }
   .featured-media { margin-bottom: var(--space-2); }
 
+  /* — the plate —
+     The frame a post without a photograph gets. Every card in the archive
+     carries the same 16:9 media block, so the rows keep one rhythm; a post
+     with a photograph shows it, and a post without one shows this — the same
+     frame drawn rather than photographed. It carries what the card knows and
+     would otherwise not show (its tags, its read time) so that a frame with
+     no image in it reads as a document rather than as a hole. */
+  .media-plate {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: var(--space-3);
+    background-image: repeating-linear-gradient(
+      -45deg,
+      var(--plate-ink) 0 1px,
+      transparent 1px var(--plate-step)
+    );
+  }
+  .plate-path {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-text-faint);
+    /* A slug is one unbreakable word and the long ones run past a card
+       column, so it is clipped to the frame rather than wrapped onto a second
+       line that would push the tags off the plate. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .plate-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+
   /* Same parity as ProjectCard: keyboard focus wakes the photograph, the
      pointer reveal only where hover actually exists. */
   @media (hover: hover) {
@@ -142,6 +191,11 @@ const [featured, ...archive] = posts;
   .archive-head { margin-bottom: var(--space-4); }
   .archive-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
   .archive-card { text-decoration: none; color: inherit; }
+  /* A `1fr` track is `minmax(auto, 1fr)`, and the automatic minimum is the
+     item's min-content — which the plate's clipped, never-wrapping path makes
+     as wide as the longest slug on the site. Without this the column grows
+     past its share and the page scrolls sideways on a phone. */
+  .archive-grid > * { min-width: 0; }
   .archive-card:hover,
   .archive-card:focus-visible { color: inherit; }
   .archive-card:hover .archive-title,

@@ -70,6 +70,12 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   database found none in any of the 31 long-form rows, and raw HTML can no
   longer produce a `<pre>` at all, so every request was running two regexes
   over every body to change nothing. `npm run check:shiki` goes with it.
+- **The journal archive keeps one rhythm, with or without a photograph.**
+  Every card in the grid now carries the same 16:9 media block. A post with a
+  hero image shows it as before; a post without one gets a drawn plate — its
+  file path, its tags and its read time on hatched card stock — instead of a
+  card stretched to the row height with its date and title pinned to the
+  bottom, which read as a photograph that had failed to load.
 - **The daily journal's schedule is a tab on the Journal screen.** Lifted
   whole from `/admin/ai` into `DailyJournalPanel.astro`; the AI screen is two
   tabs again. Nothing about what it stores or calls moved. Decision **64**.
