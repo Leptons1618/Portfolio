@@ -167,6 +167,52 @@
   white-space: nowrap;
 }
 
+/* Now that the block is a link, it needs the three states the nav links have:
+   a hover that says so, a ring for the keyboard, and the same left-edge mark
+   when it is the current destination. The hover is deliberately quieter than
+   the nav's — the avatar is already the one thing on this rail that looks
+   clickable, so it does not also need to shout. */
+.admin-whoami { position: relative; padding: 2px; margin: -2px; border-radius: var(--radius-md); }
+.admin-whoami:hover { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.admin-whoami:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 0; }
+/* `::before`, not `::after`: the collapsed rail draws its tooltip on the
+   `::after` of this same element, and a current-section mark that shares a
+   pseudo with a tooltip is one specificity fight away from neither drawing. */
+.admin-whoami[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--color-accent);
+}
+
+/* The skip link. Off-screen until focused, then a chip in the same language as
+   every other surface on the admin — top-left, hard offset, mono. The public
+   site has one at `global.css`; this is its twin, because the admin's rail is
+   `transition:persist`ed and would make the same eight-keystroke cost repeat on
+   every navigation. */
+.admin-skip-link {
+  position: fixed;
+  top: var(--space-3);
+  left: var(--space-3);
+  z-index: 200;
+  translate: 0 -200%;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-decoration: none;
+  color: var(--color-text);
+  background: var(--color-bg);
+  border: 1px solid var(--color-accent);
+  box-shadow: var(--shadow-md);
+  border-radius: var(--radius-sm);
+  transition: translate var(--dur-fast) var(--ease-out);
+}
+.admin-skip-link:focus-visible { translate: 0 0; outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
 .admin-nav {
   display: flex;
   flex-direction: column;
@@ -238,10 +284,43 @@
   outline-offset: -2px;
 }
 
+/* The current section, as a mark on the left edge plus a wash behind the row.
+   The edge is the part that survives the collapsed rail, where there is no room
+   for a wash and no label to name the section in. */
 .admin-nav-link[aria-current='page'] {
   background: var(--color-accent-100);
   color: var(--color-text);
 }
+.admin-nav-link[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--color-accent);
+}
+
+/* The accelerator digit. Present at rest and faint, because a binding the
+   user has to hover to discover is a binding most people never find — and the
+   rail is seven rows of nothing, so a single dim character on the right costs
+   no attention. `margin-left: auto` puts it at the row's far edge, which is
+   where a column of digits belongs and where the eye reads them as a set.
+   Collapsed it is a `.collapsible`, so the 64px rail shows icons and no
+   digits — there is no room, and the tip carries the name. */
+.admin-nav-key {
+  margin-left: auto;
+  min-width: 16px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-text-faint);
+  opacity: 0.55;
+}
+.admin-nav-link:hover .admin-nav-key,
+.admin-nav-link:focus-visible .admin-nav-key { opacity: 1; color: var(--color-accent-700); }
 
 /* The current section's icon joins the accent — one more pixel of wayfinding
    on the line the rail already spends its colour on. */
@@ -283,6 +362,7 @@
 :root[data-admin-labels-hidden] .admin-sidebar { z-index: 25; }
 
 :root[data-admin-labels-hidden] .admin-nav-link::after,
+:root[data-admin-labels-hidden] .admin-whoami::after,
 :root[data-admin-labels-hidden] .admin-new-post::after {
   content: attr(data-label);
   display: block;
@@ -312,7 +392,8 @@
   pointer-events: none;
   transition: opacity var(--dur-fast) ease, translate var(--dur-fast) var(--ease-out);
 }
-:root[data-admin-labels-hidden] .admin-new-post { position: relative; }
+:root[data-admin-labels-hidden] .admin-new-post,
+:root[data-admin-labels-hidden] .admin-whoami { position: relative; }
 :root[data-admin-labels-hidden] .admin-nav-link:hover::after,
 :root[data-admin-labels-hidden] .admin-nav-link:focus-visible::after,
 :root[data-admin-labels-hidden] .admin-new-post:hover::after,

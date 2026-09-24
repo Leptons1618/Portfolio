@@ -217,16 +217,52 @@ html[data-theme='geometry'] body::before {
 
 /* — the isometric ground —————————————————————————————————————————————————————
    Three repeating line directions at 60° steps make the triangular mesh the
-   reference's wireframe art sits on. Fixed, so it reads as the surface the
-   page is drawn on rather than as texture printed onto the content. Screen
-   only: printing an isometric mesh behind a resume is nobody's idea of paper. */
+   reference's wireframe art sits on. Screen only: printing an isometric mesh
+   behind a resume is nobody's idea of paper.
+
+   A fixed *element*, not `background-attachment: fixed` on the body, and the
+   reason is the same one that moved Blueprint and Paper off it. The
+   background-attachment value tells the browser to repaint a body-sized
+   background anchored to the viewport; on a document thousands of pixels tall
+   that is re-rasterised against every scroll offset, and what you can see of
+   it is proportional to how many lines the mesh has. Geometry's mesh is 56px
+   and low-contrast, so it is the least affected of the three — it measured a
+   mean drift of 0.24 per channel per pixel of scroll, against Blueprint's 1.27
+   — but it is the same mechanism on the same page, and a ground that is
+   repainted sixty times in a second is a ground that is going to cost the same
+   on a slower machine whatever its line count. Decision 72.
+
+   `z-index: -1` places the mesh above the canvas `html`'s background paints
+   and below the content `body > *` holds at `z-index: 1`. */
 @media screen {
   html[data-theme='geometry'] body {
+    background: none;
+    position: relative;
+  }
+
+  html[data-theme='geometry'] body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
     background-image:
       repeating-linear-gradient(0deg, var(--geo-ink) 0 1px, transparent 1px 56px),
       repeating-linear-gradient(60deg, var(--geo-ink) 0 1px, transparent 1px 56px),
       repeating-linear-gradient(-60deg, var(--geo-ink) 0 1px, transparent 1px 56px);
-    background-attachment: fixed;
+  }
+
+  /* The pinned bar carries the mesh itself. With the ground behind all
+     content, `background: inherit` in the shared layer resolves to nothing and
+     the cards would slide through the navigation; the two backgrounds share the
+     viewport's top-left, so the mesh runs on unbroken through the bar while the
+     bar stays opaque to what scrolls under it. */
+  html[data-theme='geometry'] .site-header {
+    background-color: var(--color-bg);
+    background-image:
+      repeating-linear-gradient(0deg, var(--geo-ink) 0 1px, transparent 1px 56px),
+      repeating-linear-gradient(60deg, var(--geo-ink) 0 1px, transparent 1px 56px),
+      repeating-linear-gradient(-60deg, var(--geo-ink) 0 1px, transparent 1px 56px);
   }
 }
 

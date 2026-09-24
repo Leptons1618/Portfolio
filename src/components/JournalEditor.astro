@@ -148,27 +148,76 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     </div>
 
     <div class="tab-panel" id="je-panel-write" role="tabpanel" aria-labelledby="je-tab-write">
+      {/* The toolbar's vocabulary is a `data-md` verb, not a pair of markers.
+          Every handler lives in `md-edit.ts` and is tested there (`npm run
+          check:editor`); this row only says which verb each button is. `title`
+          carries the keyboard shortcut because a shortcut nobody can discover
+          is not a shortcut. The glyphs are the characters themselves where a
+          character exists — `B` in bold, `1.` for an ordered list — because a
+          toolbar that spells out "Numbered list" needs three times the width
+          and reads at half the speed. */}
       <div class="md-toolbar" role="toolbar" aria-label="Markdown formatting">
-        <button type="button" class="btn btn-secondary md-btn" data-before="**" data-after="**" title="Bold"><strong>B</strong></button>
-        <button type="button" class="btn btn-secondary md-btn" data-before="*" data-after="*" title="Italic"><em>I</em></button>
-        <button type="button" class="btn btn-secondary md-btn" data-before="`" data-after="`" title="Inline code">&lt;/&gt;</button>
-        <button type="button" class="btn btn-secondary md-btn" data-before="[" data-after="](https://)" title="Link">link</button>
-        <button type="button" class="btn btn-secondary md-btn" data-before="![" data-after="](/images/)" title="Image">image</button>
-        <button
-          type="button"
-          class="btn btn-secondary md-assist"
-          data-assist-task="compose"
-          title="Write the whole post from a topic"
-        >
-          <Icon name="lucide:sparkles" class="admin-nav-icon" />Write with AI
-        </button>
+        <div class="md-group">
+          <button type="button" class="btn btn-secondary md-btn" data-md="h2" title="Heading 2" aria-label="Heading 2"><strong>H2</strong></button>
+          <button type="button" class="btn btn-secondary md-btn" data-md="h3" title="Heading 3" aria-label="Heading 3"><strong>H3</strong></button>
+        </div>
+        <div class="md-group">
+          <button type="button" class="btn btn-secondary md-btn" data-md="bold" title="Bold (Ctrl+B)" aria-label="Bold"><strong>B</strong></button>
+          <button type="button" class="btn btn-secondary md-btn" data-md="italic" title="Italic (Ctrl+I)" aria-label="Italic"><em>I</em></button>
+          <button type="button" class="btn btn-secondary md-btn" data-md="strike" title="Strikethrough (Ctrl+Shift+X)" aria-label="Strikethrough"><s>S</s></button>
+          <button type="button" class="btn btn-secondary md-btn" data-md="code" title="Inline code (Ctrl+E)" aria-label="Inline code">&lt;/&gt;</button>
+        </div>
+        <div class="md-group">
+          <button type="button" class="btn btn-secondary md-btn" data-md="quote" title="Quote" aria-label="Quote">&rdquo;</button>
+          <button type="button" class="btn btn-secondary md-btn" data-md="bullet" title="Bulleted list" aria-label="Bulleted list">&bull;</button>
+          <button type="button" class="btn btn-secondary md-btn" data-md="ordered" title="Numbered list" aria-label="Numbered list">1.</button>
+          <button type="button" class="btn btn-secondary md-btn" data-md="task" title="Task list" aria-label="Task list">&#9745;</button>
+        </div>
+        <div class="md-group">
+          <button type="button" class="btn btn-secondary md-btn" data-md="link" title="Link (Ctrl+K)" aria-label="Link">&nearr;</button>
+          <button type="button" class="btn btn-secondary md-btn" data-md="image" title="Image" aria-label="Image">img</button>
+          <button type="button" class="btn btn-secondary md-btn" data-md="fence" title="Code block" aria-label="Code block">{ }</button>
+          <button type="button" class="btn btn-secondary md-btn" data-md="table" title="Table" aria-label="Table">table</button>
+          <button type="button" class="btn btn-secondary md-btn" data-md="rule" title="Divider" aria-label="Divider">&mdash;</button>
+        </div>
+        <div class="md-group md-group-end">
+          <button type="button" class="btn btn-ghost md-btn md-stats-btn" data-md="stats" title="Fill the read time from this count" aria-label="Word count and reading time">
+            <span id="md-stats">0 words</span>
+          </button>
+          <button
+            type="button"
+            class="btn btn-secondary md-assist"
+            data-assist-task="compose"
+            title="Write the whole post from a topic"
+          >
+            <Icon name="lucide:sparkles" class="admin-nav-icon" />Write with AI
+          </button>
+        </div>
       </div>
       <textarea class="input editor-body" id="f-body" placeholder="Write your post using Markdown...">{body}</textarea>
     </div>
 
     <div class="tab-panel" id="je-panel-preview" role="tabpanel" aria-labelledby="je-tab-preview" hidden>
+      {/* The page's own head, and the page's own body.
+
+         Decision 67 made the body the real renderer; the head was left as a
+         lone `h3` at 25px, which is neither the page's title nor its scale
+         anywhere. So the pane now renders the same five things the page does —
+         hero, tags, title, meta line, summary — with the same classes, which is
+         what lets `.post-head` in `global.css` style both. Only the body goes
+         to the server; the head is a straight read of the form fields, so it
+         updates on every keystroke with no round trip and stays correct while
+         signed out. */}
       <div class="card elev-md preview-card">
-        <h3 class="preview-title" id="preview-title">Post Title...</h3>
+        <div class="post-head preview-head" id="preview-head">
+          <div class="post-figure" id="preview-figure" hidden>
+            <div class="grayscale"><img id="preview-hero" alt="" /></div>
+          </div>
+          <div class="tag-row" id="preview-tags" hidden></div>
+          <h1 class="post-title" id="preview-title">Post Title...</h1>
+          <p class="text-muted post-meta" id="preview-meta"></p>
+          <p class="post-summary" id="preview-summary" hidden></p>
+        </div>
         {/* `.prose` and nothing else: the body is styled by the same rules the
             post's own page renders it under, so the pane cannot drift from the
             page by a stylesheet either. */}
@@ -340,8 +389,23 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     type PostStatus,
   } from '../lib/content-store';
   import { getToken } from '../lib/github';
+  import { formatTag, metaLine } from '../lib/format';
   import { attachImageUpload } from '../lib/image-upload';
   import { copyText } from '../lib/clipboard';
+  import {
+    continueList,
+    indentLines,
+    insertFence,
+    insertImage,
+    insertRule,
+    insertTable,
+    stats,
+    toggleHeading,
+    toggleInline,
+    toggleLink,
+    toggleList,
+    type MdEdit,
+  } from '../lib/md-edit';
   import { runAssist } from '../lib/ai-store';
   import { mountAssistPanel } from '../lib/assist-panel';
   import {
@@ -398,6 +462,11 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     const previewTitle = $('preview-title');
     const previewBody = $('preview-body');
     const previewNote = $('preview-note');
+
+    /* The word count, looked up with the other elements rather than at the
+       toolbar, because `render()` reads it and `render()` is called before the
+       toolbar's own wiring runs. */
+    const statsOut = $('md-stats');
     const stamp = $('save-stamp');
     const commitBtn = $<HTMLButtonElement>('commit-md');
 
@@ -445,7 +514,66 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     const PREVIEW_NOTE = (previewNote.textContent ?? '').replace(/\s+/g, ' ').trim();
     const NO_SESSION =
       'Sign in with GitHub to render the preview — the export and the local snapshot still work.';
-    const previewHeading = () => fields.title.value.trim() || 'Post Title...';
+
+    /* — the head —
+
+       The five things `src/pages/journal/[slug].astro` puts above the band, in
+       the same order, with the same classes: hero, tags, title, the meta line,
+       the summary. `metaLine()` is the page's own helper rather than a
+       reimplementation of "date · read time · duration", so a change to the
+       order changes both or neither.
+
+       Built with `textContent` and attributes, never `innerHTML`: three of
+       these five are author- or model-written strings, and this is a surface
+       holding a GitHub token. The tags are the only markup, and they are
+       `textContent` spans in a fixed set of classes.
+
+       No server, and that is the point. The head is a projection of fields
+       already in the DOM, so it is correct on the first paint, on every
+       keystroke, and while signed out — the three cases where the body's round
+       trip cannot help. */
+    const previewFigure = $('preview-figure');
+    const previewHero = $<HTMLImageElement>('preview-hero');
+    const previewTags = $('preview-tags');
+    const previewMeta = $('preview-meta');
+    const previewSummary = $('preview-summary');
+
+    function paintPreviewHead() {
+      const title = fields.title.value.trim();
+      previewTitle.textContent = title || 'Post Title...';
+
+      const hero = fields.hero.value.trim();
+      previewFigure.hidden = !hero;
+      if (hero) {
+        previewHero.src = hero;
+        previewHero.alt = title;
+      } else {
+        previewHero.removeAttribute('src');
+      }
+
+      const tags = fields.tags.value.split(',').map(t => t.trim()).filter(Boolean);
+      previewTags.hidden = tags.length === 0;
+      previewTags.replaceChildren(
+        ...tags.map((tag, i) => {
+          const span = document.createElement('span');
+          span.className = `tag ${i % 2 === 0 ? 'tag-accent' : 'tag-accent-2'}`;
+          span.textContent = formatTag(tag);
+          return span;
+        }),
+      );
+
+      const meta = metaLine({
+        date: fields.date.value,
+        readTime: fields.readTime.value.trim(),
+        videoDuration: fields.duration.value.trim(),
+      });
+      previewMeta.textContent = meta;
+      previewMeta.hidden = !meta;
+
+      const summary = fields.summary.value.trim();
+      previewSummary.textContent = summary;
+      previewSummary.hidden = !summary;
+    }
 
     let previewing = false;
     let previewTimer: ReturnType<typeof setTimeout> | undefined;
@@ -460,13 +588,12 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     }
 
     async function paintPreview(): Promise<void> {
-      previewTitle.textContent = previewHeading();
+      paintPreviewHead();
 
       /* Before anything below can return early: every paint supersedes whatever
          is in flight, so a response for text that is no longer in the textarea
          cannot land on a pane that this paint decided not to touch. */
       const run = (previewRun += 1);
-
       const token = getToken();
       if (!token) {
         say(NO_SESSION);
@@ -528,7 +655,12 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
 
     function render() {
       if (previewing) {
-        previewTitle.textContent = previewHeading();
+        /* The head is cheap and local, so it is painted on every render and
+           only the body waits for the debounce. A title or tag keystroke is
+           therefore visible in the preview immediately, rather than 350ms after
+           it — and with no round trip at all, which is what makes the head
+           correct while signed out. */
+        paintPreviewHead();
         clearTimeout(previewTimer);
         previewTimer = setTimeout(() => void paintPreview(), PREVIEW_DEBOUNCE);
       }
@@ -541,6 +673,13 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         heading.textContent = fields.title.value.trim() || 'Create New Journal Entry';
       }
       $('status-help').textContent = STATUS_HELP[currentStatus()] ?? '';
+
+      /* The count, in the same breath as everything else that depends on the
+         body. Declared up with the other element lookups and defined as a
+         function so this call site is not a temporal-dead-zone trap on the
+         first render. */
+      const { words, characters, minutes } = stats(fields.body.value);
+      statsOut.textContent = `${words.toLocaleString()} words · ${characters.toLocaleString()} chars · ${minutes} min`;
     }
 
     wireTabs($('je-tabs'), id => {
@@ -707,25 +846,146 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
       i.addEventListener('change', holdLocally);
     });
 
-    /* Formatting buttons wrap the selection. `setRangeText` keeps the undo stack
-       intact, which reassigning `.value` would throw away. */
-    /* `[data-before]`, not just `.md-btn`: this handler reads `dataset.before`
-       and `dataset.after` and interpolates both into a template literal, so a
-       button in this toolbar that carries the class without the data pastes the
-       string `undefined` into the post — twice, once for each end. The Write
-       with AI button was exactly that until the selector said what it needs. */
-    document.querySelectorAll<HTMLButtonElement>('.md-btn[data-before]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const body = fields.body;
-        const { selectionStart: start, selectionEnd: end } = body;
-        const wrapped = `${btn.dataset.before}${body.value.slice(start, end)}${btn.dataset.after}`;
-        body.setRangeText(wrapped, start, end, 'end');
-        body.focus();
-        render();
-        /* `setRangeText` fires no event — the one write path that skips
-           `holdLocally()`, so it checks directly. */
-        journalDirty?.check();
-      });
+    /* — the editing verbs —
+
+       One table, one apply. Every button and every shortcut below resolves to
+       a function in `md-edit.ts`, which is pure and tested by
+       `npm run check:editor`; this block's whole job is turning an edit into a
+       textarea write.
+
+       `setRangeText` rather than assigning `.value`, because it is the one
+       write path that keeps the browser's undo stack. A markdown editor whose
+       Ctrl+Z does not work is not an editor, and the old toolbar was one
+       keystroke away from losing the history on every button press.
+
+       Three things every verb has to do, which is why they are here rather than
+       in each handler: put the caret back where the author will keep typing,
+       re-render (the slug line and the preview), and mark the form dirty.
+       `setRangeText` fires no `input` event, so the two listeners the form
+       already has would not otherwise run. */
+    function applyEdit(edit: MdEdit) {
+      fields.body.focus();
+      fields.body.setRangeText(edit.insert, edit.from, edit.to, 'end');
+      fields.body.setSelectionRange(edit.selStart, edit.selEnd);
+      render();
+      holdLocally();
+      journalDirty?.check();
+    }
+
+    type Verb =
+      | 'h2' | 'h3' | 'bold' | 'italic' | 'strike' | 'code' | 'link'
+      | 'quote' | 'bullet' | 'ordered' | 'task'
+      | 'fence' | 'table' | 'image' | 'rule';
+
+    /* Markers as a table rather than three near-identical ternaries in a
+       switch: the marker *is* the whole of `toggleInline`'s difference between
+       those three verbs. */
+    const INLINE_MARKER: Partial<Record<Verb, string>> = {
+      bold: '**',
+      italic: '_',
+      strike: '~~',
+      code: '`',
+    };
+
+    function runVerb(verb: Verb) {
+      const body = fields.body;
+      const range = { start: body.selectionStart, end: body.selectionEnd };
+      const text = body.value;
+
+      const marker = INLINE_MARKER[verb];
+      if (marker) return applyEdit(toggleInline(text, range, marker));
+      if (verb === 'link') return applyEdit(toggleLink(text, range));
+      if (verb === 'h2') return applyEdit(toggleHeading(text, range, 2));
+      if (verb === 'h3') return applyEdit(toggleHeading(text, range, 3));
+      if (verb === 'quote' || verb === 'bullet' || verb === 'ordered' || verb === 'task') {
+        return applyEdit(toggleList(text, range, verb));
+      }
+      if (verb === 'fence') return applyEdit(insertFence(text, range));
+      if (verb === 'table') return applyEdit(insertTable(text, range));
+      if (verb === 'image') return applyEdit(insertImage(text, range));
+      if (verb === 'rule') return applyEdit(insertRule(text, range));
+    }
+
+    document.querySelectorAll<HTMLButtonElement>('.md-btn[data-md]').forEach(btn => {
+      const verb = btn.dataset.md;
+      if (!verb || verb === 'stats') return;
+      btn.addEventListener('click', () => runVerb(verb as Verb));
+    });
+
+    /* The count, and the read time it fills. The read time field is free text
+       today, and a model writes it on compose; a number the author did not type
+       is a number they can disagree with, so the button fills rather than
+       writes. */
+    const readTimeField = fields.readTime;
+    $('md-stats').closest<HTMLButtonElement>('button')?.addEventListener('click', () => {
+      const { minutes } = stats(fields.body.value);
+      readTimeField.value = `${minutes} min read`;
+      readTimeField.dispatchEvent(new Event('input', { bubbles: true }));
+      toast(`Read time set to ${minutes} min.`, { tone: 'success' });
+    });
+
+
+    /* — keyboard —
+
+       The same verbs, so a shortcut and its button cannot drift: both call
+       `runVerb`. The bindings are the ones GitHub, Slack and every other
+       markdown surface already teach, which is the entire argument for using
+       them — a shortcut nobody already knows needs a help panel, and the
+       `title` on each button is a cheaper one.
+
+       Ctrl+Shift+P is deliberately *not* the preview toggle: Firefox treats it
+       as "open private window" on Windows and it is taken on some Linux
+       desktops. Ctrl+Shift+V is the paste. There is no free key left that is
+       worth a conflict, so the preview toggle is in the tab bar where it can
+       be clicked and reached by Tab. */
+    const bodyEl = fields.body;
+    let tabTrapped = false;
+
+    bodyEl.addEventListener('keydown', event => {
+      const mod = event.ctrlKey || event.metaKey;
+      const range = { start: bodyEl.selectionStart, end: bodyEl.selectionEnd };
+
+      if (event.key === 'Escape' && tabTrapped) {
+        /* The release. A textarea that eats Tab forever is a keyboard trap, and
+           WCAG 2.1.2 is not negotiable for an authoring surface: the standard
+           answer is Escape, and it is the only key here that gives the trap up
+           without taking a modifier. */
+        tabTrapped = false;
+        return;
+      }
+
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        tabTrapped = true;
+        applyEdit(indentLines(bodyEl.value, range, event.shiftKey));
+        return;
+      }
+
+      if (event.key === 'Enter' && !mod && !event.shiftKey) {
+        const edit = continueList(bodyEl.value, range.start);
+        if (edit) {
+          event.preventDefault();
+          applyEdit(edit);
+        }
+        return;
+      }
+
+      if (!mod) return;
+      /* Ctrl+Shift+ combos are checked before the bare ones: `event.shiftKey`
+         is set for both, and a Shift+Ctrl+X that fell through to the Ctrl branch
+         would strikethrough something the author asked to strikethrough — which
+         is right — while a Shift+Ctrl+B that reached the bold branch would not
+         be. Checking the modifier set explicitly keeps each combination to one
+         meaning. */
+      const shift = event.shiftKey;
+      const key = event.key.toLowerCase();
+      const verb = shift
+        ? key === 'x' ? 'strike' : key === 'i' ? 'image' : undefined
+        : key === 'b' ? 'bold' : key === 'i' ? 'italic' : key === 'e' ? 'code' : key === 'k' ? 'link' : undefined;
+
+      if (!verb) return;
+      event.preventDefault();
+      runVerb(verb as Verb);
     });
 
     /* Forces the status and saves, so a draft ends up where every screen looks
@@ -845,6 +1105,13 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
            left to protect — and leaving it would have the restore bar offering
            to put the same content back on the next visit. */
         localStorage.removeItem(KEY);
+        /* And the timer that would put it back. Removing the key is not enough:
+           a save that completes inside the 700ms debounce leaves a timer armed
+           against the DOM this save is about to navigate away from, and it fires
+           700ms later and re-writes the snapshot of a post that is already in
+           the database. The next visit to `/new` then offers to restore a post
+           that was saved, and a second create at the same slug is a 409. */
+        clearTimeout(autosave);
         restoreBar.hidden = true;
 
         /* An unpublished post has no public page, so offering a link to one
@@ -965,7 +1232,20 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     function replaceSelection(text: string) {
       const body = fields.body;
       body.focus();
-      body.setRangeText(text, captured.start, captured.end, 'end');
+      /* The range was captured when the run *started*, and the panel is
+         non-modal: the author can have typed in the thirty seconds a selection
+         task takes. Replacing by offset now would destroy whatever moved into
+         those offsets, so the text there is checked first and the insert falls
+         back to the caret when it is not what we captured. */
+      if (body.value.slice(captured.start, captured.end) !== captured.text) {
+        const at = body.selectionStart;
+        body.setRangeText(text, at, at, 'end');
+        toast('The selection moved while the assistant was writing — inserted at the cursor instead.', {
+          tone: 'info',
+        });
+      } else {
+        body.setRangeText(text, captured.start, captured.end, 'end');
+      }
       render();
       holdLocally();
     }
@@ -1186,6 +1466,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
           };
         }
 
+        case 'selection':
         case 'expand':
         case 'tighten':
           return {
@@ -2005,16 +2286,82 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
   }
   .je-field-head label { margin-bottom: 0; }
 
+  .preview-card { min-height: 460px; padding-top: var(--space-5); }
+  /* The head's own margins are the page's, from `global.css`. The only thing
+     added here is the rule between the head and the body, which on the page is
+     a full-bleed band and in a card is a hairline. */
+  .preview-head {
+    padding-bottom: var(--space-4);
+    border-bottom: 1px solid var(--color-divider);
+    margin-bottom: var(--space-4);
+  }
+  .je-preview-note { margin: 0; }
+  /* The hero is capped in the preview and not on the page, and the difference
+     is stated rather than hidden. On the page the image is bounded by a 1120px
+     container; in a card roughly 600px wide, a portrait-orientation hero runs
+     to well over a thousand pixels and pushes the body — the thing being
+     previewed — entirely below the fold. `object-fit: cover` keeps the
+     proportions the author chose visible; what is lost is the lower part of a
+     tall image, which is the least useful part to judge a post from. */
+  .preview-head .post-figure { max-height: 260px; overflow: hidden; }
+  .preview-head .post-figure img { max-height: 260px; object-fit: cover; object-position: top center; }
   .je-spark { flex: none; }
   .je-spark-sm { font-size: 11px; padding: 2px 6px; gap: 4px; }
-  /* Deliberately not `.md-btn` — that class enrols a button in the
-     wrap-the-selection handler, and this one opens the assistant. It only wants
-     the toolbar's sizing. */
+  /* The toolbar is five groups rather than one row, so a keyboard user's Tab
+     order follows what the buttons do rather than jumping between two ends of
+     a strip. `gap` on the row is the space *between* groups and the groups
+     carry a rule of their own, which is what makes the grouping visible
+     without sixteen borders. */
+  .md-toolbar {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    align-items: center;
+    padding: var(--space-2);
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md);
+    background: var(--color-bg);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+  .md-group { display: flex; gap: 3px; align-items: center; }
+  .md-group + .md-group { border-left: 1px solid var(--color-divider); padding-left: var(--space-3); }
+  .md-group-end { margin-left: auto; }
+
+  /* One row of glyphs at a fixed measure, so a button's width never depends on
+     which glyph it holds and the groups stay aligned down the column. The
+     28px is below the 44px touch target the rest of the admin aims for, and
+     the `padding` on the button is what reaches it — this is a pointer-first
+     surface on a desktop, and the shortcut is on every one of them. */
+  .md-toolbar .md-btn {
+    min-width: 30px;
+    height: 30px;
+    padding: 0 7px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 1;
+    justify-content: center;
+  }
+  .md-toolbar .md-btn[data-md='strike'] { text-decoration: line-through; }
+  .md-toolbar .md-btn[data-md='fence'] { letter-spacing: -0.08em; }
+
+  /* The count is a readout, not a control: it is a button only so pressing it
+     fills the read time, and it looks like text until it is hovered. */
+  .md-toolbar .md-stats-btn {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-text-muted);
+    border-color: transparent;
+    box-shadow: none;
+    cursor: pointer;
+  }
+  .md-toolbar .md-stats-btn:hover { color: var(--color-text); border-color: var(--color-divider); }
+
   .md-toolbar .md-assist {
     font-size: 12px;
     padding: 4px 10px;
     font-weight: 600;
-    margin-left: auto;
   }
 
   /* The tab bar sits directly under the title, so it does not need the shared
@@ -2023,8 +2370,6 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
   .editor-col .tab-panel { display: flex; flex-direction: column; gap: var(--space-3); }
   .editor-col .tab-panel[hidden] { display: none; }
 
-  .md-toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
-  .md-toolbar .md-btn { font-size: 12px; padding: 4px 10px; font-family: var(--font-mono); }
   .summary-input { min-height: 56px; }
   .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); }
   .field-row label { display: block; font-size: 12px; margin-bottom: 5px; color: color-mix(in srgb, var(--color-text) 70%, transparent); }

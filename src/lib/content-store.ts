@@ -424,6 +424,11 @@ export async function saveJournalOrder(slugs: string[]): Promise<WriteResult> {
  * Seven of the nine required fields have an honest answer on GitHub. The two
  * that do not — `category`, a seven-value enum, and `highlights`, prose — are
  * why importing opens a form instead of saving straight away.
+ *
+ * A private repository gets no `repoUrl`: a visitor following it would land on
+ * GitHub's 404, and an empty field is how every render site knows to show
+ * "Private repo" instead of a button (migration 0011). The owner can still
+ * type one in if the repository goes public later.
  */
 export function fieldsFromRepo(
   repo: {
@@ -435,6 +440,7 @@ export function fieldsFromRepo(
     createdAt: string;
     pushedAt: string;
     archived: boolean;
+    isPrivate?: boolean;
   },
   languages: string[],
 ): ProjectFields {
@@ -444,7 +450,7 @@ export function fieldsFromRepo(
     category: 'other',
     tags: repo.topics.slice(0, 8),
     stack: languages.slice(0, 8),
-    repoUrl: repo.htmlUrl,
+    repoUrl: repo.isPrivate ? undefined : repo.htmlUrl,
     demoUrl: repo.homepage ?? undefined,
     status: repo.archived ? 'archived' : 'active',
     year: new Date(repo.pushedAt || repo.createdAt).getFullYear(),

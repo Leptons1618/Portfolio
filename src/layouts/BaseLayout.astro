@@ -25,11 +25,21 @@ import spaceGroteskLatin from '@fontsource-variable/space-grotesk/files/space-gr
 import interLatin from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
 import '../styles/global.css';
 import { site, absoluteUrl } from '../lib/site';
+import PencilDefs from '../components/PencilDefs.astro';
 import { DEFAULT_THEME } from '../lib/theme';
 
-interface Props { title?: string; description?: string; image?: string; }
+interface Props {
+  title?: string;
+  description?: string;
+  image?: string;
+  /** For a page that must never be filed: the 404, and anything else that
+   *  answers a request it does not want repeated. The status code is the real
+   *  signal; this keeps a crawler that has already seen the URL from
+   *  treating the page as content worth keeping. */
+  noindex?: boolean;
+}
 const siteTitle = `${site.name} Portfolio`;
-const { title = siteTitle, description = site.tagline, image = site.ogImage } = Astro.props;
+const { title = siteTitle, description = site.tagline, image = site.ogImage, noindex = false } = Astro.props;
 const fullTitle = title === siteTitle ? title : `${title} | ${siteTitle}`;
 const origin = Astro.site ?? site.url;
 const canonicalURL = absoluteUrl(Astro.url.pathname, origin);
@@ -45,6 +55,7 @@ const imageURL = absoluteUrl(image, origin);
   <title>{fullTitle}</title>
   <meta name="description" content={description} />
   <link rel="canonical" href={canonicalURL} />
+  {noindex && <meta name="robots" content="noindex, follow" />}
   <meta property="og:type" content="website" />
   <meta property="og:title" content={fullTitle} />
   <meta property="og:description" content={description} />
@@ -91,11 +102,15 @@ const imageURL = absoluteUrl(image, origin);
   </script>
 </head>
 <body>
+  {/* The hand-drawn stroke filters the Paper and Blueprint themes apply to
+      their rules. First in the body so it is parsed before the elements that
+      reference it, and zero-sized so it never takes a pixel of the page. */}
+  <PencilDefs />
   {/* First thing Tab can reach. The nav sits between every keyboard arrival
       and the content; this hands the trip back to whoever does not want it.
       Visible only while focused, so pointer users never see it. */}
   <a class="skip-link" href="#main">Skip to content</a>
-  <Header />
+  <Header><slot name="header" /></Header>
   <main id="main" tabindex="-1"><slot /></main>
   <Footer />
   {/* Renders hidden and unhides itself only if the assistant is switched on —
@@ -158,7 +173,21 @@ const imageURL = absoluteUrl(image, origin);
               self.unobserve(node);
             });
         },
-        { rootMargin: '0px 0px -8% 0px', threshold: 0.05 },
+        /* `threshold: 0` — any pixel of the target counts, and the bottom
+           `rootMargin` is what decides how much of it has to arrive.
+
+           The threshold was 0.05, which reads as "wait until the element is
+           properly on screen" and in fact means *five per cent of the
+           element*: on `/projects`, where the reveal target is a 2050px grid
+           section rather than one card, five per cent is 102px, and the
+           section's first 102px were still below the fold on a 900px
+           viewport. The whole listing sat at `opacity: 0` until the reader
+           scrolled — and the three cards that *were* in view measured
+           `opacity: 1`, because the fade is on the section and the cards
+           never faded. A per-element fraction of an element whose size the
+           page author chose is a threshold with no fixed meaning; "has any
+           of it entered" is the question the reveal is actually asking. */
+        { rootMargin: '0px 0px -8% 0px', threshold: 0 },
       );
 
       targets.forEach(target => observer.observe(target));

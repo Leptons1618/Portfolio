@@ -1,4 +1,5 @@
 ---
+import { Icon } from 'astro-icon/components';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import PathLine from '../../components/PathLine.astro';
 import SectionSep from '../../components/SectionSep.astro';
@@ -102,25 +103,31 @@ const tagHref = (tag: string) => `/projects?tags=${encodeURIComponent(tag)}`;
         <h1>{title}</h1>
         <p class="detail-summary">{summary}</p>
 
-        {(study || demoUrl || repoUrl) && (
-          <div class="detail-actions">
-            {study && (
-              <a class="btn btn-primary" href={`/case-studies/${study.slug}`}>
-                Read the case study →
-              </a>
-            )}
-            {demoUrl && (
-              <a class={`btn ${study ? 'btn-secondary' : 'btn-primary'}`} href={demoUrl} target="_blank" rel="noopener">
-                Live demo ↗
-              </a>
-            )}
-            {repoUrl && (
+        {/* Always a row now: a project with no public repository says so here
+            rather than leaving the reader to wonder why the button is missing. */}
+        <div class="detail-actions">
+          {study && (
+            <a class="btn btn-primary" href={`/case-studies/${study.slug}`}>
+              Read the case study →
+            </a>
+          )}
+          {demoUrl && (
+            <a class={`btn ${study ? 'btn-secondary' : 'btn-primary'}`} href={demoUrl} target="_blank" rel="noopener">
+              Live demo ↗
+            </a>
+          )}
+          {repoUrl
+            ? (
               <a class="btn btn-secondary" href={repoUrl} target="_blank" rel="noopener">
                 {repoName ? <span class="detail-repo">{repoName}</span> : 'Repository'} ↗
               </a>
+            )
+            : (
+              <span class="btn repo-private" title="The source code lives in a private repository">
+                <Icon name="lucide:lock" />Private repository
+              </span>
             )}
-          </div>
-        )}
+        </div>
       </header>
     </div>
 
@@ -244,8 +251,9 @@ const tagHref = (tag: string) => `/projects?tags=${encodeURIComponent(tag)}`;
             <div class="link-list">
               {study && <a href={`/case-studies/${study.slug}`} class="btn btn-primary btn-block">Case study →</a>}
               {demoUrl && <a href={demoUrl} class="btn btn-secondary btn-block" target="_blank" rel="noopener">Live demo ↗</a>}
-              {repoUrl && <a href={repoUrl} class="btn btn-secondary btn-block" target="_blank" rel="noopener">Repository ↗</a>}
-              {!study && !demoUrl && !repoUrl && <p class="text-muted sidebar-empty">The code is private.</p>}
+              {repoUrl
+                ? <a href={repoUrl} class="btn btn-secondary btn-block" target="_blank" rel="noopener">Repository ↗</a>
+                : <span class="btn btn-block repo-private" title="The source code lives in a private repository"><Icon name="lucide:lock" />Private repository</span>}
             </div>
           </div>
           {tags.length > 0 && (
@@ -423,9 +431,11 @@ const tagHref = (tag: string) => `/projects?tags=${encodeURIComponent(tag)}`;
   .related-card:hover .card-title,
   .related-card:focus-visible .card-title { color: var(--color-accent); }
 
-  .detail-sidebar { display: flex; flex-direction: column; gap: var(--space-3); position: sticky; top: var(--space-6); align-self: start; }
+  /* Clears the pinned bar rather than sitting under it: the bar's height is
+     published, so this is the one offset on the public site that follows the
+     bar wrapping to two rows on a narrow viewport. */
+  .detail-sidebar { display: flex; flex-direction: column; gap: var(--space-3); position: sticky; top: calc(var(--header-h) + var(--space-4)); align-self: start; }
   .sidebar-label { margin-bottom: var(--space-1); }
-  .sidebar-empty { margin: 0; font-size: 13px; }
   .link-list { display: flex; flex-direction: column; gap: var(--space-2); }
   .tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
 

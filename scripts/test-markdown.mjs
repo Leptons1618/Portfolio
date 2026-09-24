@@ -62,8 +62,35 @@ assert.match(html, /&#x3C;script>alert\(1\)&#x3C;\/script>/, 'raw markup is show
 assert.doesNotMatch(html, /href="(?:javascript|data|vbscript):/i, 'an unsafe href reached the body');
 assert.doesNotMatch(html, /src="javascript:/i, 'an unsafe image source reached the body');
 assert.match(html, /<p>js data vb /, 'an unwrapped link keeps its text');
-/* The reference definition was dropped, so `[ref]` renders as literal text. */
-assert.match(html, /\[ref\]/, 'a reference to a dropped definition is literal');
+/* A browser strips ASCII tab and newline from a URL before it reads the
+   scheme, so a destination spelled `java<TAB>script:` is `javascript:` to
+   every reader even though the scheme regex never matched it. Checked
+   through an angle-bracket destination, which is the only spelling remark
+   carries through to a link: a bare `[x](java<TAB>script:…)` is not a link
+   at all and renders as literal text. Percent-encoded forms are asserted
+   *not* to be unwrapped — they are inert, and a guard that removed them
+   would be rejecting URLs no browser can execute. */
+const sneaky = await renderBody(
+  [
+    '[tab](<java\tscript:alert(8)>)',
+    '',
+    '[nl](<java&#10;script:alert(9)>)',
+    '',
+    '![img](<java&#9;script:alert(10)>)',
+    '',
+    '[r]: <java\tscript:alert(11)>',
+    '',
+    '[r]',
+    '',
+    '[pct](<java%09script:alert(12)>)',
+  ].join('\n'),
+);
+assert.doesNotMatch(sneaky, /alert\(8\)|alert\(9\)/, 'a tab- or newline-split javascript: href reached the body');
+assert.doesNotMatch(sneaky, /alert\(10\)/, 'a tab-split javascript: image source reached the body');
+assert.doesNotMatch(sneaky, /alert\(11\)/, 'a reference to a dropped definition was resolved');
+assert.match(sneaky, /\[r\]/, 'a reference to a dropped definition is literal');
+/* The one form left alone, and the reason: percent-encoding is inert. */
+assert.match(sneaky, /href="java%09script:alert\(12\)"/, 'a percent-encoded scheme is left alone');
 
 /* Ordinary markdown is untouched. */
 assert.match(html, /<a href="https:\/\/example.com">ok<\/a>/);

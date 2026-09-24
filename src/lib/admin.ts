@@ -707,52 +707,6 @@ export function trackDirty(
   return tracker;
 }
 
-/**
- * The same contract for a container of fields that come and go — the resume's
- * generated rows, where snapshotting values means chasing nodes that a
- * re-render replaces.
- *
- * Any typed or picked value marks dirty through delegated `input`/`change`,
- * and any structural change (a row added or removed) through the observer.
- * Re-renders that restore saved state — variant switches — are *not* edits,
- * so the caller resets after those the way static forms reset after fills.
- */
-export function trackDirtyContainer(
-  container: HTMLElement,
-  save: HTMLButtonElement,
-  idleLabel = 'No changes to save yet.',
-): DirtyTracker {
-  let dirty = false;
-  const tracker: DirtyTracker = {
-    check() {
-      paintSave(save, dirty, idleLabel);
-    },
-    reset() {
-      dirty = false;
-      paintSave(save, false, idleLabel);
-    },
-    mark() {
-      dirty = true;
-      paintSave(save, true, idleLabel);
-    },
-    get dirty() {
-      return dirty;
-    },
-  };
-  container.addEventListener('input', () => tracker.mark());
-  container.addEventListener('change', () => tracker.mark());
-  new MutationObserver(() => tracker.mark()).observe(container, { childList: true, subtree: true });
-  tracker.reset();
-  /* The observer fires async, so a render that was already queued when this
-     wired up would mark dirty a tick later. Resetting again on the next frame
-     settles it — a genuine edit after that still marks through the listeners
-     above. */
-  requestAnimationFrame(() => {
-    if (!dirty) tracker.reset();
-  });
-  return tracker;
-}
-
 /* ---------- fields that grow with what is in them ---------- */
 
 /**

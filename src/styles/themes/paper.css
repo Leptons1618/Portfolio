@@ -1,3 +1,19 @@
+/* The handwriting face, imported by this file rather than by a layout.
+
+   `@font-face` is inert until a rule in the same stylesheet uses the family,
+   so a face declared here and applied only by a page would never load — and
+   one declared in `BaseLayout` would load under every theme whether or not
+   this one was on. Importing the CSS at the top of the theme file is what
+   ties the request to `data-theme="paper"` actually being set.
+
+   Caveat, weight axis only. The annotations on this sheet are a dozen `§3`
+   marks and a few `fig. 4 ·` captions: one latin file, on a page already
+   carrying four faces, for text that never sets longer than eight characters.
+   The italic axis is deliberately not imported — nothing here is written at
+   an angle, and a slanted hand on a § mark reads as a mistake rather than as
+   a flourish. */
+@import '@fontsource-variable/caveat/wght.css';
+
 /* ==========================================================================
    Paper — the drafting system on textured stock.
 
@@ -250,17 +266,110 @@
 
 @media screen {
 
-/* --- The ground: laid paper + fiber, behind the grain overlay ------------ */
+/* --- The ground: real stock, not a beige rectangle -------------------------
+   Three layers, in the order a sheet is actually made:
+
+   1. **Fiber.** The shared grain overlay (`theme.css`, an feTurbulence at
+      `baseFrequency` 0.85) is one uniform noise across the whole page, and
+      uniform noise reads as film grain over a colour, not as pulp. This
+      theme's own layer adds a *second* noise at a much lower frequency
+      (0.008) and a different opacity, so the mottling comes in patches the
+      size of a thumb — which is what uneven pulp actually does, and what a
+      single frequency can never do. The two together are the difference
+      between "cream" and "paper".
+
+   2. **Laid lines.** Fine vertical rulings from the mould, at 6px. They were
+      already here and they are the one layer a person would not mistake for
+      CSS, so they stay first in the list: this is a reproduction of mould-made
+      stock, not a notebook.
+
+   3. **The pencil grid.** 24px, softer than Blueprint's and drawn *under* the
+      fiber, so the fiber is on top of the drafting and not under it.
+
+   `background-attachment: fixed` is the reason the pinned header's
+   `background: inherit` shows the same ground: all three layers are anchored
+   to the viewport, so the bar and the page beneath it are one sheet. This
+   theme's ground was scrolling before the header was pinned, and that is why
+   it needed the attribute rather than being left alone. */
+:root[data-theme='paper'] body::before {
+  /* The pulp, on the shared fixed grain overlay rather than in the body's
+     background stack. Same reason as Blueprint's: a raster `feTurbulence` tile
+     under `background-attachment: fixed` is re-rasterised as the scroll offset
+     changes, so a tile that does not divide the viewport (300 gives 4.8 repeats
+     across 1440) seams and shimmers while you scroll, and its noise pattern
+     repeats visibly. The overlay is viewport-sized and rasterised once.
+
+     A `feColorMatrix` with `saturate 0` takes the turbulence's colour out,
+     because a data URI cannot carry a theme colour — the ink comes from the
+     layer's opacity over the ground beneath. Decision 72. */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='360'%3E%3Cfilter id='f'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.008' numOctaves='4' seed='3'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='360' height='360' filter='url(%23f)' opacity='0.08'/%3E%3C/svg%3E");
+  background-size: 360px 360px;
+  opacity: 1;
+}
 
 :root[data-theme='paper'] body {
+  font-size: 16px;
+  background: none;
+  position: relative;
+}
+
+/* The stock, as a fixed layer rather than `background-attachment: fixed` on
+   the body, for the reason Blueprint's is and not repeated: a body-sized
+   background under `background-attachment: fixed` is re-rasterised against
+   every scroll offset, and the paper's 6px laid lines are 10 per major cell,
+   so they are the finest ground on the site. Decoded to real pixels and
+   scrolled 1px, it moved a mean of 0.42 per channel. A fixed element is
+   rasterised once and only ever composited after that.
+
+   `z-index: -1` sits it above `html`'s canvas and below the content that
+   `body > *` holds at `z-index: 1`, and the header's `background: inherit`
+   resolves to nothing — so the bar is transparent and the laid stock runs
+   unbroken through it, which is what the pinned bar was asking for in the
+   first place. Decision 72. */
+:root[data-theme='paper'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  /* Laid lines first, because they are the one layer a person would not
+     mistake for CSS: this is a reproduction of mould-made stock, not a
+     notebook. Then the pencil grid, softer than Blueprint's. The fibre is not
+     here — it is on the shared grain overlay above, where it cannot seam. */
   background-image:
-    /* Laid lines: fine vertical rulings, like molded paper. */
     repeating-linear-gradient(
       90deg,
       var(--laid-ink) 0 1px,
       transparent 1px 6px
     ),
-    /* The drafting grid, softer than Blueprint's. */
+    repeating-linear-gradient(
+      0deg,
+      var(--grid-ink) 0 1px,
+      transparent 1px var(--grid-step)
+    ),
+    repeating-linear-gradient(
+      90deg,
+      var(--grid-ink) 0 1px,
+      transparent 1px var(--grid-step)
+    );
+}
+
+/* The pinned bar paints the stock itself, for the reason Blueprint's does:
+   the ground is a fixed layer behind all content, so a header that inherited
+   nothing would show the cards sliding through it. Both are anchored to the
+   viewport's top-left, so the laid lines and the grid run on unbroken through
+   the bar while the bar stays opaque to whatever scrolls under it. The fibre
+   is the one layer the header cannot join — it is a raster on the shared
+   overlay, and a bar with a seam through it is worse than a bar without
+   pulp. Decision 72. */
+:root[data-theme='paper'] .site-header {
+  background-color: var(--color-bg);
+  background-image:
+    repeating-linear-gradient(
+      90deg,
+      var(--laid-ink) 0 1px,
+      transparent 1px 6px
+    ),
     repeating-linear-gradient(
       0deg,
       var(--grid-ink) 0 1px,
@@ -322,7 +431,24 @@
   box-shadow: 1px 1px 0 0 color-mix(in srgb, var(--color-accent-2) 25%, transparent);
 }
 
-/* --- Eyebrows: numbered § clauses, mono -------------------------------- */
+/* --- Eyebrows: numbered § clauses, in a hand -------------------------------
+
+   Caveat, not the mono face, and this is the single change that does most of
+   the work in making the sheet look handled. The label stays mono and the
+   *mark* is written: `--font-hand` is inherited by the `::before` only, so the
+   `§2` in the margin is a hand and "Selected Work" beside it is typed. That
+   split is the whole grammar of a marked-up document — the annotation is
+   written, the text is not — and setting both in a hand would make the
+   headings look handwritten too, which is the one thing on a page nobody
+   handwrites.
+
+   `--font-hand` rather than the family name repeated, because the dark ramp
+   and the media block both need to name it and three spellings of a font stack
+   is three places to forget one. Declared on the theme root beside the other
+   faces, which is where a theme's type is supposed to be. */
+:root[data-theme='paper'] {
+  --font-hand: 'Caveat Variable', 'Caveat', 'Bradley Hand', 'Segoe Print', cursive;
+}
 
 :root[data-theme='paper'] .eyebrow {
   font-family: var(--font-mono);
@@ -338,7 +464,24 @@
    pencil and the label is the ink. */
 :root[data-theme='paper'] .eyebrow::before {
   content: '§' counter(section) ' ';
+  font-family: var(--font-hand);
+  /* Caveat's cap height is small against a 13px mono label, and `§` is its
+     own metrics: unscaled it sits in the label's x-height and reads as a
+     smudge. Bumped and given a little weight, which is also what a hand does
+     when it marks a section it wants found again. */
+  font-size: 1.35em;
+  font-weight: 600;
   color: var(--color-accent-2-500);
+  /* The mark leans into its own indent, the way a note written in a margin
+     sits left of the thing it annotates. */
+  display: inline-block;
+  /* The mark leans into its own indent, the way a note written in a margin
+     sits just left of the thing it annotates. A quarter of an em, not half:
+     at half the `§` overlaps the S of "Selected" on the 13px mono label, and a
+     handwriting face's own sidebearing is already wider than a mono's, so the
+     text's own `§ ` trailing space is doing part of this work too. */
+  margin-left: -0.25em;
+  margin-right: 0.1em;
 }
 
 :root[data-theme='paper'] .prose .eyebrow::before {
@@ -353,7 +496,16 @@
 
 :root[data-theme='paper'] .card-kicker::before {
   content: 'fig. ' counter(figure) ' · ';
+  font-family: var(--font-hand);
+  font-size: 1.5em;
+  font-weight: 600;
   color: var(--color-text-faint);
+  /* A caption written under a figure is on the next line, not in the same
+     line as the year and the status. The space is the card's own; this is the
+     half-em that separates a hand's writing from a machine's. */
+  letter-spacing: 0.02em;
+  margin-right: 0.15em;
+  display: inline-block;
 }
 
 :root[data-theme='paper'] .card-meta,
@@ -365,22 +517,33 @@
 
 :root[data-theme='paper'] { --brand-bar: var(--color-accent-600); }
 
-/* --- Rules: dashed, like cut lines, everywhere the shared layer draws one -- */
+/* --- Rules: drawn, not ruled -----------------------------------------------
+   The theme's whole argument is that this sheet was drawn on by hand, and a
+   dashed `border-top` is the one thing about it that no hand drew: a CSS
+   border is a mathematical line, and a dashed one is a mathematically dashed
+   line. The `om-pencil` filter (see `src/components/PencilDefs.astro`) takes
+   the dash pattern and gives it the stroke it was missing — the line breaks
+   up along its own length, and where a dash lands next to a gap it no longer
+   lines up with the dash beside it.
+
+   Applied to the rule *element* rather than to a pseudo-element behind it,
+   because a rule carries no text: the filter displaces every pixel of the box,
+   and on an element with words in it that would mean the words. */
 
 :root[data-theme='paper'] .hr {
   height: 0;
   background: none;
   border-top: 1px dashed var(--color-divider);
+  filter: url(#om-pencil);
 }
 
-:root[data-theme='paper'] .rule { border-top-style: dashed; }
+:root[data-theme='paper'] .rule { border-top-style: dashed; filter: url(#om-pencil); }
 /* The header rule lives on `.site-header` in the shared layer now, in the
    separator's dashed grammar — this override stood down with it. */
 :root[data-theme='paper'] .nav a[aria-current='page'] { text-decoration-style: dashed; text-decoration-thickness: 1px; }
 :root[data-theme='paper'] .prose blockquote { border-left-style: dashed; }
 :root[data-theme='paper'] .prose th { border-bottom: 1px dashed var(--color-divider); }
 :root[data-theme='paper'] .prose td { border-bottom-style: dashed; }
-
 /* --- Cards: index cards ---------------------------------------------------
    A sheet a step lighter than the ground, a pencil border, a hard offset —
    and a double rule along the top, the ruled header line of an index card,
@@ -388,10 +551,48 @@
 
 :root[data-theme='paper'] .card {
   background: var(--color-neutral-100);
-  border: 1px solid var(--color-neutral-400);
-  border-top: 3px double var(--color-neutral-500);
-  border-radius: var(--radius-md);
+  /* The card's own border is what the shared layer draws — a 1px rectangle,
+     which is the one thing on this sheet nothing drew. A hand rules a box in
+     two strokes that do not quite meet, so the border here is *transparent*
+     and the outline is a filtered pseudo-element sitting behind the content.
+
+     A filter displaces every pixel of the box it is on, and a card is full of
+     text: filtering the card itself would set the paragraph in a hand that
+     was meant for its border. The pseudo-element carries the line and nothing
+     else, which is why this is not simply `filter` on `.card`.
+
+     `inset: 0` with a `padding` of one hairline rather than an `outline`,
+     because an outline is drawn outside the border box and a displaced line
+     outside the box is clipped by the parent's own overflow on the cards that
+     lift on hover. */
+  border: 1px solid transparent;
+  position: relative;
   box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme='paper'] .card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--color-neutral-400);
+  pointer-events: none;
+  filter: url(#om-nib);
+  /* The index card's ruled header line, along the top edge. A `border-top` on
+     the pseudo-element rather than a gradient: the filter displaces a border
+     and displaces a background identically, but a border is one line and does
+     not need its own layer's worth of paint. */
+  border-top-width: 3px;
+  border-top-style: double;
+  border-top-color: var(--color-neutral-500);
+}
+
+/* The hovered card's outline moves with it, so the two cannot disagree. The
+   pen mark goes to rust — the accent a hand reaches for when it is marking
+   something — and the nib's displacement is left alone: a line that changes
+   weight as well as colour reads as a different control. */
+:root[data-theme='paper'] .card:hover::before {
+  border-color: var(--color-accent-400);
+  border-top-color: var(--color-accent-400);
 }
 
 :root[data-theme='paper'] a.card {
@@ -400,12 +601,23 @@
 
 :root[data-theme='paper'] a.card:hover {
   box-shadow: var(--shadow-md);
-  border-color: var(--color-accent-400);
-  border-top-color: var(--color-accent-400);
   transform: translate(-2px, -2px);
 }
 
-/* --- Tags: pencilled labels ------------------------------------------------ */
+/* --- Tags: pencilled labels ------------------------------------------------
+   No filter, and the reason is arithmetic rather than taste. A tag's own label
+   is two or three characters at 10.5px, so a pixel of displacement on its
+   border is invisible — it was paying for something no reader could see. What
+   it cost was real: `filter` gives an element its own render surface, and a
+   `/projects` grid has 145 tags on it, so the nib on every tag was 145 filter
+   passes per paint against 20 for the cards and 21 for the rules. Geometry has
+   none of this and scrolls at a locked 60fps; the two hand-drawn themes did
+   not, and the tags were most of the gap.
+
+   The tag still reads as pencilled, because a *dashed* border is what a
+   hand draws around a label and this theme's grammar already says so. The
+   filter is kept where it is visible: the card outline, the rules, the
+   separator. */
 
 :root[data-theme='paper'] .tag {
   font-family: var(--font-mono);
@@ -430,11 +642,49 @@
   background: linear-gradient(transparent 38%, var(--color-accent-200) 38%, var(--color-accent-200) 92%, transparent 92%);
 }
 
-/* --- Buttons: squared, hard offset, rust --------------------------------- */
+/* --- Buttons: marked in rust, not pressed out of a die ---------------------
+
+   A button on this sheet is a box someone drew around a word, so its border
+   gets the same nib filter as a card's — and for the same reason it lives on a
+   pseudo-element rather than on the button: the button carries its own label,
+   and displacing that label would be displacing the thing the button is for.
+
+   The pseudo is `inset: -1px` because the border itself is transparent on the
+   button, so the drawn line sits exactly where the button's own border box
+   was. A `box-shadow` in the same place would be one fewer element but paints
+   a blur, and this theme's shadows are hard offsets — a soft one under a hard
+   one reads as a mistake. */
 
 :root[data-theme='paper'] .btn {
   border-radius: var(--radius-sm);
+  position: relative;
+  border-color: transparent;
 }
+
+/* No filter on the button outline either — 41 more render surfaces on a
+   `/projects` grid, for a box roughly 70×28px where the displacement was
+   sub-pixel. The line is now a *dashed* border, which is what a hand rings a
+   control with on a marked-up sheet and what this theme already does to a tag.
+   The hand-drawn weight is carried by the rules, the card outline and the
+   kraft separator, where it is actually visible at a size where it reads. */
+
+:root[data-theme='paper'] .btn-primary::before,
+:root[data-theme='paper'] .btn-secondary::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border: 1px dashed var(--btn-mark, currentColor);
+  pointer-events: none;
+  /* The pseudo inherits the label's colour, which is the wrong ink for a
+     primary button — the label is set in the background colour to clear the
+     fill. The drawn line takes the button's own border colour instead, and
+     `currentColor` is only the fallback for a variant that sets no border. */
+  opacity: 0.55;
+}
+
+:root[data-theme='paper'] .btn-secondary { --btn-mark: var(--color-neutral-600); }
+:root[data-theme='paper'] .btn-secondary:hover:not(:disabled) { --btn-mark: var(--color-neutral-800); }
+:root[data-theme='paper'] .btn-primary { --btn-mark: var(--color-accent-700); }
 
 :root[data-theme='paper'] .btn-primary,
 :root[data-theme='paper'] .btn-secondary {
@@ -452,12 +702,11 @@
   font-weight: 500;
   letter-spacing: 0.05em;
   background: var(--color-neutral-100);
-  border-color: var(--color-neutral-600);
+  border-color: transparent;
 }
 
 :root[data-theme='paper'] .btn-secondary:hover:not(:disabled) {
   background: var(--color-neutral-200);
-  border-color: var(--color-neutral-800);
   box-shadow: var(--shadow-md);
 }
 

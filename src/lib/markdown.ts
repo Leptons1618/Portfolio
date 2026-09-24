@@ -49,8 +49,24 @@ type Node = { type: string; value?: string; url?: string; children?: Node[] };
 
 const SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 const SAFE = /^(?:https?|mailto|tel):/i;
-const unsafe = (url: string | undefined): boolean =>
-  Boolean(url) && SCHEME.test(url!.trim()) && !SAFE.test(url!.trim());
+
+/** ASCII tab and newline, the only two characters the URL parser removes from
+ *  a URL before it reads the scheme. A destination written `<java&#9;script:…>`
+ *  or `<java<TAB>script:…>` is a `javascript:` URL to every browser, and
+ *  neither `SCHEME` nor `SAFE` sees one, because the tab is in the middle of
+ *  the scheme and matches neither test.
+ *
+ *  Percent-encoding is deliberately *not* stripped, and that is a finding
+ *  rather than an omission: a browser does not decode `%09` before parsing a
+ *  scheme, so `java%09script:alert(1)` is a relative path and stays one.
+ *  Removing them here would only reject URLs that are already inert. */
+const URL_NOISE = /[\t\n\r]/g;
+
+const unsafe = (url: string | undefined): boolean => {
+  if (!url) return false;
+  const target = url.replace(URL_NOISE, '').trim();
+  return SCHEME.test(target) && !SAFE.test(target);
+};
 
 function neutralise(tree: Node): void {
   if (!tree.children) return;

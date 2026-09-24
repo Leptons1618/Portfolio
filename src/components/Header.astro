@@ -29,7 +29,25 @@ const isCurrent = (href: string) =>
   <ThemeToggle />
   <a class="btn btn-primary nav-cta" href={`mailto:${site.email}`}>Hire me</a>
 </nav>
+  {/* Anything a page pins to the bar's bottom edge — the case study's reading
+      progress. It rides the sticky header instead of fighting it for the top
+      of the viewport. */}
+  <slot />
 </header>
+<script>
+  /* The pinned bar's height, published as `--header-h` for everything that
+     has to clear it: `scroll-padding-top` for anchors and the skip link, and
+     any sticky column below. Measured rather than hard-coded because the bar
+     wraps to two rows below 960px and a late webfont can move it by a pixel;
+     a ResizeObserver catches both without a scroll or resize listener. */
+  const header = document.querySelector<HTMLElement>('.site-header');
+  if (header) {
+    new ResizeObserver(([entry]) => {
+      const height = entry.borderBoxSize?.[0]?.blockSize ?? header.offsetHeight;
+      document.documentElement.style.setProperty('--header-h', `${Math.round(height)}px`);
+    }).observe(header);
+  }
+</script>
 <style>
   .nav-brand { text-decoration: none; color: inherit; }
   .nav-links { display: flex; align-items: center; gap: var(--space-4); }
@@ -46,16 +64,55 @@ const isCurrent = (href: string) =>
      scrollbar. It is the one breakpoint on the site that has to be derived
      from content rather than chosen from a scale. */
   @media (max-width: 960px) {
-    .nav { flex-wrap: wrap; row-gap: var(--space-3); }
+    .nav {
+      flex-wrap: wrap;
+      row-gap: var(--space-2);
+      /* The bar wraps to two rows here, and a pinned two-row bar holds back
+         most of a phone's first screen. Half of each row's vertical padding
+         goes back: the row is a link strip, not a block of content, and the
+         touch target comes from the link's own 5px padding and its 14px face
+         rather than from the gap around it. The 67px floor is a desktop
+         measure; leaving it on would make the shorter mobile bar taller. */
+      padding-block: var(--space-2);
+      min-height: 0;
+    }
     .nav-brand { margin-right: auto; }
-    .nav-links { order: 3; width: 100%; flex-wrap: wrap; gap: var(--space-3) var(--space-4); }
+    .nav-links { order: 3; width: 100%; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
     .nav-cta { flex: none; }
   }
 
-  /* At the narrow end — an iPhone SE is 320px — the five links measure past
-     the row and wrap mid-list into a ragged third line. One compact step:
-     13px and tighter gaps bring the whole set back onto a single line, so
-     the bar stays two rows tall all the way down. */
+  /* The narrow end. The five links do not fit on one 390px line at 14px, and
+     letting them wrap makes a *pinned* bar three rows tall — 177px measured,
+     a fifth of the screen held back on every scroll. A hamburger was rejected
+     before this bar was pinned (a drawer hides the navigation this theme's
+     whole argument is about), so the links stay visible and the row scrolls
+     sideways instead: one line, always, at any width, with the overflow
+     hidden behind a mask so the cut edge reads as "there is more" rather than
+     as a clipped word.
+
+     `scrollbar-width: none` plus the webkit pseudo — the row is still
+     scrollable by touch and by trackpad, and a 0px scrollbar strip is what
+     Safari and Chrome draw for it by default on an overlay-scrollbar OS. A
+     visible scrollbar would take 15px of a 390px screen to say something the
+     clipped edge already says. */
+  @media (max-width: 640px) {
+    .nav-links {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+      /* The fade, in the theme's own ink: a mask, not a gradient overlay, so it
+         composites with the sticky header's own background rather than
+         painting a translucent band over whatever is behind it. */
+      mask-image: linear-gradient(to right, transparent, #000 12px, #000 calc(100% - 20px), transparent);
+      padding-inline-end: 20px;
+    }
+    .nav-links::-webkit-scrollbar { display: none; }
+    .nav-links a { white-space: nowrap; }
+  }
+
+  /* Below 400px the row's own gap and the 14px face stop fitting five links
+     even scrollable, so the label shrinks rather than the bar growing. */
   @media (max-width: 400px) {
     .nav-links { gap: var(--space-2) var(--space-3); }
     .nav-links a { font-size: 13px; }

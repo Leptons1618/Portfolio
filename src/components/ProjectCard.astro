@@ -1,9 +1,10 @@
 ---
+import { Icon } from 'astro-icon/components';
 import Tag from './Tag.astro';
 interface Props {
   title: string; slug: string; summary: string;
   tags: string[]; status: string; year: number;
-  /** Absent when the repository is private — no button rather than a 404. */
+  /** Absent when the repository is private — a "Private repo" mark, not a 404. */
   repoUrl?: string; demoUrl?: string;
   caseStudySlug?: string; heroImage?: string;
 }
@@ -25,7 +26,9 @@ const { title, slug, summary, tags, status, year, repoUrl, demoUrl, caseStudySlu
     </a>
     {caseStudySlug && <a class="btn btn-secondary btn-sm" href={`/projects/${slug}`}>Details</a>}
     {demoUrl && <a class="btn btn-secondary btn-sm" href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
-    {repoUrl && <a class="btn btn-secondary btn-sm" href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>}
+    {repoUrl
+      ? <a class="btn btn-secondary btn-sm" href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>
+      : <span class="btn btn-sm repo-private" title="The source code lives in a private repository"><Icon name="lucide:lock" />Private repo</span>}
   </div>
 </article>
 <style>

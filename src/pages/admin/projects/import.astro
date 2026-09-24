@@ -475,8 +475,22 @@ const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
 
     type RepoState = 'imported' | 'granted' | 'ungranted';
 
+    /* Which project a repository already is, if any. Matched on URL first. A
+       private repository is imported without a `repoUrl` (see
+       `fieldsFromRepo`), so there is no URL to match it on; the slug its name
+       produces — what the form defaults to — is the next best key. It only
+       has to stop a second import of the same repository, not find a project
+       renamed since. `hasOwn`, not `in`: a repository called `constructor`
+       is not already imported. */
+    function importedSlug(repo: RepoSummary): string | undefined {
+      const byUrl = importState.slugByRepo.get(repoKey(repo.htmlUrl));
+      if (byUrl) return byUrl;
+      const bySlug = slugify(repo.name);
+      return repo.isPrivate && Object.hasOwn(seed.projects, bySlug) ? bySlug : undefined;
+    }
+
     function stateOf(repo: RepoSummary): RepoState {
-      if (importState.slugByRepo.has(repoKey(repo.htmlUrl))) return 'imported';
+      if (importedSlug(repo)) return 'imported';
       return repo.granted ? 'granted' : 'ungranted';
     }
 
@@ -622,7 +636,7 @@ const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
       }
 
       if (state === 'imported') {
-        const slug = importState.slugByRepo.get(repoKey(repo.htmlUrl))!;
+        const slug = importedSlug(repo)!;
         const toggle = document.createElement('button');
         toggle.type = 'button';
         toggle.className = 'toggle';
