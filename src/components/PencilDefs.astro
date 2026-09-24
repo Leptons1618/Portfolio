@@ -1,0 +1,74 @@
+---
+/**
+ * The hand-drawn stroke filter, defined once for the whole document.
+ *
+ * CSS cannot define an SVG filter — `filter: url("data:image/svg+xml,…")` is
+ * not a thing any browser resolves — so a filter has to live in the document
+ * as a real `<svg>` and be referenced by id. It is one element with no
+ * geometry, `aria-hidden`, width and height zero, and it paints nothing: the
+ * only thing on the page it contributes is the filter's effect.
+ *
+ * It is shared rather than per-theme because both themes that draw by hand use
+ * the same physical model, and two filters tuned to look the same would drift
+ * apart. Paper takes a finer nib than Blueprint, so the theme picks the scale
+ * by way of the element the filter is applied to — a rule and a card outline
+ * are filtered at different strengths, which is the same thing a person does
+ * with a pen held at two pressures.
+ *
+ * Two ingredients, in the order the reference uses them:
+ *
+ *   - `feTurbulence` at `baseFrequency` high enough that a 1px line breaks up
+ *     along its length rather than merely wavering. This is the wobble.
+ *   - `feDisplacementMap` pushing the line's own pixels along that noise field.
+ *     Without it the turbulence is invisible; with it the line is drawn by a
+ *     hand that cannot hold a ruler.
+ *
+ * `feDisplacementMap` reads the displacement from the noise's *red* channel and
+ * keeps the geometry of the source, so the ink stays the ink and only its edge
+ * moves. `xChannelSelector`/`yChannelSelector` are named rather than left to
+ * default, because the default pair differs by engine and an unstated channel
+ * is an engine-dependent wobble.
+ *
+ * A filter is applied to a whole element, so it is never applied to one that
+ * carries text: the rules and separators take it directly, and a card's border
+ * is drawn by a filtered pseudo-element behind the card's own content. That
+ * split is the reason this file exists as a component — a filter is easy to
+ * apply and easy to apply wrongly, and "wrongly" here means every glyph in the
+ * element is displaced too.
+ */
+---
+<svg width="0" height="0" aria-hidden="true" focusable="false" style="position: absolute">
+  <defs>
+    {/* The coarse wobble: a line that does not hold its line. `seed` is fixed
+        so the same rule wobbles the same way on every load — a filter that
+        re-rolled per paint would make the page shimmer under the reader, and
+        a hand-drawn page that never settles is not a page anyone can read. */}
+    <filter id="om-pencil" x="-6%" y="-6%" width="112%" height="112%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.022 0.035" numOctaves="3" seed="7" result="noise" />
+      <feDisplacementMap
+        in="SourceGraphic"
+        in2="noise"
+        scale="2.2"
+        xChannelSelector="R"
+        yChannelSelector="G"
+      />
+    </filter>
+    {/* The fine nib: a second pass at a higher frequency and a smaller
+        displacement, for the marks that are meant to read as a pen rather
+        than as a brush — a tag's border, a table rule. Composing the two
+        filters would be cheaper than the extra element, but the composed
+        result is not the same wobble: one filter's output is the other's
+        *input*, so the nib would inherit the brush's displacement and
+        displace it again. Stated here rather than discovered later. */}
+    <filter id="om-nib" x="-4%" y="-4%" width="108%" height="108%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency="0.09 0.11" numOctaves="2" seed="19" result="noise" />
+      <feDisplacementMap
+        in="SourceGraphic"
+        in2="noise"
+        scale="1.1"
+        xChannelSelector="R"
+        yChannelSelector="G"
+      />
+    </filter>
+  </defs>
+</svg>

@@ -1,4 +1,5 @@
 ---
+import { Icon } from 'astro-icon/components';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import FilterBar from '../components/FilterBar.astro';
 import Illustration from '../components/Illustration.astro';
@@ -91,7 +92,9 @@ const projectsData = allProjects.map(p => ({
             <a class="btn btn-primary btn-sm" href={project.caseStudySlug ? `/case-studies/${project.caseStudySlug}` : `/projects/${project.slug}`}>
               {project.caseStudySlug ? 'Case study' : 'Details'}
             </a>
-            {project.repoUrl && <a class="btn btn-secondary btn-sm" href={project.repoUrl} target="_blank" rel="noopener">Repo ↗</a>}
+            {project.repoUrl
+              ? <a class="btn btn-secondary btn-sm" href={project.repoUrl} target="_blank" rel="noopener">Repo ↗</a>
+              : <span class="btn btn-sm repo-private" title="The source code lives in a private repository"><Icon name="lucide:lock" />Private repo</span>}
           </div>
         </article>
       ))}
@@ -272,12 +275,62 @@ const projectsData = allProjects.map(p => ({
   .project-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
   .card-top { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); }
   .card-year { font-family: var(--font-mono); font-size: 12px; color: var(--color-text-muted); }
+  /* The whole card is the link, not just the title.
+
+     The card is an `<article>` holding a title link, a case-study link and a
+     repo link, so before this a reader who clicked the summary, the stack tags
+     or any of the whitespace between them got nothing — and the hover told
+     them so, because the shared card lift is scoped to `a.card` and this card
+     is not one. The lift therefore never ran on a listing card at all.
+
+     The pattern is the title link's own `::after` stretched over the card, not
+     a wrapper `<a>`: nesting a link inside a link is invalid, and the card has
+     to *contain* its case-study and repo links. The stretched pseudo is one
+     element, carries no text of its own, and leaves the title link in the DOM
+     where a screen reader and a crawler already expect it.
+
+     `.card-actions` is lifted above it with a `z-index`, so the two links in
+     the row still go where they say. `z-index` rather than a second stacking
+     context: the pseudo is a positioned sibling, and one index on the
+     actions row is all the ordering this needs. */
+  .project-card { position: relative; }
   .card-title a { color: inherit; text-decoration: none; }
-  .card-title a:hover,
+  .card-title a::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    /* The link is the card, so the ring belongs to the card's edge, not to a
+       1.2em underline. Drawn on the pseudo because that is the box being
+       filled. */
+    border-radius: inherit;
+  }
+  .card-title a:focus-visible::after {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+  .project-card .card-actions { position: relative; z-index: 1; }
+  /* Hovering the card anywhere is hovering its link, so the title takes the
+     accent and the lift runs on the one card shape that has one. */
+  /* Keyboard gets the same arrival as the pointer. The ring itself is on the
+     pseudo above — the pseudo is the box a pointer fills, so the ring has to
+     be on that too, or it draws a 1.2em oval around the title. */
   .card-title a:focus-visible { color: var(--color-accent); }
+  @media (prefers-reduced-motion: no-preference) and (hover: hover) {
+    .project-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+  }
   .card-stack { display: flex; flex-wrap: wrap; gap: 6px; }
   .card-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-1); }
   .hidden { display: none; }
+
+  /* `content-visibility: auto` on the cards was measured here and rejected.
+     It is the obvious lever for a long grid — offscreen cards stop being laid
+     out and painted — and on Paper it did take a 60-step scroll from 176ms of
+     GPU work to 144ms. But `contain-intrinsic-size` has to stand in for a
+     card's real height until that card is measured, and the estimate is wrong
+     by ~50px on this grid: the document shrank from 2833px to 2782px as you
+     scrolled through it, which moves the scrollbar thumb under the reader's
+     thumb. Trading a slow scroll for a jumping one is not a performance fix.
+     The reason it was worth measuring is in `docs/DECISIONS.md`. */
 
   /* A card that filters back in re-enters with a short rise — the same
      grammar as the page reveal (opacity + translate), at interaction speed

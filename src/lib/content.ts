@@ -507,13 +507,6 @@ export async function caseStudyNeighbours(db: D1Database, slug: string) {
   return { prev: sorted[i + 1] ?? null, next: sorted[i - 1] ?? null };
 }
 
-/** Where a project card should point: its case study when it has one. */
-export function projectHref(project: Project): string {
-  return project.data.caseStudySlug
-    ? `/case-studies/${encodeURIComponent(project.data.caseStudySlug)}`
-    : `/projects/${encodeURIComponent(project.slug)}`;
-}
-
 /** Tags across all projects, most-used first — the filter bar's chip row. */
 export function topTags(projects: Project[], limit = 16): string[] {
   const counts = new Map<string, number>();

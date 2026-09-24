@@ -8,10 +8,9 @@ attribution requirement.
 | File | unDraw name | Used by |
 | --- | --- | --- |
 | `blogging.svg` | blogging | `/journal` header |
-| `developer-activity.svg` | developer-activity | `/about` |
 | `github-profile.svg` | github-profile | `/admin` sign-in |
 | `no-data.svg` | no-data | `/projects` empty filter result |
-| `the-void.svg` | the-void | `/admin/projects` with nothing tracked |
+| `the-void.svg` | the-void | `/404`, and `/admin/projects` with nothing tracked |
 | `empty-mailbox.svg` | empty-mailbox | import modal and journal list, nothing matched |
 | `taking-notes.svg` | taking-notes | `/admin/journal` with no entries |
 | `code-inspection.svg` | code-inspection | `/admin/projects/[slug]` with no case study linked |

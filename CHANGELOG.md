@@ -14,15 +14,35 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Two themes: Graphite and Herbarium.** Graphite is the pencil sibling of
-  Blueprint — the same ruled ground and drafting frame in graphite on cream
-  stock, with no accent colour at all — which is the merge the blueprint and
-  paper references were asking for, drawn the way the reference draws it.
-  Herbarium is a Victorian specimen cabinet: foxed paper, madder and botanical
-  green, a serif in small capitals, dotted ledger rules, lozenges at the band's
-  corners, letterpress buttons, a slight tilt on every card and a drop cap on a
-  post's first paragraph. Five themes now, cycled by the header toggle; neither
-  costs a request or a dependency. Decision **68**.
+- **A 404 page.** Every route that can be asked for a thing which is not there
+  answered `new Response(null, { status: 404 })` — an unpublished post, a
+  hidden project, a case study that never linked up. The status was right and
+  the body was nothing. `src/pages/404.astro` is that body, in the site's own
+  voice, and `middleware.ts` hands it back for a 404 the Worker renders while
+  preserving the status. `noindex`: a 404 is never a destination.
+
+- **The editor has a toolbar that toggles, and a keyboard layer.** Sixteen
+  verbs in five grouped rows — H2/H3, bold, italic, strikethrough, inline
+  code, quote, three list kinds, link, image, fence, table, divider — and
+  every one *toggles*, where the old five only ever wrapped: a second press on
+  already-bold text removes the markers instead of producing `****word****`,
+  and an empty selection gets a marker pair with the caret between them.
+  Ctrl+B/I/E/K, Ctrl+Shift+X, Tab/Shift+Tab to indent, Enter to continue a
+  list and to leave an empty one, Escape to release the Tab trap. The
+  transforms are pure functions in `src/lib/md-edit.ts` under
+  `npm run check:editor`; the DOM layer only applies the edit, through
+  `setRangeText`, so Ctrl+Z is the browser's own undo. Decision **70**.
+- **The preview shows the post, not just its body.** The head above the prose
+  is the page's own — hero, `#TAGS`, the title at the page's scale, the same
+  `metaLine()`, the summary — and `.post-head` moved out of the page's scoped
+  styles into `global.css` so one stylesheet dresses both. A copy of a post
+  head is a preview that drifts from the page it previews, which is what
+  decision 67 removed from the body. The head is read from the form fields, so
+  it needs no round trip and is correct while signed out. Decision **70**.
+- **A word count, and a read time you can press.** Words, characters and
+  minutes live under the toolbar; fenced code and inline markers are excluded,
+  so the number counts prose. Pressing it fills the Read time field.
+
 - **Every AI run is logged.** The public assistant, the writing assistant
   and the daily job each leave one row per run: which model answered, how
   long it took, lookups, answer and thinking sizes, the stop reason, and
@@ -46,8 +66,65 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   to write a line. The admin error boundary files its faults there too, five
   a page at most. Decision **62**.
 
+### Removed
+
+- **Graphite and Herbarium.** Two themes, shipped three days earlier, that
+  neither is on a page. Herbarium was the only serif here and the only theme
+  with a drop cap; the two between Geometry and Paper were the same two
+  grotesque faces at different temperatures. What separated them from Paper
+  and Blueprint was a palette, not an argument — and a palette is what a theme
+  already has a token for. `THEMES` goes back to three, the two stylesheets and
+  Herbarium's reference go with them, and `--plate-*` falls back to the shared
+  layer, which is what the other two already did. A visitor whose stored
+  preference is one of them gets Geometry through the pre-paint script, which
+  has always validated a stored id against the list. Decision **69**.
+- **`@astrojs/sitemap` and `@astrojs/mdx`, with the mdx integration.** The
+  sitemap was already replaced by `src/pages/sitemap.xml.ts`; the package was
+  only still installed. MDX went the same way — every body is a D1 column
+  rendered by `renderBody()`, so there is no `.mdx` file for the integration
+  to compile. `@astrojs/markdown-remark`, which `markdown.ts` imports
+  directly, was resolving transitively and is now declared.
+- **Three illustrations nothing renders** — `developer-activity.svg`,
+  `geometry-grid.svg`, `geometry-circuit.svg` — bundled on every page by
+  `Illustration.astro`'s eager glob.
+- **`trackDirtyContainer`, `modelChoices`, `ASSIST_GROUPS` and `projectHref`**,
+  exported and never imported.
+
 ### Changed
 
+- **The top nav is pinned.** `.site-header` is `position: sticky` with
+  `background: inherit`, so the body's own ground — the isometric mesh, the
+  ruled sheet, the laid lines — runs continuously under a stuck bar instead of
+  stopping at it. `Header.astro` publishes `--header-h` from a `ResizeObserver`
+  and `html` carries `scroll-padding-top` from it, so an anchor lands below the
+  bar at any width without a hard-coded number. The case study's reading
+  progress moves into the header through a named slot: it was `position:
+  fixed` from inside `<main>`, which is a `z-index: 1` stacking context, so a
+  pinned bar covered it. Below 640px the links scroll sideways in one line
+  rather than wrapping into a three-row bar — 177px of a 390px screen, held
+  back on every scroll. Sticky is screen-only. Decision **69**.
+- **Paper and Blueprint are drawn rather than rendered.** Both described a
+  sheet somebody worked on by hand and then drew every line with a
+  mathematical border, which is the one thing on either sheet no hand drew.
+  Two `feTurbulence` + `feDisplacementMap` filters — a brush and a pen, seeded
+  so the page does not shimmer — now wobble their rules, card outlines, tags
+  and buttons. Anything carrying text takes its outline from a filtered
+  pseudo-element, because a filter displaces every pixel of the box it is on.
+  The annotation tier is written and the document is not: Caveat for Paper's
+  `§3` marks and figure captions, Architects Daughter for Blueprint's `§1`
+  marks, `FIG. 01 ·` callouts and sheet title, both imported by the theme file
+  and applied to the pseudo-element only. The stock is three layers rather
+  than one: a second, low-frequency turbulence on both grounds, because pulp
+  mottles in patches and a chemical print's density varies across the sheet.
+  Decision **69**.
+- **A private repository says so.** A project with no public repo rendered no
+  Repo button, which is correct as a link and reads as an oversight as a card.
+  It now carries a dashed, muted `Private repo` mark in the button's place — the
+  same `.btn` box, so an actions row keeps its rhythm — on the listing, the
+  card, the detail page and the case study. The import screen stops writing the
+  URL at all: `fieldsFromRepo` drops `repoUrl` for a private repository, so a
+  repository that goes public later gets its link from the owner typing one in
+  rather than from a stale row. Decision **69**.
 - **Blueprint is the cyanotype sheet it was named for.** Dark mode was a
   near-black navy — a dimmed light theme, which is what a blueprint is not —
   and is now the print itself: the reference's own ground, pale-blue lines and
@@ -92,6 +169,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   model's markdown and may publish it unread. `markdown.ts` now turns raw
   HTML into escaped text and unwraps unsafe links; `npm run check:markdown`
   pins it. Existing posts were scanned and carry none. Decision **63**.
+- **A `javascript:` URL split by a tab is no longer one.** The guard in
+  `renderBody()` tested the scheme on the raw destination, and a URL parser
+  strips ASCII tab and newline before it reads the scheme — so
+  `[x](<java&#9;script:alert(1)>)` passed the guard and every browser resolved
+  it as `javascript:`. The guard now strips what the parser strips. The
+  percent-encoded spellings are deliberately left alone, and that is a finding
+  rather than an omission: a browser does not decode `%09` before parsing a
+  scheme, so `java%09script:` is a relative path and stays one.
+  `npm run check:markdown` pins both directions.
 - **The owner's street address is no longer served.** `site.address` was
   prefilled into the prerendered `/admin/settings` HTML, which anyone can
   fetch, on a public repository; nothing renders it, so it is blank now.
@@ -101,6 +187,89 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fixture.
 
 ### Fixed
+
+- **Long pages no longer wait for a scroll to show themselves.** The scroll
+  reveal armed its observer at `threshold: 0.05`, which means *five per cent of
+  the target* — and on `/projects` the target is a 2050px grid section, so five
+  per cent is 102px, which the section's first screenful did not contain. The
+  whole listing sat at `opacity: 0` until the reader scrolled, while the three
+  cards actually in view reported `opacity: 1` because the fade is on the
+  section and they never faded. Now `threshold: 0` — "has any of it entered" is
+  the question the reveal was asking, and the bottom `rootMargin` is what
+  decides how much of it has to arrive.
+- **The whole project card is the link.** The card is an `<article>`, so before
+  this the title, the case-study button and the repo button were the only
+  things you could click: the summary, the stack tags and every pixel of
+  whitespace between them did nothing, and the shared hover lift never ran
+  because it is scoped to `a.card`. The title link's `::after` now stretches
+  over the card — the standard overlay, because nesting a link inside a link is
+  invalid and the card has to contain two of its own. The actions row is
+  lifted a `z-index` above it, so it still goes where it says.
+- **The admin rail gained a skip link, a keyboard jump, and an identity that
+  goes somewhere.** The rail is seven links and `transition:persist`ed, so a
+  keyboard user paid eight keystrokes per navigation just to reach a form;
+  there is now a skip link, and Alt+1…Alt+7 jumps to each section with the
+  digit shown faintly on the row. The identity block at the top was the one
+  control on the rail that looked clickable and was not — it is now a link to
+  `/admin/settings`, marks itself current like a section, and gets a tooltip in
+  the collapsed rail alongside the nav's.
+
+- **The hand-drawn themes draw 41 times instead of 227.** `filter` gives every
+  element it is on its own render surface, and `/projects` measured 0 in
+  Geometry, 227 in Paper and 186 in Blueprint — 145 of them `.tag` in both, and
+  41 more `.btn::before` in Paper. A displacement filter on a 10.5px
+  two-character label was costing a render surface to move a pixel nobody can
+  see. Tags and buttons now carry a dashed border instead, which is what a hand
+  draws around a label anyway, and the filter stays where it reads: card
+  outlines, rules, the kraft separator. Decision **71**.
+- **`content-visibility` on the project cards was measured and rejected.** It
+  is the textbook answer for a long grid and it did work — Paper went from
+  176ms to 144ms of GPU work on a 60-step scroll — but `contain-intrinsic-size`
+  has to guess a card's height until that card is measured, the guess was ~50px
+  off, and the document shrank from 2833px to 2782px as you scrolled through
+  it. A slow scroll traded for a moving scrollbar is not a fix. The rejected
+  rule is left as a comment in `src/pages/projects.astro`. Decision **71**.
+
+- **The ground stopped moving, on all three themes.**
+  `background-attachment: fixed` does not paint a small cached layer — it
+  repaints a *body-sized* background anchored to the viewport, so on a long
+  page it is re-rasterised against every scroll offset and the amount you can
+  see is proportional to how many lines the ground has. Decoded to real
+  pixels, scrolling exactly 1px, the background moved a mean of 1.27 per
+  channel in Blueprint, 0.42 in Paper and 0.24 in Geometry — and 1.27/4.7 is
+  Geometry's number to within a rounding, because a 56px mesh has a fifth of
+  Blueprint's line count. All three grounds are now fixed *elements* rather
+  than fixed background attachments: rasterised once, composited thereafter.
+  Blueprint measures 0.000 and Geometry 0.009, down from 1.27 and 0.24.
+  Decision **72**.
+
+- **The pinned bar got a ground of its own.** Moving the ground behind all
+  content left `.site-header`'s `background: inherit` resolving to nothing, and
+  the cards slid through the navigation. Each theme now paints its own
+  gradients on an opaque base in the header; a stuck header's background box
+  and the fixed layer share the viewport's top-left, so the sheet runs on
+  unbroken through the bar and the bar is opaque to what scrolls under it.
+  Decision **72**.
+
+- **`/rewrite-selection` replaces the selection instead of appending to the
+  end.** The task's own description said "It replaces the selection"; `prepare()`
+  had no case for it and fell through to the default, which appends. It also
+  now refuses to replace a range whose text moved while the run was writing —
+  the panel is non-modal, so the author can type during a thirty-second
+  selection task, and an offset-based replace would have destroyed whatever
+  moved into those offsets. Decision **70**.
+- **A hero upload marks the form dirty.** `image-upload.ts` wrote
+  `input.value` programmatically, which fires no event, so `trackDirty` never
+  heard about it: Save stayed disabled, the status line said there was nothing
+  to save, and the image was silently not on the row. The value setter now
+  dispatches an `input` event, which fixes every image field on the admin at
+  once. Decision **70**.
+- **A save clears the autosave timer, not just its key.** A save that completed
+  inside the 700ms debounce left a timer armed against a DOM about to navigate
+  away; it fired 700ms later and re-wrote the snapshot of a post already in the
+  database, so the next visit to `/admin/journal/new` offered to restore a post
+  that had been saved, and a second create at the same slug was a 409.
+  Decision **70**.
 
 - **A case study's contents can no longer list a line of code.** The list was
   scanned out of the markdown line by line, so a `## ` comment inside a shell

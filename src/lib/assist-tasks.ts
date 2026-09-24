@@ -146,19 +146,6 @@ export type AssistScreen = Exclude<AssistSurface, 'both'>;
 export type AssistGroup = 'write' | 'refine' | 'suggest';
 
 /**
- * The groups in the order the panel shows them, with the line under each.
- *
- * Here rather than in the editor because it is the same kind of fact as the
- * task table — what the assistant can do — and because the editor generates its
- * whole list from this module rather than retyping any of it.
- */
-export const ASSIST_GROUPS: { id: AssistGroup; label: string; hint: string }[] = [
-  { id: 'write', label: 'Write', hint: 'Makes something that is not there yet.' },
-  { id: 'refine', label: 'Refine', hint: 'Changes what you have already written.' },
-  { id: 'suggest', label: 'Suggest', hint: 'Offers options. Nothing moves until you pick one.' },
-];
-
-/**
  * Everything a task is allowed to ask the editor for.
  *
  * A closed union rather than `string`, and the reason is `CONTEXT_LIMITS`: a

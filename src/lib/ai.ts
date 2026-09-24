@@ -875,26 +875,6 @@ export const modelsFor = (provider: Provider, which: 'chat' | 'assist'): string[
 };
 
 /**
- * Every model any configured provider could be asked for, with its provider.
- *
- * The panel's model picker is built from this, and the endpoint validates a
- * caller's choice against it — which is what makes "the author picked a model"
- * a selection from the owner's own rows rather than a model id in a request
- * body. Ordered as they would be tried, so the first entry is the default.
- */
-export const modelChoices = (providers: Provider[], which: 'chat' | 'assist') =>
-  providers.flatMap(provider =>
-    modelsFor(provider, which).map((model, index) => ({
-      provider: provider.slug,
-      label: provider.label,
-      model,
-      /* The one that would answer anyway, so a picker can say "default"
-         against it rather than repeating the id in two places. */
-      primary: index === 0,
-    })),
-  );
-
-/**
  * The least a model gets to produce its first frame, deadline or not.
  *
  * Reasoning models stream their deliberation within a second or three, so this

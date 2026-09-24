@@ -4,9 +4,7 @@
    on specificity rather than on source order. Geometry is the default. */
 @import './themes/geometry.css';
 @import './themes/blueprint.css';
-@import './themes/graphite.css';
 @import './themes/paper.css';
-@import './themes/herbarium.css';
 /* The resume sheet. Global rather than page-scoped because three surfaces
    render the same markup — the public page, the admin preview and the printed
    PDF — and a stylesheet only one of them could see is how the preview drifted
@@ -112,6 +110,12 @@ html {
   background: var(--color-bg);
   color: var(--color-text);
   scroll-behavior: smooth;
+  /* The pinned bar's height, published by `Header.astro`'s ResizeObserver.
+     The floor covers the one row on a desktop; anything sticky or anchored
+     below the bar reads it rather than hard-coding a number, because the bar
+     wraps to two rows below 960px and a late webfont can move it. */
+  --header-h: 69px;
+  scroll-padding-top: calc(var(--header-h) + var(--space-4));
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
@@ -546,6 +550,26 @@ pre {
   padding: 5px 12px;
 }
 
+/* Where the Repo button would be when there is no public repository to link:
+   the same `.btn` box, so an actions row keeps its rhythm from card to card,
+   but plainly not a control — dashed, muted, no fill, no hover, no pointer.
+   It says why the button is missing instead of leaving a gap a visitor reads
+   as an oversight. Decision 69. */
+.btn.repo-private {
+  color: var(--color-text-muted);
+  border: 1px dashed var(--color-divider);
+  background: none;
+  box-shadow: none;
+  cursor: default;
+  user-select: none;
+}
+
+.repo-private svg {
+  width: 1em;
+  height: 1em;
+  flex: none;
+}
+
 /* — forms —
 
    Two shapes, one rule. `<div class="field"><label for=…>` is what a page
@@ -899,8 +923,22 @@ select.input.is-auto {
    breakpoint the rails and their nodes stand down with all the others (see
    the 1160px query and the print block); the rules stay, because a header
    without one is a page without a top. */
+@media screen {
 .site-header {
-  position: relative;
+  /* Pinned, not floating: the bar is the one piece of chrome worth keeping on
+     a long page, because every section is far from it and every other route
+     is in it. `background: inherit` takes the body's own ground with it —
+     Geometry's isometric mesh, Blueprint's ruled sheet, Paper's laid lines —
+     so the ground runs continuously under a stuck bar instead of stopping at
+     it. `scroll-padding-top` on `html` is what keeps an anchor landing below
+     the bar.
+
+     Screen only: a stuck bar in print would repeat at the top of every page,
+     and a bar is not something anyone prints. */
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: inherit;
   border-top: 1px var(--rule-style) var(--sep-ink);
   border-bottom: 1px var(--rule-style) var(--sep-ink);
   /* The bar repaints on every MPA navigation and repaints recoloured on
@@ -908,6 +946,13 @@ select.input.is-auto {
      a short fade reads as a transition. Colour-only, so reduced motion
      keeps it. */
   transition: border-color var(--dur-fast) ease, background-color var(--dur-fast) ease;
+}
+}
+
+@media print {
+  /* What is left of the header in print: the resume hides its nav, so only
+     these two rules would survive as a line across the top of page one. */
+  .site-header { border: 0; }
 }
 
 /* The rails, where `main` cannot draw them: through the header and the
@@ -962,8 +1007,18 @@ select.input.is-auto {
    way — the page arrives unmarked and leaves unmarked, and the first squares
    a visitor meets are the junctions where the header and the footer meet
    `main`. Those junction nodes stay; they are the joints the rails continue
-   from. */
+   from.
+
+   One exception, and it is the header's: its bottom node marks the one
+   junction that no longer stays put. While the bar is stuck, a node hanging
+   off its bottom rule would float over whatever scrolled under it, at the
+   column's edge, in the middle of the page. It is a mark for a meeting of two
+   surfaces, and a pinned bar no longer meets `main` — so `main` draws the
+   junction and the stuck bar does not. There is no `.is-stuck` class to
+   animate: the bar's own top rule is on the viewport's edge, and no scroll
+   listener is a cost worth paying for a node at the very top of the screen. */
 .site-header .frame-rail::before,
+.site-header .frame-rail::after,
 .site-footer .frame-rail::after {
   display: none;
 }
@@ -1184,6 +1239,34 @@ body > main::before { left: var(--column-edge); }
    puts the stroke *inside* the column edge, where the cell's own right
    border falls, so rail and cell meet as one line. */
 body > main::after { right: var(--column-edge); translate: -1px 0; }
+
+/* ==========================================================================
+   The journal post's head — shared, because the editor previews it.
+
+   Hero, tags, title, meta and summary are what a reader sees first, and what
+   the editor's Preview tab has to show faithfully. These rules were scoped to
+   `src/pages/journal/[slug].astro`, which meant the preview could not have them
+   without copying them — and a copy of a post head is a preview that drifts
+   from the page it previews, which is the exact failure decision 67 removed
+   from the body. One copy, both surfaces. The page's own scoped block keeps
+   the page-level rules: the cover's padding and the body's measure.
+   ========================================================================== */
+
+/* Closed by the band below it — a case study's `.cs-head` by another name. */
+.post-head { margin-bottom: 0; }
+.post-title { margin-bottom: var(--space-2); }
+.tag-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--space-3); }
+.post-meta { font-size: 13px; margin-bottom: var(--space-3); }
+
+.post-figure { position: relative; margin-bottom: var(--space-4); }
+/* Full image, not a crop: the hero is the author's chosen frame, and a 360px
+   slice of it is not. Natural height, capped by the container. */
+.post-figure img { width: 100%; height: auto; display: block; }
+.post-duration { position: absolute; bottom: 12px; left: 12px; font-family: var(--font-mono); }
+
+/* Capped rather than full-bleed: the block above runs to 1120px and a lead
+   paragraph set across all of it is 130 characters a line. */
+.post-summary { font-size: 18px; line-height: 1.6; opacity: 0.85; max-width: 62ch; margin: 0; }
 
 .section-sep {
   position: relative;

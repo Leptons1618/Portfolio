@@ -138,10 +138,16 @@ const { title } = Astro.props;
       navigation, not to any screen. */}
   <div class="route-progress" id="route-progress" transition:persist hidden></div>
 
+  {/* First thing Tab can reach. The rail is seven links and an identity block
+      ahead of the content, so without this a keyboard user spends eight
+      keystrokes on every admin screen just to reach the form — and the rail is
+      `transition:persist`ed, so the cost is the same on every navigation, not
+      just the first. Hidden until focused, so a pointer never sees it. */}
+  <a class="admin-skip-link" href="#admin-main">Skip to content</a>
   <div class="admin-shell" id="admin-shell">
     <AdminSidebar />
 
-    <main class="admin-main">
+    <main class="admin-main" id="admin-main" tabindex="-1">
       {/* Above the content, not instead of it: the markup below still renders
           and is still readable, it just cannot be trusted to *do* anything
           once this is showing. */}

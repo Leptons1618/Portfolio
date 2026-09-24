@@ -231,6 +231,16 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
     set(next: string) {
       descriptor.set!.call(input, next);
       show();
+      /* An `input` event, because this write is an edit and everything
+         downstream decides what to do with an edit by listening for one:
+         `trackDirty()` enables the Save button, the journal editor's
+         `holdLocally()` arms its snapshot, and a project screen's leave guard
+         arms its confirm. Assigning `.value` fires nothing, so an upload, a
+         library pick and a Clear all left the form looking clean — Save stayed
+         disabled, the status line said there was nothing to save, and the image
+         was silently not on the row. Dispatching here fixes every field at
+         once, because every one of them is this setter. */
+      input.dispatchEvent(new Event('input', { bubbles: true }));
     },
   });
 

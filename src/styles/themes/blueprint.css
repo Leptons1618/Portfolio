@@ -1,3 +1,17 @@
+/* The hand-lettered face, imported by this file rather than by a layout, for
+   the same reason the Paper theme does it: `@font-face` is inert until a rule
+   in the same stylesheet uses the family, so declaring it in `BaseLayout` would
+   load it on every theme and declaring it here without using it here would
+   load it never. The request is tied to `data-theme="blueprint"` being set.
+
+   Architects Daughter, one weight. It is a print face modelled on the
+   draughtsman's lettering block — the title, the figure callout, the note in
+   the margin — which is exactly the tier this theme needs it for and exactly
+   the tier it must not be used for: a heading in this face would read as a
+   title inside the drawing rather than as the drawing's own caption, and the
+   site has forty of those. */
+@import '@fontsource/architects-daughter/400.css';
+
 /* ==========================================================================
    Blueprint Technical — the cyanotype sheet.
 
@@ -82,6 +96,14 @@
      the themes agree on measuring. Declared by every layout, so using
      it here costs nothing extra. */
   --font-nav: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* The draughtsman's lettering block. The reference's own `--tech` stack,
+     narrowed to the one family that is actually installed — a drafting
+     lettering face for the sheet's title, figure callouts and margin notes,
+     never for a heading. Declared on the root beside the other faces because
+     the dark ramp and the media block both need to name it, and three
+     spellings of a stack is three places to forget one. */
+  --font-hand: 'Architects Daughter', 'Comic Sans MS', 'Bradley Hand', cursive;
 
   --radius-sm: 0;
   --radius-md: 0;
@@ -232,19 +254,79 @@
   }
 }
 
-/* Blueprint draws its own ground, so the grain layer stands down — noise over
-   a ruled grid is two textures arguing. */
+/* Blueprint draws its own ground, so the shared grain layer stands down and
+   this theme re-points it: the overlay becomes the print's own unevenness
+   instead of film grain, and the *body* becomes the drafting surface it is
+   laid on. Two layers, two jobs.
+
+   The split is not cosmetic. The body used to carry the mottle as a 420px
+   `feTurbulence` raster tile in its background stack, and that was the cause of
+   a background that visibly moved while scrolling, twice over:
+
+     - 420 does not divide a viewport. On 1440×900 it repeats 3.43 times across
+       and 2.14 times down, so the tile boundary lands mid-pixel, the browser
+       resamples it on every scroll offset, and the seams between repeats
+       shimmer. A raster tile under a `background-attachment: fixed` stack is
+       re-rasterised as the scroll offset changes; gradients are not.
+     - The tile also had to repeat, so its noise pattern repeated with it, and
+       the repeat was the thing a reader's eye caught as motion.
+
+   Both are gone. The mottle is now a viewport-sized `position: fixed`
+   overlay — the layer the grain already used — so it is rasterised once, never
+   re-sampled against a scroll offset, and does not repeat across the sheet.
+   The ink is the same turbulence at a lower frequency, because the overlay has
+   no grid under it to sit between and can afford a broader, slower variation.
+   A `feColorMatrix` with `saturate 0` takes the turbulence's own colour out,
+   because a data URI cannot carry a theme colour and the dark ramp's ground is
+   a blue; un-neutralised it would tint the sheet in both modes. */
 [data-theme='blueprint'] body::before {
-  display: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='360' height='360'%3E%3Cfilter id='c'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.006' numOctaves='4' seed='11'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='360' height='360' filter='url(%23c)' opacity='0.09'/%3E%3C/svg%3E");
+  background-size: 360px 360px;
+  opacity: 1;
 }
 
 /* — the ruled ground ————————————————————————————————————————————————————
    The reference's sheet, at its own numbers: a 12px fine rule and a heavier
-   line every fifth cell (60px), both fixed, so the sheet reads as the drafting
-   surface the page sits on rather than as texture printed onto the content.
-   The major line is the same ink at a higher weight — one colour, two values. */
+   line every fifth cell (60px). The major line is the same ink at a higher
+   weight — one colour, two values.
+
+   It is a fixed *element*, not `background-attachment: fixed` on the body,
+   and that distinction is the whole fix. `background-attachment: fixed` tells
+   the browser to re-paint a body-sized background anchored to the viewport,
+   which on a document 2800px tall means re-rasterising the whole thing against
+   each new scroll offset. Measured, the visible cost of that is a ground that
+   crawls: decode the viewport to real pixels, scroll exactly 1px, decode
+   again, and Blueprint moved a mean of 1.27 per channel where Geometry — a
+   56px mesh, a fifth as many lines — moved 0.24. Delete the grid outright and
+   the drift is 0.002, which is what "the background is not moving" measures.
+   That is not a bug in the browser; it is what a fine grid does when it is
+   re-rasterised sixty times, and it is why this theme read as the jittery one
+   and Geometry did not.
+
+   A `position: fixed` layer is rasterised once and then only ever composited,
+   so the same test returns 0.002 with the 12px rule intact: the grid keeps its
+   scale and the sheet stops sliding. The ground also no longer needs to be
+   viewport-sized in its *paint*, and the header gets its continuity for free —
+   `.site-header` carries `background: inherit`, the body has none to give it,
+   and the fixed layer is behind both, so the bar is transparent and the ruled
+   sheet runs unbroken through it.
+
+   `z-index: -1` puts the layer above the canvas (which `html`'s background
+   paints) and below every piece of content, and `body > *` already sits at
+   `z-index: 1`. `pointer-events: none` because it is decoration covering the
+   whole viewport. Decision 72. */
 [data-theme='blueprint'] body {
   font-size: 16px;
+  background: none;
+  position: relative;
+}
+
+[data-theme='blueprint'] body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background-image:
     linear-gradient(to right, var(--grid-ink-major) 1px, transparent 1px),
     linear-gradient(to bottom, var(--grid-ink-major) 1px, transparent 1px),
@@ -255,7 +337,35 @@
     calc(var(--grid-step) * 5) calc(var(--grid-step) * 5),
     var(--grid-step) var(--grid-step),
     var(--grid-step) var(--grid-step);
-  background-attachment: fixed;
+}
+
+/* The pinned bar needs a ground of its own, and this is why.
+
+   The ground is now a fixed layer *behind* all content, so a transparent
+   header shows the cards sliding through it — which is worse than the
+   drifting grid was. The bar therefore paints the same four gradients on an
+   opaque base, and the two line up because both are anchored to the viewport's
+   top-left: the fixed layer starts at 0,0 and so does a stuck header's own
+   background box. The sheet therefore runs unbroken through the bar, and the
+   bar is still opaque to what scrolls under it.
+
+   Repeating the four gradients is the one duplication here, and it is cheaper
+   than the alternatives: a shared custom property holding a `background-image`
+   value would put the same 300 characters in a variable, and `background:
+   inherit` — what the shared layer uses — is exactly the thing that stopped
+   working when the body stopped carrying a background. */
+[data-theme='blueprint'] .site-header {
+  background-color: var(--color-bg);
+  background-image:
+    linear-gradient(to right, var(--grid-ink-major) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-ink-major) 1px, transparent 1px),
+    linear-gradient(to right, var(--grid-ink) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-ink) 1px, transparent 1px);
+  background-size:
+    calc(var(--grid-step) * 5) calc(var(--grid-step) * 5),
+    calc(var(--grid-step) * 5) calc(var(--grid-step) * 5),
+    var(--grid-step) var(--grid-step),
+    var(--grid-step) var(--grid-step);
 }
 
 :root[data-theme='blueprint'] {
@@ -287,9 +397,19 @@
    dark sheet draws them in light, which no `color-mix` on the text colour can
    express, so the overrides that used to live here are gone. */
 
+/* The sheet's own title, in the draughtsman's lettering block. This is the
+   one piece of type on the page that belongs to the drawing rather than to
+   the document, and the reference sets it there. 48px is the smallest size
+   Architects Daughter stays legible at — its letterforms are wide and open,
+   and below that the counters close up into a smudge. `letter-spacing: 0`
+   because the face carries its own generous tracking; the -0.02em the Space
+   Grotesk heading needed tightens this one into a solid block. */
 [data-theme='blueprint'] h1 {
+  font-family: var(--font-hand);
+  font-weight: 400;
   font-size: 48px;
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
+  line-height: 1.08;
 }
 
 /* — metadata is monospaced, without exception ————————————————————————— */
@@ -318,6 +438,15 @@ html[data-theme='blueprint'] .footer-copy,
 [data-theme='blueprint'] .eyebrow::before {
   content: '§' counter(section) ' ';
   color: var(--color-accent);
+  /* The lettering block, on the mark only. The clause label beside it stays
+     mono — the same split the Paper theme draws: what the draughtsman wrote
+     by hand is the sheet's own annotation, and what the office typed is the
+     text. A § in mono beside a mono label is a footnote; a § in the lettering
+     block beside a mono label is a drawing. */
+  font-family: var(--font-hand);
+  display: inline-block;
+  margin-left: -0.3em;
+  margin-right: 0.1em;
 }
 
 [data-theme='blueprint'] .prose h6::before,
@@ -326,25 +455,42 @@ html[data-theme='blueprint'] .footer-copy,
 }
 
 /* Figures are numbered too — `FIG. 01 ·` ahead of a card's kicker, in the
-   drawing-register voice the whole theme is set in. */
+   drawing-register voice the whole theme is set in, and in the lettering block
+   because a figure callout is the one piece of text on a sheet a draughtsman
+   always lettered by hand rather than typed. */
 [data-theme='blueprint'] .card-kicker::before {
   content: 'FIG. ' counter(figure, decimal-leading-zero) ' · ';
+  font-family: var(--font-hand);
+  font-size: 1.2em;
   color: var(--color-text-faint);
+  display: inline-block;
+  margin-right: 0.12em;
 }
 
 /* The wordmark is the shared `~/` path with a blinking bar; the bar here is a
    plotter's pen — rust, the one interaction colour. */
 :root[data-theme='blueprint'] { --brand-bar: var(--color-accent); }
 
-/* — rules are dashed: a "cut here" line, not a border ————————————————— */
+/* — rules are drafted, not ruled ————————————————————————————————————
+   A dashed border is a "cut here" line, and the reference's sheet draws its
+   own lines with a pen that wanders. The `om-pencil` filter (see
+   `src/components/PencilDefs.astro`) gives the dash pattern the stroke it was
+   missing: the line breaks up along its own length instead of repeating a
+   mathematically identical dash.
+
+   Applied to the rule element, which carries no text — a filter displaces
+   every pixel of the box it is on, and on an element with words in it that
+   would mean the words. */
 [data-theme='blueprint'] .hr {
   height: 0;
   background: none;
   border-top: 1px dashed var(--color-divider);
+  filter: url(#om-pencil);
 }
 
 [data-theme='blueprint'] .rule {
   border-top-style: dashed;
+  filter: url(#om-pencil);
 }
 
 /* The header rule lives on `.site-header` in the shared layer now, in the
@@ -369,14 +515,30 @@ html[data-theme='blueprint'] .footer-copy,
 }
 
 /* — cards are sheets of paper ——————————————————————————————————————————
-   White fill a step above the ground, a hairline outline, and a hard shadow.
+   White fill a step above the ground, a drafted hairline, and a hard shadow.
    Only a card that is itself a link lifts; a static card has nothing to
-   promise. */
+   promise.
+
+   The outline is a filtered pseudo-element for the reason the Paper theme's
+   is: a filter displaces every pixel of the box it is on, and a card carries
+   two paragraphs and a heading. The card's own border is transparent and the
+   drawn line sits on a `::before` at `inset: 0`, which is exactly where that
+   border was. */
 [data-theme='blueprint'] .card {
   background: var(--color-neutral-100);
-  border: 1px solid var(--color-divider);
+  border: 1px solid transparent;
+  position: relative;
   padding: var(--space-6);
   box-shadow: var(--shadow-sm);
+}
+
+[data-theme='blueprint'] .card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--color-divider);
+  pointer-events: none;
+  filter: url(#om-nib);
 }
 
 [data-theme='blueprint'] a.card {
@@ -388,9 +550,22 @@ html[data-theme='blueprint'] .footer-copy,
   transform: translate(-2px, -2px);
 }
 
+/* The hovered outline moves with the card, so the two cannot disagree. */
+[data-theme='blueprint'] a.card:hover::before {
+  border-color: var(--color-accent-300);
+}
+
 /* — tags are labels on the drawing —————————————————————————————————————
-   A hairline box rather than a tinted pill: the way a part is called out on
-   a sheet, in mono, squared to the small radius. */
+   A drafted hairline box rather than a tinted pill: the way a part is called
+   out on a sheet, in mono, squared to the small radius.
+
+   No filter here, for the same reason as everywhere else on this theme: it
+   was 145 filter passes per paint on a `/projects` grid, against 20 for the
+   cards, and a two-character label at 10.5px is the one place the nib's
+   displacement was never visible anyway. `filter` gives every element it is
+   on its own render surface, so 145 tags meant 145 surfaces to composite on
+   each scroll frame. The outline on a card and the rules keep theirs, which is
+   where the drawing actually reads as drawn. */
 [data-theme='blueprint'] .tag {
   border: 1px solid var(--color-divider);
   border-radius: var(--radius-sm);
@@ -744,7 +919,12 @@ html[data-theme='blueprint'] .cs-glance-item dd {
     border: 1px solid var(--color-accent-2-300);
     opacity: 0.5;
     pointer-events: none;
-    z-index: 2;
+    /* z 3, not 2: the pinned header is z 3 and comes earlier in the tree, so at
+       2 the frame's top edge passed under the stuck bar and the sheet lost the
+       one edge that says it is a sheet. Painting over the bar is the point —
+       the border is a mark on the paper, not a surface. `pointer-events:
+       none` above is what keeps it harmless where it crosses the chrome. */
+    z-index: 4;
   }
 }
 

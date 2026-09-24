@@ -1,6 +1,5 @@
 import { defineConfig } from 'astro/config';
 import cloudflare from '@astrojs/cloudflare';
-import mdx from '@astrojs/mdx';
 import tailwind from '@astrojs/tailwind';
 import icon from 'astro-icon';
 
@@ -39,18 +38,19 @@ export default defineConfig({
   server: { port: 4321 },
   vite: { server: { strictPort: true } },
   integrations: [
-    mdx(),
     tailwind({ applyBaseStyles: false }),
     /* Icons are inlined as SVG at build time, so nothing ships at runtime and
-       `currentColor` keeps them on the theme tokens. Only the admin surface
-       uses them; the public pages stay on the illustrations in
-       `src/assets/illustrations/`. */
+       `currentColor` keeps them on the theme tokens. The admin uses them
+       throughout; the public pages use them sparingly (the ask widget, the
+       contact card, the case study's video control, a private repository's
+       lock) and stay on `src/assets/illustrations/` for anything larger. */
     icon(),
-    /* `@astrojs/sitemap` is gone, not forgotten. It enumerates the routes the
-       build emitted, and the content routes are no longer among them — it
+    /* `@astrojs/sitemap` is gone, dependency and all. It enumerated the routes
+       the build emitted, and the content routes are no longer among them — it
        would have shipped a sitemap listing /about and /resume and silently
        dropping every project, case study and post. `src/pages/sitemap.xml.ts`
-       replaces it by asking D1 the same question at request time, and keeps
-       the admin exclusion the `filter` above used to do. */
+       replaces it by asking D1 the same question at request time. MDX went
+       the same way: every body is a D1 column rendered by `renderBody()`, so
+       there is no `.mdx` file for the integration to compile. */
   ],
 });

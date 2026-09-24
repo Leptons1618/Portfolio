@@ -40,9 +40,13 @@ const glance: [string, string][] = [
 ---
 <BaseLayout title={title} description={subtitle}>
   {/* How far along the write-up the reader is. `scaleX` from script; two
-      pixels, the accent, pinned to the top of the viewport. Scroll-linked, so
-      it is state rather than motion — reduced motion leaves it alone. */}
-  <div class="cs-progress" id="cs-progress" aria-hidden="true"></div>
+      pixels of the accent laid over the pinned header's bottom rule, so the
+      rule fills in as the study is read. Handed to the header through its
+      slot: a bar fixed to the viewport's top from inside `<main>` would sit
+      under the sticky header, which is a layer above the whole of `main`.
+      Scroll-linked, so it is state rather than motion — reduced motion leaves
+      it alone. */}
+  <div slot="header" class="cs-progress" id="cs-progress" aria-hidden="true"></div>
 
   {/* The article is no longer the column: it is the page, and the columns are
       the three blocks inside it. `SectionSep` is full-bleed by construction —
@@ -139,12 +143,12 @@ const glance: [string, string][] = [
           <div class="cs-stack">
             {stack.map(s => <Tag text={s} variant="neutral" />)}
           </div>
-          {(repoUrl || demoUrl) && (
-            <div class="cs-actions">
-              {repoUrl && <a class="btn btn-primary" href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>}
-              {demoUrl && <a class="btn btn-secondary" href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
-            </div>
-          )}
+          <div class="cs-actions">
+            {repoUrl
+              ? <a class="btn btn-primary" href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>
+              : <span class="btn repo-private" title="The source code lives in a private repository"><Icon name="lucide:lock" />Private repository</span>}
+            {demoUrl && <a class="btn btn-secondary" href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
+          </div>
         </div>
       </section>
     </div>
@@ -263,12 +267,11 @@ const glance: [string, string][] = [
 
   /* — reading progress — */
   .cs-progress {
-    position: fixed;
-    top: 0;
+    position: absolute;
     left: 0;
     right: 0;
+    bottom: -1px;
     height: 2px;
-    z-index: 60;
     background: var(--color-accent);
     transform: scaleX(0);
     transform-origin: 0 50%;

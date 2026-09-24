@@ -56,9 +56,21 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
 <aside class="admin-sidebar" transition:persist="admin-sidebar">
   <div class="admin-sidebar-head">
     {/* Identity sits at the top, where an avatar reads as "who am I signed in
-        as". Seeded from `site.ts`, replaced with the GitHub login below once a
-        session exists. */}
-    <span class="admin-whoami" id="admin-whoami">
+        as" — and it *goes* to where that is answered, because the avatar at
+        the top of a rail is the one control on it that looks like it should do
+        something and previously did nothing. `/admin/settings` is the Identity
+        destination, so the block is that link and the only thing it adds is
+        the same focus ring and tooltip the collapsed rail already knows how to
+        draw. `data-label` rather than `title`: `title` does not appear for a
+        keyboard user, and the rail's own collapsed state has to work for them
+        too. */}
+    <a
+      class="admin-whoami"
+      id="admin-whoami"
+      href="/admin/settings"
+      data-label="Identity"
+      aria-current={isCurrent('/admin/settings') ? 'page' : undefined}
+    >
       {/* The ring around the avatar is the session: a conic sweep that
           empties as the eight-hour token runs down, written to
           `--session-left` by the script below. Signed out it is a plain
@@ -70,7 +82,7 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
         <span class="admin-whoami-name" id="admin-identity">{site.name}</span>
         <span class="admin-whoami-role" id="admin-session">signed out</span>
       </span>
-    </span>
+    </a>
     <button
       type="button"
       class="btn btn-icon admin-collapse"
@@ -83,23 +95,39 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
     </button>
   </div>
 
+  {/* The seven destinations, numbered in the order they appear. The number is
+      the accelerator below and the `title` is how it is discovered; neither is
+      shown at rest, because a rail that labels every row with a key reads as a
+      spreadsheet. `aria-keyshortcuts` carries the same fact to a screen
+      reader, which is the one place the bare digits would otherwise be
+      unreachable. */}
   <nav class="admin-nav" aria-label="Admin sections">
-    {NAV_GROUPS.map(group => (
-      <div class="admin-nav-group">
-        <p class="admin-nav-label collapsible">{group.label}</p>
-        {group.items.map(item => (
-          <a
-            href={item.href}
-            class="admin-nav-link"
-            data-label={item.label}
-            aria-current={isCurrent(item.href) ? 'page' : undefined}
-          >
-            <Icon name={item.icon} class="admin-nav-icon" />
-            <span class="collapsible">{item.label}</span>
-          </a>
-        ))}
-      </div>
-    ))}
+    {(() => {
+      let slot = 0;
+      return NAV_GROUPS.map(group => (
+        <div class="admin-nav-group">
+          <p class="admin-nav-label collapsible">{group.label}</p>
+          {group.items.map(item => {
+            const digit = ++slot;
+            return (
+              <a
+                href={item.href}
+                class="admin-nav-link"
+                data-label={item.label}
+                data-key={digit}
+                aria-keyshortcuts={`Alt+${digit}`}
+                title={`${item.label} (Alt+${digit})`}
+                aria-current={isCurrent(item.href) ? 'page' : undefined}
+              >
+                <Icon name={item.icon} class="admin-nav-icon" />
+                <span class="collapsible">{item.label}</span>
+                <kbd class="admin-nav-key collapsible" aria-hidden="true">{digit}</kbd>
+              </a>
+            );
+          })}
+        </div>
+      ));
+    })()}
   </nav>
 
   <div class="admin-sidebar-foot">
@@ -384,4 +412,58 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
 
   markCurrent();
   document.addEventListener('astro:page-load', markCurrent);
+
+  /* — section accelerators —
+
+     Alt+1 … Alt+7. Seven destinations, and the rail is `transition:persist`ed
+     so a keyboard user crosses the same seven links again on every navigation.
+     Alt+digit is the binding GitHub, Linear and the browser itself use for
+     "jump to a place", it survives the collapsed rail (where there are no
+     labels to read), and it needs no second modifier that would collide with
+     Ctrl+B, which the collapse already owns.
+
+     Not Ctrl+K. That is the assistant's panel, and a rail that stole it would
+     be taking the one binding on this surface that a screen with a text field
+     on it is expected to answer to.
+
+     The handler is on `document` and deliberately never `preventDefault`s
+     unless it is about to act: `Alt+digit` is inert everywhere else in the
+     admin, but a binding that swallowed the key in a text field would break
+     typing an Alt-code on a mac, and a binding that swallowed Escape-like keys
+     is the kind of thing that costs an afternoon. If the rail is not on screen
+     — focus mode hides it, and below 860px it is a banner rather than a rail —
+     the key is left alone. */
+  const navLinks = () => document.querySelectorAll<HTMLAnchorElement>('.admin-nav-link[data-key]');
+
+  document.addEventListener('keydown', event => {
+    if (!event.altKey || event.ctrlKey || event.metaKey) return;
+    const rail = document.querySelector<HTMLElement>('.admin-sidebar');
+    if (!rail || rail.getClientRects().length === 0) return;
+
+    const digit = /^[1-9]$/.test(event.key) ? Number(event.key) : 0;
+    if (!digit) return;
+    const target = [...navLinks()].find(link => Number(link.dataset.key) === digit);
+    if (!target) return;
+
+    event.preventDefault();
+    target.click();
+  });
+
+  /* The `astro:page-load` marker above only walks `.admin-nav-link`, which is
+     the nav. The identity block is the other link in the rail that marks a
+     destination, and it is *not* in the nav — so it is walked here, or
+     `/admin/settings` is the one screen whose own section never highlights. */
+  const whoami = document.getElementById('admin-whoami');
+  if (whoami) {
+    const markIdentity = () => {
+      const here = window.location.pathname.replace(/\/+$/, '');
+      if (here === '/admin/settings' || here.startsWith('/admin/settings/')) {
+        whoami.setAttribute('aria-current', 'page');
+      } else {
+        whoami.removeAttribute('aria-current');
+      }
+    };
+    markIdentity();
+    document.addEventListener('astro:page-load', markIdentity);
+  }
 </script>

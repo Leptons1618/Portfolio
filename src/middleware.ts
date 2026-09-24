@@ -103,6 +103,43 @@ export const onRequest = defineMiddleware(async (context, next) => {
     headers.set('Strict-Transport-Security', 'max-age=31536000');
   }
 
+  /* A 404 with nothing in it. Every route on this site that can be asked for
+     a thing which is not there answers `new Response(null, { status: 404 })` —
+     an unpublished post, a hidden project, a case study that never linked up.
+     That is the right status and a useless body, and Astro's own fallback for
+     it is a bare string. `src/pages/404.astro` is the page that status should
+     carry; it is prerendered, so it is already in the asset store and costs
+     no render to hand back. The status is preserved and the `Content-Type`
+     corrected, because the asset's own headers are immutable and this is not
+     the last hand on the response.
+
+     Fetched from `ASSETS` rather than imported, so the markup stays one copy
+     in the build and none in the bundle. The Worker is not bound to reach
+     its own asset store everywhere this runs (`astro dev` has no such
+     binding), so a failure here falls through to the empty response rather
+     than replacing a 404 with a 500. */
+  if (response.status === 404) {
+    const assets = (context.locals.runtime?.env as { ASSETS?: { fetch: (request: Request) => Promise<Response> } } | undefined)?.ASSETS;
+    if (assets) {
+      try {
+        const page = await assets.fetch(new Request(new URL('/404.html', context.url), { method: 'GET' }));
+        if (page.status === 200) {
+          const body = await page.text();
+          const notFound = new Response(body, {
+            status: 404,
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+          });
+          for (const [name, value] of headers) notFound.headers.append(name, value);
+          return notFound;
+        }
+      } catch {
+        /* No asset store, or no 404 page in this build. The empty 404 below is
+           still a correct 404; a page is a courtesy, not the contract. */
+      }
+    }
+    return response;
+  }
+
   if (!cacheableMethod || response.status !== 200) return response;
 
   const type = headers.get('Content-Type') ?? '';

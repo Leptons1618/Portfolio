@@ -1,0 +1,82 @@
+---
+/**
+ * The 404.
+ *
+ * Every route on this site that can be asked for a thing that is not there
+ * answers with `new Response(null, { status: 404 })` — an unpublished post,
+ * a hidden project, a case study that never linked up. That is the right
+ * status; what was missing is the page the status carried nothing to. The
+ * Worker serves this file for a 404 it cannot otherwise explain, so the body
+ * a reader sees for a mistyped URL and the body a crawler sees for a
+ * withdrawn post are the same.
+ *
+ * The page is in the site's own voice rather than a bare apology: the command
+ * that failed, the way out, and the two places a lost link most often wants to
+ * go. Prerendered like every other page that reads no row — there is nothing
+ * here from the database, and a page with no query in it never wakes the
+ * Worker.
+ *
+ * `noindex`: a 404 is never a destination, and the sitemap lists routes, not
+ * absences. The status code is the index signal; this keeps a crawler that
+ * has already seen the URL from filing it as content.
+ */
+import BaseLayout from '../layouts/BaseLayout.astro';
+import PathLine from '../components/PathLine.astro';
+import Illustration from '../components/Illustration.astro';
+import SectionSep from '../components/SectionSep.astro';
+---
+<BaseLayout title="Page not found" description="That page is not here." noindex>
+  <header class="container page-header" data-reveal>
+    <div class="page-header-copy">
+      <PathLine path="" cmd="cat 404" />
+      <h1>No such path</h1>
+      <p class="page-desc">
+        Nothing is filed here. A post that was never published, a project that has been
+        retired, or a link with a typo in it all land on the same page.
+      </p>
+    </div>
+    <div class="page-header-art">
+      <Illustration name="the-void" />
+    </div>
+  </header>
+
+  <SectionSep />
+
+  <div class="container results" data-reveal style="--reveal-delay: 80ms">
+    <div class="empty-state">
+      <p class="empty-state-copy">The way out is whichever of these you were after.</p>
+      <div class="way-back">
+        <a class="btn btn-primary" href="/">Home</a>
+        <a class="btn btn-secondary" href="/projects">Projects</a>
+        <a class="btn btn-secondary" href="/journal">Journal</a>
+        <a class="btn btn-secondary" href="/about">About</a>
+      </div>
+    </div>
+  </div>
+</BaseLayout>
+
+<style>
+  .page-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 240px;
+    gap: var(--space-8);
+    align-items: center;
+    padding-top: var(--space-6);
+    padding-bottom: var(--space-6);
+  }
+  .page-header-copy { min-width: 0; }
+  /* Sized from the wrapper, never from the component — a class on a component
+     root does not carry this page's scope. */
+  .page-header-art { width: 240px; }
+  .page-desc { opacity: 0.8; max-width: 60ch; margin: 0; }
+  .results { padding-bottom: var(--space-8); }
+  /* A row rather than the column the empty states stack in: these are four
+     equal choices, not a fact and a hint. */
+  .way-back { display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: center; }
+
+  @media (max-width: 640px) {
+    .page-header { grid-template-columns: 1fr; gap: var(--space-4); }
+    .page-header-art { width: 180px; }
+    .way-back { flex-direction: column; align-items: stretch; }
+  }
+</style>
