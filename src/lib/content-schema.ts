@@ -137,16 +137,82 @@ const AI_PROVIDER_COLUMNS: ColumnMap = {
   priority: ['priority', 'number'],
 };
 
-/** `rendersBody` is what decides whether a `body` is accepted for this table. */
+/**
+ * What each table accepts.
+ *
+ * `rendersBody` decides whether a `body` is accepted. `slugs` is the closed key
+ * set for a table of singletons, and `null` for a table whose rows are named by
+ * their author.
+ *
+ * `readable` decides whether `GET /api/content` will hand the row back.
+ * `ai_providers` is deliberately `false`: its `api_key` column must never be on
+ * the wire, and the way to guarantee that is for the generic reader never to
+ * touch the table at all — `GET /api/ai/providers` is the one reader, and it
+ * builds its payload key by key. See decision 22.
+ */
+interface TableSpec {
+  columns: ColumnMap;
+  rendersBody: boolean;
+  slugs: readonly string[] | null;
+  readable: boolean;
+}
+
+/**
+ * The five `documents` rows this endpoint writes.
+ *
+ * `documents` is not a collection — it is a handful of singletons, each with
+ * exactly one writer and one reader, and its primary key is therefore a closed
+ * set rather than something an author names. Leaving it open had two costs. A
+ * typo (`resumee`) *succeeds*: `create` inserts a row nothing will ever read,
+ * and the save reports success. And `journal-auto-run` — the daily job's own
+ * account of what it attempted and when — became writable by anything holding
+ * the owner's token, which would let a caller hand the job another day's
+ * attempts. That row is written by `POST /api/ai/daily` against the database
+ * directly and must not be reachable from here; the same is true of any ledger
+ * added beside it later.
+ *
+ * Spelled out rather than imported: each constant lives in the module that owns
+ * the document (`RESUME_KEY` in `resume.ts`, `AI_SETTINGS_KEY` in `ai.ts`,
+ * `AUTO_KEY` in `journal-auto.ts`, the two order keys in `content.ts`), and
+ * three of those four modules cannot be loaded by a plain Node script — which
+ * `npm run check:schema` is. The test asserts the list, so a rename that
+ * forgets this file fails there rather than in production.
+ */
+const DOCUMENT_SLUGS = [
+  'resume',
+  'ai-assistant',
+  'journal-auto',
+  'projects-deep-dives',
+  'journal-order',
+] as const;
+
 export const TABLES = {
-  projects: { columns: PROJECT_COLUMNS, rendersBody: false },
-  case_studies: { columns: CASE_STUDY_COLUMNS, rendersBody: true },
-  journal: { columns: JOURNAL_COLUMNS, rendersBody: true },
-  documents: { columns: DOCUMENT_COLUMNS, rendersBody: false },
-  ai_providers: { columns: AI_PROVIDER_COLUMNS, rendersBody: false },
-} as const;
+  projects: { columns: PROJECT_COLUMNS, rendersBody: false, slugs: null, readable: true },
+  case_studies: { columns: CASE_STUDY_COLUMNS, rendersBody: true, slugs: null, readable: true },
+  journal: { columns: JOURNAL_COLUMNS, rendersBody: true, slugs: null, readable: true },
+  documents: { columns: DOCUMENT_COLUMNS, rendersBody: false, slugs: DOCUMENT_SLUGS, readable: true },
+  ai_providers: { columns: AI_PROVIDER_COLUMNS, rendersBody: false, slugs: null, readable: false },
+} as const satisfies Record<string, TableSpec>;
 
 export type TableName = keyof typeof TABLES;
+
+/**
+ * Refuse a slug the table will not take, before anything is bound.
+ *
+ * Two questions, in the order that makes the message useful: is this the shape
+ * a slug has at all, and — for a table of singletons — is it one of the keys
+ * that exists. Both are `BadRequest`, so both come back as a 400 naming what to
+ * do about it rather than as a row nobody reads or a 409 from the database.
+ */
+export function assertSlug(table: TableName, slug: string): void {
+  if (!SLUG.test(slug)) throw new BadRequest('Slug must be lowercase words joined by hyphens.');
+  const allowed = TABLES[table].slugs as readonly string[] | null;
+  if (allowed && !allowed.includes(slug)) {
+    throw new BadRequest(
+      `"${slug}" is not a ${table} row this endpoint writes. It takes: ${allowed.join(', ')}.`,
+    );
+  }
+}
 
 export const isTable = (value: unknown): value is TableName =>
   typeof value === 'string' && Object.prototype.hasOwnProperty.call(TABLES, value);
@@ -176,6 +242,73 @@ export function encode(value: unknown, as: Encoder): string | number | null {
     default:
       return String(value);
   }
+}
+
+/**
+ * The inverse of `encode()`: a stored column value as the field a caller sends.
+ *
+ * It exists so that what `GET /api/content` hands back is the same shape
+ * `POST /api/content` accepts — a row read, edited and written straight back has
+ * to round-trip, or every scripted edit is a 400 about `repo_url` not being a
+ * field. SQLite has no array and no boolean, so this is where `'[]'` becomes an
+ * array again and `0` becomes `false`.
+ *
+ * A malformed `list` degrades to `[]` rather than throwing. The column is
+ * written only by `encode()` above, so a value that is not JSON means the row
+ * was edited by hand in `wrangler d1 execute` — and a listing that 500s on one
+ * bad row is worse than one that shows it empty.
+ */
+export function decode(value: unknown, as: Encoder): unknown {
+  if (as === 'bool') return value === 1 || value === true;
+  if (value === null || value === undefined) return as === 'list' ? [] : null;
+  switch (as) {
+    case 'list': {
+      if (Array.isArray(value)) return value;
+      try {
+        const parsed = JSON.parse(String(value));
+        return Array.isArray(parsed) ? parsed.map(String) : [];
+      } catch {
+        return [];
+      }
+    }
+    case 'number': {
+      const n = Number(value);
+      return Number.isFinite(n) ? n : null;
+    }
+    default:
+      return String(value);
+  }
+}
+
+/**
+ * The columns to SELECT for a table, and the fields they come back as.
+ *
+ * Built from the same map `bind()` reads, which is the point: a reader that did
+ * `SELECT *` would hand back whatever columns the table has acquired since,
+ * `ai_providers.api_key` included. Naming them from this file means a column has
+ * to be listed here to be readable, the same rule `summarise()` follows in
+ * `ai.ts` — and it is why `GET /api/content` refuses `ai_providers` outright
+ * rather than relying on a filter.
+ */
+export function readableColumns(table: TableName): string[] {
+  /* Throws rather than filters. `ai_providers.api_key` is in that table's column
+     map because it is *writable*, and the only safe relationship between this
+     function and that column is for the table never to reach here — a filter
+     would be a line someone could delete and a test that still passed. */
+  if (!TABLES[table].readable) {
+    throw new BadRequest(`${table} is not readable here. Use its own endpoint.`);
+  }
+  return Object.values(TABLES[table].columns).map(([column]) => column);
+}
+
+/** One row, as the fields a caller may send back. */
+export function unbind(table: TableName, row: Record<string, unknown>): Record<string, unknown> {
+  const fields: Record<string, unknown> = {};
+  for (const [field, [column, as]] of Object.entries(TABLES[table].columns)) {
+    if (!(column in row)) continue;
+    fields[field] = decode(row[column], as);
+  }
+  return fields;
 }
 
 /**

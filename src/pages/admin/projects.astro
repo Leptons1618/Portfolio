@@ -590,6 +590,15 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
       const ddReset = document.getElementById('dd-reset') as HTMLButtonElement;
 
       const cardsIn = (zone: HTMLElement) => Array.from(zone.querySelectorAll<HTMLElement>('.pm-card'));
+      /* What is on screen, which is not the same list. `applyPmFilters()` hides
+         a card that does not match the search with `display: none`, and every
+         *move* has to walk that list rather than the full one: an arrow that
+         steps onto a hidden neighbour looks like a key that did nothing while
+         silently reordering the line-up behind the filter, and a region whose
+         cards are all filtered out has nothing to drop onto at all. Saving is
+         the other way round — `cardsIn` — because the order written is the whole
+         region's, not the part of it a search happens to match. */
+      const shownIn = (zone: HTMLElement) => cardsIn(zone).filter(card => card.style.display !== 'none');
 
       /* Save stays disabled until the lead region differs from the last save —
          the same contract as the journal order. Every move funnels through
@@ -752,7 +761,7 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
             if (!delta) return;
             event.preventDefault();
             const zone = card.parentElement!;
-            const siblings = cardsIn(zone);
+            const siblings = shownIn(zone);
             const neighbour = siblings[siblings.indexOf(card) + delta];
             if (!neighbour) return;
             if (delta < 0) neighbour.before(card);
@@ -774,7 +783,7 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
             if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
             const card = (event.target as HTMLElement).closest<HTMLElement>('.pm-card');
             if (!card) {
-              if (!cardsIn(grid).length && dragged.parentElement !== grid) grid.append(dragged);
+              if (!shownIn(grid).length && dragged.parentElement !== grid) grid.append(dragged);
               return;
             }
             if (card === dragged || card.parentElement !== grid) return;

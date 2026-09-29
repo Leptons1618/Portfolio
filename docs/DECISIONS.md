@@ -1677,3 +1677,163 @@ What worked: `scroll-behavior: auto` in the test, `waitForFunction` on `scrollY`
 **Not done.** The residual 49ms of raster that 71 could not attribute is still not attributed. It is now smaller, because the ground is no longer among the things re-rasterised per scroll offset, but the question of where it lives is unanswered. A theme with a real compositor trace on a machine where the difference is visible without instrumentation is still the honest next step.
 
 **Rejected.** Scrolling the ground with the page. It is the semantically pure answer — the grid is printed on the paper, so it should move with the paper — and it is what the drift metric says to do. It costs 98ms to 179ms of GPU work on Blueprint because the layer then covers the whole document, which is the exact cost the fixed layer removes. `content-visibility` again, for the reason in 71. Coarsening the grid to hide the effect: it works (0.47 for major lines alone) and it treats the symptom by making the theme less like a blueprint, which is the opposite of what 69 was for.
+
+## 73. The CLI is a client of the write endpoint, not a second writer
+
+**The problem.** Everything that changes this site goes through a browser. That
+is right for authoring — the screens are where the thinking happens — and wrong
+for the handful of jobs that are not authoring: renaming a category across
+fifteen projects, pasting a key into a provider, reading the log after a failed
+daily run, or scripting any of it. Each one is a form, opened one row at a time.
+
+**Rejected: a tool that talks to D1.** `wrangler d1 execute` already exists and
+is the shape this would take. It is also the reason not to: it bypasses the
+CHECK constraints in the sense that matters (nothing translates a refusal into a
+sentence), it writes no `logs` row, it asks nobody who is calling, and it needs a
+Cloudflare credential on the machine — a *second* credential for a system whose
+whole identity story is that it has one. Four properties that took decision 18
+to establish, given up for a shorter path.
+
+**Rejected: an API key for machines.** The same argument as decision 18. The
+owner already holds a GitHub token that `requireOwner()` will accept; a key
+invented for a CLI is a key to rotate, store and leak, answering a question that
+is answered.
+
+**Decision.** `cli/portfolio.mjs` is another caller of `POST /api/content`,
+holding a GitHub token belonging to `site.githubUser`. It has no privileged path.
+Deleting its config file leaves it with the powers of a stranger, and revoking
+the token at GitHub — signing out, the 8-hour expiry, removing the App — takes
+its access away without this site being told. The token comes from `gh auth
+token`, stdin, an environment variable or `--token`, and nothing is ever
+prompted for: a token echoed into a terminal is a token in the scrollback.
+
+**One thing had to be added, and it is a read.** The write endpoint was a door
+with no handle on the inside. A script could `patch` a project and had no way to
+learn what the project said, so every edit was a blind overwrite of the fields
+the script happened to know about. `GET /api/content` is that handle: owner-only,
+columns named from `content-schema.ts` rather than `SELECT *`, and
+**`ai_providers` refused outright** — its `api_key` must never be on the wire,
+and the guarantee for that is that the generic reader never touches the table,
+not that it remembers to drop a column. `readableColumns()` throws. Providers are
+read through `GET /api/ai/providers`, which returns a fingerprint (decision 22).
+
+**`edit` is why this is one file and not forty subcommands.** The row as JSON in
+`$EDITOR`, with only the keys that changed sent back. Every field of every table
+is editable through it, including one added tomorrow, and there is no flag to
+keep in step with the schema — the `field=value` parser reads the encoders out of
+`content-schema.ts`, so a wrong field name is refused locally with the real list
+printed. `scripts/test-cli.mjs` asserts that no column name of its own ever
+appears in that file, and that the four endpoints it speaks to stay four.
+
+**A body is markdown, edited as markdown.** A post inside a JSON string is a
+wall of `\n` escapes, so `body` is a separate command opening the markdown
+itself. The HTML half is still derived on the server by `renderBody()`, which is
+the same sanitising pass a save from the editor goes through — nothing a CLI
+sends can put markup in a reader's browser that a screen could not.
+
+**Consequences.** `documents` gained a closed key set in the process, because a
+generic tool made the cost of not having one obvious: `patch documents/resumee`
+*succeeded* and inserted a row nothing would ever read, and `journal-auto-run` —
+the daily job's own account of what it attempted — was writable by anything
+holding the owner's token. Five keys, in `content-schema.ts`, pinned by
+`check:schema`. Reading is shape-checked only, because the run record is
+legitimately readable and deliberately not writable.
+
+`DELETE /api/media` exists now for the same reason: a tool that uploads and
+cannot remove is asymmetric, and the table had no remover at all, so every
+mistyped upload was permanent at up to 2 MB a row. The Media library dialog
+still has no delete control — that is a tile that would have to stop being a
+`<button>` to hold one, and it is not done.
+
+**Not done.** A device-flow login, which would mean no token handling at all but
+needs the flow enabled on the GitHub App and the client id available to a tool
+that may be installed anywhere. `gh auth token` covers the same ground in one
+line. Also: no `resume` or `ai-settings` verb of its own — both are `edit doc
+<key>`, which is the whole document in `$EDITOR`, which is better than a form.
+
+## 74. The assistant reaches the site over stdio, as a client, behind three gates
+
+**The problem.** Decision 73 put the admin surface in a terminal. The next thing
+asked of it was that the assistant itself use it — write a journal entry, patch a
+project, reorder the home page — "securely, and only me". So: what is the shape of
+that, and what has to be true for the sentence to mean anything.
+
+**Decision: stdio, local, no listener.** `mcp/portfolio-mcp.mjs` speaks JSON-RPC
+over stdin and stdout as a child process of whatever editor launched it. There is
+no port, no origin, no session and nothing new exposed to the internet, so "only I
+can reach it" is answered by the operating system's process and file permissions —
+which are already answering it for every other program on the machine — rather
+than by an authorization scheme written for this.
+
+**Rejected: a remote MCP endpoint on the Worker.** It is the version that works
+from a phone, and it costs an internet-facing surface, an OAuth or bearer scheme
+of its own, and a second credential, to arrive at a weaker version of the same
+capability. If editing the site from a phone is ever wanted, it should be argued
+for on its own terms and not smuggled in as the transport for this.
+
+**It invents no authority.** The credential is the GitHub token `portfolio login`
+already stored at mode 0600, presented per request, never returned, logged or
+echoed into a tool result. Every write is `POST /api/content` → `requireOwner()` →
+GitHub → `site.githubUser`, so the process has exactly the powers of a signed-in
+browser tab. Revoking at GitHub, or deleting the file, removes its access without
+this site being told anything.
+
+**Three gates, and they are not about authentication.** Authentication says *who*;
+these say *what*, and they exist because the caller is a model:
+
+1. **`portfolio_delete` is not in `tools/list`** unless `PORTFOLIO_MCP_ALLOW_DELETE=1`.
+   Absent, not refused — a listed tool is one a model will propose and the owner
+   then declines every time. A deleted row has no copy anywhere; `hidden` and
+   `status: 'unpublished'` are the reversible ways to take something down and are
+   always available. Enabled, it still needs `confirm: true`.
+2. **Configuration is read-only.** Content is writable: projects, case studies,
+   journal, the resume, the two saved orders. The `ai_providers` rows, the public
+   assistant's settings and the daily journal's schedule are not — they decide what
+   the assistant may spend and how often it runs, and a model editing its own
+   budget is a conflict of interest rather than a feature.
+   `PORTFOLIO_MCP_ALLOW_CONFIG=1` widens it.
+3. **`apiKey` is refused unconditionally**, gates or no gates. A credential should
+   not travel through a conversation; `portfolio provider key` reads one from
+   stdin, which is the path that exists for it.
+
+None of the three replaces the client's own approval prompt, which is the human in
+the loop and the thing actually standing between a suggestion and a write. They are
+there so the worst available mistake is a small one.
+
+**No SDK.** The protocol handling is hand-written against the 2025-06-18 spec,
+answering the two older versions a client may ask for. This process holds a token
+that can rewrite the live site, and the smallest dependency tree for that is none —
+the same reasoning as every check in this repository being plain `node:assert`.
+`scripts/test-mcp.mjs` spawns the server and drives a real handshake over a real
+pipe, so the protocol is pinned by something other than confidence, and it asserts
+that **every line reaching stdout parses as JSON-RPC** — a stray `console.log` is a
+parse error in the client and a server that "will not connect" with nothing
+anywhere naming the cause.
+
+**Consequences.** `cli/portfolio-api.mjs` was extracted so the CLI and the MCP
+server are two front ends over one client: they want different surfaces — `$EDITOR`
+and `field=value` on one side, JSON Schema on the other — and they must not want
+different *semantics*. `check:cli` now reads all three files and asserts the union
+speaks four endpoints and holds no column name of its own, because a guard that
+watched one file would have stopped guarding the moment code moved.
+
+`strictFields()` exists because the two paths need opposite behaviour from the same
+projection. On the read path, dropping a derived key is the point. On an input path
+it is the bug: `POST /api/content` refuses an unknown field rather than discarding
+it, and a model guessing `repo_url` from a column name is exactly who that rule
+protects. It also stringifies an object landing on a `text` column, which would
+otherwise store `[object Object]` and report success.
+
+**The skill is the third piece and it carries the judgement.** A tool schema can
+say what a field is; it cannot say that a slug is a live URL and renaming one
+orphans a page, that a draft should usually stay a draft until the author says
+otherwise, or that the resume deliberately holds no contact details.
+`.claude/skills/portfolio/SKILL.md` is those rules.
+
+**Not done.** `portfolio_media` upload reads whatever local path it is given and
+publishes it at a public URL. The extension must be an image type and the client
+shows the path for approval, but a model that named a path the author did not is a
+shape worth knowing about; there is no allowlist of directories, because for a
+single-user tool on the owner's own machine one would break legitimate use more
+often than it would help. Also no `resources/` surface — the tools cover reading,
+and a second way to read the same rows is a second thing to keep honest.

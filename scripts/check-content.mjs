@@ -109,6 +109,18 @@ export function hasHighlightingOff(source) {
  */
 const PRINT_WIDTH_PX = Math.round((210 - 28) * (96 / 25.4));
 
+/**
+ * Source with its `/* … *\/` blocks removed.
+ *
+ * Every rule this file guards is written up in a comment beside the code that
+ * follows it, which means the prose quotes the very thing being looked for —
+ * `admin.css` explains at length that all three modal bands used to ask for
+ * `var(--space-5)`. A matcher that reads comments reports the explanation as the
+ * bug. CSS and `.astro` both use this one comment form for the blocks that
+ * matter, so one strip covers both.
+ */
+const stripBlockComments = source => source.replace(/\/\*[\s\S]*?\*\//g, ' ');
+
 function check() {
   const errors = [];
   const fail = (file, message) => errors.push(`${file}: ${message}`);
@@ -375,6 +387,51 @@ function check() {
     }
   }
 
+  /* 10. Nothing names a spacing token that does not exist.
+
+     The scale is `--space-1/2/3/4/6/8`. There is no `--space-5` and no
+     `--space-7`, and a bare `var()` on an undefined custom property is invalid
+     at computed-value time — which does *not* mean the declaration falls back to
+     something sensible. It means the whole declaration is thrown away and the
+     property computes to its unset value: `padding: var(--space-4) var(--space-5)`
+     is `padding: 0`.
+
+     Nothing warns. The stylesheet parses, `astro check` passes, the build is
+     green, and the only symptom is a box with no padding in it — which reads as
+     a design choice rather than as a bug. It has already zeroed the padding on
+     all three bands of every modal dialog, the sidebar's row gap, the journal
+     editor's preview pane and the import screen's session row; the first three
+     are written up in `src/styles/admin.css` and in `CLAUDE.md` as a rule to
+     follow, which is what a check is for instead.
+
+     The fallback form `var(--space-5, 20px)` is fine and is deliberately
+     accepted: it names a number the browser can actually use. Only the bare
+     reference is a bug.
+
+     Every stylesheet and every `.astro` file, because a page's scoped `<style>`
+     block is where two of the four live cases were. */
+  const SPACING_SCALE = new Set(['1', '2', '3', '4', '6', '8']);
+  const styled = [
+    ...walk('src/styles').filter(f => f.endsWith('.css')),
+    ...walk('src/pages').filter(f => f.endsWith('.astro')),
+    ...walk('src/components').filter(f => f.endsWith('.astro')),
+    ...walk('src/layouts').filter(f => f.endsWith('.astro')),
+  ];
+  for (const file of styled) {
+    const source = stripBlockComments(readFileSync(p(file), 'utf8'));
+    for (const [, step, next] of source.matchAll(/var\(\s*--space-(\d+)\s*([,)])/g)) {
+      // A comma is the fallback form: the declaration resolves to the fallback.
+      if (next === ',' || SPACING_SCALE.has(step)) continue;
+      fail(
+        file,
+        `names \`var(--space-${step})\`, which this system does not define — the scale is ` +
+          `1/2/3/4/6/8. An unresolvable \`var()\` is invalid at computed-value time, so the ` +
+          'whole declaration is discarded and the property computes to its initial value. Use a ' +
+          `token that exists, or the fallback form \`var(--space-${step}, 20px)\``,
+      );
+    }
+  }
+
   return { errors, counts: { dynamicRoutes: dynamic, pages: pages.length, migrations } };
 }
 
@@ -446,6 +503,29 @@ function selfTest() {
   assert(scoped(' screen and '), 'accepts a screen-qualified query');
   assert(!scoped(' '), 'rejects a bare query');
   assert(!scoped(' print, '), 'does not accept `print` as a scope');
+
+  /* The spacing-token matcher. It is a regex over stylesheets, so the two
+     shapes that must not be confused are the bare reference (a discarded
+     declaration) and the fallback form (a working one). */
+  const scale = new Set(['1', '2', '3', '4', '6', '8']);
+  const badTokens = text =>
+    [...text.matchAll(/var\(\s*--space-(\d+)\s*([,)])/g)]
+      .filter(([, step, next]) => next !== ',' && !scale.has(step))
+      .map(([, step]) => step);
+  assert(badTokens('padding: var(--space-4)').length === 0, 'a token on the scale passes');
+  assert(badTokens('padding: var(--space-5)')[0] === '5', 'a bare --space-5 is caught');
+  assert(badTokens('gap: var( --space-7 )')[0] === '7', 'whitespace inside var() does not hide it');
+  assert(badTokens('padding: var(--space-5, 20px)').length === 0, 'the fallback form is allowed');
+  assert(badTokens('margin: var(--space-4) var(--space-5)')[0] === '5', 'the second value is checked too');
+  assert(badTokens('--space-5: 20px;').length === 0, 'declaring one is not referencing one');
+  assert(
+    badTokens(stripBlockComments('/* these used to ask for var(--space-5) */ padding: var(--space-4);')).length === 0,
+    'a comment explaining the rule is not a violation of it',
+  );
+  assert(
+    badTokens(stripBlockComments('/* a note */ padding: var(--space-5);'))[0] === '5',
+    'and stripping comments does not hide the real thing',
+  );
 
   console.log('check-content self-test: ok');
 }

@@ -72,6 +72,47 @@ export const GET: APIRoute = async ({ request, locals }) => {
   });
 };
 
+/**
+ * Remove one upload.
+ *
+ * The table had no remover at all, which made every upload permanent: the
+ * control uploads on pick (deliberately — an unreferenced upload is harmless and
+ * a saved path to bytes that were never written is not), so a mistyped name or a
+ * replaced hero image left a row nobody could reach and nothing could clear
+ * short of `wrangler d1 execute`. At up to 2 MB a row against the free tier's
+ * storage that is not a tidiness question.
+ *
+ * Owner-only like the rest of the route. `path` is bound as a value — it never
+ * becomes an identifier and it is not a filesystem path, so there is nothing
+ * here for a traversal to reach; the thing to get right is that a path which
+ * matches nothing says so rather than reporting a delete that did not happen.
+ *
+ * Nothing checks whether a page still references the bytes, and that is the same
+ * bargain as everywhere else on this surface: a `heroImage` pointing at a
+ * deleted upload renders a broken image, which is visible, where a delete that
+ * silently refused would not be. The Media library lists what exists.
+ */
+export const DELETE: APIRoute = async ({ request, locals, url }) => {
+  try {
+    await requireOwner(request);
+  } catch (error) {
+    return refusal(error) ?? json({ error: 'Unauthorized.' }, 401);
+  }
+
+  const { DB } = locals.runtime.env;
+
+  /* Both spellings, because the caller has a `/media/…` URL in hand — it is
+     what the upload returned and what the field it filled in holds. */
+  const path = (url.searchParams.get('path') ?? '').replace(/^\/?media\//, '');
+  if (!path) return json({ error: 'Which path? Pass ?path=dir/name.ext.' }, 400);
+
+  const { meta } = await DB.prepare('DELETE FROM media WHERE path = ?').bind(path).run();
+  if (meta.changes === 0) return json({ error: `Nothing uploaded at /media/${path}.` }, 404);
+
+  await record(DB, 'warn', 'media', `Deleted /media/${path}.`, { path });
+  return json({ ok: true, path });
+};
+
 export const POST: APIRoute = async ({ request, locals }) => {
   try {
     await requireOwner(request);
