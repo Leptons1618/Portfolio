@@ -14,6 +14,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **`npm run check:edge`** (`scripts/test-edge-cache.mjs`) — the edge cache's key
+  and its purge. Both failures it pins are silent: a key that does not carry the
+  build serves a stale page after a deploy, and a `purge()` that computes a
+  different key than the middleware stores under deletes nothing and says nothing.
+  They live in two files with three callers, so the test asserts they agree
+  exactly, plus the fallback when no bundler performed the `define`, that no cache
+  key is reachable as a route, and that a cache which throws does not reach the
+  caller.
+
 - **An MCP server, so the assistant can edit the site — and three gates in front
   of it.** `mcp/portfolio-mcp.mjs`, registered by the checked-in `.mcp.json`. It
   speaks JSON-RPC over stdin and stdout as a child process of the editor, so it has
@@ -288,6 +297,48 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fixture.
 
 ### Fixed
+
+- **A deploy could serve HTML naming assets that no longer existed.** `/_astro/*`
+  filenames carry a content hash and are served `immutable`, which is exactly
+  right; the HTML naming them carries nothing, and it was stored in Cloudflare's
+  cache under its own URL. A cache entry survives a deployment — it lives in the
+  cache, not in the Worker — and the asset store does not: a new deploy's hashes
+  are new and the old ones 404. So for as long as an entry lived, a visitor could
+  be handed the previous build's HTML pointing at a stylesheet and a script that
+  had just stopped existing. An unstyled page with a dead script, on a deploy that
+  was green in every workflow. The cache key now carries the build id
+  (`vite.define` in `astro.config.mjs`, the commit in CI), so a new build cannot
+  reach the old build's entries and nothing has to be purged for it. Decision
+  **75**.
+
+- **A content write was only half live.** Decision 18's whole point is that an
+  edit needs no build, and `max-age=0` gave the *browser* that — but the edge copy
+  answered before the Worker body ran, so the author saved, reloaded, and read the
+  old page for up to a minute. Which is the failure that looks like the save
+  having silently failed, because the obvious next move is to save again. Every
+  successful write through `POST /api/content` now purges the pages that render
+  the row, through `waitUntil` so a cache that refuses cannot fail a write the
+  database already accepted.
+
+- **A re-uploaded image was invisible for a day, and a deleted one went on being
+  served for a day.** `/media/[...path]` asks for a shared cache and got one, and
+  uploads replace by path — so the URL whose bytes had just changed was the URL
+  still answering with the old bytes, with the route's own comment claiming the
+  short shared cache was what let a re-upload show up. Both writers on
+  `/api/media` purge the path now, and `s-maxage` came down from a day to an hour,
+  because a purge from a Worker reaches the colo it runs in and no other.
+
+- **`stale-while-revalidate=600` described something the middleware does not do.**
+  A hit returned the stored copy and nothing anywhere re-rendered behind it, so
+  the directive bought no refresh — and where it was honoured it authorised ten
+  further minutes of staleness on top of the minute. Removed; freshness is the
+  purge.
+
+- **Unhashed static assets were cached for a day with no way to bust them.**
+  Nothing under `/images/` is content-hashed — the portrait, the OG default and
+  the colophon plates keep their names across a deploy — so the TTL is the whole
+  mechanism, and it was 24 hours. An hour; these change at deploy cadence rather
+  than per visit.
 
 - **`portfolio login --token …` hung forever instead of signing in.** The token
   was resolved as `flags.token || (await stdin()) || …`, and `await stdin()` on a
