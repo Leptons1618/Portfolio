@@ -2,11 +2,18 @@
 # Worker-rendered responses are owned by `src/middleware.ts`, not here.
 # Specific paths first; `/*` carries only the headers nothing above sets.
 
+# `/_astro/*` filenames carry a content hash, so the URL changes when the bytes
+# do and `immutable` is exactly true. Nothing under `/images/` is hashed — the
+# portrait, the OG default and the colophon plates keep their names across a
+# deploy — so there is no way to bust one of those URLs, and the TTL is the
+# whole mechanism. It was a day, which is how long a replaced screenshot stayed
+# replaced only for people who had never seen the old one. An hour, and these
+# change at deploy cadence rather than per visit.
 /_astro/*
   Cache-Control: public, max-age=31536000, immutable
   X-Content-Type-Options: nosniff
 /images/*
-  Cache-Control: public, max-age=86400
+  Cache-Control: public, max-age=3600
   X-Content-Type-Options: nosniff
 /favicon.gif
   Cache-Control: public, max-age=86400

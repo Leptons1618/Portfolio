@@ -1,4 +1,5 @@
 import { defineMiddleware } from 'astro:middleware';
+import { cacheKey, edgeCache } from './lib/edge-cache';
 
 /**
  * Edge caching and hardening headers for Worker-rendered responses.
@@ -18,36 +19,35 @@ import { defineMiddleware } from 'astro:middleware';
  * mechanism is `caches.default` (put after render, match before render),
  * which is what the block below does.
  *
- * Public HTML gets `max-age=0` to browsers — an admin edit shows on reload
- * — and 60 seconds at the edge via the cache, with a fresh copy rendered
- * behind it as the entry expires. Nothing per-visitor is ever rendered into
- * public HTML (the assistant launcher is generic markup wired up
- * client-side), so a shared entry is safe to serve to everyone.
+ * Public HTML gets `max-age=0` to browsers and 60 seconds at the edge. Nothing
+ * per-visitor is ever rendered into public HTML (the assistant launcher is
+ * generic markup wired up client-side), so a shared entry is safe to serve to
+ * everyone.
+ *
+ * It used to carry `stale-while-revalidate=600` as well, which described
+ * something this file does not do: a hit returns the stored copy and nothing
+ * anywhere re-renders behind it. So the directive bought no refresh and, where
+ * it was honoured, authorised ten extra minutes of staleness on top of the
+ * minute. The freshness mechanism is `purge()`, not a longer window.
  *
  * Routes that set their own `Cache-Control` keep it; when theirs carries an
  * `s-maxage` (`/media/*` images from D1, the sitemap) the same put/match
  * makes that header mean something at the edge too.
+ *
+ * ## Why the key is not the request
+ *
+ * A stored entry outlives the deployment that rendered it, and the `/_astro/*`
+ * hashes it names do not. `cacheKey()` puts the build id in the key so a
+ * deploy cannot serve the previous build's HTML — read `src/lib/edge-cache.ts`,
+ * which also owns the purge the write endpoints call.
  */
-const PUBLIC_HTML_CACHE = 'public, max-age=0, s-maxage=60, stale-while-revalidate=600';
+const PUBLIC_HTML_CACHE = 'public, max-age=0, s-maxage=60';
 
 /** Non-negative when the response asks for a shared-cache lifetime. */
 function sharedTtl(headers: Headers): number {
   const directive = headers.get('Cache-Control')?.match(/s-maxage\s*=\s*(\d+)/);
   return directive ? Number(directive[1]) : 0;
 }
-
-/* `caches.default` is the Workers Cache API; the DOM lib's `CacheStorage`
-   has no `default`, so the surface this file uses is stated here — same
-   discipline as the bindings in `src/env.d.ts`. Resolved lazily: the module
-   also loads during build-time page generation, where the global does not
-   exist and no edge cache is reachable anyway. */
-interface EdgeCache {
-  match(request: Request): Promise<Response | undefined>;
-  put(request: Request, response: Response): Promise<void>;
-}
-
-const edge = (): EdgeCache | undefined =>
-  (globalThis.caches as { default?: EdgeCache } | undefined)?.default;
 
 export const onRequest = defineMiddleware(async (context, next) => {
   const cacheableMethod = context.request.method === 'GET';
@@ -60,9 +60,13 @@ export const onRequest = defineMiddleware(async (context, next) => {
   /* The edge's copy answers before the Worker body runs at all — D1 is never
      touched on a hit. Stored responses already carry the hardening headers,
      because they were set before the put below. */
-  const cache = edge();
-  if (cache && cacheableMethod && isPublic) {
-    const hit = await cache.match(context.request);
+  const cache = edgeCache();
+  /* Computed once and shared with the put at the end of this function: a match
+     and a put that disagreed on the key would store an entry on every request
+     and never read one back — a cache that costs and never pays. */
+  const key = cache && cacheableMethod && isPublic ? cacheKey(context.url) : null;
+  if (cache && key) {
+    const hit = await cache.match(key);
     /* Copied, never returned as-is. A Cache API response has *immutable*
        headers, and this function is not the last hand on what it returns:
        `RenderContext.render` strips Astro's own `x-astro-route-type` marker
@@ -147,8 +151,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
   if (isPublic && !headers.has('Cache-Control') && type.includes('text/html')) {
     headers.set('Cache-Control', PUBLIC_HTML_CACHE);
   }
-  if (cache && isPublic && sharedTtl(headers) > 0) {
-    context.locals.runtime.ctx.waitUntil(cache.put(context.request, response.clone()));
+  if (cache && key && sharedTtl(headers) > 0) {
+    context.locals.runtime.ctx.waitUntil(cache.put(key, response.clone()));
   }
   return response;
 });
