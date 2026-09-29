@@ -14,6 +14,78 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **An MCP server, so the assistant can edit the site — and three gates in front
+  of it.** `mcp/portfolio-mcp.mjs`, registered by the checked-in `.mcp.json`. It
+  speaks JSON-RPC over stdin and stdout as a child process of the editor, so it has
+  **no network listener**: no port, no origin, no session, nothing new exposed, and
+  "only I can reach this" is answered by the machine's own process and file
+  permissions rather than by an authorization scheme written for it. The credential
+  is the same GitHub token `portfolio login` stored at mode 0600 — presented per
+  request, never returned, logged or echoed into a tool result — so the process has
+  exactly the powers of a signed-in browser tab and not one more. Eight tools:
+  `whoami`, `list`, `get`, `create`, `update`, `order`, `media`, `logs`. The three
+  gates exist because the caller is a model rather than a person, and they are about
+  *what* rather than *who*: **`portfolio_delete` is not even listed** unless
+  `PORTFOLIO_MCP_ALLOW_DELETE=1` (absent beats refused — a listed tool is one a
+  model proposes and the owner declines every time), **configuration is read-only**
+  so a model cannot edit the budget it spends or the schedule it runs on, and
+  **`apiKey` is refused under every flag**, because a credential should not travel
+  through a conversation. Protocol handling is hand-written against the 2025-06-18
+  spec with no SDK: this process holds a token that can rewrite the live site, and
+  the smallest dependency tree for that is none. Decision **74**.
+
+- **A `portfolio` skill.** `.claude/skills/portfolio/SKILL.md` carries what a tool
+  schema cannot: that a slug is a live public URL and renaming one on a title edit
+  orphans the page, that a new journal entry stays a draft until the author says
+  otherwise, that `hidden` and `status: "unpublished"` are the reversible takedowns
+  and delete is not, which fields each kind requires, that bodies are markdown and
+  raw HTML arrives as visible text, and that the resume deliberately holds no
+  contact details and must not gain any.
+
+- **`npm run check:mcp`.** Spawns the server and drives a real handshake over a
+  real pipe — a server that answers `initialize` with the wrong shape, or writes one
+  stray line to stdout, does not fail, it simply never appears in the client with
+  nothing anywhere naming the cause. So it asserts the handshake, that **every line
+  reaching stdout parses as JSON-RPC**, that an unknown method is a JSON-RPC error
+  and a refused call is `isError` rather than a protocol error, and all three policy
+  gates. It runs against a closed port and a throwaway config directory, so it needs
+  no site and cannot reach the real one.
+
+- **A command-line tool for the admin surface.** `cli/portfolio.mjs` — `npm
+  link`, then `portfolio`. One file, no dependencies, and **no privileged path**:
+  every write is the same `POST /api/content` the screens use, carrying a GitHub
+  token belonging to `site.githubUser`, so it holds no credential this site
+  issued and revoking the token at GitHub takes its access away without this
+  site being told. `portfolio login` reads a token from `--token`, stdin,
+  `$PORTFOLIO_TOKEN`, `$GITHUB_TOKEN` or `gh auth token` and never prompts for
+  one — a token echoed into a terminal is a token in the scrollback. `ls`, `get`,
+  `create`, `set`, `rm`, `order`, `logs`, `media`, `provider test|key|clear-key`,
+  and the two that do the work: **`edit`**, which opens the row as JSON in
+  `$EDITOR` and sends only the keys that changed, and **`body`**, which opens the
+  markdown as markdown. There is no field table in it — `field=value` is parsed
+  against the encoders in `src/lib/content-schema.ts`, so a column added to the
+  allowlist is settable immediately and a wrong field name is refused locally
+  with the real list printed. Decision **73**; `npm run check:cli` asserts the
+  file holds no column name of its own and speaks exactly four endpoints.
+
+- **`GET /api/content`.** The write endpoint was a door with no handle on the
+  inside: a script could `patch` a project and had no way to learn what the
+  project said, so every edit was a blind overwrite of the fields it happened to
+  know about. Owner-only, columns named from `content-schema.ts` rather than
+  `SELECT *`, rows `unbind()`'d into the same camelCase fields the write accepts
+  so a row can be read, edited and written straight back. **`ai_providers` is
+  refused outright** — its `api_key` must never be on the wire, and the guarantee
+  is that the generic reader never touches the table rather than that it
+  remembers to drop a column; `readableColumns()` throws. Providers are read
+  through `GET /api/ai/providers`, which returns a fingerprint.
+
+- **`DELETE /api/media`.** The table had no remover, which made every upload
+  permanent: the control uploads on pick, so a mistyped name left a row nothing
+  could reach and nothing could clear short of `wrangler d1 execute`, at up to
+  2 MB a row. `portfolio media rm` is the caller. The Media library dialog still
+  has no delete control — a tile is itself a `<button>` and cannot hold one
+  without being restructured.
+
 - **A 404 page.** Every route that can be asked for a thing which is not there
   answered `new Response(null, { status: 404 })` — an unpublished post, a
   hidden project, a case study that never linked up. The status was right and
@@ -91,6 +163,35 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   exported and never imported.
 
 ### Changed
+
+- **The CLI and the MCP server are two front ends over one client.**
+  `cli/portfolio-api.mjs` now holds the session, the four endpoints, the kind names
+  and the read↔write projection; `cli/portfolio.mjs` keeps only what is true of a
+  terminal (argv, `$EDITOR`, text tables, the confirm prompt). The two surfaces want
+  different shapes and must not want different semantics. `check:cli` reads all
+  three files now, with comments stripped, and asserts the union speaks exactly four
+  endpoints and holds no column name of its own — a guard that watched one file
+  would have stopped guarding the moment the code moved.
+
+- **`strictFields()` beside `writable()`, because the two paths want opposites.**
+  The read-path projection *drops* keys a write refuses, which is the point —
+  `summarise()` adds three derived ones. On an input path dropping is the bug:
+  `POST /api/content` refuses an unknown field rather than discarding it, and a
+  model guessing `repo_url` from a column name is exactly who that rule protects, so
+  the input path throws and names the real fields. It also stringifies an object
+  landing on a `text` column, which would otherwise be stored as `[object Object]`
+  and reported as a success.
+
+- **`documents` has a closed key set.** Five keys — `resume`, `ai-assistant`,
+  `journal-auto`, `projects-deep-dives`, `journal-order` — and `assertSlug()`
+  refuses anything else on a write. It is a table of singletons, not a
+  collection, and leaving the key open had two costs: a typo
+  (`documents/resumee`) *succeeded* and inserted a row nothing would ever read,
+  and `journal-auto-run` — the daily job's own account of what it attempted — was
+  writable by anything holding the owner's token, which would let a caller hand
+  the job another day's attempts. Reading is shape-checked only, because that row
+  is legitimately readable through `GET /api/ai/daily`. `npm run check:schema`
+  pins the list.
 
 - **The top nav is pinned.** `.site-header` is `position: sticky` with
   `background: inherit`, so the body's own ground — the isometric mesh, the
@@ -187,6 +288,47 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fixture.
 
 ### Fixed
+
+- **`portfolio login --token …` hung forever instead of signing in.** The token
+  was resolved as `flags.token || (await stdin()) || …`, and `await stdin()` on a
+  non-TTY waits for an EOF that a script, a CI job or an agent's shell never
+  sends — so the command sat there with no output and no error, looking like a
+  network stall. The flag and the environment are checked before the pipe is
+  touched now; stdin is only read when nothing else answered, which is the case
+  where someone did mean to pipe. Found by installing the thing: it is the first
+  command anyone runs, and it had never been run non-interactively.
+  `check:cli` spawns it against an open pipe nobody closes and asserts it exits.
+
+- **A site running an older build was reported as a refused credential.**
+  `GET /api/content` shipped after the live origin's last deploy, so `login` and
+  `portfolio_whoami` got a 404 from it and said "answered 404." and
+  `writesAccepted: false` — which names nothing and points at the token, when the
+  token is fine and the deploy is simply behind. Both distinguish the three
+  outcomes now: accepted, genuinely refused (401/403), or `needs-deploy`, which
+  says writing works, reading does not, and what to run.
+
+- **Two spacing declarations that computed to zero.** `var(--space-5)` is not a
+  token this system defines — the scale is 1/2/3/4/6/8 — and a bare `var()` on an
+  undefined custom property is invalid at computed-value time, which throws away
+  the *whole declaration* rather than falling back to anything. The journal
+  editor's preview pane had no top padding, so switching between Write and
+  Preview moved the body up; the import screen's session row had no top margin
+  and sat against the lede. **`npm run check:content` now fails on any of them**
+  — check 10, over every stylesheet and every `.astro` file, with comments
+  stripped first so the prose explaining the rule is not reported as a violation
+  of it. This class of bug had already zeroed all three bands of every modal
+  dialog and the sidebar's row gap, and was written up in three places as a thing
+  to remember; a gate is what it wanted instead.
+
+- **The projects manifest's keyboard reorder walked past filtered-out cards.**
+  With a search or a status filter active, the grip's arrow keys stepped onto a
+  card `applyPmFilters()` had hidden with `display: none` — so the key appeared to
+  do nothing while silently moving the project past it in the saved line-up, and
+  a region whose cards were all filtered out could not be dropped into at all.
+  Moves walk the shown cards now; saving still reads the whole region, because
+  the order written is not the part of it a search happens to match. The journal
+  manifest already did this correctly (`:not([hidden])`), which is what marked it
+  as a bug rather than a choice.
 
 - **Long pages no longer wait for a scroll to show themselves.** The scroll
   reveal armed its observer at `threshold: 0.05`, which means *five per cent of

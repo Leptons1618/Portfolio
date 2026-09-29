@@ -1,7 +1,17 @@
 import type { APIRoute } from 'astro';
 import { json, refusal, requireOwner } from '../../lib/authorize';
 import { record } from '../../lib/log';
-import { BadRequest, SLUG, TABLES, bind, explainConstraint, isTable } from '../../lib/content-schema';
+import {
+  BadRequest,
+  SLUG,
+  TABLES,
+  assertSlug,
+  bind,
+  explainConstraint,
+  isTable,
+  readableColumns,
+  unbind,
+} from '../../lib/content-schema';
 import { pinNewJournalPost } from '../../lib/content';
 import { renderBody } from '../../lib/markdown';
 
@@ -38,6 +48,99 @@ interface WriteBody {
   body?: string;
 }
 
+/**
+ * Read rows back, for a caller that is not a browser on this site.
+ *
+ * The admin screens do not use this: they are server-rendered and read D1
+ * directly through `src/lib/content.ts`, which is cheaper and has no round trip
+ * in it. What has no such seam is anything *outside* the browser — `cli/` is the
+ * caller this exists for — and until it existed the write endpoint was a door
+ * with no handle on the inside: a script could `patch` a project but had no way
+ * to learn what the project currently said, so every edit was a blind overwrite
+ * of the fields the script happened to know about.
+ *
+ * Three properties, and they are the reason this is a handler here rather than a
+ * route of its own:
+ *
+ *   - **Owner-only, identity first.** The same `requireOwner()` as the write, in
+ *     the same position. `/admin/*` is public HTML but the *content of an
+ *     unpublished draft* is not, and neither is the list of what exists.
+ *   - **Columns are named from `content-schema.ts`, never `SELECT *`.** A column
+ *     added to a table later is not readable until it is listed there — the same
+ *     rule `summarise()` follows in `ai.ts`, and the reason a key cannot ride
+ *     along on a payload.
+ *   - **`ai_providers` is refused outright.** Its `api_key` is writable through
+ *     the map above and must never be on the wire; `GET /api/ai/providers` is
+ *     the one reader of that table and it returns a fingerprint. `readable` in
+ *     `TABLES` is the flag, and `readableColumns()` throws rather than filters.
+ *
+ * What comes back is `unbind()`'d into the same camelCase fields the write
+ * accepts, so a row read here can be edited and written straight back. A body
+ * comes back as `body_md` only — the HTML half is derived on write and is not
+ * something a caller may set.
+ */
+export const GET: APIRoute = async ({ request, locals, url }) => {
+  try {
+    await requireOwner(request);
+  } catch (error) {
+    return refusal(error) ?? json({ error: 'Unauthorized.' }, 401);
+  }
+
+  const { DB } = locals.runtime.env;
+
+  try {
+    const table = url.searchParams.get('table');
+    if (!isTable(table)) {
+      throw new BadRequest(`Unknown table. One of: ${Object.keys(TABLES).join(', ')}.`);
+    }
+    if (!TABLES[table].readable) {
+      throw new BadRequest(`${table} is not readable here — its key would be on the wire. Use GET /api/ai/providers.`);
+    }
+
+    const columns = readableColumns(table);
+    if (TABLES[table].rendersBody) columns.push('body_md');
+
+    /* Shape only, not `assertSlug()`'s closed key set: that set is about what
+       may be *written*, and `documents` holds one row — `journal-auto-run`, the
+       daily job's ledger — that is legitimately readable and deliberately not
+       writable. Refusing to read it here would answer a read with "not a row
+       this endpoint writes", which is true and beside the point. A slug that
+       does not exist is a 404 below. */
+    const slug = url.searchParams.get('slug');
+    if (slug !== null && !SLUG.test(slug)) {
+      throw new BadRequest('Slug must be lowercase words joined by hyphens.');
+    }
+
+    /* `LIMIT` is a guard rather than a paging scheme, like the media index: the
+       row counts here are in the tens. A collection that outgrows it wants a
+       cursor, and this is where that would go. */
+    const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit')) || 500));
+
+    const statement = `SELECT slug, ${columns.join(', ')}, updated_at FROM ${table}${
+      slug === null ? '' : ' WHERE slug = ?'
+    } ORDER BY slug LIMIT ?`;
+    const { results } = await DB.prepare(statement)
+      .bind(...(slug === null ? [] : [slug]), limit)
+      .all<Record<string, unknown>>();
+
+    const rows = (results ?? []).map(row => ({
+      slug: String(row.slug),
+      updatedAt: row.updated_at ?? null,
+      fields: unbind(table, row),
+      ...(TABLES[table].rendersBody ? { body: (row.body_md as string | null) ?? '' } : {}),
+    }));
+
+    if (slug !== null && rows.length === 0) {
+      return json({ error: `No ${table} row with slug "${slug}".` }, 404);
+    }
+    return json({ table, rows });
+  } catch (error) {
+    if (error instanceof BadRequest) return json({ error: error.message }, 400);
+    const message = error instanceof Error ? error.message : String(error);
+    return json({ error: message }, 500);
+  }
+};
+
 export const POST: APIRoute = async ({ request, locals }) => {
   // Identity first, before the body is read at all: an unauthenticated caller
   // should not be able to reach the parser, let alone the database.
@@ -60,7 +163,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
     if (!isTable(table)) throw new BadRequest('Unknown table.');
 
     slug = String(payload.slug ?? '');
-    if (!SLUG.test(slug)) throw new BadRequest('Slug must be lowercase words joined by hyphens.');
+    /* Shape, and — for `documents`, whose rows are singletons rather than
+       something an author names — membership of the closed key set. */
+    assertSlug(table, slug);
 
     const op = payload.op ?? 'patch';
 

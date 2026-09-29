@@ -245,6 +245,44 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 
 ---
 
+## The CLI
+
+`cli/portfolio.mjs` — `npm link`, then `portfolio`. One file, no dependencies, and no privileged path: every write is `POST /api/content` with a GitHub token belonging to `site.githubUser`. Decision 73.
+
+| Exists | What |
+| --- | --- |
+| yes | `login` / `whoami` / `logout` — token from `--token`, stdin, `$PORTFOLIO_TOKEN`, `$GITHUB_TOKEN` or `gh auth token`; never prompted for, stored at mode 0600 |
+| yes | `ls` / `get` for projects, case studies, journal, providers, documents |
+| yes | `create` / `set` / `rm` — `field=value` parsed against the encoders in `content-schema.ts`; `f=-` clears a field |
+| yes | `edit` — the row as JSON in `$EDITOR`, only the changed keys sent |
+| yes | `body` — the markdown, in `$EDITOR`, or `--in` / `--out` for a script |
+| yes | `order projects|journal` — the two saved orders, `--auto` for the automatic line-up |
+| yes | `provider test` / `provider key` (stdin, never `argv`) / `provider clear-key` |
+| yes | `logs` with `--level` / `--source` / `--clear`; `media ls` / `put` / `rm` |
+| no | A device-flow login. Needs the flow enabled on the GitHub App; `gh auth token` covers the same ground in one line |
+| no | Import from GitHub. That is a repository listing and a form, and nothing about it is faster in a terminal |
+| no | Anything that runs the assistant. `/api/ai/assist` is a streaming authoring surface, not a batch job |
+
+## The MCP server and the skill
+
+`mcp/portfolio-mcp.mjs` — stdio, no listener, registered by `.mcp.json`. Eight tools, plus a ninth behind a switch. Decision 74.
+
+| Exists | What |
+| --- | --- |
+| yes | `portfolio_whoami` — which site, which account, whether writes are accepted, and what this server will not change |
+| yes | `portfolio_list` / `portfolio_get` — every kind, including the read-only configuration rows |
+| yes | `portfolio_create` / `portfolio_update` — patch semantics, markdown bodies, unknown fields refused with the real list |
+| yes | `portfolio_order` — the two saved orders, with the hidden-project rule enforced |
+| yes | `portfolio_media` — list, and upload from a local path |
+| yes | `portfolio_logs` — the site's own record, for when something did not happen |
+| yes | `portfolio_delete` — **only** with `PORTFOLIO_MCP_ALLOW_DELETE=1`, and needs `confirm: true` |
+| yes | `.claude/skills/portfolio/SKILL.md` — the slug/draft/takedown/required-field rules a schema cannot carry |
+| no | Writing configuration. `ai_providers`, the assistant's settings and the daily schedule are read-only unless `PORTFOLIO_MCP_ALLOW_CONFIG=1` |
+| no | Writing an `apiKey`, under any flag. `portfolio provider key` reads one from stdin |
+| no | A remote/HTTP MCP endpoint. That is an internet-facing surface and a second credential; argue for it on its own terms |
+| no | A `resources/` surface. The tools cover reading, and a second way to read the same rows is a second thing to keep honest |
+| no | A directory allowlist on media upload. Single-user tool on the owner's own machine; it would break legitimate use more often than it would help |
+
 ## Checks
 
 | Command | What it actually catches |

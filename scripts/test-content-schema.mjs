@@ -18,10 +18,14 @@ import {
   BadRequest,
   SLUG,
   TABLES,
+  assertSlug,
   bind,
+  decode,
   encode,
   explainConstraint,
   isTable,
+  readableColumns,
+  unbind,
 } from '../src/lib/content-schema.ts';
 import {
   MAX_MEDIA_BYTES,
@@ -207,6 +211,118 @@ check('a shape that is not bytes is refused rather than stringified', () => {
   for (const value of [null, undefined, 'ffd8ff', 42, {}]) {
     assert.throws(() => mediaBytes(value), `${JSON.stringify(value)} is not a BLOB`);
   }
+});
+
+/* ---------- which slugs a table takes ---------- */
+
+check('a collection takes any well-formed slug', () => {
+  for (const table of ['projects', 'case_studies', 'journal']) {
+    assert.doesNotThrow(() => assertSlug(table, 'a-new-thing'));
+  }
+});
+
+check('a malformed slug is refused before anything is bound', () => {
+  for (const bad of ['', 'Has Caps', 'trailing-', 'under_score', '../etc/passwd', 'a--b']) {
+    assert.throws(() => assertSlug('projects', bad), BadRequest, `${JSON.stringify(bad)} is not a slug`);
+  }
+});
+
+check('documents is a closed key set, not a collection', () => {
+  /* Five singletons, each with one writer. A sixth is either a typo — which
+     `create` would happily insert as a row nothing reads — or a ledger that
+     must not be writable from a form. */
+  for (const key of ['resume', 'ai-assistant', 'journal-auto', 'projects-deep-dives', 'journal-order']) {
+    assert.doesNotThrow(() => assertSlug('documents', key), `${key} is written by a screen`);
+  }
+  assert.deepEqual([...TABLES.documents.slugs].sort(), [
+    'ai-assistant',
+    'journal-auto',
+    'journal-order',
+    'projects-deep-dives',
+    'resume',
+  ]);
+});
+
+check('the daily journal run record is not writable through the endpoint', () => {
+  /* `journal-auto-run` is `POST /api/ai/daily`'s own account of what it
+     attempted. Writable here, a caller holding the owner's token could hand the
+     job another day's attempts. It is written against the database directly. */
+  assert.throws(() => assertSlug('documents', 'journal-auto-run'), BadRequest);
+  // And a plausible typo is refused rather than inserted as a dead row.
+  assert.throws(() => assertSlug('documents', 'resumee'), BadRequest);
+  assert.throws(() => assertSlug('documents', 'ai-settings'), BadRequest);
+});
+
+/* ---------- reading back ---------- */
+
+check('ai_providers is not readable, and the helper throws rather than filters', () => {
+  /* The one column that must never be on the wire is in that table's map
+     because it is *writable*. The guarantee is that the generic reader never
+     touches the table — not that it remembers to drop a column. */
+  assert.equal(TABLES.ai_providers.readable, false);
+  assert.throws(() => readableColumns('ai_providers'), BadRequest);
+  assert.ok(Object.values(TABLES.ai_providers.columns).some(([column]) => column === 'api_key'));
+});
+
+check('a readable table names its columns from this file', () => {
+  const columns = readableColumns('projects');
+  assert.ok(columns.includes('repo_url'), 'the map is what names a column');
+  assert.ok(!columns.includes('body_md'), 'a body is not a field');
+  // Nothing derived from a caller: every entry is a value of the column map.
+  const known = new Set(Object.values(TABLES.projects.columns).map(([column]) => column));
+  for (const column of columns) assert.ok(known.has(column), `${column} came from the map`);
+});
+
+check('a row read back is the shape the write accepts', () => {
+  /* The property that matters: read, edit, write straight back. A reader that
+     handed out `repo_url` would make every scripted edit a 400. */
+  const fields = unbind('projects', {
+    slug: 'thing',
+    title: 'Thing',
+    summary: 'A thing.',
+    category: 'other',
+    tags: '["a","b"]',
+    stack: '[]',
+    repo_url: 'https://example.com',
+    demo_url: null,
+    case_study_slug: null,
+    featured_rank: 2,
+    status: 'active',
+    year: 2026,
+    hero_image: null,
+    highlights: '["one"]',
+    hidden: 0,
+  });
+  assert.deepEqual(fields.tags, ['a', 'b']);
+  assert.equal(fields.hidden, false);
+  assert.equal(fields.featuredRank, 2);
+  assert.equal(fields.demoUrl, null);
+  assert.ok(!('repo_url' in fields), 'snake_case must not leak into the field set');
+  // And every key it produced is one `bind()` will take back.
+  assert.doesNotThrow(() => bind('projects', fields));
+});
+
+check('decode is the inverse of encode for every encoder', () => {
+  for (const [as, value] of [
+    ['text', 'hello'],
+    ['list', ['a', 'b']],
+    ['number', 7],
+    ['bool', true],
+  ]) {
+    assert.deepEqual(decode(encode(value, as), as), value, `${as} round-trips`);
+  }
+  // `false` encodes to 0, which is not "unset" — it has to come back as false.
+  assert.equal(decode(encode(false, 'bool'), 'bool'), false);
+  // An empty field is null, not the string "null".
+  assert.equal(decode(encode('', 'text'), 'text'), null);
+  assert.deepEqual(decode(encode('', 'list'), 'list'), []);
+});
+
+check('a column edited by hand does not take the listing down', () => {
+  // `list` is written only by `encode`, so anything else came from a person.
+  assert.deepEqual(decode('not json', 'list'), []);
+  assert.deepEqual(decode('{"a":1}', 'list'), []);
+  assert.equal(decode('not a number', 'number'), null);
 });
 
 /* ---------- constraint messages ---------- */
