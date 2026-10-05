@@ -1837,3 +1837,114 @@ shape worth knowing about; there is no allowlist of directories, because for a
 single-user tool on the owner's own machine one would break legitimate use more
 often than it would help. Also no `resources/` surface — the tools cover reading,
 and a second way to read the same rows is a second thing to keep honest.
+
+## 75. The daily post is a run of steps, and a step is the unit of retry
+
+**The problem.** The daily job asked one request for the whole post. On the
+free pool that request mostly did not survive: a model that sent no headers
+inside the 180 s attempt, or one that sent headers at once and a body of pure
+reasoning 460 s later, after the deadline the retry needed had expired. The same
+models answered the long case study reliably, because that is written as a plan
+and then one short request per section (decision 60).
+
+**The decision.** The daily post is the same shape, made durable. A run is one
+`documents` row per UTC day (`run:journal-post:<day>`), advanced one step at a
+time by `advance()` in `src/lib/agent-runner.ts`: `plan` (decide the entry and
+gather its facts, the one step with lookups), one `section:<i>` per planned
+section (the plan's facts and the previous section's ending, no lookups), then
+`finish` (assemble and insert, no model). A finished step is never redone. A
+failed one leaves the phase where it was and counts a failure, and the run's
+failures *are* the schedule record's `attempts`, so `decide()` and `maxAttempts`
+bound a bad day exactly as before. A tick loops steps until the run finishes, a
+step fails, or its budget is spent, and answers `in-progress` when it stops
+early; the next tick continues. A failed step waits for the next tick rather
+than being retried at once — against a provider that is refusing, an immediate
+retry spends the day's attempts in a minute. The plan may answer `NOTHING:`,
+which is a finished day (`declined`), not a failure.
+
+**The lock is a compare-and-set on the row's JSON.** The cron tick and the
+owner's Run now both step the same run, and a read-then-write lock lets two
+callers each believe they hold it. `UPDATE … WHERE slug = ? AND json = ?` (or
+`INSERT … ON CONFLICT DO NOTHING` for a first run) changes the row for exactly
+one of them. A lock older than four minutes is a killed isolate's and is taken
+over the same way.
+
+**Every step is non-streamed**, so decision 61 holds: waiting on a vendor costs
+no CPU, and the attempt timer now covers the body (decision 77), so a step is
+over inside about four minutes whatever the vendor does.
+
+**Rejected.** A longer timeout (it moves the failure, and a killed isolate still
+loses everything). Streaming the tick (decision 61). Generating in the runner
+and streaming to the Journal screen (the screen loops one non-streamed step per
+request and shows the trail between them; streaming the section text is a
+nicety that would cost the CPU budget). A dedicated `ai_runs` table (one JSON
+row per day, written whole, is the shape `documents` already holds for the run
+record, and needs no migration).
+
+## 76. Jev routes a conversation before the answer model sees it, and can only narrow
+
+**The problem.** Every conversational run carries the whole index and every
+lookup tool, whatever was asked. "What's his stack on the CAD project?" needs the
+projects and nothing else; the posts and the resume summary are tokens on every
+round of it.
+
+**The decision.** Optional, off by default: before a conversational run (the
+public chat, and the panel's `chat` task — never a fixed task), one request to
+Jev, a typed decision model, asks a yes/no question per category — published
+work, writing, background, and on the owner's surface the repository. It sees
+the last four turns, capped at 3,000 characters, and fixed descriptions of the
+categories. A run narrows only when **every** answer is confident (≥ 0.9 or
+≤ 0.1); the selected categories become `ToolOptions.only`, intersected inside
+`toolsFor()`, and skip loading content a category does not need. Anything else
+— off, unconfigured, slow, non-2xx, malformed, unsure — is the full route the
+run would have had without it. A decision POST is never retried; it may have
+been billed, and the fallback costs nothing.
+
+**Why it can only narrow.** It is a router, not a gate. The tool list is
+derived as before and then intersected, so a route naming a tool the surface
+does not have — the repository readers on the public chat — produces nothing.
+`runTool()` still validates every call. No answer from Jev reaches a visitor;
+the owner's log keeps the route, the probabilities and Jev's own usage, so the
+saving can be measured against what the extra request costs.
+
+**Its endpoints are a table of their own**, `ai_decision_providers`, rather than
+rows in `ai_providers`: `callChat()` walks every active chat row, and a decision
+endpoint speaks a different contract. An `openrouter` row borrows the key of the
+chat provider it names, and only when that row points at openrouter.ai; the
+other two kinds hold their own write-only key, HTTPS only. `readable: false`, a
+fingerprint in the listing, and `check:ai` pins the URL and key resolution per
+kind.
+
+## 77. The tool loop stops paying for the same context twice
+
+Three changes inside `ai.ts`, and one beside it.
+
+- **Reasoning goes back to the model that wrote it.** A reasoning provider that
+  asks for a lookup and is then sent the conversation without its own reasoning
+  rebuilds it every round. The assistant turn that carries the tool calls now
+  carries `reasoning_details` / `reasoning_content` when — and only when — the
+  provider sent them, pinned by `replayFor` to that provider and model.
+  `wireMessages()` drops them for any other, so a fallback model or a strict
+  vendor never receives a field it did not send.
+- **Older tool results are trimmed.** Every round re-sends the conversation, so
+  a long README read in round one is paid for again in every later round. Before
+  a later round, results older than the latest round that read something are
+  cut to an excerpt marked as already read. "Latest that read something" rather
+  than "latest", because a round refused by the limit is one-line refusals and
+  the reads the answer depends on are the round before it.
+- **A non-streamed body is bounded.** The attempt timer used to stop at the
+  headers, and `response.json()` then waited without limit — the 460 s body in
+  decision 75's log. `callProvider()` now reads a non-streamed body under the
+  same timer.
+- **A conversation compacts itself at the history window.** The panel already
+  had Compact. It now runs on its own when a run ends with the transcript at
+  `HISTORY_LIMITS.turns` or 24,000 characters — at the window rather than past
+  it, because the route sends only the last twelve turns and a transcript
+  allowed to grow beyond that has lost its opening before a summary is asked for.
+
+**The long case study keeps its progress server-side.** The writing stays in
+the browser, streaming each section into the field — a server step could not
+stream inside the free plan's CPU allowance — but the plan and the finished
+sections are stored as `run:case-study:<project>` after each one, so a reload or
+another browser offers Resume from the next section. The key must be an
+existing project's slug before it becomes part of a row name.

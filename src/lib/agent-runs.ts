@@ -339,3 +339,49 @@ export function summariseRun(run: PostRun, now: Date = new Date()) {
 }
 
 export type RunSummaryView = ReturnType<typeof summariseRun>;
+
+/* ---------- the long case study's progress ---------- */
+
+/**
+ * What a stopped long case study had finished, as the server keeps it.
+ *
+ * The writing itself stays in the browser (`case-study-writer.ts` streams each
+ * section into the body field, which a server step could not do inside the
+ * free plan's CPU allowance). What moves to the server is the *progress* — the
+ * plan and the finished sections — so a reload, a crash or another browser can
+ * resume from the next section instead of starting again. Phase 2 of the
+ * agent-runs design, scoped to what that needs.
+ */
+export interface CaseStudyProgress {
+  plan: { facts: string[]; sections: PlannedSection[]; planned: boolean } | null;
+  sections: string[];
+  /** The author's steer for the run, so Resume asks for the same thing. */
+  instruction: string;
+  updatedAt: string;
+}
+
+/** Re-derived field by field; anything unusable is `null`, not an error. */
+export function clampCaseStudyProgress(raw: unknown, now: Date): CaseStudyProgress | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const p = r.plan as Record<string, unknown> | null | undefined;
+  const planSections =
+    p && Array.isArray(p.sections)
+      ? p.sections
+          .filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object')
+          .map(x => ({ heading: str(x.heading, 120), brief: str(x.brief, 400) }))
+          .filter(x => x.heading)
+          .slice(0, 9)
+      : [];
+  const plan = planSections.length
+    ? { facts: strs(p!.facts, 40, 400), sections: planSections, planned: p!.planned !== false }
+    : null;
+  const sections = strs(r.sections, plan?.sections.length ?? 0, 12_000);
+  if (!plan) return null;
+  return {
+    plan,
+    sections,
+    instruction: str(r.instruction, 2000),
+    updatedAt: str(r.updatedAt, 40) || now.toISOString(),
+  };
+}

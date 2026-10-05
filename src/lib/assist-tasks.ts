@@ -2029,6 +2029,21 @@ const SECTION_NARRATION =
 export const HISTORY_LIMITS = { turns: 12, chars: 4000 } as const;
 
 /**
+ * When a conversation is compacted on its own, after a run ends.
+ *
+ * At the history window, not past it: the route sends only the last
+ * `HISTORY_LIMITS.turns` turns, so a transcript allowed to grow beyond that
+ * has already lost its opening by the time a summary is asked for. Or at
+ * 24,000 characters, whichever comes first — long answers fill the window's
+ * per-turn caps well before the count does. Pure, so `check:ai` pins it.
+ */
+export const COMPACT_AFTER = { turns: HISTORY_LIMITS.turns, chars: 24_000 } as const;
+
+export const needsCompaction = (turns: readonly { content: string }[]): boolean =>
+  turns.length >= COMPACT_AFTER.turns ||
+  turns.reduce((sum, turn) => sum + turn.content.length, 0) >= COMPACT_AFTER.chars;
+
+/**
  * The editor's fields, as text a model reads, capped so a long post cannot
  * uncap the call.
  *

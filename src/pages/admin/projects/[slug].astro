@@ -434,6 +434,14 @@ const STATUS_VARIANT: Record<string, string> = {
           <div class="field pf-wide">
             <label for="cs-body">The write-up (markdown)</label>
             <textarea class="input pd-cs-body" id="cs-body" spellcheck="true"></textarea>
+            {/* Filled from the server's copy of an unfinished long write-up, so
+                a reload — or another browser — can carry on from the next
+                section. Hidden until there is one. */}
+            <div class="pd-cs-resume" id="cs-resume" hidden>
+              <span class="text-muted" id="cs-resume-text"></span>
+              <button type="button" class="btn btn-secondary btn-sm" id="cs-resume-go">Resume</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="cs-resume-drop">Discard</button>
+            </div>
             <p class="text-muted admin-note">
               Rendered under the header on <code>/case-studies/{linked.slug}</code>. No title
               line — the title is the field above, and repeating it prints it twice.
@@ -507,7 +515,12 @@ const STATUS_VARIANT: Record<string, string> = {
   } from '../../../lib/admin';
   import { copyText } from '../../../lib/clipboard';
   import { relativeTime } from '../../../lib/format';
-  import { runAssist } from '../../../lib/ai-store';
+  import {
+    discardCaseStudyProgress,
+    loadCaseStudyProgress,
+    runAssist,
+    saveCaseStudyProgress,
+  } from '../../../lib/ai-store';
   import { mountAssistPanel, type AssistTurn } from '../../../lib/assist-panel';
   import { LongRunStopped, writeLongCaseStudy, type LongRunState } from '../../../lib/case-study-writer';
   import {
@@ -1970,8 +1983,19 @@ const STATUS_VARIANT: Record<string, string> = {
           onUsage: frame => turn.usage(frame),
           onState: state => {
             progress = state;
+            /* Kept server-side after every finished step, so a reload or another
+               browser resumes from the next section. Best effort: losing the
+               copy costs a restart, never the run in front of the author. */
+            if (state.plan) {
+              void saveCaseStudyProgress(seed.slug, { plan: state.plan, sections: state.sections, instruction }).catch(
+                () => {},
+              );
+            }
           },
         });
+        /* Finished: nothing left to resume. */
+        void discardCaseStudyProgress(seed.slug).catch(() => {});
+        resumeNotice.hidden = true;
 
         const planned = result.state.plan?.planned !== false;
         turn.status(
@@ -2014,6 +2038,36 @@ const STATUS_VARIANT: Record<string, string> = {
       }
     }
 
+    /* — an unfinished write-up from an earlier visit — */
+    const resumeNotice = document.getElementById('cs-resume') as HTMLElement;
+    async function offerStoredResume() {
+      if (!getToken()) return;
+      try {
+        const { progress } = await loadCaseStudyProgress(seed.slug);
+        const total = progress?.plan?.sections.length ?? 0;
+        if (!progress || !total || progress.sections.length >= total) return;
+        (document.getElementById('cs-resume-text') as HTMLElement).textContent =
+          `An unfinished long write-up: ${progress.sections.length} of ${total} sections written. ` +
+          `Resume carries on from section ${progress.sections.length + 1} and rewrites the field from what was kept.`;
+        resumeNotice.hidden = false;
+        (document.getElementById('cs-resume-go') as HTMLButtonElement).onclick = () => {
+          resumeNotice.hidden = true;
+          panel.open();
+          /* The field is rewritten from the kept sections, so this is the
+             moment Undo has to be able to return to. */
+          takeSnapshot('caseStudyBody', ASSIST_TASKS.casestudybody.label);
+          resumeLong({ plan: progress.plan, sections: progress.sections }, progress.instruction);
+        };
+        (document.getElementById('cs-resume-drop') as HTMLButtonElement).onclick = async () => {
+          resumeNotice.hidden = true;
+          await discardCaseStudyProgress(seed.slug).catch(() => {});
+          toast('Unfinished write-up discarded.', { tone: 'info' });
+        };
+      } catch {
+        /* No copy, or no session: nothing to offer. */
+      }
+    }
+
     function resumeLong(state: LongRunState, instruction: string) {
       const turn = panel.begin('Resume the case study prose', ASSIST_TASKS.casestudybody.command);
       panel.running(true);
@@ -2034,6 +2088,8 @@ const STATUS_VARIANT: Record<string, string> = {
       stop: () => assisting?.abort(),
       run: (item, instruction) => runTask(item ? item.name : 'chat', instruction),
     });
+
+    void offerStoredResume();
 
     assistOpen.addEventListener('click', () => {
       if (panel.isOpen()) panel.close();
@@ -2068,6 +2124,16 @@ const STATUS_VARIANT: Record<string, string> = {
 </script>
 
 <style>
+  /* The offer to carry on an unfinished long write-up, under the field. */
+  .pd-cs-resume {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+    font-size: 13px;
+  }
+
   /* `.btn.btn-ghost` gives this the same hover/pressed treatment every other
      control on the surface has — it used to be a bare twelve-pixel mono line
      with no affordance beyond its own arrow icon. */

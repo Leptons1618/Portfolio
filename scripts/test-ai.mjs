@@ -4915,5 +4915,40 @@ await checkAsync('a live lock refuses a second caller; a stale one is taken over
   }
 });
 
+/* ---------- phase 2: compaction, and the case study's kept progress ---------- */
+
+const tasksMod = await load('src/lib/assist-tasks.ts');
+
+check('a conversation is compacted at the history window, not after it has lost its opening', () => {
+  const turn = content => ({ role: 'user', content });
+  const window = tasksMod.HISTORY_LIMITS.turns;
+  assert.equal(tasksMod.COMPACT_AFTER.turns, window);
+  assert.equal(tasksMod.needsCompaction(Array.from({ length: window - 1 }, () => turn('hi'))), false);
+  assert.equal(tasksMod.needsCompaction(Array.from({ length: window }, () => turn('hi'))), true);
+  assert.equal(tasksMod.needsCompaction([turn('x'.repeat(24_000))]), true, 'long turns trigger it before the count does');
+  assert.equal(tasksMod.needsCompaction([]), false);
+});
+
+check('a stored case-study run is re-derived, and garbage is nothing to resume', () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+  assert.equal(runs.clampCaseStudyProgress(null, now), null);
+  assert.equal(runs.clampCaseStudyProgress({ sections: ['a'] }, now), null, 'no plan is nothing to resume');
+  const kept = runs.clampCaseStudyProgress(
+    {
+      plan: { facts: ['f', 7], sections: [{ heading: 'One', brief: 'b' }, { heading: '' }, { heading: 'Two' }], planned: true },
+      sections: ['## One\n\nbody', 'x'.repeat(20_000), 'extra beyond the plan'],
+      instruction: 'i'.repeat(5000),
+      evil: '<script>',
+    },
+    now,
+  );
+  assert.deepEqual(kept.plan.sections.map(s => s.heading), ['One', 'Two']);
+  assert.deepEqual(kept.plan.facts, ['f']);
+  assert.equal(kept.sections.length, 2, 'no more sections than the plan has');
+  assert.equal(kept.sections[1].length, 12_000);
+  assert.equal(kept.instruction.length, 2000);
+  assert.ok(!('evil' in kept));
+});
+
 process.stdout.write(`\nai: ${checks} checks passed\n`);
 

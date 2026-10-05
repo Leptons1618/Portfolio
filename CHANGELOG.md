@@ -14,6 +14,24 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **The daily post is written as a resumable run of steps.** A plan, one request
+  per section, then the draft — one row per day, saved after every step, so a
+  tick that runs out of time leaves the next one exactly where to continue and a
+  finished step is never paid for twice. Failed steps are the day's attempts, a
+  day with nothing new to say is declined rather than padded, and the cron tick
+  and Run now share a compare-and-set lock. The Journal screen's Daily journal
+  tab shows the run and its trail, with Run now / Resume / Stop and Discard.
+  Decision **75**.
+- **Jev routing, optional and off by default.** One typed yes/no decision before
+  a conversation says which kinds of content it needs; a confident answer
+  narrows the index and the lookup tools, anything else changes nothing. It can
+  only remove tools, is never retried and never reaches a visitor. Endpoints
+  live in a new `ai_decision_providers` table (migration 0014) with write-only
+  keys. Decision **76**.
+- **Conversations compact themselves** at the history window, and **a long case
+  study resumes after a reload** from its stored plan and finished sections.
+  Decision **77**.
+
 - **An MCP server, so the assistant can edit the site — and three gates in front
   of it.** `mcp/portfolio-mcp.mjs`, registered by the checked-in `.mcp.json`. It
   speaks JSON-RPC over stdin and stdout as a child process of the editor, so it has
@@ -164,6 +182,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **The tool loop stops paying for the same context twice.** A reasoning
+  provider's own reasoning is sent back to it on the tool-call turn (and to no
+  other model), older lookup results are trimmed once a later round has read
+  more, and usage is summed across rounds. Decision **77**.
+- **The public assistant no longer shows its reasoning.** The stream carries the
+  answer, a "thinking" signal for the wait label and the pages it read — no
+  deliberation, no result text, no model names, costs or loop errors. The
+  public prompt gains a short private answering procedure to cut lookup rounds.
+
 - **The CLI and the MCP server are two front ends over one client.**
   `cli/portfolio-api.mjs` now holds the session, the four endpoints, the kind names
   and the read↔write projection; `cli/portfolio.mjs` keeps only what is true of a
@@ -288,6 +315,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fixture.
 
 ### Fixed
+
+- **A non-streamed answer could wait forever for its body.** The attempt timer
+  stopped at the headers; it now covers the body too.
+- **The freeze veil dimmed the dialogs it was meant to sit under.** It hung off
+  `<body>`, and `body > *` is a stacking context, so a stepped-down dialog and
+  the assistant were painted under it. It hangs off `.admin-shell` now.
+- **A long lookup detail widened the assistant's log** into a horizontal scroll.
 
 - **`portfolio login --token …` hung forever instead of signing in.** The token
   was resolved as `flags.token || (await stdin()) || …`, and `await stdin()` on a

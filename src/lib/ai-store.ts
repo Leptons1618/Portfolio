@@ -18,7 +18,7 @@ import { clampParams } from './ai-catalog';
 import { ContentError, type WriteResult } from './content-store';
 import { AUTO_KEY, type AutoJournalRun, type AutoJournalSettings } from './journal-auto';
 import { getToken } from './github';
-import type { RunSummaryView } from './agent-runs';
+import type { CaseStudyProgress, RunSummaryView } from './agent-runs';
 
 export type { ProviderSummary, AiSettings };
 
@@ -329,6 +329,22 @@ export async function runStep(): Promise<{ run: RunSummaryView | null; step?: { 
   if (!response.ok) throw new ContentError(data.error ?? `Step failed (${response.status}).`, response.status);
   return { run: data.run ?? null, ...(data.step ? { step: data.step } : {}) };
 }
+
+/* A long case study's progress, kept server-side so a reload can resume it. */
+export const loadCaseStudyProgress = (slug: string): Promise<{ progress: CaseStudyProgress | null }> =>
+  read(`/api/ai/runs?kind=case-study&key=${encodeURIComponent(slug)}`);
+
+export const saveCaseStudyProgress = (slug: string, progress: Omit<CaseStudyProgress, 'updatedAt'>) =>
+  read<{ ok: boolean }>('/api/ai/runs', {
+    method: 'POST',
+    body: JSON.stringify({ kind: 'case-study', action: 'save', key: slug, progress }),
+  });
+
+export const discardCaseStudyProgress = (slug: string) =>
+  read<{ ok: boolean }>('/api/ai/runs', {
+    method: 'POST',
+    body: JSON.stringify({ kind: 'case-study', action: 'discard', key: slug }),
+  });
 
 /** Throw today's run away. The next step or tick starts a fresh one. */
 export const discardRun = (): Promise<{ ok: boolean }> =>

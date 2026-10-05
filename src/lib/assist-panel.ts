@@ -55,7 +55,14 @@ import {
   type ToolFrame,
   type UsageFrame,
 } from './ai-store';
-import { ASSIST_MENU, parseCommand, pickTask, type AssistMenuItem, type AssistScreen } from './assist-tasks';
+import {
+  ASSIST_MENU,
+  needsCompaction,
+  parseCommand,
+  pickTask,
+  type AssistMenuItem,
+  type AssistScreen,
+} from './assist-tasks';
 
 /* ---------- what a page drives ---------- */
 
@@ -677,6 +684,12 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
       if (next) {
         input.value = next;
         submit();
+      } else if (!compacting && chatId && needsCompaction(turns)) {
+        /* Deferred a tick: the run that just ended may still be writing its
+           reply's row, and the summary should read the transcript after it. */
+        setTimeout(() => {
+          if (!busy && !compacting) void compact(true);
+        }, 0);
       }
     }
   }
@@ -1055,14 +1068,32 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
 
   /* ---------- compaction ---------- */
 
-  $<HTMLButtonElement>('assist-compact').addEventListener('click', async event => {
-    const button = event.currentTarget as HTMLButtonElement;
+  /* Set while a compaction runs, so the `running(false)` it ends with does not
+     start another one. */
+  let compacting = false;
+  const compactBtn = $<HTMLButtonElement>('assist-compact');
+
+  compactBtn.addEventListener('click', () => {
     if (!chatId || turns.length < 2) {
       toast('There is nothing to compact yet.', { tone: 'info' });
       return;
     }
+    void compact(false);
+  });
 
-    const turn = begin('Compacting', null);
+  /**
+   * Summarise the conversation into one note and make that the transcript.
+   *
+   * By hand from the button, or on its own when a run ends with the transcript
+   * at `COMPACT_AFTER` — the button stays for doing it early.
+   */
+  async function compact(auto: boolean) {
+    const id = chatId;
+    if (!id) return;
+    const before = turns.length;
+    const button = compactBtn;
+    const turn = begin(auto ? 'Compacting the earlier conversation' : 'Compacting', null);
+    compacting = true;
     running(true);
     button.disabled = true;
     let summary = '';
@@ -1090,12 +1121,17 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
       );
       if (!summary.trim()) throw new Error('The model returned an empty summary.');
 
-      await compactChat(chatId, summary);
+      await compactChat(id, summary);
       turn.end(summary);
       /* Reloaded rather than patched in place: the transcript on screen has to
          become the one that will be sent next time, and the authority on that
          is the row, not this function's idea of what it just wrote. */
-      await restore(chatId);
+      await restore(id);
+      if (auto) {
+        /* On the restored transcript, after the reload, so it is the last
+           thing on screen rather than a line the restore replaced. */
+        say(`Compacted the earlier conversation into a summary (${before} messages), so the next answer still sees all of it.`);
+      }
       toast('Conversation compacted.', { tone: 'success' });
     } catch (error) {
       turn.note(
@@ -1105,9 +1141,10 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
       turn.end(summary);
     } finally {
       running(false);
+      compacting = false;
       button.disabled = false;
     }
-  });
+  }
 
   /* ---------- the toolbar ---------- */
 
