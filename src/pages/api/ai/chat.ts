@@ -219,6 +219,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
            rounds over that is looping, and every round is billed. */
         maxRounds: 2,
         maxCalls: MAX_TOOL_CALLS,
+        /* A visitor gets the answer and the lookup rows, never the model's
+           deliberation, a tool's result text or an error naming the model.
+           The log row below still sees all of it. */
+        public: true,
         /* One row per *charged* run — the provider is only called after
            `charge()`, so this stays inside decision 62's rule and is bounded
            by the day's budget. The row is the model, the timing and the

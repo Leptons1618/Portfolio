@@ -1833,6 +1833,12 @@ export interface AgentOptions {
    */
   onEnd?: (summary: RunSummary) => Promise<void> | void;
   /**
+   * A stranger is reading. The run is tallied and logged in full, then
+   * `forPublic()` reduces what leaves the Worker to the answer and the facts a
+   * wait needs: no deliberation, no tool previews, no error naming a model.
+   */
+  public?: boolean;
+  /**
    * The tally `agentStream()` keeps for `onEnd`, handed in so the loop can
    * write the things frames do not carry — which model answered after a
    * switch. Callers never set it.
@@ -1919,7 +1925,41 @@ export function agentStream(options: AgentOptions): ReadableStream<Uint8Array> {
           options.first.provider,
         )
       : agentLines({ ...options, summary });
-  return linesToStream(options.onEnd ? tallied(lines, summary, options.onEnd) : lines);
+  const counted = options.onEnd ? tallied(lines, summary, options.onEnd) : lines;
+  return linesToStream(options.public ? forPublic(counted) : counted);
+}
+
+/** What a visitor is told when a run fails; the reason is in the log row. */
+export const PUBLIC_FAILURE = 'The assistant could not answer just now. Please try again.';
+
+/**
+ * The frames a visitor's browser receives, after the tally has seen them all.
+ *
+ * Thinking becomes one `{"phase":"thinking"}` per run — enough to relabel the
+ * wait, none of the text. A lookup keeps its id, name, slug and status, and
+ * loses `detail`/`preview`, which carry a result's text and the loop's own
+ * bookkeeping. A usage frame names the model and its cost and is dropped. An
+ * error is replaced whole: the loop's messages name models and settings, which
+ * is the owner's business. Decision 29 split the channels so a surface could
+ * choose; this is the public surface choosing.
+ */
+export async function* forPublic(lines: AsyncGenerator<unknown>): AsyncGenerator<unknown> {
+  let thought = false;
+  for await (const frame of lines) {
+    const f = frame as { thinking?: string; error?: string; tool?: Record<string, unknown>; usage?: unknown };
+    if (f.usage) continue;
+    if (typeof f.thinking === 'string') {
+      if (!thought) yield { phase: 'thinking' };
+      thought = true;
+    } else if (typeof f.error === 'string') {
+      yield { error: PUBLIC_FAILURE };
+    } else if (f.tool) {
+      const { id, name, args, status } = f.tool;
+      yield { tool: { id, name, args, status } };
+    } else {
+      yield frame;
+    }
+  }
 }
 
 /**

@@ -254,12 +254,12 @@ export function mountAskWidget(status: AskStatus): void {
      *
      * Two states share this element and the label is the whole difference:
      * WAITING means the request is out and nothing has come back, THINKING
-     * means `{"thinking":…}` frames are arriving and the delay is the model
+     * means the Worker sent `{"phase":"thinking"}` and the delay is the model
      * deliberating rather than the network.
      *
-     * What it is thinking goes into the disclosure below, never into the
-     * answer — see the header of `src/lib/ai.ts`. This row only says which
-     * kind of wait a reader is looking at.
+     * What it is thinking never reaches this page: `forPublic()` in
+     * `src/lib/ai.ts` keeps it in the Worker. This row only says which kind
+     * of wait a reader is looking at.
      */
     function waiting(label: string): HTMLElement {
       const wrap = document.createElement('div');
@@ -276,76 +276,6 @@ export function mountAskWidget(status: AskStatus): void {
 
       wrap.append(text, dots);
       return wrap;
-    }
-
-    /**
-     * The model's deliberation, behind a disclosure above the answer.
-     *
-     * Reasoning used to be dropped at the Worker and the panel showed the word
-     * THINKING and nothing else. It is forwarded now, in its own
-     * `{"thinking":…}` frame, and it lands **here** — a closed `<details>`
-     * above the answer, never in the prose. That is the whole arrangement: the
-     * answer is what the bubble says, and the thinking is something a reader
-     * can open if they want to know how it got there.
-     *
-     * `<details>` rather than a button and a class, because the disclosure, the
-     * keyboard behaviour and the closed content leaving the focus order are all
-     * the element's job. Created on the first thinking frame — a model that does
-     * not deliberate leaves no empty box behind.
-     *
-     * It opens itself while the thinking is the only thing happening, and
-     * `settleThought()` closes it again when the answer starts. A model that
-     * deliberates for twenty seconds behind a closed box is indistinguishable
-     * from one that has hung, and "nothing is happening" is the single most
-     * common reading of a stream that has not produced a word yet. A reader who
-     * touches the disclosure pins it: `data-pinned` is set on the first click
-     * and nothing programmatic moves it after that.
-     */
-    function thoughtBox(target: HTMLElement): HTMLElement {
-      const existing = target.querySelector<HTMLElement>('.ask-think-body');
-      if (existing) return existing;
-
-      const box = document.createElement('details');
-      box.className = 'ask-think';
-      box.open = true;
-
-      const summary = document.createElement('summary');
-      summary.className = 'ask-think-summary';
-      summary.textContent = 'Thinking';
-      /* On the summary rather than the `toggle` event, which also fires for the
-         two assignments above and below and would pin the box against itself. */
-      summary.addEventListener('click', () => {
-        box.dataset.pinned = '';
-      });
-      box.append(summary);
-
-      const body = document.createElement('div');
-      body.className = 'ask-think-body';
-      box.append(body);
-
-      /* Above the answer, and before anything already in the bubble — the wait
-         row and the answer are both appended, so a first thinking frame that
-         arrives after them still reads top to bottom. */
-      target.prepend(box);
-      return body;
-    }
-
-    /**
-     * Close the disclosure and label it, once the thinking is no longer the news.
-     *
-     * Called when the first token of the answer arrives and again when the
-     * stream ends, because a reply that is *only* thinking never reaches the
-     * first case and would otherwise be left with a live-looking box.
-     *
-     * A reader who opened or closed it themselves has pinned it, and this does
-     * not argue with them.
-     */
-    function settleThought(target: HTMLElement, thinking: string): void {
-      const box = target.querySelector<HTMLDetailsElement>('.ask-think');
-      if (!box) return;
-      const summary = box.querySelector('.ask-think-summary');
-      if (summary) summary.textContent = `Thinking · ${thinking.length.toLocaleString()} characters`;
-      if (!('pinned' in box.dataset)) box.open = false;
     }
 
     /** One lookup, as `/api/ai/chat` reports it. Two frames per call, by `id`. */
@@ -395,12 +325,9 @@ export function mountAskWidget(status: AskStatus): void {
       if (!trail) {
         trail = document.createElement('div');
         trail.className = 'ask-tools';
-        /* Under the thinking disclosure and above everything else, which is the
-           order things happened in. `thoughtBox` prepends, so appending after a
-           prepend puts this second. */
-        const think = target.querySelector('.ask-think');
-        if (think) think.after(trail);
-        else target.prepend(trail);
+        /* Above the wait row and the answer, which is the order things
+           happened in. */
+        target.prepend(trail);
       }
 
       let row = trail.querySelector<HTMLElement>(`[data-call="${CSS.escape(frame.id)}"]`);
@@ -547,11 +474,10 @@ export function mountAskWidget(status: AskStatus): void {
 
       const target = bubble('assistant');
       target.dataset.state = 'waiting';
-      /* Three children, in this order: the thinking disclosure (added by
-         `thoughtBox` if the model deliberates), the wait row, and the answer.
+      /* The lookup rows (added by `toolRow`), the wait row, and the answer.
          `renderAnswer` replaces the children of the *answer* element rather
-         than of the bubble, which is what lets a disclosure survive every
-         repaint of a streaming reply. */
+         than of the bubble, which is what lets the rows survive every repaint
+         of a streaming reply. */
       const wait = waiting('Waiting');
       const answerEl = document.createElement('div');
       answerEl.className = 'ask-answer';
@@ -559,7 +485,6 @@ export function mountAskWidget(status: AskStatus): void {
 
       inFlight = new AbortController();
       let answer = '';
-      let thinking = '';
       /* From the `done` frame's `stopReason`. `length` means the answer ran
          into the site's output ceiling rather than finishing — which reads as
          a model that stopped mid-sentence for no reason, and is the one
@@ -599,7 +524,7 @@ export function mountAskWidget(status: AskStatus): void {
             if (!raw.trim()) continue;
             let frame: {
               delta?: string;
-              thinking?: string;
+              phase?: string;
               tool?: ToolFrame;
               error?: string;
               done?: boolean;
@@ -611,23 +536,13 @@ export function mountAskWidget(status: AskStatus): void {
               continue;
             }
             if (frame.error) throw new Error(frame.error);
-            /* The model is deliberating. It goes into the disclosure as it
-               arrives, and the wait row says which kind of wait this is — but
-               only while the answer is still empty, because a model that thinks
-               again mid-sentence must not relabel a reply already on screen. */
-            if (frame.thinking) {
-              thinking += frame.thinking;
-              const thoughts = thoughtBox(target);
-              thoughts.textContent = thinking;
-              /* Pinned to the bottom, like the log itself. A disclosure that
-                 shows the first two lines of a growing wall of text is a box
-                 that stopped updating, as far as anyone watching can tell. */
-              thoughts.scrollTop = thoughts.scrollHeight;
-              if (!answer) {
-                target.dataset.state = 'thinking';
-                const label = wait.querySelector('.ask-wait-label');
-                if (label) label.textContent = 'Thinking';
-              }
+            /* The model is deliberating. Its text stays in the Worker; the
+               wait row only says which kind of wait this is — and only while
+               the answer is empty, so a reply on screen is never relabelled. */
+            if (frame.phase === 'thinking' && !answer) {
+              target.dataset.state = 'thinking';
+              const label = wait.querySelector('.ask-wait-label');
+              if (label) label.textContent = 'Thinking';
             }
             /* A lookup. It gets its own row above the answer and relabels the
                wait, because "Reading post" is a far better account of a
@@ -638,19 +553,12 @@ export function mountAskWidget(status: AskStatus): void {
                 target.dataset.state = 'looking';
                 const label = wait.querySelector('.ask-wait-label');
                 if (label) label.textContent = 'Looking things up';
-                /* The model stopped deliberating the moment it decided to
-                   fetch something; leaving the box open would have it claim to
-                   still be thinking underneath a list of lookups. */
-                settleThought(target, thinking);
               }
             }
             if (frame.delta) {
               answer += frame.delta;
               target.dataset.state = 'streaming';
               wait.remove();
-              /* The answer is the thing to read now. The thinking stays, one
-                 click away, with the summary saying how much of it there is. */
-              settleThought(target, thinking);
               renderAnswer(answerEl, answer);
               log.scrollTop = log.scrollHeight;
             }
@@ -659,30 +567,12 @@ export function mountAskWidget(status: AskStatus): void {
         }
 
         wait.remove();
-        settleThought(target, thinking);
 
         /* Deliberately not the editor's version of this message: a visitor is
            owed "it did not work, try again", not a note about which model the
-           owner configured and what its token ceiling is.
-
-           Unless it *did* say something, to itself. A model that narrated its
-           whole way through the budget without answering used to print that
-           narration as the answer; now it is in the disclosure, and the honest
-           report is that there is no answer and where the words went. The
-           bubbles stay so the thinking is still readable, but the turn is
-           dropped from `history` — there was no answer for a follow-up to
-           follow. */
-        if (!answer.trim()) {
-          if (!thinking.trim()) throw new Error('The assistant had nothing to say. Please try again.');
-          target.dataset.state = 'done';
-          history.pop();
-          note(
-            'The model spent the whole answer thinking and never wrote one. Open Thinking to read what it worked through, or ask again.',
-            'error',
-            () => void ask(question),
-          );
-          return;
-        }
+           owner configured and what its token ceiling is. A run that only
+           deliberated arrives as an `error` frame and never gets here. */
+        if (!answer.trim()) throw new Error('The assistant had nothing to say. Please try again.');
 
         target.dataset.state = 'done';
         citations(target, answer);
@@ -784,8 +674,8 @@ export function mountAskWidget(status: AskStatus): void {
       if (!historyView.hidden) paintHistory();
     }
 
-    /** Draw turns as finished bubbles — the restore path, so no wait rows, no
-        thinking boxes, no retry notes. Citations recompute from the text,
+    /** Draw turns as finished bubbles — the restore path, so no wait rows and
+        no retry notes. Citations recompute from the text,
         which is where they came from the first time. */
     function drawTranscript(turns: AskStoredTurn[]): void {
       log.replaceChildren();

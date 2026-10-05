@@ -62,6 +62,8 @@ const {
   callChat,
   agentStream,
   agentComplete,
+  forPublic,
+  PUBLIC_FAILURE,
   textToolCalls,
   effectiveMaxTokens,
   thinkingBudget,
@@ -4338,6 +4340,31 @@ check('browser history keeps threads, caps them, and forgets garbage', () => {
   writeChats(denied, cleaned);
   rememberCurrent(denied, 'x');
   rememberCurrent(denied, null);
+});
+
+/* The public widget is read by strangers. Its stream carries the answer and
+   enough to label a wait — never the deliberation, a tool's result text, the
+   model or its cost, or an error naming any of them. */
+await checkAsync('the public stream carries the answer and nothing the owner would not show', async () => {
+  async function* frames() {
+    yield { thinking: 'The visitor wants the stack. ' };
+    yield { thinking: 'Read the project.' };
+    yield { tool: { id: 'c1', name: 'read_project', args: { slug: 'x' }, status: 'running' } };
+    yield { tool: { id: 'c1', name: 'read_project', status: 'done', detail: '1,204 chars', preview: 'SECRET body' } };
+    yield { usage: { prompt: 10, completion: 5, cost: 0.01 }, model: 'vendor/model' };
+    yield { delta: 'Astro and D1.' };
+    yield { error: 'nvidia/x spent its whole run thinking — raise Answer length' };
+    yield { done: true, stopReason: 'stop' };
+  }
+  const out = [];
+  for await (const frame of forPublic(frames())) out.push(frame);
+  const wire = JSON.stringify(out);
+  assert.equal(out.filter(f => f.phase === 'thinking').length, 1);
+  for (const leak of ['visitor wants', 'SECRET', '1,204', 'vendor/model', 'cost', 'nvidia', 'Answer length'])
+    assert.ok(!wire.includes(leak), `public stream leaked ${leak}`);
+  assert.deepEqual(out.find(f => f.delta), { delta: 'Astro and D1.' });
+  assert.deepEqual(out.find(f => f.error), { error: PUBLIC_FAILURE });
+  assert.deepEqual(out.at(-1), { done: true, stopReason: 'stop' });
 });
 
 process.stdout.write(`\nai: ${checks} checks passed\n`);
