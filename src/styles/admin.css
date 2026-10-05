@@ -1962,6 +1962,12 @@ body[data-asx-freeze] {
 .ai-switch input { width: 16px; height: 16px; accent-color: var(--color-accent); }
 .ai-switch-inline { margin-top: 26px; margin-bottom: 0; font-weight: 400; }
 
+/* The Jev endpoint editor on the Public assistant tab: a disclosure, so the
+   card stays one switch and one select until an endpoint needs editing. */
+.ai-jev-edit { margin-top: var(--space-3); }
+.ai-jev-edit > summary { cursor: pointer; margin-bottom: var(--space-2); }
+.ai-jev-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
 /* — the journal writing assistant —
 
    Rendered by `JournalEditor.astro`, and its rules live here rather than in

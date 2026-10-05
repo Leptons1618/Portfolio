@@ -24,6 +24,7 @@ import { getPosts, getProjects, getPublicCaseStudies } from '../../../lib/conten
 import { getResume } from '../../../lib/resume';
 import { site } from '../../../lib/site';
 import { record } from '../../../lib/log';
+import { jevRoute, needs, toolNamesFor } from '../../../lib/ai-jev';
 
 /**
  * The public assistant.
@@ -149,11 +150,24 @@ export const POST: APIRoute = async ({ request, locals }) => {
      `ai-tools.ts` if the model asks for them, which is the difference between
      paying for the entire site on every message of a conversation and paying
      for the two posts a question was actually about. */
+  /* One clock for the run, started before Jev so its time counts too. */
+  const deadline = Date.now() + RUN_BUDGET_MS;
+
+  /* Jev, when the owner switched it on: which kinds of content this question
+     needs. After the charge (a decision costs money too) and before the reads,
+     so a confident "none of it" skips the queries as well as the schemas.
+     `null` is the full route — off, unsure, slow or broken all land there. */
+  const toolsOn = Boolean(providers[0]?.toolsEnabled);
+  const jev = toolsOn
+    ? await jevRoute({ db: DB, settings, turns, categories: ['work', 'writing', 'resume'], deadline })
+    : { route: null, detail: {} };
+  const route = jev.route;
+
   const [projects, caseStudies, posts, resume] = await Promise.all([
-    getProjects(DB),
-    getPublicCaseStudies(DB),
-    getPosts(DB),
-    getResume(DB),
+    needs(route, 'work') ? getProjects(DB) : [],
+    needs(route, 'work') ? getPublicCaseStudies(DB) : [],
+    needs(route, 'writing') ? getPosts(DB) : [],
+    needs(route, 'resume') ? getResume(DB) : null,
   ]);
 
   const index = buildIndex({ projects, caseStudies, posts, resume });
@@ -161,13 +175,15 @@ export const POST: APIRoute = async ({ request, locals }) => {
   /* Tools are a property of the provider that will answer, and the walk may
      land on a different one. Deciding from the first is the honest
      approximation: they are almost always the same row, and `callChat` retries
-     without tools if whichever one answers refuses the field. */
-  const tools = providers[0]?.toolsEnabled ? toolsFor('chat') : [];
+     without tools if whichever one answers refuses the field. A Jev route can
+     only remove names from this list. */
+  const toolOptions = route ? { only: toolNamesFor(route) } : {};
+  const tools = toolsOn ? toolsFor('chat', toolOptions) : [];
 
   const messages = [
     {
       role: 'system' as const,
-      content: scopePrompt(site.name, index, settings.persona, tools.length ? toolSummary('chat') : ''),
+      content: scopePrompt(site.name, index, settings.persona, tools.length ? toolSummary('chat', toolOptions) : ''),
       /* The whole of it is stable between questions — the rules do not change,
          and the index changes only when the author publishes something. Marking
          it is what lets a provider that reads cache breakpoints charge for this
@@ -198,7 +214,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
        duration limit and the platform killed the request, which a visitor
        reads as `Internal server error: 500` after a minute of nothing. See
        `CallOptions.deadline`. */
-    deadline: Date.now() + RUN_BUDGET_MS,
+    deadline,
     ...(tools.length ? { tools } : {}),
   };
 
@@ -235,7 +251,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
             report.level,
             'chat',
             `Public question: ${report.outcome} · ${summary.model} · ${(ms / 1000).toFixed(1)} s`,
-            report.detail,
+            { ...report.detail, ...jev.detail },
           );
         },
       }),

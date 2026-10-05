@@ -121,6 +121,13 @@ export interface AiSettings {
    */
   reasoningEffort: ReasoningEffort | null;
   /**
+   * Route conversational runs through Jev first (`ai-jev.ts`). Off by default;
+   * on, it can only narrow the context and tools a run is given.
+   */
+  jevEnabled: boolean;
+  /** The `ai_decision_providers` slug Jev is reached through, or `''`. */
+  jevProvider: string;
+  /**
    * Questions the whole site may ask a vendor in one minute.
    *
    * The other two budgets are per-visitor-per-hour and per-site-per-day, and
@@ -208,6 +215,8 @@ export const DEFAULTS: AiSettings = {
      nothing", which hands the decision to whatever the vendor defaults to, and
      the vendors that default to anything default to more. */
   reasoningEffort: 'low',
+  jevEnabled: false,
+  jevProvider: '',
 };
 
 const clampNumber = (value: unknown, fallback: number, max: number): number => {
@@ -252,6 +261,12 @@ export function clampSettings(raw: unknown): AiSettings {
        levels — which is also how the form says "leave it to the provider row",
        so an empty select and a garbage column land in the same, safe place. */
     reasoningEffort: clampEffort(source.reasoningEffort),
+    /* `=== true` for the same reason as `enabled`. */
+    jevEnabled: source.jevEnabled === true,
+    jevProvider:
+      typeof source.jevProvider === 'string' && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(source.jevProvider)
+        ? source.jevProvider.slice(0, 64)
+        : '',
   };
 }
 

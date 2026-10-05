@@ -3,6 +3,7 @@ import { json, refusal, requireOwner } from '../../../lib/authorize';
 import { getAiSettings, getProviders, summarise } from '../../../lib/ai';
 import { corpusSize, buildCorpus, buildIndex } from '../../../lib/ai-corpus';
 import { usageToday } from '../../../lib/ai-guard';
+import { getDecisionProviders, summariseDecision } from '../../../lib/ai-jev';
 import { getCaseStudies, getPosts, getProjects } from '../../../lib/content';
 import { getResume } from '../../../lib/resume';
 
@@ -39,8 +40,9 @@ export const GET: APIRoute = async ({ request, locals }) => {
 
   const { DB } = locals.runtime.env;
 
-  const [providers, settings, projects, caseStudies, posts, resume, usage] = await Promise.all([
+  const [providers, decisionProviders, settings, projects, caseStudies, posts, resume, usage] = await Promise.all([
     getProviders(DB),
+    getDecisionProviders(DB),
     getAiSettings(DB),
     getProjects(DB),
     getCaseStudies(DB),
@@ -59,6 +61,8 @@ export const GET: APIRoute = async ({ request, locals }) => {
 
   return json({
     providers: providers.map(summarise),
+    /* Jev's endpoints, by the same key-by-key rule — a fingerprint, never a key. */
+    decisionProviders: decisionProviders.map(summariseDecision),
     /* The settings as *stored*, not as `/api/ai/status` reports them. That
        route answers "is the assistant ready", which folds the switch together
        with whether a provider exists — right for deciding whether to show a

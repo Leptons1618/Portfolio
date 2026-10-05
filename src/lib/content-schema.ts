@@ -137,6 +137,16 @@ const AI_PROVIDER_COLUMNS: ColumnMap = {
   priority: ['priority', 'number'],
 };
 
+/** `ai_decision_providers` — Jev's endpoints. Same write-only key rule as above. */
+const AI_DECISION_PROVIDER_COLUMNS: ColumnMap = {
+  label: ['label', 'text'],
+  kind: ['kind', 'text'],
+  baseUrl: ['base_url', 'text'],
+  model: ['model', 'text'],
+  apiKey: ['api_key', 'text'],
+  credentialProvider: ['credential_provider', 'text'],
+};
+
 /**
  * What each table accepts.
  *
@@ -192,6 +202,7 @@ export const TABLES = {
   journal: { columns: JOURNAL_COLUMNS, rendersBody: true, slugs: null, readable: true },
   documents: { columns: DOCUMENT_COLUMNS, rendersBody: false, slugs: DOCUMENT_SLUGS, readable: true },
   ai_providers: { columns: AI_PROVIDER_COLUMNS, rendersBody: false, slugs: null, readable: false },
+  ai_decision_providers: { columns: AI_DECISION_PROVIDER_COLUMNS, rendersBody: false, slugs: null, readable: false },
 } as const satisfies Record<string, TableSpec>;
 
 export type TableName = keyof typeof TABLES;

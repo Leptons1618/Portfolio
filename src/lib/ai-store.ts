@@ -23,8 +23,22 @@ export type { ProviderSummary, AiSettings };
 
 /* ---------- reading ---------- */
 
+/** A Jev endpoint as the listing returns it: a fingerprint, never the key. */
+export interface DecisionSummary {
+  slug: string;
+  label: string;
+  kind: DecisionFields['kind'];
+  baseUrl: string | null;
+  model: string;
+  credentialProvider: string | null;
+  hasKey: boolean;
+  keyHint: string | null;
+  updatedAt: string | null;
+}
+
 export interface AiOverview {
   providers: ProviderSummary[];
+  decisionProviders: DecisionSummary[];
   /** The stored settings, clamped — what the form edits. */
   settings: AiSettings;
   /** Everything published, as the whole-corpus prompt used to carry it. */
@@ -139,11 +153,12 @@ async function write(
   slug: string,
   op: 'create' | 'patch' | 'delete',
   fields: Record<string, unknown> = {},
+  table: 'ai_providers' | 'ai_decision_providers' = 'ai_providers',
 ): Promise<WriteResult> {
   const response = await fetch('/api/content', {
     method: 'POST',
     headers: authorized(),
-    body: JSON.stringify({ table: 'ai_providers', slug, op, fields }),
+    body: JSON.stringify({ table, slug, op, fields }),
   });
 
   const data = (await response.json().catch(() => ({}))) as { error?: string };
@@ -187,6 +202,39 @@ export const setProviderActive = (slug: string, active: boolean): Promise<WriteR
  * in this field" must never be the same gesture.
  */
 export const clearKey = (slug: string): Promise<WriteResult> => write(slug, 'patch', { apiKey: '' });
+
+/* ---------- Jev's decision endpoints ---------- */
+
+/** What the Jev form writes. The key rule is `ProviderFields.apiKey`'s, unchanged. */
+export interface DecisionFields {
+  label: string;
+  kind: 'openrouter' | 'systemone' | 'custom';
+  baseUrl: string;
+  model: string;
+  /** `openrouter` only: the chat provider row whose key is borrowed. */
+  credentialProvider: string;
+  apiKey?: string;
+}
+
+const decisionPayload = ({ apiKey, credentialProvider, baseUrl, ...rest }: DecisionFields) => ({
+  ...rest,
+  /* `''` would be a foreign key to no row; NULL is "none". */
+  credentialProvider: credentialProvider.trim() || null,
+  baseUrl: baseUrl.trim() || null,
+  ...(apiKey?.trim() ? { apiKey: apiKey.trim() } : {}),
+});
+
+export const createDecisionProvider = (slug: string, fields: DecisionFields): Promise<WriteResult> =>
+  write(slug, 'create', decisionPayload(fields), 'ai_decision_providers');
+
+export const saveDecisionProvider = (slug: string, fields: DecisionFields): Promise<WriteResult> =>
+  write(slug, 'patch', decisionPayload(fields), 'ai_decision_providers');
+
+export const removeDecisionProvider = (slug: string): Promise<WriteResult> =>
+  write(slug, 'delete', {}, 'ai_decision_providers');
+
+export const clearDecisionKey = (slug: string): Promise<WriteResult> =>
+  write(slug, 'patch', { apiKey: '' }, 'ai_decision_providers');
 
 /**
  * Save the assistant's settings.

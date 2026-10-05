@@ -4513,5 +4513,154 @@ await checkAsync('a non-streamed body slower than its attempt timeout fails the 
   assert.ok(Date.now() - started < 5000, 'the body read was not bounded');
 });
 
+/* ---------- part 2 of the 2026-10-05 design: Jev ---------- */
+
+const jevMod = await load('src/lib/ai-jev.ts');
+
+const decisionRow = fields => ({
+  slug: 'jev',
+  label: 'Jev',
+  kind: 'openrouter',
+  baseUrl: null,
+  model: 'typesafe/jev-1.13',
+  apiKey: null,
+  credentialProvider: 'or',
+  updatedAt: null,
+  ...fields,
+});
+
+check('a decision row resolves to one URL and one key, and only over HTTPS', () => {
+  const or = row({ slug: 'or', baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-or' });
+  assert.deepEqual(jevMod.decisionTarget(decisionRow({}), [or]), {
+    url: 'https://openrouter.ai/api/alpha/decisions',
+    key: 'sk-or',
+    model: 'typesafe/jev-1.13',
+  });
+  /* The borrowed key goes only to the host that issued it. */
+  const elsewhere = row({ slug: 'or', baseUrl: 'https://api.groq.com/openai/v1', apiKey: 'sk-groq' });
+  assert.equal(jevMod.decisionTarget(decisionRow({}), [elsewhere]), null);
+  assert.equal(jevMod.decisionTarget(decisionRow({ credentialProvider: 'missing' }), [or]), null);
+
+  const own = { kind: 'systemone', baseUrl: 'https://api.example.com/', apiKey: 'k', model: 'jev-1.13', credentialProvider: null };
+  assert.equal(jevMod.decisionTarget(decisionRow(own), []).url, 'https://api.example.com/v1/systemone');
+  assert.equal(jevMod.decisionTarget(decisionRow({ ...own, kind: 'custom' }), []).url, 'https://api.example.com');
+  assert.equal(jevMod.decisionTarget(decisionRow({ ...own, kind: 'custom', baseUrl: 'http://api.example.com' }), []), null);
+  assert.equal(jevMod.decisionTarget(decisionRow({ ...own, apiKey: null }), []), null);
+});
+
+check('a Jev route is read strictly, and one unsure answer means the full route', () => {
+  const cats = ['work', 'writing', 'resume'];
+  const answer = (w, x, r) => ({
+    answers: { work: { type: 'noul', noul: w }, writing: { type: 'noul', noul: x }, resume: { type: 'noul', noul: r } },
+  });
+  assert.deepEqual([...jevMod.readRoute(answer(0.97, 0.02, 0.05), cats)], ['work']);
+  assert.deepEqual([...jevMod.readRoute(answer(0.01, 0.02, 0.05), cats)], [], 'confident "none" is a route');
+  assert.equal(jevMod.readRoute(answer(0.97, 0.5, 0.05), cats), null);
+  assert.equal(jevMod.readRoute(answer(0.97, 1.5, 0.05), cats), null);
+  assert.equal(jevMod.readRoute({ answers: { work: { type: 'noul', noul: 0.99 } } }, cats), null);
+  assert.equal(jevMod.readRoute({ answers: { work: { type: 'choice', noul: 0.99 }, writing: {}, resume: {} } }, cats), null);
+  assert.equal(jevMod.readRoute(null, cats), null);
+  assert.equal(jevMod.readRoute('garbage', cats), null);
+});
+
+check('a Jev route can only remove tools, never add one', () => {
+  const all = toolsFor('chat').map(t => t.function.name);
+  const work = toolsFor('chat', { only: jevMod.toolNamesFor(new Set(['work'])) }).map(t => t.function.name);
+  assert.deepEqual(work.sort(), ['read_case_study', 'read_project', 'search_content']);
+  assert.ok(work.every(name => all.includes(name)));
+  /* Repository readers are never on the public list, and naming them cannot put them there. */
+  assert.deepEqual(toolsFor('chat', { only: jevMod.toolNamesFor(new Set(['repo'])) }), []);
+  assert.deepEqual(toolsFor('chat', { only: jevMod.toolNamesFor(new Set()) }), []);
+});
+
+const jevDb = (decisions, chat) => ({
+  prepare: sql => ({
+    all: async () => ({ results: sql.includes('ai_decision_providers') ? decisions : chat }),
+  }),
+});
+const orRow = {
+  slug: 'or', label: 'OpenRouter', base_url: 'https://openrouter.ai/api/v1', api_key: 'sk-or', model: 'm',
+  assist_model: null, fallback_models: null, params: null, max_output_tokens: null, price_prompt: null,
+  price_completion: null, reasoning_effort: null, prompt_cache: 1, tools_enabled: 1, active: 1, priority: 1, updated_at: null,
+};
+const jevRowDb = {
+  slug: 'jev', label: 'Jev', kind: 'openrouter', base_url: null, model: 'typesafe/jev-1.13',
+  api_key: null, credential_provider: 'or', updated_at: null,
+};
+const jevOn = { ...DEFAULTS, jevEnabled: true, jevProvider: 'jev' };
+
+await checkAsync('Jev is asked once, with capped recent turns, and narrows on a confident answer', async () => {
+  const sent = [];
+  const fetcher = async (url, init) => {
+    sent.push({ url, init });
+    return new Response(
+      JSON.stringify({
+        answers: { work: { type: 'noul', noul: 0.98 }, writing: { type: 'noul', noul: 0.03 }, resume: { type: 'noul', noul: 0.04 } },
+        usage: { input_tokens: 400, output_tokens: 6, cost: 0.00002 },
+      }),
+      { status: 200 },
+    );
+  };
+  const turns = Array.from({ length: 8 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `turn ${i} ${'x'.repeat(1500)}` }));
+  const out = await jevMod.jevRoute({
+    db: jevDb([jevRowDb], [orRow]),
+    settings: jevOn,
+    turns,
+    categories: ['work', 'writing', 'resume'],
+    deadline: Date.now() + 10_000,
+    fetcher,
+  });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].url, 'https://openrouter.ai/api/alpha/decisions');
+  assert.equal(sent[0].init.headers.Authorization, 'Bearer sk-or');
+  const body = JSON.parse(sent[0].init.body);
+  assert.equal(body.model, 'typesafe/jev-1.13');
+  assert.ok(body.state.length <= 3000);
+  assert.ok(body.state.includes('turn 7') && !body.state.includes('turn 3'), 'only the most recent turns go');
+  assert.deepEqual(Object.keys(body.questions), ['work', 'writing', 'resume']);
+  assert.ok(Object.values(body.questions).every(q => q.type === 'noul'));
+  assert.deepEqual([...out.route], ['work']);
+  assert.ok(!JSON.stringify(out.detail).includes('turn 7'), 'the log detail must not carry the conversation');
+  assert.equal(out.detail.jev.usage.input, 400);
+});
+
+await checkAsync('Jev off, unsure, failing or slow leaves the full route, and is never retried', async () => {
+  const base = { db: jevDb([jevRowDb], [orRow]), turns: [{ role: 'user', content: 'hi' }], categories: ['work'] };
+  let calls = 0;
+  const never = async () => {
+    calls += 1;
+    throw new Error('should not be called');
+  };
+  assert.equal((await jevMod.jevRoute({ ...base, settings: DEFAULTS, deadline: Date.now() + 5000, fetcher: never })).route, null);
+  assert.equal(calls, 0, 'a disabled Jev must not make a request');
+
+  let tries = 0;
+  const down = async () => {
+    tries += 1;
+    throw new TypeError('fetch failed');
+  };
+  const outage = await jevMod.jevRoute({ ...base, settings: jevOn, deadline: Date.now() + 5000, fetcher: down });
+  assert.equal(outage.route, null);
+  assert.equal(tries, 1, 'a failed decision POST is not replayed');
+
+  const http500 = async () => new Response('{}', { status: 500 });
+  assert.equal((await jevMod.jevRoute({ ...base, settings: jevOn, deadline: Date.now() + 5000, fetcher: http500 })).route, null);
+
+  const unsure = async () => new Response(JSON.stringify({ answers: { work: { type: 'noul', noul: 0.6 } } }), { status: 200 });
+  assert.equal((await jevMod.jevRoute({ ...base, settings: jevOn, deadline: Date.now() + 5000, fetcher: unsure })).route, null);
+
+  const slow = (_, init) =>
+    new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
+  const started = Date.now();
+  const late = await jevMod.jevRoute({ ...base, settings: jevOn, deadline: Date.now() + 600, fetcher: slow });
+  assert.equal(late.route, null);
+  assert.equal(late.detail.jev.error, 'timed out');
+  assert.ok(Date.now() - started < 2000, 'the run deadline did not bound the Jev call');
+
+  const missing = await jevMod.jevRoute({ ...base, db: jevDb([], [orRow]), settings: jevOn, deadline: Date.now() + 5000, fetcher: never });
+  assert.equal(missing.route, null);
+  assert.equal(calls, 0);
+});
+
 process.stdout.write(`\nai: ${checks} checks passed\n`);
 
