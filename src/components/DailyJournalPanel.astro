@@ -171,7 +171,16 @@ import { AUTO_DEFAULTS } from '../lib/journal-auto';
 
 <script>
   import { onAdminPage, setBusy, setLabel, toast, trackDirty, type DirtyField } from '../lib/admin';
-  import { discardRun, loadAutoJournal, loadOverview, runStep, saveAutoJournal, type AutoJournalOverview } from '../lib/ai-store';
+  import {
+    discardRun,
+    loadAutoJournal,
+    loadOverview,
+    runAssist,
+    runStep,
+    saveAutoJournal,
+    type AutoJournalOverview,
+  } from '../lib/ai-store';
+  import { mountAssistPanel } from '../lib/assist-panel';
   import { getToken } from '../lib/github';
   import { clampAutoSettings, dayOf, hourFor, type AutoJournalSettings } from '../lib/journal-auto';
 
@@ -356,7 +365,7 @@ import { AUTO_DEFAULTS } from '../lib/journal-auto';
         paintWork(data.work);
 
         last.textContent = data.run.at
-          ? `${localStamp(data.run.at)} · ${data.run.attempts} attempt${data.run.attempts === 1 ? '' : 's'} · ${data.run.note}`
+          ? `${localStamp(data.run.at)} · ${data.run.attempts ? `${data.run.attempts} failed step${data.run.attempts === 1 ? '' : 's'} · ` : ''}${data.run.note}`
           : 'Nothing has run yet.';
       } catch (error) {
         status.textContent = error instanceof Error ? error.message : 'Could not read the schedule.';
@@ -411,6 +420,7 @@ import { AUTO_DEFAULTS } from '../lib/journal-auto';
     let stopping = false;
 
     function paintWork(work: Work) {
+      lastWork = work;
       const line = $('dj-work');
       const trail = $<HTMLOListElement>('dj-trail');
       line.dataset.tone = work?.phase === 'failed' ? 'error' : 'info';
@@ -444,6 +454,58 @@ import { AUTO_DEFAULTS } from '../lib/journal-auto';
       if (!running) setLabel(runBtn, work && LIVE.has(work.phase) && (work.done || work.title) ? 'Resume' : null);
     }
 
+    /* — the panel —
+
+       Run now writes into the assistant panel: a turn per step, the plan's
+       outline and each section as they are finished. Steps are non-streamed
+       on the server (decision 75), so a turn says "working" and then shows
+       what the step produced. The composer answers questions about the entry;
+       commands belong to the editor, where there are fields to write into. */
+    let chatAbort: AbortController | null = null;
+    const panel = mountAssistPanel({
+      surface: 'journal',
+      docSlug: () => 'daily-journal',
+      blocked: () => 'Open a post to run this command — this screen only writes the daily entry.',
+      stop: () => {
+        chatAbort?.abort();
+        if (running) stopping = true;
+      },
+      run: async (_item, instruction) => {
+        const turn = panel.begin('Answer', null);
+        panel.running(true);
+        chatAbort = new AbortController();
+        let text = '';
+        try {
+          text = await runAssist(
+            'chat',
+            {},
+            instruction,
+            {
+              onDelta: chunk => {
+                text += chunk;
+                turn.answer(text);
+              },
+              onThinking: chunk => turn.thinking(chunk),
+              onTool: frame => turn.tool(frame),
+              onUsage: frame => turn.usage(frame),
+            },
+            chatAbort.signal,
+            panel.history().slice(0, -1),
+            panel.runOptions(),
+          );
+        } catch (error) {
+          if (!(error instanceof DOMException && error.name === 'AbortError')) {
+            turn.note(error instanceof Error ? error.message : 'The assistant could not answer.', 'error');
+          }
+        } finally {
+          turn.end(text);
+          panel.running(false);
+          chatAbort = null;
+        }
+      },
+    });
+
+    let lastWork: Work = null;
     runBtn.addEventListener('click', async () => {
       if (running) {
         stopping = true;
@@ -455,17 +517,44 @@ import { AUTO_DEFAULTS } from '../lib/journal-auto';
       stopping = false;
       discardBtn.hidden = true;
       setLabel(runBtn, 'Stop');
+      panel.open();
+      panel.running(true);
       let outcome = '';
       try {
         for (let guard = 0; guard < 20 && !stopping; guard += 1) {
-          $('dj-work').textContent = 'Working on the next step…';
-          const result = await runStep();
+          const label = lastWork && LIVE.has(lastWork.phase) && lastWork.next ? lastWork.next : 'Plan the entry';
+          const turn = panel.begin(label, null);
+          turn.status('Working on it — a step can take a minute or two on a free model…');
+          $('dj-work').textContent = `Working: ${label}…`;
+          let result: Awaited<ReturnType<typeof runStep>>;
+          try {
+            result = await runStep();
+          } catch (error) {
+            turn.note(error instanceof Error ? error.message : 'The step failed.', 'error');
+            turn.end('');
+            throw error;
+          }
           if (result.busy) {
             outcome = result.error ?? 'The schedule is writing this entry right now.';
+            turn.note(outcome, 'info');
+            turn.end('');
             paintWork(result.run);
             break;
           }
+          lastWork = result.run;
           paintWork(result.run);
+          const step = result.step;
+          if (step) {
+            turn.status(`${step.label} · ${(step.ms / 1000).toFixed(1)} s${step.model ? ` · ${step.model}` : ''}`);
+            if (step.ok) {
+              if (step.output) turn.answer(step.output);
+            } else {
+              turn.note(`${step.note ?? 'The step failed.'} Resume retries it.`, 'error');
+            }
+            turn.end(step.ok ? step.output : '');
+          } else {
+            turn.end('');
+          }
           const run = result.run;
           if (!run || !LIVE.has(run.phase)) {
             outcome =
@@ -478,18 +567,21 @@ import { AUTO_DEFAULTS } from '../lib/journal-auto';
                     : 'Nothing to do.';
             break;
           }
-          if (result.step && !result.step.ok) {
-            outcome = `${result.step.label} failed: ${result.step.note ?? 'no reason given'}. Resume to retry it.`;
+          if (step && !step.ok) {
+            outcome = `${step.label} failed: ${step.note ?? 'no reason given'}. Resume to retry it.`;
             break;
           }
         }
         if (stopping && !outcome) outcome = 'Stopped. The finished steps are kept — Resume carries on.';
-        say(outcome, /failed|Gave up/.test(outcome) ? 'error' : 'info');
-        toast(outcome, { tone: /failed|Gave up/.test(outcome) ? 'error' : 'success' });
+        const bad = /failed|Gave up/.test(outcome);
+        panel.say(outcome, bad ? 'error' : 'info');
+        say(outcome, bad ? 'error' : 'info');
+        toast(outcome, { tone: bad ? 'error' : 'success' });
       } catch (error) {
         fail(error);
       } finally {
         running = false;
+        panel.running(false);
         runBtn.disabled = false;
         setLabel(runBtn, null);
         await refresh();

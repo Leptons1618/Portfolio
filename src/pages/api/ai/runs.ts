@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import { json, refusal, requireOwner } from '../../../lib/authorize';
 import { getAiSettings, usableProviders } from '../../../lib/ai';
 import { advance, dropRun, peekRun } from '../../../lib/agent-runner';
-import { clampCaseStudyProgress, lockHeld, summariseRun } from '../../../lib/agent-runs';
+import { clampCaseStudyProgress, lockHeld, stepOutput, summariseRun } from '../../../lib/agent-runs';
 import { AUTO_KEY, clampAutoSettings, dayOf } from '../../../lib/journal-auto';
 
 /**
@@ -140,7 +140,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
     ok: result.status === 'idle' || result.ok,
     run: summariseRun(result.run),
     ...(result.status === 'stepped'
-      ? { step: { id: result.step.id, label: result.step.label, ok: result.ok, note: result.note ?? null } }
+      ? {
+          step: {
+            id: result.step.id,
+            label: result.step.label,
+            ok: result.ok,
+            note: result.note ?? null,
+            ms: result.run.trail[result.run.trail.length - 1]?.ms ?? 0,
+            model: result.run.trail[result.run.trail.length - 1]?.model ?? '',
+            output: result.ok ? stepOutput(result.run, result.step) : '',
+          },
+        }
       : {}),
   });
 };

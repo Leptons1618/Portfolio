@@ -26,6 +26,7 @@
 import AdminLayout from '../../layouts/AdminLayout.astro';
 import Illustration from '../../components/Illustration.astro';
 import DailyJournalPanel from '../../components/DailyJournalPanel.astro';
+import AssistPanel from '../../components/AssistPanel.astro';
 import { Icon } from 'astro-icon/components';
 import { getPosts, getJournalOrder } from '../../lib/content';
 import { formatShortDate, relativeTime } from '../../lib/format';
@@ -359,12 +360,22 @@ const DEFAULT_PAGE_SIZE = 25;
       <DailyJournalPanel />
     </div>
   </div>
+  {/* The daily entry's run is shown here as it is written, step by step —
+      the plan, then each section — and the same panel answers questions about
+      it. Mounted by `DailyJournalPanel.astro`'s script. Nothing in it saves a
+      post: only the run's own finish step writes the draft. */}
+  <AssistPanel
+    surface="journal"
+    sub="Shows today's entry being written, step by step. Nothing here edits a post."
+  />
 </AdminLayout>
 
 <script>
-  import { onAdminPage, setBusy, setLabel, toast, wireTabs } from '../../lib/admin';
-  import { removePost, setPostStatus, postPath, saveJournalOrder, type PostStatus } from '../../lib/content-store';
+  import { onAdminPage, setBusy, toast, wireTabs } from '../../lib/admin';
+  import { removePost, setPostStatus, saveJournalOrder, type PostStatus } from '../../lib/content-store';
   import { getToken } from '../../lib/github';
+  import { confirmDelete } from '../../lib/confirm-delete';
+  import { navigate } from 'astro:transitions/client';
 
   /* The admin client-routes, so this runs on first paint and again every time
      you come back to this screen — see `onAdminPage`. */
@@ -771,55 +782,39 @@ const DEFAULT_PAGE_SIZE = 25;
         });
       });
 
-      /* Two clicks, like the project cards: the first is the one people mean to
-         take back. Unlike every delete on this surface before decision 18 there
-         is no history holding a copy — the row is the only one there is — so the
-         copy has to say the deletion is final, and it has to point at the
-         reversible control that does the job people usually mean.
-
-         `setLabel` rather than `textContent`: this menu item carries an inlined
-         trash icon, and writing text straight onto it deleted that glyph for the
-         life of the page. */
-      let armed = false;
-      let disarm: ReturnType<typeof setTimeout>;
-
+      /* Deleting is final — the row is the only copy there is (decision 18) — so
+         it goes through the shared dialog: what goes, the reversible control
+         people usually mean (Unpublish) as its own button, and Delete enabled
+         only once the slug is typed. Either way the list is re-rendered from
+         the server afterwards, so counts, shelves and order are the truth
+         rather than a row greyed out in place. */
       deleteItem.addEventListener('click', async () => {
         menu.open = false;
+        const title = row.querySelector('.existing-title')?.textContent?.trim() || slug;
+        const choice = await confirmDelete({
+          title,
+          slug,
+          path: `/journal/${slug}`,
+          consequences: [
+            'Its public page stops existing at once — links to it will 404.',
+            'Its editor page goes with it; nothing on this site keeps a copy.',
+          ],
+          alternative: row.dataset.status === 'unpublished' ? undefined : 'Unpublish instead',
+        });
+        if (!choice) return;
 
-        if (!armed) {
-          armed = true;
-          setLabel(deleteItem, 'Confirm delete');
-          say(
-            `This deletes ${postPath(slug)} for good — there is no copy to restore it from. ` +
-              'Unpublish instead if you only want it off the site. Open the menu and click ' +
-              'again to confirm.',
-            'error'
-          );
-          disarm = setTimeout(() => {
-            armed = false;
-            setLabel(deleteItem, null);
-            say('');
-          }, 6000);
-          return;
-        }
-
-        clearTimeout(disarm);
-        armed = false;
-        setBusy(deleteItem, true, 'Deleting…');
-        say('Deleting…');
-        const pending = toast(`Deleting ${slug}…`, { tone: 'pending' });
-
+        setBusy(deleteItem, true, choice === 'delete' ? 'Deleting…' : 'Unpublishing…');
+        const pending = toast(choice === 'delete' ? `Deleting ${slug}…` : `Unpublishing ${slug}…`, { tone: 'pending' });
         try {
-          await removePost(slug);
-          row.classList.add('is-removed');
-          /* Its editor page resolves from the same row, so that link is dead the
-             moment this returns — stop offering it. */
-          row.querySelectorAll('button, a').forEach(control => {
-            if (control instanceof HTMLButtonElement) control.disabled = true;
-            else control.removeAttribute('href');
-          });
-          say('Deleted. The post is gone from the site.');
-          pending.update(`${slug} is deleted.`, { tone: 'success' });
+          if (choice === 'delete') {
+            await removePost(slug);
+            pending.update(`${slug} is deleted.`, { tone: 'success' });
+          } else {
+            await setPostStatus(slug, 'unpublished');
+            pending.update(`${slug} is unpublished — off the site, still here to bring back.`, { tone: 'success' });
+          }
+          /* Re-rendered from the rows: the toast host persists across it. */
+          await navigate(`${location.pathname}${location.search}`, { history: 'replace' });
         } catch (error) {
           setBusy(deleteItem, false);
           const text = error instanceof Error ? error.message : 'Delete failed.';

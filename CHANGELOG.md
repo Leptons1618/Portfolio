@@ -182,6 +182,15 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Deleting a post or a project is a dialog, not a second click.** It names the
+  public URL that will 404 and what goes with it, offers Unpublish / Hide as its
+  own button, and enables Delete only once the slug is typed. Either way the list
+  is re-rendered from the rows afterwards, instead of a row greyed out in place.
+- **Run now on the Journal screen writes into the assistant panel** — a turn per
+  step, the plan's outline and each section as they are finished — and the panel
+  answers questions about the entry. The run card keeps the progress and trail;
+  its last-run line counts failed steps rather than a misleading "0 attempts".
+
 - **The tool loop stops paying for the same context twice.** A reasoning
   provider's own reasoning is sent back to it on the tool-call turn (and to no
   other model), older lookup results are trimmed once a later round has read

@@ -3151,3 +3151,18 @@ body[data-asx-freeze] {
     background: none;
   }
 }
+
+/* — the delete confirmation (`src/lib/confirm-delete.ts`) —
+
+   Script-built, so here rather than in a page. The eyebrow and the Delete
+   button carry the danger colour; the reversible alternative sits on the left
+   of the foot, apart from the two buttons that end the dialog. */
+.cd-modal .modal-body { display: flex; flex-direction: column; gap: var(--space-3); }
+.cd-eyebrow { color: var(--color-accent-700); }
+.cd-lede code,
+.cd-label code { font-size: 12px; background: var(--color-bg); padding: 1px 5px; }
+.cd-list { margin: 0; padding-left: var(--space-4); font-size: 13px; color: var(--color-text-muted); }
+.cd-list li + li { margin-top: var(--space-1); }
+.cd-label { font-size: 13px; margin-bottom: calc(var(--space-2) * -1); }
+.cd-confirm:not(:disabled) { background: var(--color-accent-700); border-color: var(--color-accent-700); }
+.cd-confirm:disabled { opacity: 0.45; cursor: not-allowed; }

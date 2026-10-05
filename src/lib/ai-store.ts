@@ -307,6 +307,18 @@ export async function saveAutoJournal(settings: AutoJournalSettings): Promise<Wr
   return { slug: AUTO_KEY, url: '/admin/journal' };
 }
 
+/** One step's outcome, as `/api/ai/runs` reports it to the owner. */
+export interface RunStepResult {
+  id: string;
+  label: string;
+  ok: boolean;
+  note: string | null;
+  ms: number;
+  model: string;
+  /** What it produced — the plan's outline, the section, or the draft's link. */
+  output: string;
+}
+
 /**
  * Today's run, one step at a time.
  *
@@ -314,7 +326,7 @@ export async function saveAutoJournal(settings: AutoJournalSettings): Promise<Wr
  * one bounded step on the server (`/api/ai/runs`, `agent-runner.ts`). A 409
  * means the schedule holds the run right now, and carries its state.
  */
-export async function runStep(): Promise<{ run: RunSummaryView | null; step?: { id: string; label: string; ok: boolean; note: string | null }; busy?: boolean; error?: string }> {
+export async function runStep(): Promise<{ run: RunSummaryView | null; step?: RunStepResult; busy?: boolean; error?: string }> {
   const response = await fetch('/api/ai/runs', {
     method: 'POST',
     headers: authorized(),
@@ -322,7 +334,7 @@ export async function runStep(): Promise<{ run: RunSummaryView | null; step?: { 
   });
   const data = (await response.json().catch(() => ({}))) as {
     run?: RunSummaryView | null;
-    step?: { id: string; label: string; ok: boolean; note: string | null };
+    step?: RunStepResult;
     error?: string;
   };
   if (response.status === 409) return { run: data.run ?? null, busy: true, error: data.error };

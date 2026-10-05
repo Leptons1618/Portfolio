@@ -317,6 +317,22 @@ export const finishRun = (run: PostRun, slug: string, meta: StepMeta): PostRun =
 });
 
 /**
+ * What a step produced, as the owner's panel shows it: the plan's outline, the
+ * section's text, or where the draft is. Owner-only — the public summary below
+ * deliberately carries none of it.
+ */
+export function stepOutput(run: PostRun, step: RunStep): string {
+  if (step.kind === 'plan' && run.plan) {
+    const outline = run.plan.sections.map((s, i) => `${i + 1}. ${s.heading}`).join('\n');
+    return `${run.plan.title}\n\n${run.plan.angle ? `${run.plan.angle}\n\n` : ''}${outline}\n\n${run.plan.facts.length} facts gathered.`;
+  }
+  if (step.kind === 'section' && step.index !== undefined) return run.sections[step.index] ?? '';
+  if (step.kind === 'finish' && run.slug) return `Saved "${run.plan?.title ?? run.slug}" — open /admin/journal/${run.slug} to read and publish it.`;
+  if (run.phase === 'declined') return `Nothing new to write about: ${run.error ?? ''}`;
+  return '';
+}
+
+/**
  * What a route answers and the screen renders. Never the facts or the
  * sections — those are the row's business, and the draft is where to read them.
  */
