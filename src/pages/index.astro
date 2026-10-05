@@ -8,35 +8,22 @@ import ContactTerminal from '../components/ContactTerminal.astro';
 import { categoryLabel, getDeepDiveProjects, getFeaturedProjects, getProjects } from '../lib/content';
 import { site } from '../lib/site';
 
-/* Reads content from D1 per request — see the note in `src/lib/content.ts`.
-   Prerendering this page would freeze the listing at deploy time, which is the
-   whole thing the database was introduced to stop. */
+/* Reads content from D1 per request.
+   Prerendering this page would freeze the listing at deploy time. */
 export const prerender = false;
 
 const { DB } = Astro.locals.runtime.env;
 
 const allProjects = await getProjects(DB);
 const featured = await getFeaturedProjects(DB, 6);
-/* The line-up is the author's call, not `date DESC`'s — the admin picks and
-   orders these on `/admin/projects`, and an empty or absent pick falls back to
-   the projects that have a case study behind them.
-
-   Projects, not case studies. A card here is the *work*, and `hidden` is a flag
-   on the work: reading the line-up out of `case_studies` is what let a retired
-   project go on leading the front door after its own page had started to 404
-   — decision 53. The card links to the write-up when there is one and to the
-   project's own page when there is not, which is the same pair `/projects`
-   offers. */
 const deepDives = await getDeepDiveProjects(DB);
+
+// Distinct categories present in active projects
+const activeCategories = Array.from(new Set(allProjects.map(p => p.data.category)));
 
 const skillSet = new Set<string>();
 allProjects.forEach(p => p.data.stack.forEach(s => skillSet.add(s)));
 
-/* The skills section is a wall of ~70 chips when it is one alphabetical
-   run — no order a visitor can hold onto. Grouping by discipline gives the
-   wall a reading path: scan the labels, land on your stack. Membership is
-   derived from the projects themselves; anything unmatched falls into
-   "Also" rather than being dropped or invented into a bucket. */
 const SKILL_ORDER = ['ML / CV', 'Languages', 'Web', 'Data & Infra', 'Also'];
 type SkillGroup = { label: string; items: string[] };
 const SKILL_BUCKETS: Record<string, string[]> = {
@@ -57,254 +44,1177 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
   label,
   items: Array.from(skillSet)
     .filter(s => skillGroupFor(s) === label)
-    .sort((a, b) => a.localeCompare(b))
+    .sort((a, b) => a.localeCompare(b)),
 })).filter(g => g.items.length > 0);
+
+const first = site.name.split(' ')[0].toLowerCase();
+
+/* Curiosity stickers (rabbit holes) with tangible engineering hooks */
+const TABS = [
+  {
+    art: 'code-inspection',
+    title: 'code inspection',
+    tag: 'kernel · compiler',
+    caption: 'reading other people’s code for fun',
+    note: 'From CUDA memory allocations to Linux device drivers, I love knowing how things actually run beneath the abstractions.',
+  },
+  {
+    art: 'fixing-bugs',
+    title: 'midnight trace',
+    tag: 'profiling · race conditions',
+    caption: 'chasing the bug past midnight',
+    note: 'The best lessons are hidden behind a 2 AM stack trace. If a packet dropped, there is a reason why.',
+  },
+  {
+    art: 'taking-notes',
+    title: 'field notes',
+    tag: 'telemetry · architecture',
+    caption: 'notes on everything',
+    note: 'Obsessively documented: pipeline throughput bottlenecks, loss curves, and aha moments.',
+  },
+  {
+    art: 'blogging',
+    title: 'writing it down',
+    tag: 'daily journal · post-mortems',
+    caption: 'writing it down after',
+    note: 'If it’s not documented, it didn’t ship. This portfolio keeps its own automated daily journal of real engineering work.',
+  },
+  {
+    art: 'playful-cat',
+    title: 'curiosity',
+    tag: 'what if? · side projects',
+    caption: 'easily distracted',
+    note: '“What if we rewrite the ingestion pipeline in Rust?” ...wait, stay focused.',
+  },
+];
+
+/* Core engineering domains */
+const HEART = [
+  {
+    num: '01',
+    title: 'machines that see',
+    tag: 'ML / CV',
+    body: 'Cameras, bounding boxes, spatial tracking. Estimating vehicle speed from raw CCTV video, parsing restaurant menus from unstructured photos with DBSCAN and Hungarian matching, tracking objects frame to frame with YOLOv8 and DeepSort. Vision is where I started and it still pulls hardest.',
+    aside: 'pixels in, meaning out',
+  },
+  {
+    num: '02',
+    title: 'data that never stops',
+    tag: 'Systems & Edge',
+    body: 'Change-data capture, Kafka pipelines, MQTT brokers, PLCs on high-throughput factory lines at Axcend. I like systems where the input does not wait for you to be ready, and where dropped packets mean stalled machines.',
+    aside: 'if it streams, I want to tap it',
+  },
+  {
+    num: '03',
+    title: 'tools for the person building',
+    tag: 'Dev Tools & AI',
+    body: 'Evaluation harnesses, local RAG pipelines, developer CLIs, in-browser CAD editors, and this site’s own custom admin & journal. Most of my side projects start as something I wanted for myself.',
+    aside: 'half engineer. half “why is this manual?”',
+  },
+];
+
+/* Timeline milestones */
+const TIMELINE = [
+  {
+    year: '2022',
+    what: 'Pondicherry University',
+    role: 'M.Sc. Computer Science',
+    note: 'Diving deep into algorithms, distributed systems, and starting the first serious side projects.',
+  },
+  {
+    year: '2023',
+    what: 'Chegg India',
+    role: 'Subject Matter Expert',
+    note: 'Explaining complex computer science problems to strangers turns out to be the sharpest way to master them.',
+  },
+  {
+    year: '2023',
+    what: 'Vision Systems',
+    role: 'Independent Research',
+    note: 'Vehicle speed estimation, Menu OCR, and in-browser VisionPlay — the first projects that felt genuinely mine.',
+  },
+  {
+    year: '2024',
+    what: 'Axcend Automation',
+    role: 'Software Engineer',
+    note: 'Industrial automation, SCADA systems, PLCs, network protocols (OPC UA, MQTT, Modbus), and factory telemetry.',
+  },
+  {
+    year: '2024',
+    what: 'Local AI & LLMs',
+    role: 'Engineering Experiments',
+    note: 'LocalRAG, EchoScript, QueryPilot — models running on local silicon, answering real questions without cloud lag.',
+  },
+  {
+    year: 'now',
+    what: 'This Site & Systems',
+    role: 'Full-Stack Architecture',
+    note: 'A database, an admin, a CLI, an assistant and a daily journal. Built the way I like building: all the way down.',
+  },
+];
+
+/* Continuous Story Thread Path: 6500px wide canvas across 650vw track */
+const STORY_THREAD_PATH =
+  'M 560 380 ' + // Hero brain knot exit
+  'C 750 380, 950 210, 1250 210 ' + // Rabbit holes top curve
+  'C 1420 210, 1460 550, 1680 550 ' + // Rabbit holes bottom curve
+  'C 1820 550, 1860 270, 2100 270 ' + // Heart/Vision curve
+  'C 2300 270, 2400 620, 2680 620 ' + // Project previews entry
+  'C 2880 620, 2920 230, 3180 230 ' + // Project previews top
+  'C 3380 230, 3450 710, 3750 710 ' + // Links / Blogs bottom
+  'C 3950 710, 4050 350, 4320 350 ' + // User Info top
+  'C 4550 350, 4650 680, 5000 680 ' + // User Info bottom
+  'C 5300 680, 5400 450, 5700 450 ' + // Transmission entry
+  'C 5900 450, 6100 500, 6500 500';   // Terminal socket end
 ---
-<BaseLayout title="Home" description={site.tagline}>
-  <header class="hero container">
-    <div class="hero-copy" data-reveal>
-      <span class="tag tag-accent-2 hero-status"><span class="status-dot" aria-hidden="true"></span>Open to opportunities</span>
-      {/* The name header, in the wordmark's voice: a prompt asks `whoami`
-          and the eyebrow below decodes in as the answer. */}
-      <PathLine cmd="whoami" delay={200} />
-      <p class="eyebrow" data-fx="scramble" data-fx-delay="700">Software Engineer</p>
-      <h1 class="hero-title">Building <span class="highlight">ML systems</span>, <span class="nowrap">full-stack</span> apps &amp; dev tools</h1>
-      <p class="hero-desc">{site.bio}</p>
-      <div class="hero-actions">
-        <a href="/projects" class="btn btn-primary">View Projects</a>
-        <a href={site.github} class="btn btn-secondary" target="_blank" rel="noopener">GitHub</a>
-      </div>
-    </div>
-    <div class="hero-figure" data-reveal style="--reveal-delay: 120ms">
-      {/* The wireframe orbit takes the portrait's place under the Geometry
-          theme — hidden by default here, revealed by geometry.css, so the
-          page never knows which theme is on. The photo stays the LCP element:
-          it is present in the markup on every theme. */}
-      <div class="hero-visual">
-        <Illustration name="geometry-orbit" />
-      </div>
-      {/* The hero's LCP element. It is above the fold on every viewport, so it
-          is fetched at high priority and never lazily — the browser's default
-          heuristics de-prioritise it behind the stylesheet otherwise. The
-          320w variant serves phones and narrow slots at ~60% of the bytes;
-          `sync` decoding keeps the LCP paint off the async queue. Dimensions
-          match the about page and the 4:5 CSS box, so the reserve is exact. */}
-      <img
-        class="grayscale hero-photo"
-        src={site.photo}
-        srcset="/images/ui/portrait-320.webp 320w, /images/ui/portrait.webp 439w"
-        sizes="160px"
-        alt={site.name}
-        width="440"
-        height="550"
-        fetchpriority="high"
-        loading="eager"
-        decoding="sync"
-      />
-    </div>
-  </header>
+<BaseLayout title="Home" description={`The anatomy of a curious engineer — ${site.name}'s field notes, systems, and works.`}>
+  <div class="st-page">
+    {/* Pinned reading progress bar riding inside the header slot */}
+    <div slot="header" class="st-progress" aria-hidden="true"></div>
 
-  <SectionSep />
+    {/* Floating custom cursor pill for desktop pointers */}
+    <div class="st-cursor-pill" aria-hidden="true"><span class="st-cursor-text"></span></div>
 
-  {deepDives.length > 0 && (
-    <Fragment>
-      <section class="container home-section" data-reveal>
-        <div class="section-head">
-          <div>
-            <p class="eyebrow">Selected Work</p>
-            <h2>Deep dives</h2>
+    {/* =========================================================================
+        1. THE STICKY HORIZONTAL STORY CANVAS (DESKTOP)
+        Exactly inspired by somehowliving.tech: a continuous drawn SVG wire that
+        unravels across a pinned horizontal track as the visitor scrolls down!
+       ========================================================================= */}
+    <section id="story-canvas" class="st-canvas-section" aria-label="Anatomy of a curious engineer">
+      <div class="st-canvas-sticky">
+        <div id="story-track" class="st-canvas-track" style="width: 650vw;">
+
+          {/* Master SVG Thread Line that physically draws on scroll */}
+          <svg class="st-master-svg" viewBox="0 0 6500 1000" preserveAspectRatio="none" aria-hidden="true">
+            {/* The background guide wire (subtle) */}
+            <path class="st-guide-wire" d={STORY_THREAD_PATH} />
+            {/* The active drawn wire (animates stroke-dashoffset on scroll) */}
+            <path
+              id="story-wire-path"
+              class="st-active-wire"
+              pathLength="1"
+              d={STORY_THREAD_PATH}
+            />
+            {/* The glowing leading photon / dot at the tip of the wire */}
+            <circle id="story-wire-dot" class="st-wire-dot" r="8" cx="560" cy="380" />
+          </svg>
+
+          {/* ————————— STATION 1: HERO & BRAIN SCHEMATIC (0vw - 100vw) ————————— */}
+          <div class="st-station st-station-hero" style="left: 0vw;">
+            <div class="st-hero-inner">
+              <div class="st-hero-text" data-reveal-at="0">
+                <div class="hero-badges">
+                  <span class="tag tag-accent-2 hero-status">
+                    <span class="status-dot" aria-hidden="true"></span>
+                    Open to opportunities · ML/CV, full-stack, systems
+                  </span>
+                </div>
+
+                <PathLine cmd="whoami" delay={200} />
+                <p class="eyebrow" data-fx="scramble" data-fx-delay="700">Software Engineer · {site.name}</p>
+
+                <h1 class="st-display">
+                  the<br />
+                  anatomy of a<br />
+                  <span class="st-mark">
+                    <em>curious engineer.</em>
+                    <svg class="st-underline" viewBox="0 0 320 24" preserveAspectRatio="none" aria-hidden="true">
+                      <path class="st-draw" pathLength="1" d="M4 16 C60 6 120 20 180 12 S280 8 316 16" />
+                    </svg>
+                  </span>
+                </h1>
+
+                <p class="st-lede">
+                  Field notes of someone who lives in the terminal, tracks bounding boxes on 25&nbsp;FPS video, decodes industrial PLCs on factory floors — and follows the wire all the way down.
+                </p>
+
+                <div class="hero-actions">
+                  <a class="btn btn-primary" href="#works" data-cursor="jump to selected work ↓">see the work</a>
+                  <a class="btn btn-secondary" href="#contact" data-cursor="say hello ✉️">let's talk</a>
+                  <a class="btn btn-ghost" href={site.github} target="_blank" rel="noopener" data-cursor="read the code ↗">github</a>
+                </div>
+              </div>
+
+              {/* Detailed Engineer, Brain & Swirling Knots */}
+              <div class="st-tangled-brain" data-reveal-at="0.02" data-cursor="an almost accurate map of what's in my mind :)">
+                <div class="schematic-note" style="top: 5%; right: -15%;">
+                  <svg class="st-arrow" viewBox="0 0 48 24" aria-hidden="true">
+                    <path class="st-draw" pathLength="1" d="M6 14 C18 4 34 4 44 12 M44 12 l-10 -6 M44 12 l-11 3" />
+                  </svg>
+                  <span>an almost accurate map of my mind</span>
+                </div>
+
+                <svg class="st-tangle-svg" viewBox="0 0 600 550" aria-hidden="true" style="overflow: visible;">
+                  {/* Laptop & Desk */}
+                  <path d="M 60 420 L 140 420 L 140 320 L 60 320 Z" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round" />
+                  <path d="M 80 340 L 120 340 M 80 360 L 100 360 M 80 380 L 110 380" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                  <path d="M 40 440 L 160 440 L 140 420 L 60 420 Z" fill="currentColor" stroke="currentColor" stroke-width="4" stroke-linejoin="round" />
+                  <path d="M 0 440 L 220 440" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+
+                  <g class="st-head-group">
+                    {/* Face Profile (Facing Left) */}
+                    <path d="M 300 120 
+                      C 260 120, 230 140, 220 180 
+                      C 210 190, 200 195, 180 195 
+                      C 170 195, 160 205, 160 215 
+                      C 160 230, 180 240, 190 250 
+                      C 180 270, 175 285, 190 300
+                      C 205 315, 220 330, 210 360
+                      C 200 390, 210 410, 240 430
+                      C 270 450, 280 480, 280 500" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+
+                    {/* Back of Head & Shoulders */}
+                    <path d="M 300 120 
+                      C 380 120, 440 180, 440 280 
+                      C 440 360, 400 420, 360 460
+                      C 330 490, 330 500, 330 500
+                      M 280 500 C 350 500, 400 520, 420 550" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+
+                    {/* Typing Arm */}
+                    <path d="M 280 500 C 270 470, 240 440, 180 440 C 160 440, 140 445, 120 445" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" />
+
+                    {/* The Brain (MDI Icon layered inside) */}
+                    <g transform="translate(240, 140) scale(6)" class="st-brain-icon" fill="none" stroke="currentColor" stroke-width="0.4" stroke-linecap="round" stroke-linejoin="round" opacity="0.3">
+                      <path d="M21.33 12.91c.09 1.55-.62 3.04-1.89 3.95l.77 1.49c.23.45.26.98.06 1.45c-.19.47-.58.84-1.06 1l-.79.25a1.69 1.69 0 0 1-1.86-.55L14.44 18c-.89-.15-1.73-.53-2.44-1.1c-.5.15-1 .23-1.5.23c-.88 0-1.76-.27-2.5-.79c-.53.16-1.07.23-1.62.22c-.79.01-1.57-.15-2.3-.45a4.1 4.1 0 0 1-2.43-3.61c-.08-.72.04-1.45.35-2.11c-.29-.75-.32-1.57-.07-2.33C2.3 7.11 3 6.32 3.87 5.82c.58-1.69 2.21-2.82 4-2.7c1.6-1.5 4.05-1.66 5.83-.37c.42-.11.86-.17 1.3-.17c1.36-.03 2.65.57 3.5 1.64c2.04.53 3.5 2.35 3.58 4.47c.05 1.11-.25 2.2-.86 3.13c.07.36.11.72.11 1.09m-5-1.41c.57.07 1.02.5 1.02 1.07a1 1 0 0 1-1 1h-.63c-.32.9-.88 1.69-1.62 2.29c.25.09.51.14.77.21c5.13-.07 4.53-3.2 4.53-3.25a2.59 2.59 0 0 0-2.69-2.49a1 1 0 0 1-1-1a1 1 0 0 1 1-1c1.23.03 2.41.49 3.33 1.3c.05-.29.08-.59.08-.89c-.06-1.24-.62-2.32-2.87-2.53c-1.25-2.96-4.4-1.32-4.4-.4c-.03.23.21.72.25.75a1 1 0 0 1 1 1c0 .55-.45 1-1 1c-.53-.02-1.03-.22-1.43-.56c-.48.31-1.03.5-1.6.56c-.57.05-1.04-.35-1.07-.9a.97.97 0 0 1 .88-1.1c.16-.02.94-.14.94-.77c0-.66.25-1.29.68-1.79c-.92-.25-1.91.08-2.91 1.29C6.75 5 6 5.25 5.45 7.2C4.5 7.67 4 8 3.78 9c1.08-.22 2.19-.13 3.22.25c.5.19.78.75.59 1.29c-.19.52-.77.78-1.29.59c-.73-.32-1.55-.34-2.3-.06c-.32.27-.32.83-.32 1.27c0 .74.37 1.43 1 1.83c.53.27 1.12.41 1.71.4q-.225-.39-.39-.81a1.038 1.038 0 0 1 1.96-.68c.4 1.14 1.42 1.92 2.62 2.05c1.37-.07 2.59-.88 3.19-2.13c.23-1.38 1.34-1.5 2.56-1.5" />
+                      <path d="M18.33 11.5l-.62-1.3l-.71.16l1 1.25zm-4.65-8.61a1 1 0 0 0-.91-1.03c-.71-.04-1.4.2-1.93.67c-.57.58-.87 1.38-.84 2.19a1 1 0 0 0 1 1c.57 0 1-.45 1-1c0-.27.07-.54.23-.76c.12-.1.27-.15.43-.15c.55.03 1.02-.38 1.02-.92" />
+                    </g>
+
+                    {/* Animated Knot/Swirl Unraveling */}
+                    <path class="st-brain-knot" d="
+                      M 312 222
+                      C 280 180, 240 240, 290 280
+                      C 340 320, 390 290, 390 240
+                      C 390 190, 340 140, 280 180
+                      C 220 220, 230 290, 270 330
+                      C 310 370, 400 360, 420 310
+                      C 440 260, 460 290, 460 330
+                      C 460 360, 500 380, 560 380
+                    " fill="none" stroke="var(--color-accent)" stroke-width="4" stroke-linecap="round" />
+                    
+                    <circle cx="312" cy="222" r="6" fill="var(--color-accent)" />
+                  </g>
+                </svg>
+              </div>
+            </div>
           </div>
-          <hr class="rule section-line" />
+
+          {/* ————————— STATION 2: RABBIT HOLES & CLIMBER (105vw - 215vw) ————————— */}
+          <div class="st-station" style="left: 105vw; width: 105vw;">
+            <div class="st-placed-sticker st-station-heading" style="left: 4vw; top: 22vh; width: 340px;" data-reveal-at="0.16">
+              <p class="st-kicker">curiosity · rabbit holes</p>
+              <h2 class="st-statement">a jack of all trades.</h2>
+              <p class="st-sub">what a cool way to say i fall down rabbit holes.</p>
+            </div>
+
+            {/* Sticker 1: Code inspection */}
+            <div class="st-placed-sticker" style="left: 30vw; top: 12vh; width: 280px;" data-reveal-at="0.18">
+              <div class="st-sticker-card card elev-sm" data-cursor="rabbit hole: code inspection 🔍">
+                <div class="st-sticker-art"><Illustration name={TABS[0].art} /></div>
+                <strong>{TABS[0].caption}</strong>
+                <p class="mono-dim">{TABS[0].tag}</p>
+                <div class="st-bubble-note"><p>{TABS[0].note}</p></div>
+              </div>
+            </div>
+
+            {/* Sticker 2: Midnight bugs */}
+            <div class="st-placed-sticker" style="left: 54vw; top: 54vh; width: 280px;" data-reveal-at="0.24">
+              <div class="st-sticker-card card elev-sm" data-cursor="rabbit hole: 2 AM race condition 🐛">
+                <div class="st-sticker-art"><Illustration name={TABS[1].art} /></div>
+                <strong>{TABS[1].caption}</strong>
+                <p class="mono-dim">{TABS[1].tag}</p>
+                <div class="st-bubble-note"><p>{TABS[1].note}</p></div>
+              </div>
+            </div>
+
+            {/* Sticker 3: The Climber hanging from the wire */}
+            <div class="st-placed-sticker st-climber-hang" style="left: 78vw; top: 26vh;" data-reveal-at="0.28" data-cursor="hanging on! tracing every packet :)">
+              <div class="st-rope-line" aria-hidden="true"></div>
+              <div class="st-climber-figure">
+                <svg class="st-climber-svg" viewBox="0 0 80 120" aria-hidden="true">
+                  <circle cx="40" cy="10" r="5" fill="var(--color-accent)" />
+                  <path d="M40 10 L44 32" stroke="currentColor" stroke-width="3" stroke-linecap="round" />
+                  <circle cx="46" cy="38" r="9" fill="currentColor" />
+                  <path d="M46 47 L48 78" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" />
+                  <path d="M46 54 L62 48 L68 38" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M48 78 L38 98 L30 110" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+                  <path d="M48 78 L58 96 L68 104" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </div>
+              <span class="st-tag-caption">the engineer, hanging from the wire</span>
+            </div>
+          </div>
+
+          {/* ————————— STATION 3: WHAT HAS MY HEART & OWNERSHIP (215vw - 325vw) ————————— */}
+          <div class="st-station" style="left: 215vw; width: 110vw;">
+            <div class="st-placed-sticker st-station-heading" style="left: 4vw; top: 22vh; width: 320px;" data-reveal-at="0.36">
+              <p class="st-kicker">craft · obsessions</p>
+              <h2 class="st-statement">but few things<br /><em>have my heart.</em></h2>
+            </div>
+
+            {/* Heart 01: Vision */}
+            <div class="st-placed-sticker" style="left: 28vw; top: 12vh; width: 320px;" data-reveal-at="0.38">
+              <article class="card elev-sm st-heart-box" data-cursor="ML & Vision: pixels in, meaning out">
+                <span class="tag tag-accent-2">01 · ML / CV</span>
+                <h3>{HEART[0].title}</h3>
+                <p>{HEART[0].body}</p>
+                <span class="st-aside"><em>{HEART[0].aside}</em></span>
+              </article>
+            </div>
+
+            {/* Heart 02: Streaming */}
+            <div class="st-placed-sticker" style="left: 52vw; top: 54vh; width: 320px;" data-reveal-at="0.45">
+              <article class="card elev-sm st-heart-box" data-cursor="Kafka & PLCs: if it streams, I want to tap it">
+                <span class="tag tag-neutral">02 · Systems &amp; Edge</span>
+                <h3>{HEART[1].title}</h3>
+                <p>{HEART[1].body}</p>
+                <span class="st-aside"><em>{HEART[1].aside}</em></span>
+              </article>
+            </div>
+
+            {/* Heart 03: Dev Tools */}
+            <div class="st-placed-sticker" style="left: 74vw; top: 12vh; width: 320px;" data-reveal-at="0.52">
+              <article class="card elev-sm st-heart-box" data-cursor="Dev Tools: why is this manual?">
+                <span class="tag tag-neutral">03 · Dev Tools</span>
+                <h3>{HEART[2].title}</h3>
+                <p>{HEART[2].body}</p>
+                <span class="st-aside"><em>{HEART[2].aside}</em></span>
+              </article>
+            </div>
+
+            {/* Ownership Callout */}
+            <div class="st-placed-sticker" style="left: 80vw; top: 58vh; width: 360px;" data-reveal-at="0.58">
+              <div class="card elev-sm st-ownership-box">
+                <p class="st-statement-sm">somehow, <span class="st-dim">i keep ending up...</span><br /><em>taking ownership.</em></p>
+                <p class="st-quote">“Most things I got curious about, I ended up building. Most things I built, I ended up looking after.”</p>
+              </div>
+            </div>
+          </div>
+
+          {/* ————————— STATION 4: THE LOOP & THE JOURNEY (330vw - 435vw) ————————— */}
+          {/* ————————— STATION 4: PROJECT PREVIEWS (330vw - 420vw) ————————— */}
+          <div class="st-station" style="left: 330vw; width: 90vw;">
+            <div class="st-placed-sticker" style="left: 4vw; top: 62vh; width: 340px;" data-reveal-at="0.55">
+              <div class="st-station-title-box">
+                <p class="st-kicker">the cycle</p>
+                <h2 class="st-statement-sm">i like to build things<br /><span class="st-dim">all the way down.</span></h2>
+                <p>from kernel tuning to frontend styling, here are a few things I've built recently.</p>
+              </div>
+            </div>
+
+            <div class="st-placed-sticker" style="left: 30vw; top: 55vh; width: 340px;" data-reveal-at="0.58">
+              <a href="/projects" class="card elev-sm st-preview-card" data-cursor="view project: VisionPlay">
+                <span class="tag tag-accent-2">Recent Build</span>
+                <h3>VisionPlay</h3>
+                <p>In-browser CV editor using WebAssembly and OpenCV.</p>
+              </a>
+            </div>
+
+            <div class="st-placed-sticker" style="left: 56vw; top: 48vh; width: 340px;" data-reveal-at="0.61">
+              <a href="/projects" class="card elev-sm st-preview-card" data-cursor="view project: LocalRAG">
+                <span class="tag tag-neutral">LLM Engineering</span>
+                <h3>LocalRAG</h3>
+                <p>Private document querying entirely on local silicon.</p>
+              </a>
+            </div>
+          </div>
+
+          {/* ————————— STATION 5: LOGS & MORE PROJECTS (430vw - 510vw) ————————— */}
+          <div class="st-station" style="left: 430vw; width: 80vw;">
+            <div class="st-placed-sticker" style="left: 6vw; top: 22vh; width: 360px;" data-reveal-at="0.68">
+              <p class="st-kicker">transmissions & logs</p>
+              <h2 class="st-statement-sm">i write things down.</h2>
+              <p>Mostly personal blogs, engineering field notes, and architecture diagrams for things that break.</p>
+              <div class="st-action-row" style="margin-top: 2rem;">
+                <a class="btn btn-secondary" href="/blog" data-cursor="read the journal 📓">read the logs →</a>
+                <a class="btn btn-ghost" href="/projects" data-cursor="all repositories 📂">more projects →</a>
+              </div>
+            </div>
+            
+            <div class="st-placed-sticker" style="left: 45vw; top: 12vh; width: 280px;" data-reveal-at="0.72">
+               <div class="card elev-sm st-heart-box" data-cursor="latest log">
+                  <span class="tag tag-accent-2">Latest Log</span>
+                  <h3>Why I built this site</h3>
+                  <p>A deep dive into abandoning heavy frameworks for vanilla DOM physics.</p>
+               </div>
+            </div>
+          </div>
+
+          {/* ————————— STATION 6: USER INFO / PORTRAIT (520vw - 580vw) ————————— */}
+          <div class="st-station st-meet-finale" style="left: 520vw; width: 60vw;">
+            <div class="st-placed-sticker" style="left: 0vw; top: 30vh; width: 440px;" data-reveal-at="0.80">
+              <div class="st-who-note">
+                <svg class="st-arrow" viewBox="0 0 48 24" aria-hidden="true">
+                  <path class="st-draw" pathLength="1" d="M12 4 C6 14 14 20 28 20 M28 20 l-6 -6 M28 20 l-4 8" />
+                </svg>
+                <span>who made this?</span>
+              </div>
+              <h2 class="st-grand-title">
+                <span>oh, hi.</span><br />
+                i’m <em>{first}.</em>
+              </h2>
+              <p class="st-sub-lines" style="margin-top: 1rem;">
+                still curious.<br />
+                still building.<br />
+                still opening tabs.
+              </p>
+            </div>
+            
+            <div class="st-placed-sticker" style="left: 30vw; top: 20vh; width: 340px;" data-reveal-at="0.85">
+              <div class="st-photo-wrap" data-cursor="still figuring this out :)">
+                <img class="grayscale st-photo card elev-sm" src={site.photo} alt={site.name} width="440" height="550" loading="lazy" />
+                <div class="st-hand-note st-note-bottom">
+                  <span>same engineer... just deeper stack traces now.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ————————— STATION 7: TRANSMISSION / CONTACT (590vw - 650vw) ————————— */}
+          <div class="st-station" style="left: 590vw; width: 60vw;">
+            <div class="st-placed-sticker st-finale-transition" style="left: 0vw; top: 32vh; width: 500px;" data-reveal-at="0.90">
+              <p class="st-kicker">curtain drop</p>
+              <h2 class="st-statement-sm" style="margin-bottom: 2rem;">
+                let's build something<br />
+                <em class="st-dim">that actually runs.</em>
+              </h2>
+              
+              {/* Insert the Contact Terminal natively inside the scroll! */}
+              <ContactTerminal />
+              
+              <div class="st-social-pills" style="margin-top: 2rem;">
+                <a href={site.linkedin} target="_blank" rel="noopener" class="btn btn-ghost btn-sm" data-cursor="the professional version">linkedin ↗</a>
+                <a href={site.github} target="_blank" rel="noopener" class="btn btn-ghost btn-sm" data-cursor="where the code lives">github ↗</a>
+                <a href={site.twitter} target="_blank" rel="noopener" class="btn btn-ghost btn-sm" data-cursor="thoughts & logs">x ↗</a>
+              </div>
+            </div>
+          </div>
+
         </div>
-        <div class="grid-3 cs-grid">
-          {deepDives.map((project, i) => (
-            <a
-              href={project.data.caseStudySlug
-                ? `/case-studies/${encodeURIComponent(project.data.caseStudySlug)}`
-                : `/projects/${encodeURIComponent(project.slug)}`}
-              class:list={['card', 'elev-sm', 'cs-card', { 'cs-lead': i === 0 && deepDives.length >= 3 }]}
-            >
-              <span class="card-kicker">{project.data.year} · {categoryLabel(project.data.category)}</span>
-              <h3 class="card-title">{project.data.title}</h3>
-              <p class="card-body">{project.data.summary}</p>
-              {/* A span, not an anchor — the whole card already links to the
-                  write-up, and a button inside a link is the one nesting
-                  browsers refuse to render. Dressed as the same primary action
-                  the project cards below use, so both sections answer "where do
-                  I click" identically. */}
-              <span class="btn btn-primary btn-sm cs-card-cta">
-                {project.data.caseStudySlug ? 'Read case study' : 'Details'}
-              </span>
-            </a>
+      </div>
+    </section>
+
+    {/* =========================================================================
+        MOBILE STORY JOURNEY (STACKED & STREAMLINED FOR PHONES < 768px)
+       ========================================================================= */}
+    <div class="st-mobile-story md:hidden container">
+      <header class="st-mobile-hero">
+        <span class="tag tag-accent-2 hero-status">
+          <span class="status-dot"></span> Open to opportunities
+        </span>
+        <h1 class="st-display-sm">
+          the anatomy of a<br /><em>curious engineer.</em>
+        </h1>
+        <p class="st-lede">{site.bio}</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary btn-sm" href="#works">see work ↓</a>
+          <a class="btn btn-secondary btn-sm" href="#contact">say hello</a>
+        </div>
+      </header>
+
+      <div class="st-mobile-tabs">
+        <p class="st-kicker">curiosity · rabbit holes</p>
+        <div class="st-mobile-cards">
+          {TABS.map(t => (
+            <div class="card elev-sm st-mobile-tab">
+              <strong>{t.caption}</strong>
+              <p>{t.note}</p>
+            </div>
           ))}
         </div>
-      </section>
-
-      <SectionSep />
-    </Fragment>
-  )}
-
-  <section class="container home-section" data-reveal>
-    <div class="section-head">
-      <div>
-        <p class="eyebrow">Featured Projects</p>
-        <h2>Recent work</h2>
       </div>
-      <hr class="rule section-line" />
-      <a class="btn btn-ghost" href="/projects">View all projects →</a>
     </div>
-    <div class="grid-2">
-      {featured.map(project => (
-        <ProjectCard title={project.data.title} slug={project.slug} summary={project.data.summary} tags={project.data.tags} status={project.data.status} year={project.data.year} repoUrl={project.data.repoUrl} demoUrl={project.data.demoUrl} caseStudySlug={project.data.caseStudySlug} heroImage={project.data.heroImage} />
-      ))}
-    </div>
-  </section>
 
-  <SectionSep />
-
-  <section class="container home-section" data-reveal>
-    <div class="section-head">
-      <div>
-        <p class="eyebrow">Skills &amp; Stack</p>
-        <h2 class="skills-title">What I build with</h2>
+    {/* =========================================================================
+        2. THE WORK: Selected Works & Deep Dives (D1 Live Data + Dynamic Filter)
+       ========================================================================= */}
+    <section id="works" class="container st-section">
+      <div class="section-head">
+        <div>
+          <p class="st-kicker">selected work · 2023—now</p>
+          <h2 class="st-statement">a few things,<br /><em>chosen on purpose.</em></h2>
+        </div>
+        <hr class="rule section-line" />
+        <a class="btn btn-ghost" href="/projects" data-cursor="all projects ↗">View all projects →</a>
       </div>
-      <hr class="rule section-line" />
-    </div>
-    <div class="skills-grid">
-      {skillGroups.map(group => (
-        <div class:list={['skill-cluster', { 'skill-cluster-wide': group.label === 'Also' }]}>
-          <p class="skill-label">{group.label}</p>
-          <div class="tag-row">
-            {group.items.map(s => <span class="tag tag-neutral">{s}</span>)}
+
+      {/* Category filter buttons */}
+      <div class="st-filters" role="group" aria-label="Filter works by category">
+        <button type="button" class="btn btn-ghost btn-sm st-filter-btn" data-cat="all" aria-pressed="true" data-cursor="filter: all">
+          all ({allProjects.length})
+        </button>
+        {activeCategories.map(c => (
+          <button type="button" class="btn btn-ghost btn-sm st-filter-btn" data-cat={c} aria-pressed="false" data-cursor={`filter: ${categoryLabel(c)}`}>
+            {categoryLabel(c).toLowerCase()}
+          </button>
+        ))}
+      </div>
+
+      {/* Deep Dives Section */}
+      {deepDives.length > 0 && (
+        <div class="st-deep-dives-wrap">
+          <p class="eyebrow">Deep dives &amp; case studies</p>
+          <div class="grid-3 cs-grid st-works-grid">
+            {deepDives.map((project, i) => (
+              <a
+                href={project.data.caseStudySlug
+                  ? `/case-studies/${encodeURIComponent(project.data.caseStudySlug)}`
+                  : `/projects/${encodeURIComponent(project.slug)}`}
+                class:list={['card', 'elev-sm', 'cs-card', 'st-filterable', { 'cs-lead': i === 0 && deepDives.length >= 3 }]}
+                data-cat={project.data.category}
+                data-cursor={project.data.caseStudySlug ? 'read case study →' : 'view project details →'}
+              >
+                <div class="cs-card-top">
+                  <span class="card-kicker">{project.data.year} · {categoryLabel(project.data.category)}</span>
+                  {project.data.caseStudySlug && <span class="tag tag-accent-2">Deep Dive</span>}
+                </div>
+                <h3 class="card-title">{project.data.title}</h3>
+                <p class="card-body">{project.data.summary}</p>
+                <div class="card-tags">
+                  {project.data.tags.slice(0, 4).map(tag => <span class="tag tag-neutral">{tag}</span>)}
+                </div>
+                <span class="btn btn-primary btn-sm cs-card-cta">
+                  {project.data.caseStudySlug ? 'Read case study' : 'Details'}
+                </span>
+              </a>
+            ))}
           </div>
         </div>
-      ))}
+      )}
+
+      {/* Featured Projects Grid */}
+      <div class="st-featured-wrap">
+        <p class="eyebrow">Recent builds</p>
+        <div class="grid-2 st-works-grid">
+          {featured.map(project => (
+            <div class="st-filterable" data-cat={project.data.category}>
+              <ProjectCard
+                title={project.data.title}
+                slug={project.slug}
+                summary={project.data.summary}
+                tags={project.data.tags}
+                status={project.data.status}
+                year={project.data.year}
+                repoUrl={project.data.repoUrl}
+                demoUrl={project.data.demoUrl}
+                caseStudySlug={project.data.caseStudySlug}
+                heroImage={project.data.heroImage}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div class="st-more-strip">
+        <div>
+          <strong>Curious for more?</strong>
+          <p class="st-sub mb-0 mt-1">There’s more code, benchmarks, simulation models, and architecture write-ups.</p>
+        </div>
+        <a href="/projects" class="btn btn-secondary" data-cursor="browse repository 📂">more rabbit holes →</a>
+      </div>
+    </section>
+
+    <SectionSep />
+
+    {/* =========================================================================
+        3. SKILLS & STACK: What I Build With
+       ========================================================================= */}
+    <section id="skills" class="container home-section">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Skills &amp; Stack</p>
+          <h2 class="skills-title">What I build with</h2>
+        </div>
+        <hr class="rule section-line" />
+      </div>
+      <div class="skills-grid">
+        {skillGroups.map(group => (
+          <div class:list={['skill-cluster', { 'skill-cluster-wide': group.label === 'Also' }]} data-cursor={`stack: ${group.label}`}>
+            <p class="skill-label">{group.label}</p>
+            <div class="tag-row">
+              {group.items.map(s => <span class="tag tag-neutral">{s}</span>)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+
+    <SectionSep />
+
+    {/* =========================================================================
+        4. "OH, HI. I'M ANISH." (Holding The End Of The Wire!)
+        Direct homage to somehowliving.tech with personal portrait & handwritten notes
+       ========================================================================= */}
+    <section id="meet" class="container st-section st-meet-finale st-mobile-only">
+      <div class="st-meet-grid">
+        <div class="st-meet-text">
+          <div class="st-who-note">
+            <svg class="st-arrow" viewBox="0 0 48 24" aria-hidden="true">
+              <path class="st-draw" pathLength="1" d="M12 4 C6 14 14 20 28 20 M28 20 l-6 -6 M28 20 l-4 8" />
+            </svg>
+            <span>who made this?</span>
+          </div>
+
+          <h2 class="st-grand-title">
+            <span>oh, hi.</span><br />
+            i’m <em>{first}.</em>
+          </h2>
+
+          <p class="st-sub-lines">
+            still curious.<br />
+            still building.<br />
+            still opening tabs.
+          </p>
+
+          <p class="st-cta-pitch">
+            let’s build something<br />that <em>actually runs</em>.
+          </p>
+
+          <div class="st-contact-buttons">
+            <a href={`mailto:${site.email}`} class="btn btn-primary btn-lg" data-cursor="send the interesting idea ✉️">
+              {site.email} ↗
+            </a>
+            <div class="st-social-pills">
+              <a href={site.linkedin} target="_blank" rel="noopener" class="btn btn-ghost btn-sm" data-cursor="the professional version">linkedin ↗</a>
+              <a href={site.github} target="_blank" rel="noopener" class="btn btn-ghost btn-sm" data-cursor="where the code lives">github ↗</a>
+              <a href={site.twitter} target="_blank" rel="noopener" class="btn btn-ghost btn-sm" data-cursor="thoughts & logs">x ↗</a>
+            </div>
+          </div>
+
+          <div class="st-fun-fact card elev-sm">
+            <span class="st-kicker">fun fact</span>
+            <p>this site writes its own journal daily — an AI assistant drafts the summary from git commits, and I still get the final word before it publishes.</p>
+          </div>
+        </div>
+
+        {/* The End-of-Wire Portrait Frame */}
+        <div class="st-portrait-col">
+          <svg class="st-end-wire" viewBox="0 0 100 120" aria-hidden="true">
+            <path class="st-draw" pathLength="1" d="M 0 20 C 50 20, 60 70, 70 120" />
+            <circle cx="70" cy="120" r="5" fill="var(--color-accent)" />
+          </svg>
+          <div class="st-photo-wrap" data-cursor="still figuring this out :)">
+            <img class="grayscale st-photo card elev-sm" src={site.photo} alt={site.name} width="440" height="550" loading="lazy" />
+            <div class="st-hand-note st-note-top">
+              <span>same engineer... just deeper stack traces now.</span>
+            </div>
+            <div class="st-hand-note st-note-bottom">
+              <span>still learning how this fits together... and probably always will.</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    {/* =========================================================================
+        5. FINALE: Interactive Contact Terminal
+       ========================================================================= */}
+    <div id="contact" class="st-finale st-mobile-only">
+      <ContactTerminal />
+      <div class="container st-center st-back-top">
+        <a class="btn btn-ghost btn-sm st-top" href="#main" data-cursor="rewind to top ↑">© {new Date().getFullYear()} {first} · back to top ↑</a>
+      </div>
     </div>
-  </section>
-
-  <SectionSep />
-
-  {/* The closing move used to be a solid banner with two buttons. It is now
-      the contact section: the same invitation, with the details a visitor
-      actually needs and a way to write back. */}
-  <ContactTerminal />
+  </div>
 </BaseLayout>
+
+<script>
+  // 1. Horizontal Scroll & Dynamic SVG Line Drawing (with smooth Lerp)
+  const storyCanvas = document.getElementById('story-canvas');
+  const track = document.getElementById('story-track');
+  const path = document.getElementById('story-wire-path') as SVGGeometryElement | null;
+  const dot = document.getElementById('story-wire-dot');
+  const revealItems = document.querySelectorAll<HTMLElement>('[data-reveal-at]');
+
+  let targetProgress = 0;
+  let currentProgress = 0;
+  let isAnimatingScroll = false;
+  let pathLen = 0;
+
+  if (path && path.getTotalLength) {
+    pathLen = path.getTotalLength();
+  }
+
+  function updateScroll() {
+    if (!storyCanvas || !track || !path) return;
+    const rect = storyCanvas.getBoundingClientRect();
+    const maxScroll = storyCanvas.offsetHeight - window.innerHeight;
+    if (maxScroll <= 0) return;
+
+    const scrolled = -rect.top;
+    targetProgress = Math.max(0, Math.min(1, scrolled / maxScroll));
+
+    if (!isAnimatingScroll) {
+      isAnimatingScroll = true;
+      requestAnimationFrame(renderScroll);
+    }
+  }
+
+  function renderScroll() {
+    // Smooth interpolation (lerp factor 0.08 for buttery smoothness)
+    currentProgress += (targetProgress - currentProgress) * 0.08;
+
+    if (Math.abs(targetProgress - currentProgress) < 0.0005) {
+      currentProgress = targetProgress;
+      isAnimatingScroll = false;
+    } else {
+      requestAnimationFrame(renderScroll);
+    }
+
+    // Pan horizontal track
+    if (track) {
+      const maxPan = track.scrollWidth - window.innerWidth;
+      track.style.transform = `translate3d(-${currentProgress * maxPan}px, 0, 0)`;
+    }
+
+    // Draw active wire
+    if (path) {
+      path.style.strokeDashoffset = `${1 - currentProgress}`;
+    }
+
+    // Move leading photon dot along path
+    if (dot && path && pathLen > 0) {
+      const pt = path.getPointAtLength(currentProgress * pathLen);
+      dot.setAttribute('cx', String(pt.x));
+      dot.setAttribute('cy', String(pt.y));
+    }
+
+    // Reveal station items smoothly as the line approaches
+    revealItems.forEach(item => {
+      const at = parseFloat(item.dataset.revealAt || '0');
+      // Adding a dynamic fade-up translation based on proximity
+      const distance = currentProgress - at;
+      if (distance >= -0.04) {
+        item.classList.add('is-revealed');
+      } else {
+        item.classList.remove('is-revealed');
+      }
+    });
+  }
+
+  window.addEventListener('scroll', updateScroll, { passive: true });
+  window.addEventListener('resize', updateScroll, { passive: true });
+  updateScroll();
+
+  // 2. Category filter for all works
+  const buttons = document.querySelectorAll<HTMLButtonElement>('.st-filters [data-cat]');
+  const items = document.querySelectorAll<HTMLElement>('.st-filterable');
+
+  buttons.forEach(btn => btn.addEventListener('click', () => {
+    const cat = btn.dataset.cat;
+    buttons.forEach(b => b.setAttribute('aria-pressed', String(b === btn)));
+    items.forEach(item => {
+      const match = cat === 'all' || item.dataset.cat === cat;
+      item.hidden = !match;
+      if (match) {
+        item.style.animation = 'st-card 0.4s cubic-bezier(0.22, 1, 0.36, 1) both';
+      }
+    });
+  }));
+
+  // 3. Desktop Floating Cursor Tooltip (physics-interpolated)
+  const cursorPill = document.querySelector<HTMLElement>('.st-cursor-pill');
+  const cursorText = document.querySelector<HTMLElement>('.st-cursor-text');
+
+  if (cursorPill && cursorText && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    let mouseX = -100;
+    let mouseY = -100;
+    let currentX = -100;
+    let currentY = -100;
+    let isVisible = false;
+
+    window.addEventListener('mousemove', (e: MouseEvent) => {
+      mouseX = e.clientX;
+      mouseY = e.clientY;
+
+      const target = (e.target as HTMLElement)?.closest<HTMLElement>('[data-cursor]');
+      if (target && target.dataset.cursor) {
+        cursorText.textContent = target.dataset.cursor;
+        if (!isVisible) {
+          isVisible = true;
+          cursorPill.classList.add('is-active');
+        }
+      } else {
+        if (isVisible) {
+          isVisible = false;
+          cursorPill.classList.remove('is-active');
+        }
+      }
+    });
+
+    const render = () => {
+      currentX += (mouseX - currentX) * 0.22;
+      currentY += (mouseY - currentY) * 0.22;
+      cursorPill.style.transform = `translate3d(${currentX + 14}px, ${currentY + 16}px, 0)`;
+      requestAnimationFrame(render);
+    };
+    requestAnimationFrame(render);
+  }
+</script>
+
 <style>
-  .eyebrow { margin-bottom: var(--space-2); }
+  /* ==========================================================================
+     The Anatomy of a Curious Engineer — Master Styling
+     ========================================================================== */
+  .st-page { overflow-x: clip; position: relative; }
+  .st-section { padding-block: clamp(48px, 7vw, 96px); }
+  .st-center { text-align: center; }
+  .st-center > * { margin-inline: auto; }
 
-  /* Theme-only artwork. The slot exists in the markup on every theme but
-     renders nowhere until a theme file reveals it — the page stays theme-
-     agnostic and the artwork is display:none, so no paint cost elsewhere. */
-  .hero-visual { display: none; }
+  .st-kicker {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin: 0 0 var(--space-3);
+  }
+  .st-statement {
+    font-size: clamp(28px, 4.6vw, 54px);
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 0 0 var(--space-3);
+  }
+  .st-statement-sm {
+    font-size: clamp(22px, 3vw, 36px);
+    line-height: 1.15;
+    margin: 0 0 var(--space-3);
+  }
+  em { color: var(--color-accent); font-style: italic; }
+  .st-dim { color: var(--color-text-muted); font-weight: normal; }
+  .st-sub { font-size: 17px; opacity: 0.85; margin: 0 0 var(--space-6); max-width: 54ch; line-height: 1.5; }
 
-  /* — hero — */
-  .hero {
+  /* Drawn SVG paths */
+  .st-draw {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 1 2;
+  }
+
+  /* ————————— 1. STICKY HORIZONTAL CANVAS (DESKTOP) ————————— */
+  .st-canvas-section {
+    position: relative;
+    height: 650vh;
+  }
+  @media (max-width: 768px) {
+    .st-canvas-section { display: none; }
+  }
+  .st-canvas-sticky {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    width: 100%;
+    overflow: hidden;
+  }
+  .st-canvas-track {
+    position: relative;
+    height: 100%;
+    width: 520vw;
+    will-change: transform;
+  }
+
+  /* Master Continuous SVG Thread */
+  .st-master-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: visible;
+  }
+  .st-guide-wire {
+    fill: none;
+    stroke: var(--color-divider);
+    stroke-width: 2;
+    opacity: 0.4;
+  }
+  .st-active-wire {
+    fill: none;
+    stroke: var(--color-accent);
+    stroke-width: 3.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    transition: stroke-dashoffset 0.05s linear;
+  }
+  .st-wire-dot {
+    fill: var(--color-accent);
+    filter: drop-shadow(0 0 8px var(--color-accent));
+    transition: cx 0.05s linear, cy 0.05s linear;
+  }
+
+  /* Station positioning */
+  .st-station {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    box-sizing: border-box;
+  }
+  .st-station-hero {
+    width: 100vw;
+    display: flex;
+    align-items: center;
+    padding-inline: 6vw;
+  }
+  .st-hero-inner {
     display: grid;
-    grid-template-columns: 1.2fr 0.8fr;
+    grid-template-columns: 1.15fr 0.85fr;
     gap: var(--space-8);
     align-items: center;
-    padding-top: var(--space-8);
-    padding-bottom: var(--space-8);
-  }
-  .hero-status { margin-bottom: var(--space-3); gap: 8px; }
-
-  /* Availability light. It is the only thing on the page that moves on its
-     own, so it stops entirely when the visitor asks for less motion. */
-  .status-dot {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--color-accent);
-    flex: none;
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    .status-dot { animation: status-pulse 2s ease-in-out infinite; }
-  }
-  @keyframes status-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.35; }
-  }
-
-  /* 22ch, not 12ch. The measure has to hold the first line — "Building ML
-     systems," — or the marked phrase breaks away from the verb that governs
-     it, which is the one line in the hero that has to read as a unit. */
-  .hero-title { font-size: clamp(32px, 5.4vw, 52px); max-width: 22ch; margin-bottom: var(--space-4); }
-
-  /* The one phrase the hero argues for, marked the way a spec marks the term
-     it is defining. It never breaks: the box is the mark, and a mark split
-     across two lines reads as two marks. */
-  .highlight {
-    color: var(--color-accent-800);
-    background: var(--color-accent-100);
-    border: 1px dashed var(--color-accent);
-    padding: 0 8px;
-    white-space: nowrap;
-  }
-  .nowrap { white-space: nowrap; }
-  .hero-desc { font-size: 17px; max-width: 52ch; opacity: 0.85; margin-bottom: var(--space-4); }
-  .hero-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; }
-  .hero-figure {
-    border-left: 2px solid var(--color-divider);
-    padding-left: var(--space-6);
-    /* The vignette below hangs off this. Geometry replaces the whole figure
-       with the orbit and sets its own; both are `relative` either way. */
-    position: relative;
-    /* Small, and on the disc's line. Left to the grid the photograph filled
-       the whole 0.8fr lane — 360-odd pixels of portrait beside 52px type —
-       and read as the page's subject rather than its author. 160px is what
-       Geometry's disc comes to (38% of the lane), so the three themes now
-       agree on how much portrait a hero gets, and the plate is centred in
-       the lane the way the disc is: the right margin is the rule and its
-       padding, so the *photograph* — not the figure box — sits on the lane's
-       centre line. Capping the figure rather than the image keeps every
-       theme's marks — crop ticks, ghost outline, veil — on the photograph,
-       because they are all drawn on this box. Geometry lifts all of it: the
-       orbit wants the lane. */
-    --hero-photo: 160px;
-    --hero-rule: calc(var(--space-6) + 2px);
-    max-width: calc(var(--hero-photo) + var(--hero-rule));
-    margin-right: var(--hero-rule);
-    justify-self: center;
-  }
-
-  /* 4:5 rather than square, and the eyeline a little higher.
-
-     A head-and-shoulders portrait in a 1:1 crop loses one of the two — at 480
-     square this one was cut across the top of the head and again across the
-     chest. Geometry overrides both of these to make the disc, so this is the
-     shape every *other* theme gets. */
-  .hero-photo {
     width: 100%;
-    aspect-ratio: 4 / 5;
-    object-fit: cover;
-    object-position: center 15%;
+    max-width: 1280px;
+    margin: 0 auto;
   }
-
-  /* The bottom edge, landed on the page ground rather than cut off at it.
-
-     The shirt in this photograph is near-white and half the themes here have a
-     near-black ground, so the frame's bottom was a hard horizontal line that
-     reads as an image that failed to finish loading. A gradient in
-     `--color-bg` resolves to the theme's own ground, which on the light themes
-     is near-invisible and correctly does nothing. */
-  .hero-figure::after {
-    content: '';
+  .hero-badges { display: flex; gap: var(--space-2); margin-bottom: var(--space-3); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-accent); flex: none; }
+  .st-display {
+    font-size: clamp(36px, 5.5vw, 76px);
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    margin: var(--space-2) 0 var(--space-4);
+  }
+  .st-mark { position: relative; width: fit-content; display: inline-block; }
+  .st-underline {
     position: absolute;
-    inset: 0 0 0 var(--space-6);
-    pointer-events: none;
-    background: linear-gradient(
-      to top,
-      color-mix(in srgb, var(--color-bg) 78%, transparent) 0%,
-      color-mix(in srgb, var(--color-bg) 20%, transparent) 20%,
-      transparent 42%
-    );
+    left: 0;
+    bottom: -0.12em;
+    width: 100%;
+    height: 0.3em;
+    overflow: visible;
+    color: var(--color-accent);
+  }
+  .st-lede { font-size: clamp(16px, 1.6vw, 19px); max-width: 48ch; opacity: 0.9; margin: 0 0 var(--space-6); line-height: 1.55; }
+  .hero-actions { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; }
+
+  /* Tangled Brain Scribble in Hero */
+  .st-tangled-brain {
+    position: relative;
+    display: grid;
+    place-items: center;
+  }
+  .st-tangle-svg {
+    width: 100%;
+    max-width: 440px;
+    height: auto;
+    overflow: visible;
+    color: var(--color-accent);
+  }
+  .st-draw-tangle {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.2;
+    stroke-linecap: round;
+    stroke-dasharray: 1;
+    animation: draw-tangle 3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .schematic-note {
+    position: absolute;
+    top: 10%;
+    right: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-accent);
+    background: var(--color-bg);
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px dashed var(--color-accent);
+  }
+  .st-arrow { width: 38px; height: 20px; flex: none; overflow: visible; }
+
+  /* Placed Stickers along the wire track */
+  .st-station-title-box { max-width: 420px; }
+  .st-station-heading { max-width: 360px; }
+  .st-placed-sticker {
+    position: absolute;
+    transition: opacity 0.6s var(--ease-out), transform 0.6s var(--ease-out);
+    opacity: 0.15;
+    transform: translateY(30px) scale(0.95);
+  }
+  
+  /* Staggered text animations for children */
+  .st-placed-sticker > * {
+    transition: opacity 0.5s var(--ease-out), transform 0.5s var(--ease-out);
+    opacity: 0;
+    transform: translateY(15px);
+  }
+  .st-placed-sticker > *:nth-child(1) { transition-delay: 0.1s; }
+  .st-placed-sticker > *:nth-child(2) { transition-delay: 0.2s; }
+  .st-placed-sticker > *:nth-child(3) { transition-delay: 0.3s; }
+  .st-placed-sticker > *:nth-child(4) { transition-delay: 0.4s; }
+
+  .st-placed-sticker.is-revealed,
+  .st-station-title-box.is-revealed,
+  .st-hero-text.is-revealed,
+  .st-tangled-brain.is-revealed,
+  .st-finale-transition.is-revealed {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  
+  /* Trigger child reveals */
+  .st-placed-sticker.is-revealed > *,
+  .st-station-title-box.is-revealed > *,
+  .st-hero-text.is-revealed > *,
+  .st-finale-transition.is-revealed > * {
+    opacity: 1;
+    transform: translateY(0);
   }
 
-  /* — sections —
-     Padded on both ends now that a separator band sits between them: the
-     band's rule is the boundary, and content needs the same breathing room
-     below it as it has above the next one. */
-  .home-section { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  .st-sticker-card {
+    padding: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    width: 240px;
+    border-radius: var(--radius-md, 4px);
+    transition: transform var(--dur-fast), border-color var(--dur-fast);
+  }
+  .st-sticker-card:hover {
+    transform: translateY(-6px) rotate(-1deg);
+    border-color: var(--color-accent);
+  }
+  .st-sticker-art { width: 90px; height: 90px; margin-bottom: var(--space-2); }
+  .st-sticker-art :global(svg) { width: 100%; height: 100%; }
+  .mono-dim { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); margin: 2px 0 var(--space-2); }
+  .st-bubble-note {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+    background: var(--color-bg);
+    border: 1px dashed var(--color-divider);
+    border-radius: 4px;
+    padding: 6px 8px;
+    margin-top: auto;
+  }
+  .st-bubble-note p { margin: 0; }
+
+  /* The Climber Silhouette */
+  .st-climber-hang {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    width: 180px;
+  }
+  .st-rope-line {
+    width: 2px;
+    height: 40px;
+    background: var(--color-accent);
+  }
+  .st-climber-figure {
+    width: 60px;
+    height: 90px;
+    transform-origin: 50% 0;
+    animation: hang-swing 4s ease-in-out infinite;
+  }
+  .st-climber-svg { width: 100%; height: 100%; color: var(--color-text); }
+  .st-tag-caption { font-family: var(--font-mono); font-size: 10px; color: var(--color-accent); margin-top: var(--space-2); }
+
+  /* Focus Cards */
+  .st-heart-box {
+    padding: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    border-top: 3px solid var(--color-accent);
+  }
+  .st-heart-box h3 { font-size: 20px; margin: 0; }
+  .st-heart-box p { font-size: 14px; opacity: 0.85; margin: 0; line-height: 1.5; }
+  .st-aside { font-size: 13px; color: var(--color-accent); margin-top: auto; }
+
+  /* Ownership Box */
+  .st-ownership-box {
+    padding: var(--space-4);
+    border-left: 4px solid var(--color-accent);
+  }
+  .st-quote { font-style: italic; font-size: 15px; line-height: 1.5; margin: var(--space-2) 0 0; opacity: 0.9; }
+
+  /* Project Previews */
+  .st-preview-card {
+    padding: var(--space-6);
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    transition: transform var(--dur-fast), border-color var(--dur-fast);
+  }
+  .st-preview-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--color-accent);
+  }
+  .st-preview-card h3 {
+    margin: var(--space-2) 0;
+    font-size: clamp(20px, 2.5vw, 24px);
+  }
+  .st-preview-card p {
+    font-size: 15px;
+    opacity: 0.85;
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  /* The Loop */
+  .st-loop-vertical {
+    list-style: none;
+    margin: var(--space-4) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .st-loop-vertical li {
+    font-size: 20px;
+    font-weight: 700;
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+  }
+  .st-loop-vertical .st-num { font-family: var(--font-mono); font-size: 13px; color: var(--color-accent); }
+  .st-loop-repeat { font-weight: 400; color: var(--color-accent); }
+
+  /* Milestone Rail */
+  .st-milestone-rail {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+  }
+  .st-rail-node {
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .st-rail-node strong { font-size: 15px; }
+  .st-rail-node p { font-size: 12px; opacity: 0.85; margin: 0; line-height: 1.4; }
+  .st-year { font-family: var(--font-mono); font-size: 12px; font-weight: 700; color: var(--color-accent); }
+
+  /* Finale Transition */
+  .st-finale-transition { max-width: 640px; }
+  .st-display-sm {
+    font-size: clamp(30px, 4vw, 56px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: var(--space-2) 0 var(--space-4);
+  }
+  .btn-lg { padding: var(--space-3) var(--space-6); font-size: 16px; }
+
+  /* ————————— MOBILE STORY (< 768px) ————————— */
+  .st-mobile-story { padding-block: var(--space-8); }
+  .st-mobile-hero { margin-bottom: var(--space-8); }
+  .st-mobile-cards { display: grid; gap: var(--space-3); margin-top: var(--space-3); }
+  .st-mobile-tab { padding: var(--space-4); }
+  .st-mobile-tab strong { display: block; margin-bottom: var(--space-1); }
+  .st-mobile-tab p { margin: 0; font-size: 14px; opacity: 0.85; line-height: 1.5; }
+
+  /* ————————— 2. THE WORKS SECTION ————————— */
   .section-head {
     display: flex;
     justify-content: space-between;
@@ -313,49 +1223,52 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
     margin-bottom: var(--space-4);
     flex-wrap: wrap;
   }
-  /* The rule runs from the heading out to the section action. */
   .section-line { flex: 1; min-width: 40px; align-self: center; }
+  .st-filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-6); }
+  .st-filters [aria-pressed='true'] { color: var(--color-accent); border-color: var(--color-accent); font-weight: 600; }
+
   .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
   .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
-
-  /* The deep dives are not three equal tiles. The lead takes a double column
-     and the taller type; the rest stack in the remaining lane. One card is
-     allowed to be more important than the others because one of them is — the
-     newest, deepest dive is the argument for reading any. */
-  .cs-grid.cs-grid { grid-template-areas: 'lead lead b' 'lead lead c'; grid-template-columns: 1fr 1fr 1fr; }
+  .st-deep-dives-wrap { margin-bottom: var(--space-8); }
+  .cs-card-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--space-2); }
+  .cs-grid {
+    display: grid;
+    grid-template-areas: 'lead lead b' 'lead lead c';
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: var(--space-4);
+  }
   .cs-grid .cs-card:nth-child(1) { grid-area: lead; }
   .cs-grid .cs-card:nth-child(2) { grid-area: b; }
   .cs-grid .cs-card:nth-child(3) { grid-area: c; }
-  /* Fewer than three: no hierarchy to draw, so the flat grid stays. */
-  @media (min-width: 761px) {
-    .cs-grid:not(:has(.cs-card:nth-child(3))) { grid-template-areas: none; grid-template-columns: repeat(3, 1fr); }
-    .cs-grid:not(:has(.cs-card:nth-child(3))) .cs-card { grid-area: auto; }
+  .cs-card {
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-4);
   }
-
-  .cs-card { text-decoration: none; color: inherit; }
-  /* The lead card earns larger type with its double column; the stack cards
-     keep the shared scale so the hierarchy reads as chosen, not noisy. */
+  .cs-card:hover .card-title { color: var(--color-accent); }
   .cs-lead .card-title { font-size: clamp(24px, 2.6vw, 34px); max-width: 30ch; }
   .cs-lead .card-body { font-size: 15px; opacity: 0.85; max-width: 52ch; }
-  .cs-card:hover,
-  .cs-card:focus-visible { color: inherit; }
-  .cs-card:hover .card-title,
-  .cs-card:focus-visible .card-title { color: var(--color-accent); }
-  /* The card's action wears the project cards' primary button. A flex-column
-     `.card` stretches its children, so the button is pulled back to its label;
-     the top margin parks it after the body copy on every card height. */
-  .cs-card-cta {
-    align-self: flex-start;
-    margin-top: var(--space-2);
+  .cs-card-cta { align-self: flex-start; margin-top: auto; padding-top: var(--space-3); }
+
+  .st-featured-wrap { margin-top: var(--space-6); }
+  .st-more-strip {
+    margin-top: var(--space-8);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-4);
+    flex-wrap: wrap;
+    padding: var(--space-6);
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md, 4px);
+    background: var(--color-card-bg, var(--color-surface, #f8f8f8));
   }
 
+  /* ————————— 3. SKILLS ————————— */
   .skills-title { margin-bottom: var(--space-3); }
   .tag-row { display: flex; flex-wrap: wrap; gap: 8px; }
-
-  /* The wall reads as columns of related work, not one undifferentiated run.
-     Labels wear the site's eyebrow voice so the clusters scan like the rest
-     of the page's metadata; "Also" is deliberately unstyled beyond the voice
-     so it stays the quiet last stop, not a fifth peer. */
   .skills-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -363,10 +1276,6 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
     align-items: start;
   }
   .skill-cluster { display: flex; flex-direction: column; gap: var(--space-2); }
-  /* "Also" is the overflow bucket, not a peer discipline — a lone narrow
-     column of stragglers beside four full clusters read as a layout mistake.
-     Spanning the whole width turns it into its own band, the way the run
-     would have flowed before the grouping existed. */
   .skill-cluster-wide { grid-column: 1 / -1; }
   .skill-label {
     font-family: var(--font-mono);
@@ -378,29 +1287,170 @@ const skillGroups: SkillGroup[] = SKILL_ORDER.map(label => ({
     margin: 0;
   }
 
-  @media (max-width: 900px) {
-    .grid-3 { grid-template-columns: repeat(2, 1fr); }
-    /* The lead keeps its dominance at two columns; the stack cards sit
-       beneath it in a pair rather than losing the hierarchy entirely. */
-    .cs-grid.cs-grid { grid-template-areas: 'lead lead' 'b c'; }
+  /* ————————— 4. "OH, HI. I'M ANISH." (MEET FINALE) ————————— */
+  .st-meet-finale { padding-block: clamp(64px, 10vw, 120px); }
+  .st-meet-grid {
+    display: grid;
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: var(--space-8);
+    align-items: center;
   }
-  @media (max-width: 760px) {
-    .hero { grid-template-columns: 1fr; gap: var(--space-6); }
-    .cs-grid.cs-grid { grid-template-areas: 'lead' 'b' 'c'; grid-template-columns: 1fr; }
-    .cs-lead .card-title { font-size: 24px; }
-    .hero-figure {
-      border-left: 0;
-      border-top: 2px solid var(--color-divider);
-      padding-left: 0;
-      padding-top: var(--space-6);
-      /* The rule moved to the top edge: the cap is the photo alone, and
-         there is no margin to centre against. */
-      max-width: var(--hero-photo);
-      margin-right: 0;
-      justify-self: start;
-    }
-    /* The inset followed the padding, which has moved to the top edge. */
-    .hero-figure::after { inset: var(--space-6) 0 0; }
+  .st-who-note {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--color-accent);
+    margin-bottom: var(--space-2);
+  }
+  .st-grand-title {
+    font-size: clamp(44px, 7vw, 92px);
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    margin: 0 0 var(--space-4);
+  }
+  .st-sub-lines {
+    font-size: clamp(18px, 2vw, 24px);
+    line-height: 1.3;
+    opacity: 0.85;
+    margin: 0 0 var(--space-6);
+  }
+  .st-cta-pitch {
+    font-size: clamp(24px, 3.2vw, 40px);
+    font-weight: 700;
+    line-height: 1.15;
+    margin: 0 0 var(--space-6);
+  }
+  .st-contact-buttons { display: flex; flex-direction: column; gap: var(--space-3); margin-bottom: var(--space-6); }
+  .st-social-pills { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .st-fun-fact {
+    max-width: 48ch;
+    padding: var(--space-4);
+    border: 1px dashed var(--color-accent);
+    border-radius: var(--radius-sm, 2px);
+    opacity: 0.9;
+  }
+  .st-fun-fact p { margin: 0; font-size: 14px; line-height: 1.5; }
+
+  /* End of wire portrait hanging */
+  .st-portrait-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    position: relative;
+  }
+  .st-end-wire {
+    width: 100px;
+    height: 120px;
+    overflow: visible;
+    color: var(--color-accent);
+  }
+  .st-photo-wrap {
+    position: relative;
+    max-width: 320px;
+    width: 100%;
+    transform-origin: 50% 0;
+    animation: hang-swing 5.5s ease-in-out infinite;
+  }
+  .st-photo {
+    width: 100%;
+    aspect-ratio: 4 / 5;
+    object-fit: cover;
+    object-position: center 15%;
+    border-radius: var(--radius-md, 4px);
+    box-shadow: var(--shadow-md, 0 12px 32px rgba(0, 0, 0, 0.12));
+  }
+  .st-hand-note {
+    position: absolute;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--color-text-muted);
+    background: var(--color-bg);
+    border: 1px solid var(--color-divider);
+    padding: 6px 10px;
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    pointer-events: none;
+    max-width: 200px;
+    line-height: 1.35;
+  }
+  .st-note-top { top: -20px; right: -40px; transform: rotate(4deg); }
+  .st-note-bottom { bottom: 20px; left: -50px; transform: rotate(-3deg); }
+
+  /* ————————— 5. FINALE & CURSOR ————————— */
+  .st-back-top { margin-top: var(--space-8); padding-bottom: var(--space-6); }
+  .st-cursor-pill {
+    position: fixed;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+    z-index: 1000;
+    opacity: 0;
+    scale: 0.85;
+    transform-origin: top left;
+    background: var(--color-text);
+    color: var(--color-bg);
+    border: 1px solid var(--color-accent);
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+    transition: opacity 0.2s var(--ease-out), scale 0.2s var(--ease-out);
+    will-change: transform;
+  }
+  .st-cursor-pill.is-active { opacity: 1; scale: 1; }
+
+  .st-progress {
+    display: none;
+    position: fixed;
+    top: var(--header-h, 68px);
+    left: 0;
+    right: 0;
+    height: 2.5px;
+    z-index: 100;
+    background: var(--color-accent);
+    transform-origin: left;
+  }
+
+  @keyframes pulse-travel {
+    0% { stroke-dashoffset: 1000; opacity: 0; }
+    20% { opacity: 1; }
+    80% { opacity: 1; }
+    100% { stroke-dashoffset: 0; opacity: 0; }
+  }
+  .st-brain-knot {
+    stroke-dasharray: 200 1000;
+    animation: pulse-travel 3.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  }
+
+  /* Responsive Breakpoints */
+  @media (min-width: 769px) {
+    .st-mobile-only { display: none !important; }
+    .md\:hidden { display: none !important; }
+  }
+
+  @media (max-width: 960px) {
+    .st-meet-grid { grid-template-columns: 1fr; }
+    .st-portrait-col { order: -1; }
+    .cs-grid { grid-template-areas: 'lead lead' 'b c'; grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 640px) {
+    .cs-grid { grid-template-areas: 'lead' 'b' 'c'; grid-template-columns: 1fr; }
     .grid-2, .grid-3 { grid-template-columns: 1fr; }
   }
+
+  /* Keyframe Animations */
+  @keyframes draw-tangle {
+    from { stroke-dashoffset: 1; }
+    to { stroke-dashoffset: 0; }
+  }
+  @keyframes hang-swing {
+    0%, 100% { transform: rotate(-2.5deg); }
+    50% { transform: rotate(2.5deg); }
+  }
+  @keyframes st-card { from { opacity: 0; translate: 0 24px; } to { opacity: 1; translate: 0 0; } }
 </style>

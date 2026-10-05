@@ -1,6 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import PathLine from '../components/PathLine.astro';
+import ContactTerminal from '../components/ContactTerminal.astro';
 import { site } from '../lib/site';
 ---
 <BaseLayout title="About" description={`About ${site.name} — ML/CV engineer and full-stack developer.`}>
@@ -70,6 +71,11 @@ import { site } from '../lib/site';
       <a href="/colophon" class="btn btn-secondary">Colophon</a>
     </div>
   </article>
+
+  <div class="container container-prose" style="margin-top: 4rem; margin-bottom: 4rem;">
+    <p class="eyebrow" style="margin-bottom: 1rem;">Let's Connect</p>
+    <ContactTerminal />
+  </div>
 </BaseLayout>
 <style>
   .about { padding-top: var(--space-6); padding-bottom: var(--space-8); }
