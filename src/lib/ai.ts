@@ -527,6 +527,113 @@ export interface ChatMessage {
   tool_call_id?: string;
   /** `tool` only: which tool answered. Some providers require it, none mind it. */
   name?: string;
+  /**
+   * `assistant` only: the reasoning a provider attached to a tool-call turn,
+   * sent back so it does not rebuild that reasoning next round. Vendor fields,
+   * carried unchanged — and only ever to the provider and model in
+   * `replayFor`, which `wireMessages()` checks per attempt. Another model, a
+   * fallback walk or a log never sees them.
+   */
+  reasoning_details?: unknown[];
+  reasoning_content?: string;
+  replayFor?: string;
+}
+
+/** Which provider and model a replayed reasoning field belongs to. */
+export const replayKey = (provider: Provider): string => `${provider.slug}|${provider.model}`;
+
+/** The reasoning fields a provider supplied for one turn, before they are pinned to it. */
+export interface Replay {
+  reasoning_details?: unknown[];
+  reasoning_content?: string;
+}
+
+/** `replay` as message fields pinned to `provider`, or nothing when it is empty. */
+export const replayFields = (replay: Replay | undefined, provider: Provider): Partial<ChatMessage> =>
+  replay && (replay.reasoning_details?.length || replay.reasoning_content)
+    ? { ...replay, replayFor: replayKey(provider) }
+    : {};
+
+/**
+ * Streamed `reasoning_details` fragments, merged into whole entries.
+ *
+ * OpenRouter streams each entry in pieces that share an `index`. Text-bearing
+ * fields (`text`, `summary`, `data`) concatenate; anything else — `type`,
+ * `format`, `signature`, `id` — takes the last value sent. A fragment with no
+ * index is an entry of its own. Pure, so `check:ai` can feed it piecewise.
+ */
+export function mergeReasoningDetails(entries: Map<number, Record<string, unknown>>, fragments: unknown): void {
+  if (!Array.isArray(fragments)) return;
+  for (const fragment of fragments) {
+    if (!fragment || typeof fragment !== 'object') continue;
+    const piece = fragment as Record<string, unknown>;
+    const at = typeof piece.index === 'number' ? piece.index : -1 - entries.size;
+    const entry = entries.get(at) ?? {};
+    for (const [key, value] of Object.entries(piece)) {
+      if (value === undefined || value === null) continue;
+      if ((key === 'text' || key === 'summary' || key === 'data') && typeof value === 'string')
+        entry[key] = `${typeof entry[key] === 'string' ? entry[key] : ''}${value}`;
+      else entry[key] = value;
+    }
+    entries.set(at, entry);
+  }
+}
+
+/** The merged entries, in index order. */
+export const reasoningDetailsOf = (entries: Map<number, Record<string, unknown>>): unknown[] =>
+  [...entries.entries()].sort(([a], [b]) => (a < 0 || b < 0 ? 0 : a - b)).map(([, entry]) => entry);
+
+/**
+ * How much of an older tool result is kept once a later round has read more.
+ *
+ * Every round re-sends the whole conversation, so a 9,000-character README read
+ * in round one is paid for again in rounds two and three. The latest round's
+ * results stay whole; earlier ones keep an excerpt and say they were read.
+ */
+const COMPACT_CHARS = 800;
+const COMPACTED = '\n[Already read earlier in this answer — excerpt only.]';
+
+/**
+ * The conversation with older tool results trimmed, for the next request.
+ *
+ * A *round* is the run of `tool` messages after one assistant `tool_calls`
+ * turn. The latest round that read something substantial is kept whole, with
+ * everything after it; earlier rounds are cut to `COMPACT_CHARS`. "Latest that
+ * read something" rather than "latest", because a round refused by the limit
+ * is all one-line refusals and the reads the model must answer from are the
+ * round before it. Pure, and a conversation with one round comes back as is.
+ */
+export function compactToolResults(messages: ChatMessage[]): ChatMessage[] {
+  const rounds: number[] = [];
+  messages.forEach((m, i) => {
+    if (m.role === 'assistant' && m.tool_calls?.length) rounds.push(i);
+  });
+  let keepFrom = -1;
+  for (let r = rounds.length - 1; r >= 0; r -= 1) {
+    const end = rounds[r + 1] ?? messages.length;
+    if (messages.slice(rounds[r], end).some(m => m.role === 'tool' && m.content.length > COMPACT_CHARS)) {
+      keepFrom = rounds[r];
+      break;
+    }
+  }
+  /* Nothing older than the kept round: the conversation goes out as it is. */
+  if (keepFrom <= (rounds[0] ?? 0)) return messages;
+  return messages.map((m, i) =>
+    i < keepFrom && m.role === 'tool' && m.content.length > COMPACT_CHARS
+      ? { ...m, content: `${m.content.slice(0, COMPACT_CHARS)}…${COMPACTED}` }
+      : m,
+  );
+}
+
+/** Two usage tallies, summed — rounds of one run are billed separately. */
+export function addUsage(a: TokenUsage | undefined, b: TokenUsage | undefined): TokenUsage | undefined {
+  if (!a || !b) return a ?? b;
+  const sum: TokenUsage & { cost?: number } = { prompt: a.prompt + b.prompt, completion: a.completion + b.completion };
+  if (a.cached !== undefined || b.cached !== undefined) sum.cached = (a.cached ?? 0) + (b.cached ?? 0);
+  const ca = (a as { cost?: number }).cost;
+  const cb = (b as { cost?: number }).cost;
+  if (ca !== undefined || cb !== undefined) sum.cost = (ca ?? 0) + (cb ?? 0);
+  return sum;
 }
 
 /** The `tools` array, in the shape every OpenAI-compatible provider accepts. */
@@ -776,7 +883,17 @@ const CHARS_PER_TOKEN = 4;
 function wireMessages(provider: Provider, messages: ChatMessage[]): unknown[] {
   const breakpoints = provider.promptCache && supportsCacheControl(provider.baseUrl);
 
-  return messages.map(({ cache, ...message }) => {
+  const self = replayKey(provider);
+
+  return messages.map(({ cache, replayFor, reasoning_details, reasoning_content, ...rest }) => {
+    const message =
+      replayFor === self
+        ? {
+            ...rest,
+            ...(reasoning_details?.length ? { reasoning_details } : {}),
+            ...(reasoning_content ? { reasoning_content } : {}),
+          }
+        : rest;
     if (!cache || !breakpoints || !message.content) return message;
     return {
       ...message,
@@ -804,7 +921,7 @@ async function callProvider(
   const effort = options.effort === undefined ? provider.reasoningEffort : options.effort;
 
   try {
-    return await fetch(`${provider.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    const response = await fetch(`${provider.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${provider.apiKey}`,
@@ -854,6 +971,13 @@ async function callProvider(
       }),
       signal: controller.signal,
     });
+    if (options.stream) return response;
+    /* A non-streamed body is the whole generation, and it can arrive long
+       after the headers — OpenRouter sends those at once and keeps the socket
+       alive with whitespace. Read under the same timer, so a slow body fails
+       this attempt and the walk moves on, instead of waiting without limit. */
+    const body = await response.text();
+    return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
   } finally {
     clearTimeout(timer);
   }
@@ -1500,7 +1624,7 @@ type SseEvent =
   | { kind: 'error'; message: string; thinkingOnly?: true }
   | { kind: 'stop'; reason: string }
   /** Emitted once, at the end of a round, when the model asked to call something. */
-  | { kind: 'tools'; calls: ToolCall[] }
+  | { kind: 'tools'; calls: ToolCall[]; replay?: Replay }
   /** Token counts, when a chunk carried them. Read, never asked for. */
   | { kind: 'usage'; prompt: number; completion: number; cached?: number };
 
@@ -1583,6 +1707,10 @@ async function* sseEvents(
   /* Keyed by the `index` every provider stamps on a tool-call fragment, because
      a model may ask for two things at once and the fragments interleave. */
   const calls = new Map<number, ToolCall>();
+  /* What the provider attached to this turn's reasoning, kept only to send
+     back to it if the turn ends in a lookup. See `ChatMessage.replayFor`. */
+  const details = new Map<number, Record<string, unknown>>();
+  let reasoningContent = '';
 
   try {
     for (;;) {
@@ -1630,6 +1758,7 @@ async function* sseEvents(
               content?: string;
               reasoning?: string;
               reasoning_content?: string;
+              reasoning_details?: unknown[];
               tool_calls?: {
                 index?: number;
                 id?: string;
@@ -1686,6 +1815,8 @@ async function* sseEvents(
            and — through the stripper — thinking a model wrote into `content`,
            tagged or bare. It is its own event so a UI can show it collapsed; it
            is never mixed into `delta`, which is the answer. */
+        mergeReasoningDetails(details, choice?.delta?.reasoning_details);
+        if (choice?.delta?.reasoning_content) reasoningContent += choice.delta.reasoning_content;
         const separated = choice?.delta?.reasoning || choice?.delta?.reasoning_content || '';
         const content = choice?.delta?.content;
         const split = thoughts.split(typeof content === 'string' ? content : '');
@@ -1722,7 +1853,10 @@ async function* sseEvents(
     const asked = [...calls.values()].filter(call => call.name);
     if (asked.length) {
       produced = true;
-      yield { kind: 'tools', calls: asked };
+      const replay: Replay = {};
+      if (details.size) replay.reasoning_details = reasoningDetailsOf(details);
+      if (reasoningContent) replay.reasoning_content = reasoningContent;
+      yield { kind: 'tools', calls: asked, replay };
     }
 
     /* The round deliberated and never did anything else.
@@ -1862,6 +1996,8 @@ export interface RunSummary {
   thinkingChars: number;
   /** Lookups actually started. */
   lookups: number;
+  /** Requests sent, the answering one included. */
+  rounds: number;
   stopReason: string;
   /** The `error` frame's text, or the message of a throw. */
   error?: string;
@@ -1906,6 +2042,7 @@ export function agentStream(options: AgentOptions): ReadableStream<Uint8Array> {
     answerChars: 0,
     thinkingChars: 0,
     lookups: 0,
+    rounds: 1,
     stopReason: '',
     answer: '',
   };
@@ -1979,6 +2116,7 @@ export function runReport(
     model: summary.model,
     ms,
     lookups: summary.lookups,
+    rounds: summary.rounds,
     answerChars: summary.answerChars,
     thinkingChars: summary.thinkingChars,
     stopReason: summary.stopReason,
@@ -2019,7 +2157,7 @@ async function* tallied(
       } else if (typeof f.thinking === 'string') summary.thinkingChars += f.thinking.length;
       else if (f.tool?.status === 'running') summary.lookups += 1;
       else if (typeof f.error === 'string') summary.error = f.error;
-      else if (f.usage) summary.usage = f.usage;
+      else if (f.usage) summary.usage = addUsage(summary.usage, f.usage);
       if (typeof f.stopReason === 'string') summary.stopReason = f.stopReason;
       yield frame;
     }
@@ -2070,6 +2208,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
   let call = options.call;
 
   for (let round = 0; ; round += 1) {
+    if (options.summary) options.summary.rounds = round + 1;
     if (!response.body) {
       yield { error: 'The model returned nothing.' };
       return;
@@ -2081,6 +2220,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
        otherwise it repeats itself, having no record of having spoken. */
     let said = '';
     let asked: ToolCall[] = [];
+    let replay: Replay | undefined;
     /* The opening of a round that could still end in a lookup, held back.
 
        A model with tools very often says what it is about to do — "Let me read
@@ -2131,6 +2271,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
       }
       if (event.kind === 'tools') {
         asked = event.calls;
+        replay = event.replay;
         continue;
       }
       const frame = frameFor(event, provider);
@@ -2234,7 +2375,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
           detail: expired ? 'no more lookups (out of time)' : `no more lookups (limit ${maxRounds})`,
         },
       };
-      messages.push({ role: 'assistant', content: said, tool_calls: toolCallsFor(asked) });
+      messages.push({ role: 'assistant', content: said, tool_calls: toolCallsFor(asked), ...replayFields(replay, provider) });
       for (const wanted of asked) {
         messages.push({
           role: 'tool',
@@ -2251,7 +2392,7 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
       continue;
     }
 
-    messages.push({ role: 'assistant', content: said, tool_calls: toolCallsFor(asked) });
+    messages.push({ role: 'assistant', content: said, tool_calls: toolCallsFor(asked), ...replayFields(replay, provider) });
 
     for (const wanted of asked) {
       if (spent >= maxCalls) {
@@ -2420,7 +2561,11 @@ async function nextRound(
   /* `assistModel` cleared, so the walk starts at the model that answered —
      otherwise a row with an assist model would begin every later round there,
      whichever of its models actually took the first. */
-  const { response } = await callChat([{ ...provider, assistModel: '' }], { ...call, messages }, which);
+  const { response } = await callChat(
+    [{ ...provider, assistModel: '' }],
+    { ...call, messages: compactToolResults(messages) },
+    which,
+  );
   return response;
 }
 
@@ -2687,7 +2832,7 @@ export async function agentComplete(
     const armed = Boolean(call.tools?.length);
     const { response, provider } = await callChat(
       candidates,
-      { ...call, messages, ...(armed ? {} : { deadline: undefined }) },
+      { ...call, messages: compactToolResults(messages), ...(armed ? {} : { deadline: undefined }) },
       which,
     );
     /* Later rounds go back to the model that answered, never to the list. */
@@ -2700,6 +2845,7 @@ export async function agentComplete(
           content?: string | null;
           reasoning?: string | null;
           reasoning_content?: string | null;
+          reasoning_details?: unknown[];
           tool_calls?: { id?: string; function?: { name?: string; arguments?: string } }[];
         };
         finish_reason?: string | null;
@@ -2710,7 +2856,7 @@ export async function agentComplete(
       const detail = typeof body?.error === 'string' ? body.error : body?.error?.message;
       throw new ProviderError(`${provider.label} (${provider.model}) failed: ${detail ?? 'no readable answer.'}`);
     }
-    usage = readUsage(body.usage) ?? usage;
+    usage = addUsage(usage, readUsage(body.usage));
     const choice = body.choices?.[0];
     const message = choice?.message ?? {};
     const content = message.content ?? '';
@@ -2764,7 +2910,18 @@ export async function agentComplete(
       };
     }
 
-    messages.push({ role: 'assistant', content, tool_calls: toolCallsFor(asked) });
+    messages.push({
+      role: 'assistant',
+      content,
+      tool_calls: toolCallsFor(asked),
+      ...replayFields(
+        {
+          ...(message.reasoning_details?.length ? { reasoning_details: message.reasoning_details } : {}),
+          ...(message.reasoning_content ? { reasoning_content: message.reasoning_content } : {}),
+        },
+        provider,
+      ),
+    });
     const over = round >= maxRounds || timeLeft(options.call.deadline) <= 0;
     for (const wanted of asked) {
       if (over || spent >= maxCalls) {

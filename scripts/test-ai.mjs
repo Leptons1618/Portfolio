@@ -64,6 +64,11 @@ const {
   agentComplete,
   forPublic,
   PUBLIC_FAILURE,
+  mergeReasoningDetails,
+  reasoningDetailsOf,
+  compactToolResults,
+  addUsage,
+  replayKey,
   textToolCalls,
   effectiveMaxTokens,
   thinkingBudget,
@@ -4365,6 +4370,147 @@ await checkAsync('the public stream carries the answer and nothing the owner wou
   assert.deepEqual(out.find(f => f.delta), { delta: 'Astro and D1.' });
   assert.deepEqual(out.find(f => f.error), { error: PUBLIC_FAILURE });
   assert.deepEqual(out.at(-1), { done: true, stopReason: 'stop' });
+});
+
+/** Drain an NDJSON stream into frames. */
+async function forPublicFrames(stream) {
+  const out = [];
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (let i = 0; i < 500; i += 1) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) if (line.trim()) out.push(JSON.parse(line));
+  }
+  return out;
+}
+
+/* ---------- part 1 of the 2026-10-05 design: context and rounds ---------- */
+
+check('streamed reasoning_details merge by index, text concatenated', () => {
+  const entries = new Map();
+  mergeReasoningDetails(entries, [{ index: 0, type: 'reasoning.text', text: 'The visitor ' }]);
+  mergeReasoningDetails(entries, [{ index: 0, text: 'wants the stack.' }, { index: 1, type: 'reasoning.encrypted', data: 'ab' }]);
+  mergeReasoningDetails(entries, [{ index: 1, data: 'cd' }, { index: 0, signature: 'sig' }]);
+  mergeReasoningDetails(entries, undefined);
+  mergeReasoningDetails(entries, 'garbage');
+  assert.deepEqual(reasoningDetailsOf(entries), [
+    { index: 0, type: 'reasoning.text', text: 'The visitor wants the stack.', signature: 'sig' },
+    { index: 1, type: 'reasoning.encrypted', data: 'abcd' },
+  ]);
+});
+
+check('older tool results are compacted; the latest round that read something is kept', () => {
+  const big = 'x'.repeat(3000);
+  const call = id => ({ role: 'assistant', content: '', tool_calls: [{ id, type: 'function', function: { name: 'read_post', arguments: '{}' } }] });
+  const one = [{ role: 'user', content: 'q' }, call('a'), { role: 'tool', tool_call_id: 'a', content: big }];
+  assert.equal(compactToolResults(one), one, 'a one-round conversation must come back unchanged');
+
+  const two = [...one, call('b'), { role: 'tool', tool_call_id: 'b', content: big }];
+  const out = compactToolResults(two);
+  assert.ok(out[2].content.length < 1000 && /Already read/.test(out[2].content));
+  assert.equal(out[4].content, big);
+  assert.equal(two[2].content, big, 'compaction must not mutate the conversation it was given');
+
+  /* The limit refused round 2's lookups in one line each; round 1's reads are
+     what the model has to answer from, so they stay whole. */
+  const refused = [...one, call('c'), { role: 'tool', tool_call_id: 'c', content: 'You have reached the limit.' }];
+  assert.equal(compactToolResults(refused)[2].content, big);
+});
+
+check('usage from separate rounds is summed, not overwritten', () => {
+  assert.deepEqual(addUsage({ prompt: 100, completion: 10 }, { prompt: 50, completion: 5, cached: 40 }), {
+    prompt: 150,
+    completion: 15,
+    cached: 40,
+  });
+  assert.deepEqual(addUsage(undefined, { prompt: 1, completion: 2 }), { prompt: 1, completion: 2 });
+});
+
+await checkAsync('reasoning details go back to the provider that sent them, and nowhere else', async () => {
+  const bodies = [];
+  const real = globalThis.fetch;
+  const roundTwo = [text('Astro and D1.')];
+  globalThis.fetch = async (_, init) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(sse(roundTwo), { status: 200 });
+  };
+  const summaries = [];
+  try {
+    const first = {
+      response: new Response(
+        sse([
+          { choices: [{ delta: { reasoning: 'Read it. ', reasoning_details: [{ index: 0, type: 'reasoning.text', text: 'Read it.' }] } }] },
+          wantsTool('c1', 'read_project', '{"slug":"x"}'),
+        ]),
+      ),
+      provider: row({}),
+    };
+    const stream = forPublicFrames(
+      agentStream({
+        first,
+        which: 'chat',
+        call: { maxTokens: 100, tools: toolsFor('chat') },
+        messages: [{ role: 'user', content: 'stack?' }],
+        runTool: async () => ({ ok: true, text: 'Astro, D1', detail: 'ok' }),
+        public: true,
+        onEnd: summary => void summaries.push(summary),
+      }),
+    );
+    const frames = await stream;
+    const sent = bodies[0].messages.find(m => m.role === 'assistant');
+    assert.deepEqual(sent.reasoning_details, [{ index: 0, type: 'reasoning.text', text: 'Read it.' }]);
+    assert.ok(!('replayFor' in sent), 'the pinning key is this repo’s word and must not reach a vendor');
+    assert.ok(!JSON.stringify(frames).includes('reasoning_details'), 'replay fields must never reach a public frame');
+    assert.equal(summaries[0].rounds, 2);
+  } finally {
+    globalThis.fetch = real;
+  }
+
+  /* The same turn, pinned to another model: the field stays home. */
+  const pinned = [
+    { role: 'user', content: 'q' },
+    { role: 'assistant', content: '', reasoning_details: [{ text: 'secret' }], reasoning_content: 'secret', replayFor: replayKey(row({ model: 'other' })) },
+  ];
+  const seen = [];
+  globalThis.fetch = async (_, init) => {
+    seen.push(JSON.parse(init.body));
+    return new Response('{"choices":[{"message":{"content":"ok"}}]}', { status: 200 });
+  };
+  try {
+    await callChat([row({})], { messages: pinned, maxTokens: 50 });
+  } finally {
+    globalThis.fetch = real;
+  }
+  assert.ok(!JSON.stringify(seen[0]).includes('secret'), 'replay fields reached a model that did not write them');
+});
+
+await checkAsync('a non-streamed body slower than its attempt timeout fails the attempt', async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async (_, init) =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(' '));
+          init.signal.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+        },
+      }),
+      { status: 200 },
+    );
+  const started = Date.now();
+  try {
+    await assert.rejects(
+      callChat([row({})], { messages: [{ role: 'user', content: 'q' }], maxTokens: 50, timeoutMs: 1000 }),
+      /did not answer in time/,
+    );
+  } finally {
+    globalThis.fetch = real;
+  }
+  assert.ok(Date.now() - started < 5000, 'the body read was not bounded');
 });
 
 process.stdout.write(`\nai: ${checks} checks passed\n`);
