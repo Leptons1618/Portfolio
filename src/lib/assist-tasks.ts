@@ -913,6 +913,79 @@ Rules:
   },
 
   /**
+   * The daily post, step one: decide what today's entry is, and gather it.
+   *
+   * Run by `agent-runner.ts`, never typed. The entry is *decided* before a word
+   * of it is written — one angle, the facts, three to six sections — so the
+   * section steps after it are short requests with nothing to look up. The
+   * day's steer (`autoInstruction()`) arrives as the instruction. `NOTHING:`
+   * is a real answer: every subject already covered is a day with no post,
+   * not a duplicate one.
+   */
+  journalplan: {
+    label: 'Plan the daily journal entry',
+    surface: 'journal',
+    group: 'write',
+    step: true,
+    hint: 'Decides today’s entry: its angle, its facts and its sections.',
+    instructions: `Plan today's journal entry. You are not writing it yet — you are deciding what it is about and gathering what it will say.
+
+Read the index, pick the one specific thing this entry is about, and read one or two pages for the facts. Then return the plan in exactly this shape:
+
+TITLE: the entry's title — specific, not clever
+SUMMARY: one sentence under 160 characters, for the card and the meta description
+TAGS: two to five tags, comma-separated, reusing tags already on the site where they fit
+ANGLE: one line — the specific thing this entry is about, and why it is not already covered
+FACTS:
+- one specific, checkable fact per line, fifteen to thirty of them, every one from what you read
+SECTIONS:
+## First section heading
+One sentence: what this section covers.
+## Second section heading
+...
+
+Three to six sections, in the order the entry tells it. A good arc: what I was trying to do, what I tried first and what broke, what worked, what is still open — follow the actual work rather than this list.
+
+If every subject in the index already has an entry that covers it, answer with one line only:
+NOTHING: the reason
+
+Emit nothing before TITLE: (or NOTHING:) and nothing after the last section. Do not wrap the response in a code fence.`,
+    format: 'markdown',
+    maxTokens: 2400,
+    temperature: 0.5,
+    needsCorpus: true,
+    context: [],
+  },
+
+  /**
+   * The daily post, step two: one section, from the plan. No lookups — the
+   * plan's facts are the whole of what it may say.
+   */
+  journalsection: {
+    label: 'Write one journal section',
+    surface: 'journal',
+    group: 'write',
+    step: true,
+    hint: 'One section of the daily entry, from the plan.',
+    instructions: `Write one section of a journal entry, the one named under "The section to write now". The rest of the entry is written separately, section by section.
+
+Rules:
+- The first line is that section's level-2 heading, exactly as given. Then the section, and nothing else — not the next section, no closing summary.
+- The length given with the section, give or take fifty words.
+- First person, past tense, as the author, about work they actually did. Never "you", never "we" for one person's work, and never explain the subject the way a tutorial would.
+- Say what was decided and what it cost. Name the wrong turn before the fix.
+- Inline code for every identifier, filename, flag, command, column and setting. A fenced block with a language tag only where the facts contain the code itself, under fifteen lines.
+- Invent nothing. If a fact is not in the list, do not state it — write the sentence without the number rather than inventing one.
+- Continue from the previous section. Do not re-introduce the subject, and do not repeat a point the outline gives to another section.
+- Markdown only. No preamble, and do not wrap the response in a code fence.`,
+    format: 'markdown',
+    maxTokens: 1200,
+    temperature: 0.65,
+    needsCorpus: false,
+    context: ['title', 'summary', 'facts', 'outline', 'section', 'previous'],
+  },
+
+  /**
    * The selection, rewritten to an instruction typed beside it.
    *
    * `tighten` and `expand` are two fixed things to do to a selection. This is
@@ -1280,7 +1353,10 @@ export function parseCommand(line: string): {
  * generating command would silently regenerate work the author wrote by hand.
  */
 /* Steps are sequenced by a page and never named in a request — see `step`. */
-type RoutableTask = Exclude<AssistTaskName, 'chat' | 'casestudyplan' | 'casestudysection'>;
+type RoutableTask = Exclude<
+  AssistTaskName,
+  'chat' | 'casestudyplan' | 'casestudysection' | 'journalplan' | 'journalsection'
+>;
 
 const ROUTE_HINTS: Record<RoutableTask, readonly string[]> = {
   compose: [
@@ -1793,7 +1869,12 @@ export const DEFAULT_SECTIONS: readonly PlannedSection[] = [
  * sections is not a plan, so the default arc stands in and `planned` says so.
  * Never throws, and a response with no facts still yields a usable plan.
  */
-export function parsePlan(text: string): CaseStudyPlan {
+export function parsePlan(
+  text: string,
+  options: { min?: number; fallback?: readonly PlannedSection[] } = {},
+): CaseStudyPlan {
+  const min = options.min ?? 4;
+  const fallback = options.fallback ?? DEFAULT_SECTIONS;
   const source = text.replace(/^\s*```[a-z]*\s*\n?/i, '').replace(/\n?```\s*$/, '');
   const facts: string[] = [];
   const sections: PlannedSection[] = [];
@@ -1835,10 +1916,10 @@ export function parsePlan(text: string): CaseStudyPlan {
     (section, index) =>
       sections.findIndex(other => other.heading.toLowerCase() === section.heading.toLowerCase()) === index,
   );
-  const usable = unique.length >= 4;
+  const usable = unique.length >= min;
   return {
     facts: facts.slice(0, 40),
-    sections: (usable ? unique : DEFAULT_SECTIONS.map(section => ({ ...section }))).slice(0, 9),
+    sections: (usable ? unique : fallback.map(section => ({ ...section }))).slice(0, 9),
     planned: usable,
   };
 }

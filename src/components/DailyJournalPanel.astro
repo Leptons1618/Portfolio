@@ -150,11 +150,19 @@ import { AUTO_DEFAULTS } from '../lib/journal-auto';
         <p class="admin-eyebrow">Last run</p>
         <p class="text-muted admin-note" id="dj-last">—</p>
         <hr class="rule dj-rule" />
-        <button type="button" class="btn btn-secondary" id="dj-run">Run now</button>
+        <p class="admin-eyebrow">Today's run</p>
+        <p class="text-muted admin-note" id="dj-work">No run today yet.</p>
+        <ol class="dj-trail" id="dj-trail" hidden></ol>
+        <div class="dj-run-actions">
+          <button type="button" class="btn btn-secondary" id="dj-run">Run now</button>
+          <button type="button" class="btn btn-ghost" id="dj-discard" hidden>Discard run</button>
+        </div>
         <p class="text-muted admin-note">
-          Writes today's draft immediately, whatever the clock says. It does not
-          spend one of the day's automatic attempts, but it does count as the
-          day's post — the schedule will not write a second one.
+          Writes today's entry now, whatever the clock says, as steps: a plan, then
+          one section at a time, then the draft. Each finished step is kept, so
+          Stop — or a step that fails — leaves the run where it was, and Resume (or
+          the next scheduled tick) carries on from there. Failed steps count
+          against the day's attempts; the finished entry counts as the day's post.
         </p>
       </section>
     </aside>
@@ -162,8 +170,8 @@ import { AUTO_DEFAULTS } from '../lib/journal-auto';
 </div>
 
 <script>
-  import { onAdminPage, setBusy, toast, trackDirty, type DirtyField } from '../lib/admin';
-  import { loadAutoJournal, loadOverview, runAutoJournalNow, saveAutoJournal } from '../lib/ai-store';
+  import { onAdminPage, setBusy, setLabel, toast, trackDirty, type DirtyField } from '../lib/admin';
+  import { discardRun, loadAutoJournal, loadOverview, runStep, saveAutoJournal, type AutoJournalOverview } from '../lib/ai-store';
   import { getToken } from '../lib/github';
   import { clampAutoSettings, dayOf, hourFor, type AutoJournalSettings } from '../lib/journal-auto';
 
@@ -173,6 +181,7 @@ import { AUTO_DEFAULTS } from '../lib/journal-auto';
     const message = $('dj-message');
     const saveBtn = $<HTMLButtonElement>('dj-save');
     const runBtn = $<HTMLButtonElement>('dj-run');
+    const discardBtn = $<HTMLButtonElement>('dj-discard');
 
     const say = (text: string, tone: 'info' | 'error' = 'info') => {
       message.dataset.tone = tone;
@@ -344,6 +353,8 @@ import { AUTO_DEFAULTS } from '../lib/journal-auto';
             `Today's slot is ${String(hour).padStart(2, '0')}:00 UTC — ${localClock(dueOn, hour)} in ${localZone}.`;
         }
 
+        paintWork(data.work);
+
         last.textContent = data.run.at
           ? `${localStamp(data.run.at)} · ${data.run.attempts} attempt${data.run.attempts === 1 ? '' : 's'} · ${data.run.note}`
           : 'Nothing has run yet.';
@@ -389,39 +400,128 @@ import { AUTO_DEFAULTS } from '../lib/journal-auto';
       dirty?.reset();
     });
 
+    /* — today's run —
+
+       The run lives on the server, one row per day; this only reads it and
+       asks for the next step. Steps are separate requests, so Stop is "do not
+       ask for another" — the step in flight finishes and is kept. */
+    type Work = AutoJournalOverview['work'];
+    const LIVE = new Set(['plan', 'write', 'finish']);
+    let running = false;
+    let stopping = false;
+
+    function paintWork(work: Work) {
+      const line = $('dj-work');
+      const trail = $<HTMLOListElement>('dj-trail');
+      line.dataset.tone = work?.phase === 'failed' ? 'error' : 'info';
+      if (!work) {
+        line.textContent = 'No run today yet.';
+      } else if (work.lockedBy === 'cron' && !running) {
+        line.textContent = `The schedule is writing this entry now${work.total ? ` — ${work.done} of ${work.total} sections` : ''}.`;
+      } else if (work.phase === 'done') {
+        line.textContent = `Written: "${work.title}" (${work.slug}).`;
+      } else if (work.phase === 'declined') {
+        line.textContent = `Nothing new to write about today: ${work.error ?? ''}`;
+      } else if (work.phase === 'failed') {
+        line.textContent = `Gave up after ${work.failures} failed steps: ${work.error ?? ''}. Discard the run to start over.`;
+      } else {
+        const progress = work.total ? `${work.done} of ${work.total} sections written` : 'not planned yet';
+        line.textContent =
+          `In progress — ${progress}${work.title ? ` for "${work.title}"` : ''}. Next: ${work.next ?? '—'}.` +
+          (work.error ? ` Last step failed: ${work.error}` : '');
+      }
+      /* Each step on its own row, text only — a note can quote a vendor. */
+      trail.replaceChildren(
+        ...(work?.trail ?? []).slice(-8).map(entry => {
+          const li = document.createElement('li');
+          li.dataset.ok = String(entry.ok);
+          li.textContent = `${entry.ok ? '✓' : '✗'} ${entry.label} · ${(entry.ms / 1000).toFixed(1)} s${entry.note && !entry.ok ? ` · ${entry.note}` : ''}`;
+          return li;
+        }),
+      );
+      trail.hidden = !work?.trail.length;
+      discardBtn.hidden = !work || running;
+      if (!running) setLabel(runBtn, work && LIVE.has(work.phase) && (work.done || work.title) ? 'Resume' : null);
+    }
+
     runBtn.addEventListener('click', async () => {
-      /* A whole post on a slow model, and the button is the only thing saying
-         so — there is no stream to watch here, unlike everywhere else the
-         assistant runs. */
-      setBusy(runBtn, true, 'Writing…');
-      const pending = toast(`Writing today's ${currentPublish() === 'published' ? 'post' : 'draft'}…`, { tone: 'pending' });
+      if (running) {
+        stopping = true;
+        setLabel(runBtn, 'Stopping after this step…');
+        runBtn.disabled = true;
+        return;
+      }
+      running = true;
+      stopping = false;
+      discardBtn.hidden = true;
+      setLabel(runBtn, 'Stop');
+      let outcome = '';
       try {
-        const result = await runAutoJournalNow();
-        if (result.status === 'written' && result.slug) {
-          if (currentPublish() === 'published' && result.live) {
-            say(`Published "${result.title}". It is live now.`);
-            pending.update(`Published "${result.title}".`, { tone: 'success', action: { label: 'view ↗', href: result.live } });
-          } else {
-            say(`Drafted "${result.title}". It is a draft: open it to publish.`);
-            pending.update(`Drafted "${result.title}".`, { tone: 'success' });
+        for (let guard = 0; guard < 20 && !stopping; guard += 1) {
+          $('dj-work').textContent = 'Working on the next step…';
+          const result = await runStep();
+          if (result.busy) {
+            outcome = result.error ?? 'The schedule is writing this entry right now.';
+            paintWork(result.run);
+            break;
           }
-        } else {
-          say(result.reason ?? 'Nothing was written.', 'error');
-          pending.update(result.reason ?? 'Nothing was written.', { tone: 'error' });
+          paintWork(result.run);
+          const run = result.run;
+          if (!run || !LIVE.has(run.phase)) {
+            outcome =
+              run?.phase === 'done'
+                ? `${currentPublish() === 'published' ? 'Published' : 'Drafted'} "${run.title}".`
+                : run?.phase === 'declined'
+                  ? 'Nothing new to write about today.'
+                  : run?.phase === 'failed'
+                    ? `Gave up: ${run.error ?? 'too many failed steps'}.`
+                    : 'Nothing to do.';
+            break;
+          }
+          if (result.step && !result.step.ok) {
+            outcome = `${result.step.label} failed: ${result.step.note ?? 'no reason given'}. Resume to retry it.`;
+            break;
+          }
         }
+        if (stopping && !outcome) outcome = 'Stopped. The finished steps are kept — Resume carries on.';
+        say(outcome, /failed|Gave up/.test(outcome) ? 'error' : 'info');
+        toast(outcome, { tone: /failed|Gave up/.test(outcome) ? 'error' : 'success' });
+      } catch (error) {
+        fail(error);
+      } finally {
+        running = false;
+        runBtn.disabled = false;
+        setLabel(runBtn, null);
+        await refresh();
+      }
+    });
+
+    let discardArmed = false;
+    discardBtn.addEventListener('click', async () => {
+      if (!discardArmed) {
+        discardArmed = true;
+        setLabel(discardBtn, 'Confirm discard');
+        setTimeout(() => {
+          discardArmed = false;
+          setLabel(discardBtn, null);
+        }, 4000);
+        return;
+      }
+      discardArmed = false;
+      setLabel(discardBtn, null);
+      try {
+        await discardRun();
+        say('Run discarded. The next step or tick starts a fresh one.');
         await refresh();
       } catch (error) {
-        const text = error instanceof Error ? error.message : 'The daily post failed.';
-        say(text, 'error');
-        pending.update(text, { tone: 'error' });
+        fail(error, discardBtn);
       }
-      setBusy(runBtn, false);
     });
 
     if (!getToken()) {
       say('Sign in with GitHub to change the schedule.', 'error');
       $('dj-status').textContent = 'Signed out.';
-      for (const button of [saveBtn, runBtn]) {
+      for (const button of [saveBtn, runBtn, discardBtn]) {
         button.disabled = true;
         button.title = 'Sign in with GitHub to change the schedule.';
       }
@@ -446,7 +546,18 @@ import { AUTO_DEFAULTS } from '../lib/journal-auto';
   }
   .dj-message { min-height: 18px; font-size: 12px; margin: 0; }
   .dj-message[data-tone='error'] { color: var(--color-accent-700); }
-  #dj-status[data-tone='error'] { color: var(--color-accent-700); }
+  #dj-status[data-tone='error'],
+  #dj-work[data-tone='error'] { color: var(--color-accent-700); }
+  .dj-run-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-2) 0; }
+  .dj-trail {
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    list-style: none;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--color-text-muted);
+  }
+  .dj-trail :global(li[data-ok='false']) { color: var(--color-accent-700); }
 
   .dj-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-4); align-items: start; }
   .dj-col, .dj-side { display: flex; flex-direction: column; gap: var(--space-4); }

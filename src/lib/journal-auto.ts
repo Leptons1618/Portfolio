@@ -166,9 +166,14 @@ export interface AutoJournalRun {
   note: string;
   /** When the last attempt ran, ISO with a `Z`. */
   at: string;
+  /**
+   * The plan step answered `NOTHING:` — every subject already has an entry.
+   * A finished day, like one with a slug, and the schedule stops for it.
+   */
+  declined: boolean;
 }
 
-export const EMPTY_RUN: AutoJournalRun = { day: '', attempts: 0, slug: '', note: '', at: '' };
+export const EMPTY_RUN: AutoJournalRun = { day: '', attempts: 0, slug: '', note: '', at: '', declined: false };
 
 export function clampAutoRun(raw: unknown): AutoJournalRun {
   const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
@@ -181,6 +186,7 @@ export function clampAutoRun(raw: unknown): AutoJournalRun {
     slug: text('slug', 200),
     note: text('note', 500),
     at: text('at', 40),
+    declined: source.declined === true,
   };
 }
 
@@ -238,6 +244,9 @@ export function decide(
   const today = run.day === day ? run : EMPTY_RUN;
   if (today.slug) {
     return { act: false, day, reason: `Already written today: ${today.slug}.` };
+  }
+  if (today.declined) {
+    return { act: false, day, reason: 'Nothing new to write about today.' };
   }
   if (today.attempts >= settings.maxAttempts) {
     return {

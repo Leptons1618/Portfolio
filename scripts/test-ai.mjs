@@ -1256,6 +1256,9 @@ check('no context field a task declares travels uncapped', () => {
      the largest limit in the table (`body`); nothing may exceed it. */
   const huge = 'x'.repeat(40_000);
   for (const [name, task] of Object.entries(ASSIST_TASKS)) {
+    /* An empty allowlist sends no field at all (`journalplan`: its input is
+       the index and the day's steer), which cannot be uncapped. */
+    if (!task.context.length) continue;
     const context = Object.fromEntries(task.context.map(field => [field, huge]));
     const [, , user] = assistPrompt(task, {
       ownerName: 'Someone',
@@ -4660,6 +4663,256 @@ await checkAsync('Jev off, unsure, failing or slow leaves the full route, and is
   const missing = await jevMod.jevRoute({ ...base, db: jevDb([], [orRow]), settings: jevOn, deadline: Date.now() + 5000, fetcher: never });
   assert.equal(missing.route, null);
   assert.equal(calls, 0);
+});
+
+/* ---------- part 3: the daily post as a run of steps ---------- */
+
+const runs = await load('src/lib/agent-runs.ts');
+const runner = await load('src/lib/agent-runner.ts');
+const auto = await load('src/lib/journal-auto.ts');
+
+const T0 = new Date('2026-10-05T12:00:00Z');
+const stepMeta = { ms: 10, model: 'p · m', now: T0, maxAttempts: 3 };
+const PLAN = `TITLE: Moving the daily post onto steps
+SUMMARY: One request per section, and a run that resumes.
+TAGS: Workers, D1
+ANGLE: why one request could not survive the free pool
+FACTS:
+- The Workers Free plan allows 10 ms of CPU per invocation
+- A tick used to wait up to 471 seconds for one body
+SECTIONS:
+## The one request
+What it was.
+## What broke
+The 504s.
+## What steps fixed
+The run.
+## What is still open
+Streaming.`;
+
+check('a run walks plan → each section → finish, and never redoes a finished step', () => {
+  let run = runs.newRun('2026-10-05', T0);
+  assert.equal(runs.nextStep(run).kind, 'plan');
+  run = runs.applyStep(run, runs.nextStep(run), PLAN, stepMeta);
+  assert.equal(run.phase, 'write');
+  assert.equal(run.plan.sections.length, 4);
+  assert.deepEqual(run.plan.tags, ['Workers', 'D1']);
+  for (let i = 0; i < 4; i += 1) {
+    const step = runs.nextStep(run);
+    assert.equal(step.index, i);
+    run = runs.applyStep(run, step, `## ${run.plan.sections[i].heading}\n\nI wrote section ${i + 1}.`, stepMeta);
+  }
+  assert.equal(run.phase, 'finish');
+  assert.equal(runs.nextStep(run).kind, 'finish');
+  /* A stale section answer for an index already written is refused, not appended. */
+  const replay = runs.applyStep(run, { id: 'section:2', label: 'x', kind: 'section', index: 1 }, '## x\n\ny', stepMeta);
+  assert.equal(replay.sections.length, 4);
+  const post = runs.assemblePost(run);
+  assert.ok(post.body.startsWith('## The one request'));
+  assert.equal(post.readTime, '1 min');
+  assert.equal(runs.finishRun(run, 'moving', stepMeta).phase, 'done');
+  assert.equal(runs.nextStep(runs.finishRun(run, 'moving', stepMeta)), null);
+});
+
+check('a plan step reads NOTHING, a missing title, and a thin outline the way it should', () => {
+  const fresh = runs.newRun('2026-10-05', T0);
+  const plan = runs.nextStep(fresh);
+  const declined = runs.applyStep(fresh, plan, 'NOTHING: every subject already has an entry', stepMeta);
+  assert.equal(declined.phase, 'declined');
+  assert.equal(declined.failures, 0);
+
+  const untitled = runs.applyStep(fresh, plan, 'FACTS:\n- a fact here\nSECTIONS:\n## a\n## b\n## c', stepMeta);
+  assert.equal(untitled.phase, 'plan');
+  assert.equal(untitled.failures, 1);
+
+  const thin = runs.applyStep(fresh, plan, 'TITLE: T\nFACTS:\n- a real fact\nSECTIONS:\n## Only one\n## And two', stepMeta);
+  assert.deepEqual(thin.plan.sections.map(x => x.heading), runs.POST_SECTIONS.map(x => x.heading));
+});
+
+check('failed steps count, keep the phase, and stop the run at the ceiling', () => {
+  let run = runs.applyStep(runs.newRun('2026-10-05', T0), runs.nextStep(runs.newRun('2026-10-05', T0)), PLAN, stepMeta);
+  const step = runs.nextStep(run);
+  run = runs.applyStep(run, step, '   ', stepMeta);
+  assert.equal(run.phase, 'write');
+  assert.equal(run.failures, 1);
+  assert.equal(runs.nextStep(run).index, 0, 'the failed section is the one retried');
+  run = runs.failStep(run, step, 'x', stepMeta);
+  run = runs.failStep(run, step, 'x', stepMeta);
+  assert.equal(run.phase, 'failed');
+  assert.equal(runs.nextStep(run), null);
+});
+
+check('a stored run is re-derived, not trusted, and the summary carries no draft text', () => {
+  const fresh = runs.clampRun('garbage', '2026-10-05', T0);
+  assert.equal(fresh.phase, 'plan');
+  assert.equal(runs.clampRun({ kind: 'journal-post', key: '2026-10-04', phase: 'done' }, '2026-10-05', T0).phase, 'plan');
+  /* A write phase with no plan cannot be continued; a lock with no time is no lock. */
+  const odd = runs.clampRun(
+    { kind: 'journal-post', key: '2026-10-05', phase: 'write', failures: -4, lock: { by: 'cron', at: 'never' }, sections: [1, 'x'] },
+    '2026-10-05',
+    T0,
+  );
+  assert.equal(odd.phase, 'plan');
+  assert.equal(odd.failures, 0);
+  assert.equal(odd.lock, undefined);
+
+  let run = runs.applyStep(runs.newRun('2026-10-05', T0), runs.nextStep(runs.newRun('2026-10-05', T0)), PLAN, stepMeta);
+  for (let i = 0; i < 3; i += 1) run = runs.applyStep(run, runs.nextStep(run), `## h\n\nSECRET-SECTION-${i}`, stepMeta);
+  const resumed = runs.clampRun(JSON.parse(JSON.stringify(run)), '2026-10-05', T0);
+  assert.equal(runs.nextStep(resumed).index, 3, 'a resumed run asks for the fourth section');
+  const view = JSON.stringify(runs.summariseRun(resumed, T0));
+  assert.ok(!view.includes('SECRET-SECTION') && !view.includes('10 ms of CPU'), 'facts or sections leaked into the summary');
+});
+
+check('the schedule stops on a declined day, and reads the flag back', () => {
+  const settings = { ...auto.AUTO_DEFAULTS, enabled: true, windowStart: 0, windowEnd: 1 };
+  const declined = auto.clampAutoRun({ day: '2026-10-05', attempts: 0, slug: '', declined: true });
+  assert.equal(declined.declined, true);
+  assert.equal(auto.clampAutoRun({ declined: 'yes' }).declined, false);
+  assert.equal(auto.decide(new Date('2026-10-05T23:00:00Z'), settings, declined).act, false);
+});
+
+/** An in-memory D1 that answers exactly the statements the runner and its callees send. */
+function memDb() {
+  const docs = new Map();
+  const journal = new Map();
+  const changed = n => ({ meta: { changes: n } });
+  return {
+    docs,
+    journal,
+    prepare(sql) {
+      let args = [];
+      const stmt = {
+        bind(...a) {
+          args = a;
+          return stmt;
+        },
+        async first() {
+          if (/FROM documents WHERE slug = \?/.test(sql)) return docs.has(args[0]) ? { json: docs.get(args[0]) } : null;
+          if (/FROM journal WHERE slug = \?/.test(sql)) return journal.has(args[0]) ? { slug: args[0] } : null;
+          return null;
+        },
+        async all() {
+          return { results: [] };
+        },
+        async run() {
+          if (/INSERT INTO documents[\s\S]*DO NOTHING/.test(sql)) {
+            if (docs.has(args[0])) return changed(0);
+            docs.set(args[0], args[1]);
+            return changed(1);
+          }
+          if (/INSERT INTO documents/.test(sql)) {
+            docs.set(args[0], args[1]);
+            return changed(1);
+          }
+          if (/UPDATE documents SET json = \?[\s\S]*WHERE slug = \? AND json = \?/.test(sql)) {
+            if (docs.get(args[1]) !== args[2]) return changed(0);
+            docs.set(args[1], args[0]);
+            return changed(1);
+          }
+          if (/INSERT INTO journal/.test(sql)) {
+            journal.set(args[0], { title: args[1], status: args[6], body: args[7] });
+            return changed(1);
+          }
+          if (/DELETE FROM documents WHERE slug = \?/.test(sql)) {
+            docs.delete(args[0]);
+            return changed(1);
+          }
+          return changed(0);
+        },
+      };
+      return stmt;
+    },
+  };
+}
+
+const answering = texts => {
+  let i = 0;
+  return async () =>
+    new Response(JSON.stringify({ choices: [{ message: { content: texts[Math.min(i++, texts.length - 1)] }, finish_reason: 'stop' }] }), {
+      status: 200,
+    });
+};
+
+await checkAsync('advance() takes one step per call, saves it, and finishes with one inserted draft', async () => {
+  const db = memDb();
+  const real = globalThis.fetch;
+  globalThis.fetch = answering([PLAN, ...[0, 1, 2, 3].map(i => `## heading\n\nSection ${i} body.`)]);
+  const options = {
+    providers: [row({ toolsEnabled: false })],
+    auto: { ...auto.AUTO_DEFAULTS, maxAttempts: 3 },
+    persona: '',
+    caller: 'cron',
+    day: '2026-10-05',
+  };
+  try {
+    const statuses = [];
+    for (let i = 0; i < 8; i += 1) {
+      const out = await runner.advance(db, options);
+      statuses.push(out.status === 'stepped' ? out.step.id : out.status);
+      if (out.status !== 'stepped') break;
+      const stored = JSON.parse(db.docs.get(runner.runKey('2026-10-05')));
+      assert.equal(stored.lock, undefined, 'a saved step must release the lock');
+    }
+    assert.deepEqual(statuses, ['plan', 'section:1', 'section:2', 'section:3', 'section:4', 'finish', 'idle']);
+    assert.equal(db.journal.size, 1);
+    const [slug, post] = [...db.journal.entries()][0];
+    assert.equal(slug, 'moving-the-daily-post-onto-steps');
+    assert.equal(post.status, 'draft');
+    const record = JSON.parse(db.docs.get(auto.AUTO_RUN_KEY));
+    assert.equal(record.slug, slug, 'the schedule record must know the day is written');
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+await checkAsync('a provider refusal is a failed step, saved and returned, never thrown', async () => {
+  const db = memDb();
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => new Response('{"error":{"message":"overloaded"}}', { status: 503 });
+  try {
+    const out = await runner.advance(db, {
+      providers: [row({ toolsEnabled: false })],
+      auto: { ...auto.AUTO_DEFAULTS, maxAttempts: 3 },
+      persona: '',
+      caller: 'owner',
+      day: '2026-10-05',
+    });
+    assert.equal(out.status, 'stepped');
+    assert.equal(out.ok, false);
+    assert.equal(out.run.phase, 'plan');
+    assert.equal(out.run.failures, 1);
+    assert.equal(JSON.parse(db.docs.get(auto.AUTO_RUN_KEY)).attempts, 1, 'failures are the day’s attempts');
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+await checkAsync('a live lock refuses a second caller; a stale one is taken over', async () => {
+  const day = '2026-10-05';
+  const options = { providers: [row({ toolsEnabled: false })], auto: auto.AUTO_DEFAULTS, persona: '', caller: 'owner', day };
+  const db = memDb();
+  const held = { ...runs.newRun(day, new Date()), lock: { by: 'cron', at: new Date().toISOString() } };
+  db.docs.set(runner.runKey(day), JSON.stringify(held));
+  let called = 0;
+  const real = globalThis.fetch;
+  globalThis.fetch = async (...a) => {
+    called += 1;
+    return answering([PLAN])(...a);
+  };
+  try {
+    const busy = await runner.advance(db, options);
+    assert.equal(busy.status, 'busy');
+    assert.equal(called, 0, 'a busy run must not call a model');
+
+    const stale = { ...held, lock: { by: 'cron', at: new Date(Date.now() - runs.LOCK_MS - 1000).toISOString() } };
+    db.docs.set(runner.runKey(day), JSON.stringify(stale));
+    const taken = await runner.advance(db, options);
+    assert.equal(taken.status, 'stepped');
+    assert.equal(taken.run.phase, 'write');
+  } finally {
+    globalThis.fetch = real;
+  }
 });
 
 process.stdout.write(`\nai: ${checks} checks passed\n`);

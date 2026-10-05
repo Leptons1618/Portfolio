@@ -1265,15 +1265,21 @@ textarea[data-grow] { max-height: 60vh; }
    `::backdrop` — rather than the `brightness()` filter this used to be: a
    page turned dark grey read as a broken screen, where a veil reads as
    "something is open over this", which is the truth. It is a fixed
-   pseudo-element on `<body>` at 64, so it sits over the page, the sticky tab
-   bar (20) and the route progress (60) and under a stepped-down dialog (65),
-   the assistant (70) and the toasts (80, top layer). Instant, deliberately: a
+   pseudo-element at 64, so it sits over the page, the sticky tab bar (20)
+   and the route progress (60) and under a stepped-down dialog (65), the
+   assistant (70) and the toasts (80, top layer).
+
+   It hangs off `.admin-shell`, not `<body>`, and that is load-bearing:
+   `theme.css` makes every `body > *` a stacking context at z 1 so it sits
+   over the grain, which means the dialogs' 65 and 70 are compared *inside*
+   the shell and never against a veil on `<body>` — a body veil at 64 painted
+   over the shell and both dialogs in it, and everything read the same grey. Instant, deliberately: a
    fade that restarts on every recompute reads as flicker. Set and cleared
    with the `inert` itself, by `syncFreeze()` in `src/lib/modal.ts` — which is
    where it lives, rather than in one screen's script, because the same
    coexistence happens on `/admin/ai` and wherever the media library opens.
    Decisions 59 and 64. */
-body[data-asx-freeze]::after {
+body[data-asx-freeze] .admin-shell::after {
   content: '';
   position: fixed;
   inset: 0;
@@ -2543,6 +2549,13 @@ body[data-asx-freeze] {
 
 .asx-tool-state {
   flex: none;
+  /* A long detail (`SKILL.md (15kb) · 483 ms`) must not push the row past
+     the log and give the transcript a horizontal scrollbar. */
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 10px;
   letter-spacing: 0.04em;
 }
