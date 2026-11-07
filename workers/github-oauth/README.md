@@ -20,9 +20,9 @@ two that drift apart.
 
 | Field | Value |
 | --- | --- |
-| GitHub App name | e.g. `anishgiri-dev-admin` (must be globally unique) |
-| Homepage URL | `https://anishgiri.dev` |
-| Callback URL | `https://anishgiri.dev/admin/` |
+| GitHub App name | e.g. `anishgiri-tech-admin` (must be globally unique) |
+| Homepage URL | `https://portfolio.anishgiri.tech` |
+| Callback URL | `https://portfolio.anishgiri.tech/admin/` |
 | Add callback URL | `http://localhost:4321/admin/` |
 | Request user authorization (OAuth) during installation | **on** |
 | Expire user authorization tokens | **on** |

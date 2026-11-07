@@ -14,7 +14,7 @@ export const site = {
   tagline: 'ML/CV engineer and full-stack developer portfolio.',
   bio: 'I work at the intersection of machine learning, computer vision, and software engineering. I build practical systems that ship.',
 
-  url: 'https://anishgiri.dev',
+  url: 'https://portfolio.anishgiri.tech',
   ogImage: '/images/ui/og-default.png',
 
   email: 'anishgiri163@gmail.com',

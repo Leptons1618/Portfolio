@@ -178,20 +178,29 @@ function check() {
     }
   }
 
-  /* 4. ...and the deploy workflow does not quietly overrule it. `SITE_URL` in
-     the environment beats both files above, so a literal origin hard-coded
-     into the workflow bypasses check 3 entirely: the build stays green and
-     every canonical URL, OG tag and sitemap entry in production points at the
-     wrong host. That is exactly what shipped once. */
-  const workflow = p('.github/workflows/deploy.yml');
-  if (existsSync(workflow)) {
-    const text = readFileSync(workflow, 'utf8');
-    for (const [, origin] of text.matchAll(/SITE_URL:.*?'(https?:\/\/[^']+)'/g)) {
-      if (new URL(origin).hostname !== cname) {
-        fail(
-          '.github/workflows/deploy.yml',
-          `SITE_URL hard-codes "${origin}", which is not public/CNAME ("${cname}")`,
-        );
+  /* 4. ...and no workflow quietly overrules it. `SITE_URL` in the environment
+     beats both files above, so a literal origin hard-coded into a workflow
+     bypasses check 3 entirely: the build stays green and every canonical URL,
+     OG tag and sitemap entry in production points at the wrong host. That is
+     exactly what shipped once.
+
+     Every workflow, not just deploy.yml. `daily-journal.yml` hard-codes the
+     origin as its *fallback* — it is the one place the value is written down
+     that is not covered by check 3 — and when the domain changed, that was the
+     file left pointing at the dead host: every tick for days got a 405 from
+     the expired domain's parking server, and nothing in the repo disagreed
+     with itself. A check that reads one workflow by name does not catch the
+     workflow that is not named. */
+  const workflowDir = p('.github/workflows');
+  if (existsSync(workflowDir)) {
+    for (const entry of readdirSync(workflowDir)) {
+      if (!/\.ya?ml$/.test(entry)) continue;
+      const file = `.github/workflows/${entry}`;
+      const text = readFileSync(join(workflowDir, entry), 'utf8');
+      for (const [, origin] of text.matchAll(/SITE_URL:.*?'(https?:\/\/[^']+)'/g)) {
+        if (new URL(origin).hostname !== cname) {
+          fail(file, `SITE_URL hard-codes "${origin}", which is not public/CNAME ("${cname}")`);
+        }
       }
     }
   }
