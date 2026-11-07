@@ -4,7 +4,7 @@ Personal portfolio — projects, case studies, journal, resume — with a
 browser-based authoring surface at `/admin` and an AI assistant.
 
 **Astro 5 on Cloudflare Workers, with Cloudflare D1 as the database.** Live at
-**https://anishgiri.dev**.
+**https://portfolio.anishgiri.tech**.
 
 Content is not in this repository. It lives in D1, and the admin screens write to
 it directly, so publishing is a save rather than a commit and a build. What is

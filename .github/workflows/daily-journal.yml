@@ -51,7 +51,7 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           # The live origin. A repository variable so a fork can point this at
           # its own deployment without editing the workflow.
-          SITE_URL: ${{ vars.SITE_URL || 'https://anishgiri.dev' }}
+          SITE_URL: ${{ vars.SITE_URL || 'https://portfolio.anishgiri.tech' }}
         run: |
           if [ -z "$CRON_SECRET" ]; then
             echo "No CRON_SECRET secret is set; nothing to present. See docs/DECISIONS.md 52."
