@@ -10,9 +10,10 @@
   },
   "scripts": {
     "dev": "astro dev",
-    "check": "node scripts/wrangler-config.mjs --self-test && node scripts/check-content.mjs && node scripts/test-content-schema.mjs && node scripts/test-resume.mjs && node scripts/test-markdown.mjs && node scripts/test-md-edit.mjs && node scripts/test-preview.mjs && node scripts/test-ai.mjs && node scripts/test-cli.mjs && node scripts/test-mcp.mjs && node workers/github-oauth/test.mjs && astro check",
+    "check": "node scripts/wrangler-config.mjs --self-test && node scripts/check-content.mjs && node scripts/test-content-schema.mjs && node scripts/test-edge-cache.mjs && node scripts/test-resume.mjs && node scripts/test-markdown.mjs && node scripts/test-md-edit.mjs && node scripts/test-preview.mjs && node scripts/test-ai.mjs && node scripts/test-cli.mjs && node scripts/test-mcp.mjs && node workers/github-oauth/test.mjs && astro check",
     "check:content": "node scripts/check-content.mjs",
     "check:schema": "node scripts/test-content-schema.mjs",
+    "check:edge": "node scripts/test-edge-cache.mjs",
     "check:resume": "node scripts/test-resume.mjs",
     "check:markdown": "node scripts/test-markdown.mjs",
     "check:preview": "node scripts/test-preview.mjs",

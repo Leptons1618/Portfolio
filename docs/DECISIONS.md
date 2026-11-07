@@ -1837,3 +1837,82 @@ shape worth knowing about; there is no allowlist of directories, because for a
 single-user tool on the owner's own machine one would break legitimate use more
 often than it would help. Also no `resources/` surface — the tools cover reading,
 and a second way to read the same rows is a second thing to keep honest.
+
+## 75. The edge cache is keyed by build, and a write purges it
+
+**The problem.** Decision 18's whole claim is that content is a row rather than a
+file, so an edit is live with no build in between. A later change put rendered
+responses in `caches.default` because every content page was paying a Worker+D1
+round trip per hit and TTFB swung several hundred milliseconds run to run. The
+cache worked. Nothing anywhere could say *this is no longer true*, and there were
+two different things that wanted to say it.
+
+**A deploy could serve HTML that named assets which no longer existed.**
+`public/_headers` serves `/_astro/*` with `immutable`, which is exactly correct —
+those filenames carry a content hash. The HTML naming them carries nothing: it is
+rendered per request and was stored under its own URL. A Cache API entry survives
+a deployment, because it lives in Cloudflare's cache rather than in the Worker.
+The asset store does not: a new deployment's hashes are new and the previous
+deployment's 404. So for as long as an entry lived, a visitor could be handed the
+old build's HTML pointing at a stylesheet and a script that had just stopped
+existing — an unstyled page with a dead script, on a deploy that was green in
+every workflow, on a site where nothing had gone wrong.
+
+**And a write was only half live.** `max-age=0` gave the *browser* the promise in
+decision 18, and the middleware's comment said so. But the edge copy answered
+before the Worker body ran at all, so the author saved, reloaded, and read the
+old page for up to a minute — which is the failure that looks like the write
+having silently failed, because the obvious next move is to save again.
+
+`/media/*` was the same bug with a worse number. An upload replaces by path, so a
+URL's bytes can change; the route asked for `s-maxage=86400` and got it. A
+re-upload was invisible for a day, and a *delete* left the image being served for
+a day after the row was gone — with the route's own comment claiming the short
+shared cache was what let a re-upload show up.
+
+**The decision.** `src/lib/edge-cache.ts` owns the key and the only invalidation.
+
+**The key carries the build.** `__BUILD_ID__` is inlined by `vite.define` — the
+commit in CI, the clock locally — and `cacheKey()` puts it in the key. A new build
+cannot reach the previous build's entries, nothing is purged, and the old keys
+expire on their own TTL. This is the fix for the deploy, and it costs one string
+per key.
+
+**A write purges what it changed.** `POST /api/content` and both writers on
+`/api/media` call `purge()` once the database has agreed, through `waitUntil` so
+a cache that refuses cannot fail a write that succeeded.
+
+**`stale-while-revalidate=600` is gone.** It described something the middleware
+does not do: a hit returns the stored copy and nothing anywhere re-renders behind
+it. So the directive bought no refresh, and where it was honoured it authorised
+ten further minutes of staleness on top of the minute. Freshness is the purge
+now, not a longer window.
+
+**Two limits, stated rather than papered over.** `cache.delete()` in a Worker
+clears the colo it runs in, because that is the only cache that Worker can reach
+— a zone-wide purge is the Cloudflare API and a token with purge rights, which is
+a new credential in the deployment for a bounded 60-second residue. The colo that
+handled the write is the author's own, and they are the only person who just made
+a change and is looking for it. And `affected()` names the listings plus the row's
+own page, not a dependency graph: publishing a post changes the prev/next links on
+its two neighbours and those correct themselves inside the same minute. A graph
+that tracked them would be a second, wronger copy of how the pages read the
+tables. `/media/*`'s `s-maxage` came down to an hour for the same reason the purge
+is not enough on its own.
+
+**What the alternatives cost.** *Purge the zone properly* — the right answer, and
+it needs an API token with purge rights stored as a Worker secret and a network
+call on the write path; revisit if a second person ever reads this site enough for
+60 seconds to matter. *Drop the cache* — gives back the TTFB the cache was added
+for, and the pages were measurably bad without it. *A version row read per
+request* — a D1 round trip on every hit is the exact cost the cache exists to
+avoid. *Longer TTLs with an ETag* — the Cache API hit path does not revalidate, so
+an ETag on a stored entry is decoration.
+
+**What pins it.** `npm run check:edge` (`scripts/test-edge-cache.mjs`). Both
+failures are silent, so both are asserted: that two builds do not share a key, and
+that `purge()` computes the *same* key the middleware stores under — they are in
+two files with three callers, and a disagreement deletes nothing and reports
+nothing. It also asserts the fallback when no bundler performed the `define`, that
+no key is requestable as a route, and that a cache which throws does not reach the
+caller.

@@ -13,6 +13,7 @@ import {
   unbind,
 } from '../../lib/content-schema';
 import { pinNewJournalPost } from '../../lib/content';
+import { affected, purge } from '../../lib/edge-cache';
 import { renderBody } from '../../lib/markdown';
 
 /**
@@ -36,6 +37,13 @@ import { renderBody } from '../../lib/markdown';
  * Which columns those may be, and how a value is encoded for each, is
  * `src/lib/content-schema.ts` — the trust boundary, kept in a module because it
  * is the part that has to be tested (`npm run check:schema`).
+ *
+ * **Every write that changed a row purges the pages that render it.** Without
+ * that, the promise in the paragraph above was only half true: the row changed
+ * at once, and `src/middleware.ts` went on answering from the edge copy for up
+ * to a minute, so the author saved, reloaded, and read the old page. `purge()`
+ * and `affected()` are in `src/lib/edge-cache.ts`, which documents what it
+ * reaches and what it does not.
  */
 
 export const prerender = false;
@@ -141,7 +149,7 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
   }
 };
 
-export const POST: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async ({ request, locals, url }) => {
   // Identity first, before the body is read at all: an unauthenticated caller
   // should not be able to reach the parser, let alone the database.
   try {
@@ -174,6 +182,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
       if (meta.changes === 0) return json({ error: `No ${table} row with slug "${slug}".` }, 404);
       /* The one write here that does not come back. Worth a line of its own. */
       await record(DB, 'warn', 'content', `Deleted ${table} "${slug}".`, { table, op, slug });
+      purge(url, affected(table, slug), locals.runtime.ctx);
       return json({ ok: true, slug, changed: meta.changes });
     }
 
@@ -199,6 +208,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
          helper. Projects keep their own arrangement; nothing to do there. */
       if (table === 'journal') await pinNewJournalPost(DB, slug);
       await record(DB, 'info', 'content', `Created ${table} "${slug}".`, { table, op, slug, columns });
+      purge(url, affected(table, slug), locals.runtime.ctx);
       return json({ ok: true, slug, created: true }, 201);
     }
 
@@ -211,6 +221,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
         .run();
       if (meta.changes === 0) return json({ error: `No ${table} row with slug "${slug}".` }, 404);
       await record(DB, 'info', 'content', `Saved ${table} "${slug}".`, { table, op, slug, columns });
+      purge(url, affected(table, slug), locals.runtime.ctx);
       return json({ ok: true, slug, changed: meta.changes });
     }
 

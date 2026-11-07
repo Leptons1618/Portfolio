@@ -78,6 +78,16 @@ declare namespace App {
   }
 }
 
+/**
+ * The build id, replaced by `vite.define` in `astro.config.mjs`.
+ *
+ * `string | undefined` rather than `string`, because the declaration has to be
+ * honest about the case `src/lib/edge-cache.ts` handles: with no bundler in
+ * front of it — the test script loading that module in plain Node — nothing
+ * performs the replacement and the identifier does not exist.
+ */
+declare const __BUILD_ID__: string | undefined;
+
 interface ImportMetaEnv {
   /**
    * GitHub App client ID (`Iv23…`). Public by design — it identifies the app,
