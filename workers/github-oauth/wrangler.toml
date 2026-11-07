@@ -14,7 +14,7 @@ preview_urls = false
 # ALLOWED_ORIGINS must be an origin the admin is actually served from —
 # including the dev origin, which is also a registered callback on the App.
 GITHUB_CLIENT_ID = "Iv23lilJmWXy72Ei3TdP"
-ALLOWED_ORIGINS = "https://anishgiri.dev,http://localhost:4321"
+ALLOWED_ORIGINS = "https://portfolio.anishgiri.tech,http://localhost:4321"
 
 # GITHUB_CLIENT_SECRET is NOT set here. It is a secret:
 #   wrangler secret put GITHUB_CLIENT_SECRET

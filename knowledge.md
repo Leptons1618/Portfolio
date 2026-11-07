@@ -2,7 +2,7 @@
 
 Personal portfolio — projects, case studies, journal, resume, plus a browser-based
 `/admin` authoring surface and an AI assistant. **Astro 5 on Cloudflare Workers,
-with Cloudflare D1 as the database.** Live at `https://anishgiri.dev`.
+with Cloudflare D1 as the database.** Live at `https://portfolio.anishgiri.tech`.
 
 `CLAUDE.md` is the long-form architecture document and it is current — read it
 before any substantial change. `docs/DECISIONS.md` records *why* the non-obvious

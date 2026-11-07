@@ -10,7 +10,7 @@ export default defineConfig({
      sitemap and robots.txt are all built from it, so a stale value is
      invisible locally and wrong in production.
      `scripts/check-content.mjs` asserts the fallback against `public/CNAME`. */
-  site: process.env.SITE_URL || 'https://anishgiri.dev',
+  site: process.env.SITE_URL || 'https://portfolio.anishgiri.tech',
   /* Still `static`: every page is prerendered unless it says otherwise, and
      only the handful of routes that read content opt out with
      `export const prerender = false`. /about, /resume, the whole admin shell

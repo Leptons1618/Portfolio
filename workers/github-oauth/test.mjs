@@ -14,7 +14,7 @@
 import assert from 'node:assert/strict';
 import worker from './src/worker.js';
 
-const ORIGIN = 'https://anishgiri.dev';
+const ORIGIN = 'https://portfolio.anishgiri.tech';
 const ENV = {
   GITHUB_CLIENT_ID: 'test-client-id',
   GITHUB_CLIENT_SECRET: 'test-client-secret',
