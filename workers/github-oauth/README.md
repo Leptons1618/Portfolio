@@ -84,11 +84,21 @@ Edit `wrangler.toml`: put the Client ID in `GITHUB_CLIENT_ID` and set
 this list gets no CORS headers and the browser refuses the response.
 
 ```sh
-npx wrangler secret put GITHUB_CLIENT_SECRET   # paste the secret; never commit it
-npx wrangler deploy
+npx wrangler secret put GITHUB_CLIENT_SECRET --config ./wrangler.toml   # paste the secret; never commit it
+npx wrangler deploy --config ./wrangler.toml
 ```
 
 Wrangler prints the Worker URL.
+
+> **`--config ./wrangler.toml` is not optional, and leaving it off is dangerous.**
+> Wrangler searches *upward* for a config file and prefers `wrangler.jsonc` over
+> `wrangler.toml` wherever it finds one — so a bare `wrangler deploy` run from
+> this directory resolves the **site's** `wrangler.jsonc` at the repo root, not
+> the file next to it. It then reads `dist/`, announces the `DB` and `ASSETS`
+> bindings, and deploys whatever the last `npm run build` left there under the
+> name `portfolio`. From a feature branch that is the feature branch, live.
+> The only reason it was ever caught is that the generated root config held a
+> placeholder `database_id` and the API refused it. Pin the config.
 
 **Currently deployed:** `https://portfolio-github-oauth.anishgiri163.workers.dev`.
 `preview_urls = false` in `wrangler.toml` is deliberate — a Worker holding a
@@ -169,10 +179,10 @@ repository, so treat them as real.
 
 ## Rotating the secret
 
-`npx wrangler secret put GITHUB_CLIENT_SECRET` with the new value, then
-`npx wrangler deploy`. Nothing on the site side changes — the client ID is
-unaffected, and issued tokens are invalidated by GitHub when you revoke the old
-secret.
+`npx wrangler secret put GITHUB_CLIENT_SECRET --config ./wrangler.toml` with the
+new value, then `npx wrangler deploy --config ./wrangler.toml`. Nothing on the
+site side changes — the client ID is unaffected, and issued tokens are
+invalidated by GitHub when you revoke the old secret.
 
 ## Why not something simpler
 

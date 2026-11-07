@@ -5,7 +5,7 @@
   "description": "OAuth token exchange for the admin sign-in. Deployed separately from the site; see README.md.",
   "scripts": {
     "test": "node test.mjs",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy --config ./wrangler.toml"
   },
   "devDependencies": {
     "wrangler": "^4.123.0"
