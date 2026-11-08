@@ -1948,3 +1948,100 @@ stream inside the free plan's CPU allowance — but the plan and the finished
 sections are stored as `run:case-study:<project>` after each one, so a reload or
 another browser offers Resume from the next section. The key must be an
 existing project's slug before it becomes part of a row name.
+
+## 78. The job tracker is a content table, and LinkedIn is somewhere the owner copies from
+
+**The request.** A CLI that signs in to LinkedIn, reads and edits the profile,
+searches jobs, assesses fit, tailors the resume and messages recruiters — and
+later a GUI for the same thing in the admin.
+
+**What LinkedIn allows.** For an individual developer, very little. Sign In with
+LinkedIn returns a name, an email and a photo. There is no self-serve API to edit
+a profile, search or read jobs (the Job Posting API is publish-only and closed to
+new partners), or message anyone. The Member Data Portability API exposes the full
+profile, but only to members in the EU, EEA and Switzerland. Anything else is
+automating a logged-in session, which the User Agreement prohibits and LinkedIn
+enforces by restricting accounts — and the account at risk is the one the owner is
+job-hunting with. So none of it is built. The profile arrives as the owner's own
+data export, read from disk; a posting arrives as pasted text; outreach is drafted
+and sent by hand.
+
+**What is built is a table.** `applications`, migration 0015, added to `TABLES` in
+`content-schema.ts` like any content table. That one entry is the whole server
+change: `/api/content` reads and writes it behind `requireOwner()`, the CLI parses
+its fields against the same map (decision 73), and the MCP server writes it as
+content (decision 74). No new endpoint, no new credential, and no field names in
+either client. `check:cli` and `check:mcp` gained the kind.
+
+**The assistant is the editor's model, not this site's.** Fit assessment,
+tailoring and drafting are written down in `.claude/skills/jobs/SKILL.md` and run
+by whatever MCP client is open, over the tools that already exist. That spends
+nothing from the site's provider budget and adds no task to `ASSIST_TASKS`. The
+admin's resume screen already turns an advert into a variant (decision 41), so
+tailoring is a variant id on the row, not a second resume.
+
+**It is private, and that is structural.** No page renders a row. `ai-corpus.ts`
+has no input for it, so the public assistant gaining it would be a type change
+rather than a forgotten filter. The skill forbids copying anything from a row into
+public content. `contacts` holds other people's names, so it holds only what the
+owner typed.
+
+**Rejected.** LinkedIn OAuth — it yields a name and photo `site.ts` already has.
+An unofficial client or browser automation — the account risk above. Firebase or a
+second cloud — D1, `authorize.ts` and the provider layer already do everything it
+would. A separate SDK package — `cli/portfolio-api.mjs` is the client library, and
+an admin screen is another caller of `/api/content`. Fetching job boards inside
+the Worker — the free plan's 10 ms of CPU (decision 61) will not parse a large
+board; discovery, when it comes, runs in the CLI.
+
+## 79. The job tracker gets a screen, and the boards are read from the browser
+
+**Extends decision 78. Nothing in it is reopened.**
+
+**Discovery.** `src/lib/job-boards.ts` reads Greenhouse, Lever and Ashby — the
+three ATS vendors that publish every company's open roles as public JSON so
+third parties can build job sites. All three answer
+`Access-Control-Allow-Origin: *`, which settled where the code runs: in whatever
+is asking. `portfolio jobs` runs it in Node and the Jobs screen's Discover tab
+runs it in the browser, and neither goes through the Worker. That is not a
+preference — a board is several megabytes of JSON (Stripe's is six, OpenAI's
+thirteen) and the free plan's 10 ms of CPU (decision 61) would not parse one.
+The module imports nothing, for the reason `content-schema.ts` imports nothing.
+
+What to scan is a sixth `documents` singleton, `job-watchlist`: boards,
+title keywords, title exclusions and locations. A document rather than a local
+file because the CLI and the screen both edit it. It is rebuilt on read —
+`readWatchlist()` drops a board of an unknown kind or with a name that could not
+be one, and a blank keyword, which would otherwise match nothing — so a hand
+edit cannot break a scan. A posting is new when its URL is not already on a
+row; nothing else is compared, because Greenhouse's `?gh_jid=` *is* the
+identity.
+
+**A board's link is untrusted.** It becomes an `href` on the admin origin, which
+holds the owner's token, so `readBoard()` keeps http(s) and drops the posting
+otherwise; the detail screen applies the same rule to a URL typed by hand.
+`check:cli` pins both the rule and that garbage from a vendor is an empty list.
+
+**The screens fetch; they never render a row.** `/admin/*` is public HTML, and an
+application is who the owner is talking to. `/admin/jobs` is prerendered and
+`/admin/jobs/[slug]` renders only the slug from its own URL; rows arrive over
+`GET /api/content` with the token, like the AI and Logs screens' rows.
+
+**Two assistant tasks on a fifth surface, `job`.** `jobFit` streams into the
+Fit field — one field, one answer, the `resumeSummary` argument — and reads the
+*master* resume, because the question is whether the record holds a requirement
+anywhere. `jobOutreach` is two versions in the panel; the page counts each
+version's characters itself, because a connection note over LinkedIn's limit is
+found out only when LinkedIn refuses it. Two new context fields, `fit` and
+`contacts`, capped like every other. Same endpoint, same closed table, same
+`requireOwner()` — decision 24 holds.
+
+**Known edge.** `/api/ai/chats` stores any surface that is not `project` as
+`journal` (the resume screen already does), so a Jobs conversation is listed in
+the journal and resume panels' history. Owner-only either way; widening the
+`ai_chats.surface` CHECK means rebuilding that table, which is its own change.
+
+**Not built.** Adzuna and JSearch — keyed APIs, so a credential to store and
+spend, for listings the ATS boards mostly already carry. Add one when the
+watchlist proves thin for Indian companies, which most Indian job sites will:
+Naukri, Instahyre and the Keka and Darwinbox boards publish no feed.

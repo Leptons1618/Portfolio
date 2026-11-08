@@ -1,0 +1,578 @@
+---
+/**
+ * The job tracker — every application, and the boards to find more on.
+ *
+ * Static shell, filled over `GET /api/content` with the owner's token, like the
+ * AI and Logs screens and for a sharper version of their reason: `/admin/*` is
+ * public HTML, and an application names who the owner is talking to. Nothing
+ * here reads D1 server-side, so the page is prerendered and a row is never in
+ * its HTML. Decisions 78 and 79.
+ *
+ * Two tabs. *Applications* is the manifest, grouped by status in pipeline
+ * order; one row is `/admin/jobs/<slug>`. *Discover* edits the `job-watchlist`
+ * document and scans its boards **from this browser** — Greenhouse, Lever and
+ * Ashby all answer cross-origin, and a board is megabytes the Worker's 10 ms of
+ * CPU could not parse. `src/lib/job-boards.ts` is the same code `portfolio jobs`
+ * runs.
+ *
+ * Rows are built in script, so their rules go through `#jb-list :global(…)` and
+ * `#jb-found :global(…)`, the door the Logs screen uses.
+ */
+import AdminLayout from '../../layouts/AdminLayout.astro';
+import Illustration from '../../components/Illustration.astro';
+import { Icon } from 'astro-icon/components';
+---
+<AdminLayout title="Jobs">
+  <div class="admin-main-wide" id="admin-jobs">
+    <div class="admin-head">
+      <div>
+        <p class="admin-eyebrow-mono">MODULE: JOBS</p>
+        <h1 class="admin-title">Jobs</h1>
+        <span class="text-muted admin-stamp" id="jb-stamp">Sign in to read the tracker.</span>
+      </div>
+      <div class="admin-actions">
+        <button type="button" class="btn btn-secondary" id="jb-refresh">
+          <Icon name="lucide:refresh-cw" class="admin-nav-icon" />Refresh
+        </button>
+        <button type="button" class="btn btn-primary" id="jb-new">
+          <Icon name="lucide:plus" class="admin-nav-icon" />New application
+        </button>
+      </div>
+    </div>
+
+    <p class="admin-note jb-message" id="jb-message"></p>
+
+    <div class="tab-bar" role="tablist" aria-label="Jobs" id="jb-tabs">
+      <button type="button" class="tab" role="tab" id="jb-tab-list" aria-controls="jb-panel-list" aria-selected="true">
+        <Icon name="lucide:list" class="admin-nav-icon" />Applications
+      </button>
+      <button type="button" class="tab" role="tab" id="jb-tab-discover" aria-controls="jb-panel-discover" aria-selected="false">
+        <Icon name="lucide:radar" class="admin-nav-icon" />Discover
+      </button>
+    </div>
+
+    <div class="tab-panel" id="jb-panel-list" role="tabpanel" aria-labelledby="jb-tab-list">
+      <div class="jb-grid">
+        <section class="card elev-sm jb-main">
+          <div id="jb-list" class="jb-list"></div>
+          <div class="admin-empty" id="jb-empty" hidden>
+            <div class="admin-empty-art admin-empty-art-sm"><Illustration name="no-data" /></div>
+            <h3 class="admin-empty-title">Nothing tracked yet</h3>
+            <p class="admin-empty-copy">
+              Paste an advert into <strong>New application</strong>, or scan your watched boards on the
+              Discover tab. From a terminal, <code>portfolio jobs --save</code> does the same.
+            </p>
+          </div>
+        </section>
+
+        <aside class="card elev-sm jb-side">
+          <p class="admin-eyebrow">Private</p>
+          <p class="admin-note">
+            No page on the site shows an application, the public assistant cannot read one, and this
+            screen fetches its rows with your token rather than rendering them into its HTML. Nothing
+            here touches LinkedIn: copy an advert in, and send what the assistant drafts yourself.
+          </p>
+        </aside>
+      </div>
+    </div>
+
+    <div class="tab-panel" id="jb-panel-discover" role="tabpanel" aria-labelledby="jb-tab-discover" hidden>
+      <div class="jb-grid">
+        <section class="card elev-sm jb-main">
+          <p class="admin-eyebrow">Watchlist</p>
+          <div class="field">
+            <label for="jb-boards">Boards</label>
+            <textarea class="input jb-boards" id="jb-boards" rows="5" spellcheck="false" placeholder="greenhouse stripe Stripe&#10;lever palantir Palantir&#10;ashby openai OpenAI"></textarea>
+            <p class="text-muted admin-note">
+              One per line: <code>greenhouse</code>, <code>lever</code> or <code>ashby</code>, the board's
+              name from its URL, then the company as you write it. A line this cannot read is dropped on save.
+            </p>
+          </div>
+          <div class="jb-filters">
+            <div class="field">
+              <label for="jb-keywords">Title contains any of</label>
+              <input class="input" id="jb-keywords" placeholder="engineer, developer" />
+            </div>
+            <div class="field">
+              <label for="jb-exclude">…and none of</label>
+              <input class="input" id="jb-exclude" placeholder="intern, manager" />
+            </div>
+            <div class="field">
+              <label for="jb-locations">Location contains any of</label>
+              <input class="input" id="jb-locations" placeholder="bengaluru, bangalore, india, remote" />
+            </div>
+          </div>
+          <p class="text-muted admin-note">
+            Comma-separated, case doesn't matter, empty matches everything. <code>remote</code> also matches
+            roles that are remote only within another country — read the location before tracking one.
+          </p>
+          <div class="jb-acts">
+            <button type="button" class="btn btn-secondary" id="jb-save-list">
+              <Icon name="lucide:save" class="admin-nav-icon" />Save watchlist
+            </button>
+            <button type="button" class="btn btn-primary" id="jb-scan">
+              <Icon name="lucide:radar" class="admin-nav-icon" />Scan boards
+            </button>
+          </div>
+
+          <p class="admin-note jb-scan-note" id="jb-scan-note"></p>
+          <div id="jb-found" class="jb-list"></div>
+        </section>
+
+        <aside class="card elev-sm jb-side">
+          <p class="admin-eyebrow">Where postings come from</p>
+          <p class="admin-note">
+            Greenhouse, Lever and Ashby publish every company's open roles as public JSON, and this browser
+            reads them directly — the site's Worker never sees a board. A board's name is the last part of
+            its careers URL: <code>jobs.lever.co/<strong>palantir</strong></code>.
+          </p>
+          <p class="admin-note">
+            LinkedIn, Naukri and most Indian job sites have no such feed, so they are not here. Paste an
+            advert from one into <strong>New application</strong> instead.
+          </p>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <dialog class="modal" id="jb-dialog">
+    <form method="dialog" class="modal-head">
+      <h3 class="modal-title">New application</h3>
+      <button class="btn btn-icon" value="cancel" aria-label="Close">
+        <Icon name="lucide:x" class="admin-nav-icon" />
+      </button>
+    </form>
+    <div class="modal-body">
+      <div class="field">
+        <label for="jb-f-company">Company</label>
+        <input class="input" id="jb-f-company" autocomplete="off" />
+      </div>
+      <div class="field">
+        <label for="jb-f-role">Role</label>
+        <input class="input" id="jb-f-role" autocomplete="off" />
+        <p class="text-muted admin-note" id="jb-f-slug"></p>
+      </div>
+      <div class="field">
+        <label for="jb-f-url">Posting URL</label>
+        <input class="input" id="jb-f-url" type="url" placeholder="https://…" />
+      </div>
+      <div class="field">
+        <label for="jb-f-jd">Job description</label>
+        <textarea class="input jb-jd" id="jb-f-jd" rows="8" placeholder="Paste the whole advert. It is kept verbatim."></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button type="button" class="btn btn-secondary" id="jb-f-cancel">Cancel</button>
+      <button type="button" class="btn btn-primary" id="jb-f-create">Create</button>
+    </div>
+  </dialog>
+</AdminLayout>
+
+<script>
+  import { navigate } from 'astro:transitions/client';
+  import { onAdminPage, setBusy, toast, wireTabs } from '../../lib/admin';
+  import {
+    APPLICATION_STATUSES,
+    CLOSED_STATUSES,
+    createApplication,
+    listApplications,
+    readDocument,
+    saveWatchlist,
+    type Application,
+    type ApplicationStatus,
+  } from '../../lib/content-store';
+  import { getToken } from '../../lib/github';
+  import {
+    WATCHLIST_KEY,
+    formatBoard,
+    parseBoardLine,
+    postingSlug,
+    readWatchlist,
+    scan,
+    type Board,
+    type Posting,
+    type Watchlist,
+  } from '../../lib/job-boards';
+
+  onAdminPage('#admin-jobs', () => {
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+    const list = $('jb-list');
+    const empty = $('jb-empty');
+    const stamp = $('jb-stamp');
+    const message = $('jb-message');
+    const refresh = $<HTMLButtonElement>('jb-refresh');
+    const create = $<HTMLButtonElement>('jb-new');
+    const dialog = $<HTMLDialogElement>('jb-dialog');
+    const company = $<HTMLInputElement>('jb-f-company');
+    const role = $<HTMLInputElement>('jb-f-role');
+    const slugLine = $('jb-f-slug');
+    const postingUrl = $<HTMLInputElement>('jb-f-url');
+    const advert = $<HTMLTextAreaElement>('jb-f-jd');
+    const submit = $<HTMLButtonElement>('jb-f-create');
+    const boards = $<HTMLTextAreaElement>('jb-boards');
+    const keywords = $<HTMLInputElement>('jb-keywords');
+    const exclude = $<HTMLInputElement>('jb-exclude');
+    const locations = $<HTMLInputElement>('jb-locations');
+    const saveList = $<HTMLButtonElement>('jb-save-list');
+    const scanBtn = $<HTMLButtonElement>('jb-scan');
+    const scanNote = $('jb-scan-note');
+    const found = $('jb-found');
+
+    wireTabs($('jb-tabs'));
+
+    const say = (text: string, tone: 'info' | 'error' = 'info') => {
+      message.dataset.tone = tone;
+      message.textContent = text;
+    };
+
+    if (!getToken()) {
+      for (const button of [refresh, create, saveList, scanBtn]) button.disabled = true;
+      say('Sign in with GitHub to read the tracker.', 'error');
+      return;
+    }
+
+    let rows: Application[] = [];
+    const today = () => new Date().toISOString().slice(0, 10);
+    const node = <K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text = '') => {
+      const el = document.createElement(tag);
+      if (className) el.className = className;
+      if (text) el.textContent = text;
+      return el;
+    };
+
+    /* ---------- the manifest ---------- */
+
+    /* Every value is `textContent`: a company, a role and a note are all text
+       the owner pasted from somewhere else. */
+    function row(app: Application): HTMLElement {
+      const f = app.fields;
+      const link = node('a', 'jb-row');
+      link.href = `/admin/jobs/${encodeURIComponent(app.slug)}`;
+      const head = node('span', 'jb-row-head');
+      head.append(node('strong', '', f.company), node('span', 'jb-row-role', f.role));
+      const meta = node('span', 'jb-row-meta');
+      if (f.nextStep || f.nextOn) {
+        const next = node('span', 'jb-next', [f.nextStep, f.nextOn].filter(Boolean).join(' · '));
+        /* Text comparison is the point of storing YYYY-MM-DD. */
+        if (f.nextOn && f.nextOn < today() && !CLOSED_STATUSES.includes(f.status)) {
+          next.dataset.overdue = '';
+          next.title = 'Overdue';
+        }
+        meta.append(next);
+      }
+      if (f.appliedOn) meta.append(node('span', '', `applied ${f.appliedOn}`));
+      link.append(head, meta);
+      return link;
+    }
+
+    function render() {
+      const groups = (Object.keys(APPLICATION_STATUSES) as ApplicationStatus[])
+        .map(status => ({ status, apps: rows.filter(app => app.fields.status === status) }))
+        .filter(group => group.apps.length);
+
+      const open = groups.filter(group => !CLOSED_STATUSES.includes(group.status));
+      const closed = groups.filter(group => CLOSED_STATUSES.includes(group.status));
+
+      const blocks: HTMLElement[] = open.map(group => {
+        const section = node('section', 'jb-group');
+        const title = node('h3', 'jb-group-title', APPLICATION_STATUSES[group.status]);
+        title.append(node('span', 'jb-count', String(group.apps.length)));
+        section.append(title, ...group.apps.map(row));
+        return section;
+      });
+
+      /* Outcomes fold away: they are the record, not the work. */
+      if (closed.length) {
+        const fold = node('details', 'jb-group jb-closed');
+        const count = closed.reduce((sum, group) => sum + group.apps.length, 0);
+        fold.append(node('summary', 'jb-group-title', `Closed · ${count}`));
+        for (const group of closed) {
+          fold.append(node('p', 'jb-sub', APPLICATION_STATUSES[group.status]), ...group.apps.map(row));
+        }
+        blocks.push(fold);
+      }
+
+      list.replaceChildren(...blocks);
+      empty.hidden = rows.length > 0;
+      const active = rows.filter(app => !CLOSED_STATUSES.includes(app.fields.status)).length;
+      stamp.textContent = `${rows.length} tracked · ${active} active · read ${new Date().toLocaleTimeString()}`;
+    }
+
+    async function load() {
+      setBusy(refresh, true, 'Reading…');
+      try {
+        rows = await listApplications();
+        render();
+        say('');
+      } catch (error) {
+        say(error instanceof Error ? error.message : 'Could not read the tracker.', 'error');
+      } finally {
+        setBusy(refresh, false);
+      }
+    }
+
+    refresh.addEventListener('click', () => void load());
+
+    /* ---------- new application ---------- */
+
+    const takenSlugs = () => new Set(rows.map(app => app.slug));
+    const nextSlug = () => postingSlug({ company: company.value, role: role.value }, takenSlugs());
+
+    const paintSlug = () => {
+      slugLine.textContent =
+        company.value.trim() && role.value.trim() ? `Saved as /admin/jobs/${nextSlug()}` : '';
+    };
+    company.addEventListener('input', paintSlug);
+    role.addEventListener('input', paintSlug);
+
+    create.addEventListener('click', () => {
+      for (const field of [company, role, postingUrl, advert]) field.value = '';
+      paintSlug();
+      dialog.showModal();
+      company.focus();
+    });
+    $<HTMLButtonElement>('jb-f-cancel').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('click', event => {
+      if (event.target === dialog) dialog.close();
+    });
+
+    async function track(posting: Posting): Promise<string> {
+      const slug = postingSlug(posting, takenSlugs());
+      await createApplication(slug, {
+        company: posting.company,
+        role: posting.role,
+        url: posting.url || null,
+        jobDescription: posting.description || null,
+        status: 'saved',
+      });
+      return slug;
+    }
+
+    submit.addEventListener('click', async () => {
+      /* The two NOT NULL columns, checked here so the refusal is a focused
+         field rather than a constraint message. */
+      for (const field of [company, role]) {
+        if (!field.value.trim()) {
+          field.focus();
+          toast(`${field === company ? 'Company' : 'Role'} is required.`, { tone: 'error' });
+          return;
+        }
+      }
+      setBusy(submit, true, 'Creating…');
+      try {
+        const slug = await track({
+          company: company.value.trim(),
+          role: role.value.trim(),
+          url: postingUrl.value.trim(),
+          location: '',
+          description: advert.value.trim(),
+        });
+        dialog.close();
+        toast('Tracked. Assess the fit next.', { tone: 'success' });
+        await navigate(`/admin/jobs/${slug}`);
+      } catch (error) {
+        toast(error instanceof Error ? error.message : 'Could not create it.', { tone: 'error' });
+      } finally {
+        setBusy(submit, false);
+      }
+    });
+
+    /* ---------- discover ---------- */
+
+    const csv = (value: string) => value.split(',').map(part => part.trim()).filter(Boolean);
+
+    function readForm(): { list: Watchlist; dropped: string[] } {
+      const lines = boards.value.split('\n').map(line => line.trim()).filter(Boolean);
+      const parsed = lines.map(line => [line, parseBoardLine(line)] as const);
+      return {
+        list: readWatchlist({
+          boards: parsed.map(([, board]) => board).filter((board): board is Board => board !== null),
+          keywords: csv(keywords.value),
+          exclude: csv(exclude.value),
+          locations: csv(locations.value),
+        }),
+        dropped: parsed.filter(([, board]) => board === null).map(([line]) => line),
+      };
+    }
+
+    function fillForm(list: Watchlist) {
+      boards.value = list.boards.map(formatBoard).join('\n');
+      keywords.value = list.keywords.join(', ');
+      exclude.value = list.exclude.join(', ');
+      locations.value = list.locations.join(', ');
+    }
+
+    saveList.addEventListener('click', async () => {
+      const { list, dropped } = readForm();
+      setBusy(saveList, true, 'Saving…');
+      try {
+        await saveWatchlist(list);
+        fillForm(list);
+        toast(
+          dropped.length
+            ? `Saved ${list.boards.length} boards. Dropped ${dropped.length} line${dropped.length === 1 ? '' : 's'} it could not read: ${dropped.join('; ')}`
+            : `Saved ${list.boards.length} board${list.boards.length === 1 ? '' : 's'}.`,
+          { tone: dropped.length ? 'info' : 'success' },
+        );
+      } catch (error) {
+        toast(error instanceof Error ? error.message : 'Could not save the watchlist.', { tone: 'error' });
+      } finally {
+        setBusy(saveList, false);
+      }
+    });
+
+    function foundRow(posting: Posting): HTMLElement {
+      const host = node('article', 'jb-hit');
+      const head = node('span', 'jb-row-head');
+      head.append(node('strong', '', posting.company), node('span', 'jb-row-role', posting.role));
+      const meta = node('span', 'jb-row-meta', posting.location || 'location not stated');
+      const view = node('a', 'btn btn-secondary jb-act', 'View');
+      view.href = posting.url;
+      view.target = '_blank';
+      view.rel = 'noopener noreferrer';
+      /* No icon on these two, so a text label is safe. */
+      const keep = node('button', 'btn btn-primary jb-act', 'Track');
+      keep.type = 'button';
+      keep.addEventListener('click', async () => {
+        keep.disabled = true;
+        keep.textContent = 'Tracking…';
+        try {
+          const slug = await track(posting);
+          keep.textContent = 'Tracked';
+          rows.push({
+            slug,
+            updatedAt: null,
+            fields: {
+              company: posting.company,
+              role: posting.role,
+              status: 'saved',
+              url: posting.url,
+              jobDescription: posting.description,
+              fit: null,
+              resumeVariant: null,
+              contacts: [],
+              appliedOn: null,
+              nextStep: null,
+              nextOn: null,
+              notes: null,
+            },
+          });
+          render();
+          toast(`Tracked ${posting.company} — ${posting.role}.`, {
+            tone: 'success',
+            action: { label: 'Open', href: `/admin/jobs/${slug}` },
+          });
+        } catch (error) {
+          keep.disabled = false;
+          keep.textContent = 'Track';
+          toast(error instanceof Error ? error.message : 'Could not track it.', { tone: 'error' });
+        }
+      });
+      const acts = node('span', 'jb-hit-acts');
+      acts.append(view, keep);
+      host.append(head, meta, acts);
+      return host;
+    }
+
+    let scanning: AbortController | null = null;
+    scanBtn.addEventListener('click', async () => {
+      const { list } = readForm();
+      if (!list.boards.length) {
+        boards.focus();
+        toast('Add a board first — one per line.', { tone: 'error' });
+        return;
+      }
+      scanning?.abort();
+      const controller = new AbortController();
+      scanning = controller;
+      setBusy(scanBtn, true, 'Scanning…');
+      scanNote.dataset.tone = 'info';
+      scanNote.textContent = `Reading ${list.boards.length} board${list.boards.length === 1 ? '' : 's'}…`;
+      try {
+        const result = await scan(list, rows.map(app => app.fields.url ?? '').filter(Boolean), controller.signal);
+        found.replaceChildren(...result.found.map(foundRow));
+        const failed = result.failed.map(({ board, reason }) => `${formatBoard(board)}: ${reason}`);
+        scanNote.dataset.tone = failed.length ? 'error' : 'info';
+        scanNote.textContent =
+          `${result.found.length} new of ${result.seen} postings, after your filters and what you already track.` +
+          (failed.length ? ` Could not read — ${failed.join('; ')}` : '');
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          scanNote.dataset.tone = 'error';
+          scanNote.textContent = error instanceof Error ? error.message : 'The scan failed.';
+        }
+      } finally {
+        if (scanning === controller) scanning = null;
+        setBusy(scanBtn, false);
+      }
+    });
+
+    void load();
+    readDocument(WATCHLIST_KEY)
+      .then(raw => fillForm(readWatchlist(raw)))
+      .catch(error => toast(error instanceof Error ? error.message : 'Could not read the watchlist.', { tone: 'error' }));
+  });
+</script>
+
+<style>
+  .jb-message { min-height: 18px; font-size: 12px; margin: 0 0 var(--space-4); }
+  .jb-message[data-tone='error'] { color: var(--color-accent-700); }
+
+  .jb-grid { display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-4); align-items: start; }
+  .jb-main { min-width: 0; }
+  .jb-side { display: flex; flex-direction: column; gap: var(--space-2); }
+  .jb-list { display: flex; flex-direction: column; }
+  .jb-boards, .jb-jd { font-family: var(--font-mono); font-size: 13px; }
+  .jb-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+  .jb-acts { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-3); }
+  .jb-scan-note { min-height: 18px; font-size: 12px; margin: var(--space-3) 0 var(--space-2); }
+  .jb-scan-note[data-tone='error'] { color: var(--color-accent-700); }
+  /* A board posts one role per city, so an unfiltered scan is hundreds of rows;
+     they scroll inside the card rather than push the watchlist off screen. */
+  #jb-found { max-height: 70vh; overflow-y: auto; }
+
+  /* Built in script, so these hang off the server-rendered hosts. */
+  #jb-list :global(.jb-group) { margin-bottom: var(--space-4); }
+  #jb-list :global(.jb-group-title) {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-1);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: default;
+  }
+  #jb-list :global(summary.jb-group-title) { cursor: pointer; }
+  #jb-list :global(.jb-count) { color: var(--color-text-muted); }
+  #jb-list :global(.jb-sub) { margin: var(--space-2) 0 0; font-size: 11px; color: var(--color-text-muted); }
+
+  #jb-list :global(.jb-row),
+  #jb-found :global(.jb-hit) {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-2) 0 var(--space-2) var(--space-2);
+    border-bottom: 1px solid var(--color-divider);
+    border-left: 3px solid transparent;
+    color: inherit;
+    text-decoration: none;
+  }
+  #jb-list :global(.jb-row:hover) { border-left-color: var(--color-accent-400); }
+  #jb-list :global(.jb-row-head),
+  #jb-found :global(.jb-row-head) { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: baseline; font-size: 14px; }
+  #jb-list :global(.jb-row-role),
+  #jb-found :global(.jb-row-role) { color: var(--color-text-muted); }
+  #jb-list :global(.jb-row-meta),
+  #jb-found :global(.jb-row-meta) { display: flex; gap: var(--space-3); font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); }
+  #jb-list :global(.jb-next[data-overdue]) { color: var(--color-accent-700); font-weight: 600; }
+
+  #jb-found :global(.jb-hit-acts) { display: flex; gap: var(--space-1); margin-top: var(--space-1); }
+  #jb-found :global(.jb-act) { font-size: 11px; padding: 2px 10px; min-height: 0; }
+
+  @media screen and (max-width: 1000px) {
+    .jb-grid { grid-template-columns: 1fr; }
+    .jb-filters { grid-template-columns: 1fr; }
+  }
+</style>

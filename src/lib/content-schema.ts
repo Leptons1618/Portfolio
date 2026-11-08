@@ -75,6 +75,22 @@ const JOURNAL_COLUMNS: ColumnMap = {
   status: ['status', 'text'],
 };
 
+/** The private job tracker. No page reads it; decision 78. */
+const APPLICATION_COLUMNS: ColumnMap = {
+  company: ['company', 'text'],
+  role: ['role', 'text'],
+  status: ['status', 'text'],
+  url: ['url', 'text'],
+  jobDescription: ['job_description', 'text'],
+  fit: ['fit', 'text'],
+  resumeVariant: ['resume_variant', 'text'],
+  contacts: ['contacts', 'list'],
+  appliedOn: ['applied_on', 'text'],
+  nextStep: ['next_step', 'text'],
+  nextOn: ['next_on', 'text'],
+  notes: ['notes', 'text'],
+};
+
 /**
  * Singleton documents — currently just the resume.
  *
@@ -168,7 +184,7 @@ interface TableSpec {
 }
 
 /**
- * The five `documents` rows this endpoint writes.
+ * The six `documents` rows this endpoint writes.
  *
  * `documents` is not a collection — it is a handful of singletons, each with
  * exactly one writer and one reader, and its primary key is therefore a closed
@@ -183,8 +199,9 @@ interface TableSpec {
  *
  * Spelled out rather than imported: each constant lives in the module that owns
  * the document (`RESUME_KEY` in `resume.ts`, `AI_SETTINGS_KEY` in `ai.ts`,
- * `AUTO_KEY` in `journal-auto.ts`, the two order keys in `content.ts`), and
- * three of those four modules cannot be loaded by a plain Node script — which
+ * `AUTO_KEY` in `journal-auto.ts`, the two order keys in `content.ts`,
+ * `WATCHLIST_KEY` in `job-boards.ts`), and
+ * three of those five modules cannot be loaded by a plain Node script — which
  * `npm run check:schema` is. The test asserts the list, so a rename that
  * forgets this file fails there rather than in production.
  */
@@ -194,6 +211,8 @@ const DOCUMENT_SLUGS = [
   'journal-auto',
   'projects-deep-dives',
   'journal-order',
+  /* The boards `portfolio jobs` and the Jobs screen scan — decision 79. */
+  'job-watchlist',
 ] as const;
 
 export const TABLES = {
@@ -201,6 +220,7 @@ export const TABLES = {
   case_studies: { columns: CASE_STUDY_COLUMNS, rendersBody: true, slugs: null, readable: true },
   journal: { columns: JOURNAL_COLUMNS, rendersBody: true, slugs: null, readable: true },
   documents: { columns: DOCUMENT_COLUMNS, rendersBody: false, slugs: DOCUMENT_SLUGS, readable: true },
+  applications: { columns: APPLICATION_COLUMNS, rendersBody: false, slugs: null, readable: true },
   ai_providers: { columns: AI_PROVIDER_COLUMNS, rendersBody: false, slugs: null, readable: false },
   ai_decision_providers: { columns: AI_DECISION_PROVIDER_COLUMNS, rendersBody: false, slugs: null, readable: false },
 } as const satisfies Record<string, TableSpec>;

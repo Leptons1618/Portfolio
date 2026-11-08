@@ -14,6 +14,21 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **A Jobs screen, and job discovery.** `/admin/jobs` lists every application by
+  status with overdue follow-ups flagged; `/admin/jobs/<slug>` edits one, with
+  `/assess-fit` writing the fit assessment into its field and `/draft-outreach`
+  drafting two versions of a message with their character counts. The Discover
+  tab — and `portfolio jobs` — scan Greenhouse, Lever and Ashby boards on a
+  watchlist straight from the caller, never through the Worker, and track what is
+  new. Rows are fetched with the token, never rendered into the page. Decision
+  **79**.
+- **A private job tracker.** An `applications` table (migration 0015) — company,
+  role, status, the advert, a fit assessment, the resume variant sent, contacts and
+  follow-ups — reachable from the CLI (`portfolio ls application`) and the MCP
+  server as one more content kind, and from nothing public. A `jobs` skill turns
+  an MCP client into the assistant for it: fit against an advert, a tailored
+  resume variant, outreach drafts, a pipeline review and a LinkedIn profile review
+  from the owner's data export. Nothing touches LinkedIn. Decision **78**.
 - **The daily post is written as a resumable run of steps.** A plan, one request
   per section, then the draft — one row per day, saved after every step, so a
   tick that runs out of time leaves the next one exactly where to continue and a

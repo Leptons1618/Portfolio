@@ -1,8 +1,8 @@
 /**
- * The eighteen things the authoring assistant can be asked to do.
+ * The twenty-five things the authoring assistant can be asked to do.
  *
- * Ten belong to the journal editor, two to the project screen and four to the
- * resume; each task says which by its `surface`, and each screen renders the
+ * Ten belong to the journal editor, two to the project screen, four to the
+ * resume and two to the Jobs screen; each task says which by its `surface`, and each screen renders the
  * menu filtered to its own. One table rather than one per screen, because the
  * property below is a property of the *table* — a second table is a second
  * thing to keep closed, and the first one to be forgotten.
@@ -14,7 +14,7 @@
  * token in a browser tab, and an endpoint that forwards arbitrary prompts on
  * the owner's API key is a general-purpose model with a billing account
  * attached, one stolen session away from being someone else's. A table of tasks
- * bounds what a stolen session is worth: eighteen prompts about writing up
+ * bounds what a stolen session is worth: twenty-five prompts about writing up
  * this person's own work.
  *
  * It also makes the assistant *better*. Each task carries its own temperature,
@@ -108,7 +108,15 @@ export type ProjectTarget = 'project' | 'caseStudy' | 'caseStudyBody';
  */
 export type ResumeTarget = 'resumeSummary';
 
-export type AssistTarget = JournalTarget | ProjectTarget | ResumeTarget;
+/**
+ * The Jobs screen's one live target: the application's fit assessment.
+ *
+ * One field, one answer — the `resumeSummary` argument. The outreach drafts are
+ * not live: two versions of a message are options to pick from, not an edit.
+ */
+export type JobTarget = 'jobFit';
+
+export type AssistTarget = JournalTarget | ProjectTarget | ResumeTarget | JobTarget;
 
 /**
  * Which editor a task belongs to.
@@ -128,7 +136,7 @@ export type AssistTarget = JournalTarget | ProjectTarget | ResumeTarget;
  * reachable everywhere, which is the opposite of every other entry here and is
  * why it says so rather than lying about being a journal task.
  */
-export type AssistSurface = 'journal' | 'project' | 'resume' | 'both';
+export type AssistSurface = 'journal' | 'project' | 'resume' | 'job' | 'both';
 
 /** The surfaces that render a panel. `both` is a wildcard, not a place. */
 export type AssistScreen = Exclude<AssistSurface, 'both'>;
@@ -181,7 +189,11 @@ export type AssistField =
   /** The one section this request writes: heading, brief and length. */
   | 'section'
   /** The end of the section before it, so the prose runs on rather than restarts. */
-  | 'previous';
+  | 'previous'
+  /** An application's fit assessment, for the drafts that must not contradict it. */
+  | 'fit'
+  /** The people at the company the owner has named, one per line. */
+  | 'contacts';
 
 export interface AssistTask {
   /** Shown on the button in the editor. */
@@ -1195,6 +1207,96 @@ Emit nothing before LABEL: and nothing after the last project line. Do not wrap 
    * panel applies a chat reply to a field: an answer to a question is not a
    * draft, and the commands are what change the post.
    */
+  /**
+   * How well the owner fits one advert, written into the application's `fit`.
+   *
+   * Live, for the reason `resumeSummary` is: one field and one answer. It reads
+   * the master resume rather than a variant — the question is whether the
+   * record holds a requirement anywhere, not whether one tailored view shows it
+   * — and it may look a project up, which is where most of the evidence beyond
+   * the resume lives. The rubric is `.claude/skills/jobs`'s, so this screen and
+   * a model in the editor assess alike. Decision 79.
+   */
+  jobFit: {
+    label: 'Assess fit',
+    command: 'assess-fit',
+    surface: 'job',
+    group: 'write',
+    hint: 'Scores the advert’s requirements against your resume and projects, with evidence.',
+    instructions: `Assess how well the author fits the role in the advert, for their private job tracker. Nobody else reads this, so be accurate rather than encouraging: a generous score decides where they spend a week of applications.
+
+Write markdown in exactly this shape:
+
+**Verdict:** Strong, Reasonable, Stretch or Poor — one sentence why.
+**Score:** n/10, mostly from the must-haves.
+
+### Must-haves
+- ✅ the requirement — the evidence: the role, project or skill group that shows it
+- ⚠️ the requirement — adjacent experience, named as adjacent
+- ❌ the requirement — nothing in the record
+
+### Nice-to-haves
+The same three marks.
+
+### Gaps worth closing
+Two or three small, concrete steps: a line the resume is missing for work already done, a project that would show the thing, a certification.
+
+### Keywords for the ATS
+Terms from the advert that are true of the author and missing from the resume, comma-separated.
+
+Rules:
+- Every ✅ cites evidence from the resume above or from a project you looked up. If you cannot point at it, it is not a ✅.
+- A requirement stated in years is counted from the dates on the roles, not estimated.
+- One line per requirement. Do not restate the advert.
+- Start at "**Verdict:**". Nothing before it, nothing after the keywords.`,
+    format: 'markdown',
+    maxTokens: 2500,
+    temperature: 0.3,
+    needsCorpus: true,
+    context: ['resume', 'jobDescription'],
+    live: 'jobFit',
+  },
+
+  /**
+   * A message to one person at the company, drafted and never sent.
+   *
+   * Not live: two versions are options to pick from. The page counts each
+   * version's characters itself rather than trusting a model to count, because
+   * a connection note over the limit is the one failure the owner finds out
+   * about only when LinkedIn refuses to send it.
+   */
+  jobOutreach: {
+    label: 'Draft outreach',
+    command: 'draft-outreach',
+    surface: 'job',
+    group: 'suggest',
+    hint: 'A message to someone at the company. Say who, and where: a LinkedIn note, a message or an email.',
+    instructions: `Draft a message from the author to one person at the company in the advert. The author sends it themselves; you only draft it.
+
+Who it is for and which channel are in the author's instruction. Fit the channel:
+- LinkedIn connection note: 200 characters at most, spaces included — a free account's limit.
+- LinkedIn message or InMail: under 600 characters, three short paragraphs at most.
+- Email: a "Subject:" line, a blank line, then under 150 words.
+If no channel is named, write the connection note.
+
+Every draft carries exactly three things:
+1. One specific reason for this company or role, taken from the advert — not flattery.
+2. One piece of evidence from the resume or the fit assessment: a result, a project, a role.
+3. One clear ask, matched to the person: a recruiter about the process, a hiring manager about the team's problem, an engineer for a referral or fifteen minutes.
+
+Rules:
+- Nothing beyond the record. Never lean on a requirement the fit assessment marks ❌.
+- No "I hope this finds you well", no "I came across your profile", no exclamation marks.
+- Use the person's first name when the instruction or the contacts give it; never invent one.
+- Write two versions, separated by a line holding only "---". Nothing else: no heading, no labels, no explanation.`,
+    format: 'markdown',
+    maxTokens: 1200,
+    temperature: 0.6,
+    needsCorpus: false,
+    context: ['resume', 'jobDescription', 'fit', 'contacts'],
+    needsTopic: true,
+  },
+
   chat: {
     label: 'Ask about the draft',
     surface: 'both',
@@ -1243,7 +1345,7 @@ Everything you write goes to someone reading their own draft. If a request is am
     context: [
       'title', 'summary', 'tags', 'body', 'selection', 'stack', 'highlights',
       'problem', 'solution',
-      'resume', 'jobDescription',
+      'resume', 'jobDescription', 'fit', 'contacts',
     ],
     needsTopic: true,
   },
@@ -1415,6 +1517,17 @@ const ROUTE_HINTS: Record<RoutableTask, readonly string[]> = {
     'tailor the resume',
     'build me a resume',
     'resume for this role',
+  ],
+  jobFit: ['assess fit', 'assess my fit', 'fit assessment', 'score this role', 'score the fit'],
+  jobOutreach: [
+    'draft outreach',
+    'draft a message',
+    'write a message',
+    'connection note',
+    'linkedin note',
+    'draft an email',
+    'write an email',
+    'cold email',
   ],
 };
 
@@ -2087,6 +2200,8 @@ const CONTEXT_LIMITS: Record<AssistField, number> = {
   outline: 3000,
   section: 1200,
   previous: 1500,
+  fit: 4000,
+  contacts: 1000,
 };
 
 const CONTEXT_LABELS: Record<AssistField, string> = {
@@ -2108,6 +2223,8 @@ const CONTEXT_LABELS: Record<AssistField, string> = {
   outline: 'The whole write-up, section by section',
   section: 'The section to write now',
   previous: 'How the previous section ended',
+  fit: 'The author’s fit assessment for this role',
+  contacts: 'People at the company the author has named',
 };
 
 /**

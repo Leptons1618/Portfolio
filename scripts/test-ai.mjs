@@ -1155,12 +1155,12 @@ check('every task belongs to a surface, and each surface has tasks', () => {
   const surfaces = new Set();
   for (const [name, task] of Object.entries(ASSIST_TASKS)) {
     assert.ok(
-      ['journal', 'project', 'resume', 'both'].includes(task.surface),
+      ['journal', 'project', 'resume', 'job', 'both'].includes(task.surface),
       `${name} belongs to no known surface: ${task.surface}`,
     );
     surfaces.add(task.surface);
   }
-  assert.deepEqual([...surfaces].sort(), ['both', 'journal', 'project', 'resume']);
+  assert.deepEqual([...surfaces].sort(), ['both', 'job', 'journal', 'project', 'resume']);
 
   /* `both` is for a task that is on no menu and reachable everywhere, which is
      the opposite of every other entry. Exactly one task may be like that; a
@@ -1202,6 +1202,19 @@ check('every task belongs to a surface, and each surface has tasks', () => {
       );
     }
   }
+
+  /* The Jobs screen has an application and the resume, and nothing else — no
+     post, no repository. Same argument as the resume's list above. */
+  const job = ASSIST_MENU.filter(entry => entry.surface === 'job').map(e => e.name);
+  assert.deepEqual(job.sort(), ['jobFit', 'jobOutreach']);
+  for (const name of job) {
+    for (const field of ASSIST_TASKS[name].context) {
+      assert.ok(
+        ['resume', 'jobDescription', 'fit', 'contacts'].includes(field),
+        `${name} asks for ${field}, which the Jobs screen does not have`,
+      );
+    }
+  }
 });
 
 check('every live task names a target its own surface can write', () => {
@@ -1215,6 +1228,8 @@ check('every live task names a target its own surface can write', () => {
        *selection*, and a selection rearranging itself mid-stream is not an edit
        anyone can watch. */
     resume: ['resumeSummary'],
+    /* One, the fit. The outreach drafts are two options, not an edit. */
+    job: ['jobFit'],
   };
   for (const [name, task] of Object.entries(ASSIST_TASKS)) {
     if (!task.live) continue;
@@ -1239,7 +1254,7 @@ check('every live task names a target its own surface can write', () => {
      selection rather than a field. Asserted by name: making one of them live
      would typecheck, and the failure would be a form redrawing itself under
      the author for thirty seconds. */
-  for (const name of ['resumeProjects', 'resumeVariant', 'resumeBullet']) {
+  for (const name of ['resumeProjects', 'resumeVariant', 'resumeBullet', 'jobOutreach']) {
     assert.equal(ASSIST_TASKS[name].live, undefined, `${name} must not stream into a field`);
   }
 });
@@ -2345,7 +2360,7 @@ check('a spoken request is routed to the task it names', () => {
 check('each command appears on exactly one surface', () => {
   for (const item of ASSIST_MENU) {
     assert.ok(
-      ['journal', 'project', 'resume'].includes(item.surface),
+      ['journal', 'project', 'resume', 'job'].includes(item.surface),
       `${item.command} is offered on ${item.surface}`,
     );
   }
