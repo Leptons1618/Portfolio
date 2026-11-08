@@ -71,7 +71,6 @@ import {
   fieldsOf,
   githubLogin,
   kindOf,
-  readConfig,
   rowsOf,
   saveDoc,
   session as apiSession,
@@ -230,7 +229,13 @@ const COMMANDS = {
       );
     }
 
-    const site = (flags.site || process.env.PORTFOLIO_SITE || readConfig().site || defaultSite()).replace(/\/+$/, '');
+    /* Only an origin this invocation was *given* is stored. The default is read
+       from `public/CNAME` on every call instead, because a stored copy of it
+       outlives the domain: the site moved off anishgiri.dev, the config went on
+       naming it, and once the domain lapsed every call carried the token to a
+       parking server. */
+    const chosen = (flags.site || process.env.PORTFOLIO_SITE || '').replace(/\/+$/, '');
+    const site = chosen || defaultSite();
     if (!site) die('No site origin. Pass --site https://example.com.');
 
     /* Ask GitHub who this is, then ask the site whether it will take them. Two
@@ -254,7 +259,7 @@ const COMMANDS = {
       stale = true;
     }
 
-    writeConfig({ site, token, login });
+    writeConfig({ ...(chosen && { site: chosen }), token, login });
     if (stale) {
       out(`Signed in as @${login}, and the token is stored — but ${site} has no`);
       out('`GET /api/content`, so it is serving a build from before this tool existed.');
@@ -598,7 +603,10 @@ const COMMANDS = {
       return out(`Nothing new: ${result.seen} postings on ${boards} board${boards === 1 ? '' : 's'}, none both matching and untracked.`);
     }
     if (!flags.save) {
-      table(result.found.map(posting => [posting.company, posting.role, posting.location, posting.url]));
+      /* Clipped, because the column is padded to its longest cell and one Ashby
+         posting lists two dozen cities — every row was 500 characters wide. */
+      const clip = text => (text.length > 40 ? `${text.slice(0, 39)}…` : text);
+      table(result.found.map(posting => [posting.company, posting.role, clip(posting.location), posting.url]));
       return out(`\n${result.found.length} new of ${result.seen}. \`portfolio jobs --save\` tracks them.`);
     }
 

@@ -121,8 +121,13 @@ export const onRequest = defineMiddleware(async (context, next) => {
      in the build and none in the bundle. The Worker is not bound to reach
      its own asset store everywhere this runs (`astro dev` has no such
      binding), so a failure here falls through to the empty response rather
-     than replacing a 404 with a 500. */
-  if (response.status === 404) {
+     than replacing a 404 with a 500.
+
+     Only an *empty* one. A 404 that carries a body is a route's own answer —
+     `/api/content`'s `{ error: "No documents row …" }` is what the CLI's
+     create-on-first-save reads — and swapping it for this page handed every
+     API caller HTML. */
+  if (response.status === 404 && response.body === null) {
     const assets = (context.locals.runtime?.env as { ASSETS?: { fetch: (request: Request) => Promise<Response> } } | undefined)?.ASSETS;
     if (assets) {
       try {

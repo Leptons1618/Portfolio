@@ -325,6 +325,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
+- **`portfolio login` no longer stores the default origin.** It wrote the
+  origin it resolved into `~/.config/portfolio/cli.json`, where it outranked
+  `public/CNAME` from then on — so when the site moved domains the CLI and the
+  MCP server went on sending the owner's token to the old one, which had lapsed
+  to a parking host. Only an origin given by `--site` or `$PORTFOLIO_SITE` is
+  stored now; the default is read from `public/CNAME` on every call.
+
 - **Bodies are sanitised on write.** Raw HTML and `javascript:` links passed
   straight through `renderBody()` into `body_html`; the daily journal writes a
   model's markdown and may publish it unread. `markdown.ts` now turns raw
@@ -348,6 +355,17 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fixture.
 
 ### Fixed
+
+- **API 404s reached their callers as the HTML 404 page.** The middleware
+  swapped every 404 for `/404.html`, including `/api/content`'s JSON
+  `{ error }` — which is what the CLI and the MCP server read to create a
+  document on its first save, so creating one failed in production. Only an
+  empty 404 gets the page now.
+- **`/draft-outreach` drafts were replaced by their character counts.** The
+  counts were a status line, and a status writes the same element the answer
+  does. They are on each draft's Copy button now.
+- **`portfolio jobs` printed rows hundreds of characters wide** when a posting
+  listed every city it hires in. The location column is clipped at 40.
 
 - **A non-streamed answer could wait forever for its body.** The attempt timer
   stopped at the headers; it now covers the body too.

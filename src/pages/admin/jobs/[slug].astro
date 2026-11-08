@@ -464,12 +464,15 @@ const slug = Astro.params.slug ?? '';
 
         if (name === 'jobOutreach') {
           /* Counted here, not trusted from the model: a note over the limit is
-             found out only when LinkedIn refuses to send it. */
+             found out only when LinkedIn refuses to send it. The counts ride on
+             the Copy buttons because `status()` writes the same element
+             `answer()` does — a status line here replaced the drafts. */
           const versions = output.split(/^\s*-{3,}\s*$/m).map(part => part.trim()).filter(Boolean);
           turn.answer(output);
-          turn.status(versions.map((part, i) => `Version ${i + 1}: ${part.length} characters`).join(' · '));
           turn.actions([
-            ...versions.map((part, i) => copy(part, versions.length > 1 ? `Copy ${i + 1}` : 'Copy')),
+            ...versions.map((part, i) =>
+              copy(part, `${versions.length > 1 ? `Copy ${i + 1}` : 'Copy'} · ${part.length} characters`),
+            ),
             again,
           ]);
           turn.end(output);
