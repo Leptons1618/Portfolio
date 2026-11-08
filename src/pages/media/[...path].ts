@@ -52,8 +52,16 @@ export const GET: APIRoute = async ({ params, locals }) => {
       /* An upload replaces by path, so a URL's bytes *can* change. A year-long
          immutable cache would strand the old image in every reader's browser;
          a short shared cache keeps the database out of the hot path while
-         letting a re-upload actually show up. */
-      'Cache-Control': 'public, max-age=60, s-maxage=86400',
+         letting a re-upload actually show up.
+
+         `s-maxage` was a day, and a day is how long a *deleted* image went on
+         being served — `/api/media` purges the edge copy now, but a purge from
+         a Worker reaches the colo it runs in and no other, so this number is
+         still the whole guarantee everywhere else. An hour keeps the database
+         out of the hot path just as well: the browser's own 60 seconds is what
+         absorbs a page's repeat views, and one D1 read per image per hour per
+         colo is not a cost worth a day of being wrong. */
+      'Cache-Control': 'public, max-age=60, s-maxage=3600',
       ETag: `"${row.updated_at}"`,
       /* An SVG is a document as well as an image: opened directly, its
          `<script>` runs on this origin. Sandboxed, it still draws inside an

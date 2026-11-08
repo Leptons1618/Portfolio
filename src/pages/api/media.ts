@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { json, refusal, requireOwner } from '../../lib/authorize';
 import { record } from '../../lib/log';
+import { purge } from '../../lib/edge-cache';
 import { MAX_MEDIA_BYTES, MEDIA_TYPES, mediaPath } from '../../lib/media';
 
 /**
@@ -22,6 +23,14 @@ import { MAX_MEDIA_BYTES, MEDIA_TYPES, mediaPath } from '../../lib/media';
  * harmless orphan in `public/` — is preserved for the same reason it was
  * chosen: a frontmatter path to bytes that were never written is the failure
  * that actually hurts.
+ *
+ * **Replacing by path is what makes the purge necessary.** `/media/[...path]`
+ * asks for a shared cache, and `src/middleware.ts` gives it one — so the URL
+ * whose bytes just changed was the URL still answering with the old bytes, for
+ * far longer than anyone would look for a cache before concluding the upload
+ * had silently failed. A delete was worse: the row was gone and the image kept
+ * being served. Both call `purge()` now; `src/lib/edge-cache.ts` is honest
+ * about the colo it reaches.
  */
 
 export const prerender = false;
@@ -110,6 +119,7 @@ export const DELETE: APIRoute = async ({ request, locals, url }) => {
   if (meta.changes === 0) return json({ error: `Nothing uploaded at /media/${path}.` }, 404);
 
   await record(DB, 'warn', 'media', `Deleted /media/${path}.`, { path });
+  purge(url, [`/media/${path}`], locals.runtime.ctx);
   return json({ ok: true, path });
 };
 
@@ -161,6 +171,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
     .run();
 
   await record(DB, 'info', 'media', `Uploaded /media/${path}.`, { path, mime, size: bytes.byteLength });
+  /* An upload is an upsert, so this is as likely to be a replacement as a new
+     path — and a replacement whose URL is already cached is the whole reason
+     this line exists. Purging a path that was never cached costs nothing. */
+  purge(url, [`/media/${path}`], locals.runtime.ctx);
 
   // The URL the caller should store in a `heroImage` field.
   return json({ ok: true, url: `/media/${path}`, size: bytes.byteLength }, 201);

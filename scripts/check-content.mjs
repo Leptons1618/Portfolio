@@ -186,7 +186,7 @@ function check() {
 
      Every workflow, not just deploy.yml. `daily-journal.yml` hard-codes the
      origin as its *fallback* — it is the one place the value is written down
-     that is not covered by check 3 — and when the domain changed, that was the
+     that check 3 does not cover — and when the domain changed, that was the
      file left pointing at the dead host: every tick for days got a 405 from
      the expired domain's parking server, and nothing in the repo disagreed
      with itself. A check that reads one workflow by name does not catch the

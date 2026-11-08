@@ -36,7 +36,26 @@ export default defineConfig({
      `[vite] Port 4321 is in use, trying another one...`), Astro's own `server`
      block has no such key, and passing it there is silently dropped. */
   server: { port: 4321 },
-  vite: { server: { strictPort: true } },
+  vite: {
+    server: { strictPort: true },
+    /* The build's identity, inlined into the bundle as a literal.
+       `src/middleware.ts` stores rendered HTML in Cloudflare's cache, and that
+       HTML names `/_astro/*` files whose hashes belong to *this* build. A cache
+       entry outlives a deployment; the asset store does not — a new deploy's
+       hashes are new and the old ones 404. So the id goes in the cache key and
+       a deploy cannot reach the previous build's entries. See
+       `src/lib/edge-cache.ts`.
+
+       The commit in CI, where it is exact: the same tree deployed twice keeps
+       its entries, and a tree that changed gets new ones. Locally there is no
+       commit to read, so the clock stands in — every `npm run build` is then
+       its own build, which is the safe direction to be wrong in. */
+    define: {
+      __BUILD_ID__: JSON.stringify(
+        process.env.GITHUB_SHA?.slice(0, 12) || Date.now().toString(36),
+      ),
+    },
+  },
   integrations: [
     tailwind({ applyBaseStyles: false }),
     /* Icons are inlined as SVG at build time, so nothing ships at runtime and
