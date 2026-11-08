@@ -557,7 +557,7 @@ const COMMANDS = {
    * gets 10 ms of CPU (decision 61), while the boards answer anyone and need no
    * credential. `--save` tracks each one as a `saved` application with the
    * advert as its job description; `--edit` opens the watchlist itself, which
-   * is the `job-watchlist` document the Jobs screen edits too. Decision 79.
+   * is the `job-watchlist` document the Jobs screen edits too. Decision 80.
    */
   async jobs(_, flags) {
     const where = session(flags);

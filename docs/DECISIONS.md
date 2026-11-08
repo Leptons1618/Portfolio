@@ -1838,7 +1838,7 @@ single-user tool on the owner's own machine one would break legitimate use more
 often than it would help. Also no `resources/` surface — the tools cover reading,
 and a second way to read the same rows is a second thing to keep honest.
 
-## 75. The daily post is a run of steps, and a step is the unit of retry
+## 76. The daily post is a run of steps, and a step is the unit of retry
 
 **The problem.** The daily job asked one request for the whole post. On the
 free pool that request mostly did not survive: a model that sent no headers
@@ -1870,7 +1870,7 @@ one of them. A lock older than four minutes is a killed isolate's and is taken
 over the same way.
 
 **Every step is non-streamed**, so decision 61 holds: waiting on a vendor costs
-no CPU, and the attempt timer now covers the body (decision 77), so a step is
+no CPU, and the attempt timer now covers the body (decision 78), so a step is
 over inside about four minutes whatever the vendor does.
 
 **Rejected.** A longer timeout (it moves the failure, and a killed isolate still
@@ -1881,7 +1881,7 @@ nicety that would cost the CPU budget). A dedicated `ai_runs` table (one JSON
 row per day, written whole, is the shape `documents` already holds for the run
 record, and needs no migration).
 
-## 76. Jev routes a conversation before the answer model sees it, and can only narrow
+## 77. Jev routes a conversation before the answer model sees it, and can only narrow
 
 **The problem.** Every conversational run carries the whole index and every
 lookup tool, whatever was asked. "What's his stack on the CAD project?" needs the
@@ -1915,7 +1915,7 @@ other two kinds hold their own write-only key, HTTPS only. `readable: false`, a
 fingerprint in the listing, and `check:ai` pins the URL and key resolution per
 kind.
 
-## 77. The tool loop stops paying for the same context twice
+## 78. The tool loop stops paying for the same context twice
 
 Three changes inside `ai.ts`, and one beside it.
 
@@ -1934,7 +1934,7 @@ Three changes inside `ai.ts`, and one beside it.
   the reads the answer depends on are the round before it.
 - **A non-streamed body is bounded.** The attempt timer used to stop at the
   headers, and `response.json()` then waited without limit — the 460 s body in
-  decision 75's log. `callProvider()` now reads a non-streamed body under the
+  decision 76's log. `callProvider()` now reads a non-streamed body under the
   same timer.
 - **A conversation compacts itself at the history window.** The panel already
   had Compact. It now runs on its own when a run ends with the transcript at
@@ -1949,7 +1949,7 @@ sections are stored as `run:case-study:<project>` after each one, so a reload or
 another browser offers Resume from the next section. The key must be an
 existing project's slug before it becomes part of a row name.
 
-## 78. The job tracker is a content table, and LinkedIn is somewhere the owner copies from
+## 79. The job tracker is a content table, and LinkedIn is somewhere the owner copies from
 
 **The request.** A CLI that signs in to LinkedIn, reads and edits the profile,
 searches jobs, assesses fit, tailors the resume and messages recruiters — and
@@ -1994,9 +1994,9 @@ an admin screen is another caller of `/api/content`. Fetching job boards inside
 the Worker — the free plan's 10 ms of CPU (decision 61) will not parse a large
 board; discovery, when it comes, runs in the CLI.
 
-## 79. The job tracker gets a screen, and the boards are read from the browser
+## 80. The job tracker gets a screen, and the boards are read from the browser
 
-**Extends decision 78. Nothing in it is reopened.**
+**Extends decision 79. Nothing in it is reopened.**
 
 **Discovery.** `src/lib/job-boards.ts` reads Greenhouse, Lever and Ashby — the
 three ATS vendors that publish every company's open roles as public JSON so

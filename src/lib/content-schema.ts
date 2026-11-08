@@ -75,7 +75,7 @@ const JOURNAL_COLUMNS: ColumnMap = {
   status: ['status', 'text'],
 };
 
-/** The private job tracker. No page reads it; decision 78. */
+/** The private job tracker. No page reads it; decision 79. */
 const APPLICATION_COLUMNS: ColumnMap = {
   company: ['company', 'text'],
   role: ['role', 'text'],
@@ -211,7 +211,7 @@ const DOCUMENT_SLUGS = [
   'journal-auto',
   'projects-deep-dives',
   'journal-order',
-  /* The boards `portfolio jobs` and the Jobs screen scan — decision 79. */
+  /* The boards `portfolio jobs` and the Jobs screen scan — decision 80. */
   'job-watchlist',
 ] as const;
 

@@ -4,7 +4,7 @@
 -- does not build from it, and the only way in or out is `/api/content` behind
 -- `requireOwner()` — the same door as every other table, which is why there is
 -- no endpoint of its own. Written from the CLI and the MCP server today; an
--- admin screen is a later phase. Decision 78.
+-- admin screen is a later phase. Decision 79.
 --
 -- `contacts` holds names of people at the company, which makes this the one
 -- table holding a third party's details. Only what the owner typed or pasted

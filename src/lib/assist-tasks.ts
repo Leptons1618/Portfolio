@@ -1215,7 +1215,7 @@ Emit nothing before LABEL: and nothing after the last project line. Do not wrap 
    * record holds a requirement anywhere, not whether one tailored view shows it
    * — and it may look a project up, which is where most of the evidence beyond
    * the resume lives. The rubric is `.claude/skills/jobs`'s, so this screen and
-   * a model in the editor assess alike. Decision 79.
+   * a model in the editor assess alike. Decision 80.
    */
   jobFit: {
     label: 'Assess fit',

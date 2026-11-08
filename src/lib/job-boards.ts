@@ -13,7 +13,7 @@
  * loads it directly and lets Node strip the types. `npm run check:cli` drives the
  * pure half against fixtures shaped like each vendor's real answer.
  *
- * LinkedIn is not here, and must not be — decision 78.
+ * LinkedIn is not here, and must not be — decision 79.
  */
 
 export const BOARD_KINDS = ['greenhouse', 'lever', 'ashby'] as const;

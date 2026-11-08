@@ -425,7 +425,7 @@ export async function saveJournalOrder(slugs: string[]): Promise<WriteResult> {
  * The job tracker's statuses, in pipeline order — migration 0015's CHECK
  * constraint, and the order the Jobs screen groups by. There is no `content.ts`
  * type to `satisfies` against, because no public page reads the table; this map
- * is that type. Decision 78.
+ * is that type. Decision 79.
  */
 export const APPLICATION_STATUSES = {
   saved: 'Saved',

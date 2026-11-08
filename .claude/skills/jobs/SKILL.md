@@ -8,7 +8,7 @@ description: The owner's job search — track applications, assess fit against a
 The tracker is the `applications` table, read and written through the same
 `portfolio_*` tools and `portfolio` CLI as everything else on the site (kind
 `application`, or `job`). It is **private**: no page renders a row and the public
-assistant cannot see one. The resume it tailors is the `resume` document. Decision 78.
+assistant cannot see one. The resume it tailors is the `resume` document. Decision 79.
 
 ## Two things you never do
 

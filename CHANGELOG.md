@@ -21,14 +21,14 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   tab — and `portfolio jobs` — scan Greenhouse, Lever and Ashby boards on a
   watchlist straight from the caller, never through the Worker, and track what is
   new. Rows are fetched with the token, never rendered into the page. Decision
-  **79**.
+  **80**.
 - **A private job tracker.** An `applications` table (migration 0015) — company,
   role, status, the advert, a fit assessment, the resume variant sent, contacts and
   follow-ups — reachable from the CLI (`portfolio ls application`) and the MCP
   server as one more content kind, and from nothing public. A `jobs` skill turns
   an MCP client into the assistant for it: fit against an advert, a tailored
   resume variant, outreach drafts, a pipeline review and a LinkedIn profile review
-  from the owner's data export. Nothing touches LinkedIn. Decision **78**.
+  from the owner's data export. Nothing touches LinkedIn. Decision **79**.
 - **The daily post is written as a resumable run of steps.** A plan, one request
   per section, then the draft — one row per day, saved after every step, so a
   tick that runs out of time leaves the next one exactly where to continue and a
@@ -36,16 +36,16 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   day with nothing new to say is declined rather than padded, and the cron tick
   and Run now share a compare-and-set lock. The Journal screen's Daily journal
   tab shows the run and its trail, with Run now / Resume / Stop and Discard.
-  Decision **75**.
+  Decision **76**.
 - **Jev routing, optional and off by default.** One typed yes/no decision before
   a conversation says which kinds of content it needs; a confident answer
   narrows the index and the lookup tools, anything else changes nothing. It can
   only remove tools, is never retried and never reaches a visitor. Endpoints
   live in a new `ai_decision_providers` table (migration 0014) with write-only
-  keys. Decision **76**.
+  keys. Decision **77**.
 - **Conversations compact themselves** at the history window, and **a long case
   study resumes after a reload** from its stored plan and finished sections.
-  Decision **77**.
+  Decision **78**.
 
 - **An MCP server, so the assistant can edit the site — and three gates in front
   of it.** `mcp/portfolio-mcp.mjs`, registered by the checked-in `.mcp.json`. It
@@ -209,7 +209,7 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The tool loop stops paying for the same context twice.** A reasoning
   provider's own reasoning is sent back to it on the tool-call turn (and to no
   other model), older lookup results are trimmed once a later round has read
-  more, and usage is summed across rounds. Decision **77**.
+  more, and usage is summed across rounds. Decision **78**.
 - **The public assistant no longer shows its reasoning.** The stream carries the
   answer, a "thinking" signal for the wait label and the pages it read — no
   deliberation, no result text, no model names, costs or loop errors. The
