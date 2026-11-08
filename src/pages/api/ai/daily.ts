@@ -1,36 +1,30 @@
 import type { APIRoute } from 'astro';
 import { Unauthorized, json, refusal, requireOwner } from '../../../lib/authorize';
-import {
-  ProviderError,
-  agentComplete,
-  getAiSettings,
-  modelsFor,
-  usableProviders,
-  type Completion,
-  type Provider,
-} from '../../../lib/ai';
-import { buildIndex } from '../../../lib/ai-corpus';
-import { MAX_TOOL_CALLS, runTool, toolSummary, toolsFor } from '../../../lib/ai-tools';
-import { getCaseStudies, getPosts, getProjects, pinNewJournalPost } from '../../../lib/content';
-import { getResume } from '../../../lib/resume';
-import { ASSIST_TASKS, POST_KEYS, assistPrompt, parseFields } from '../../../lib/assist-tasks';
+import { getAiSettings, usableProviders } from '../../../lib/ai';
+import { advance, peekRun } from '../../../lib/agent-runner';
+import { isFinished, summariseRun, type PostRun } from '../../../lib/agent-runs';
 import {
   AUTO_KEY,
   AUTO_RUN_KEY,
-  autoInstruction,
   clampAutoRun,
   clampAutoSettings,
   decide,
-  slugify,
-  type AutoJournalRun,
-  type AutoJournalSettings,
 } from '../../../lib/journal-auto';
-import { renderBody } from '../../../lib/markdown';
 import { site } from '../../../lib/site';
-import { record } from '../../../lib/log';
 
 /**
  * The daily journal job.
+ *
+ * ## A run of steps, not one generation
+ *
+ * The post is written by `src/lib/agent-runner.ts` as a persisted run: plan,
+ * one request per section, then assembly. A tick loops `advance()` until the
+ * run is finished or `TICK_BUDGET_MS` is spent, and answers `in-progress` when
+ * it stops early — the next tick continues from the step after the last one
+ * that finished. A failed step is retried; the run's failures are the day's
+ * attempts, so `decide()`'s `maxAttempts` still bounds what a bad day costs.
+ * One generation used to have to survive the whole post in one request on the
+ * free pool, and mostly did not.
  *
  * Everything else on this site that spends money is started by a person. This
  * is started by a clock — `.github/workflows/daily-journal.yml` calls it once
@@ -45,8 +39,8 @@ import { record } from '../../../lib/log';
  * reason `/api/ai/chats` is not it: that endpoint authenticates a **person**.
  * It takes the GitHub token a browser is holding and asks GitHub whose it is,
  * and there is no browser and no person here. So the rule that endpoint exists
- * to enforce is kept rather than borrowed — every column name in `insertDraft`
- * is a literal in source, nothing from a request becomes a SQL identifier, and
+ * to enforce is kept rather than borrowed — every column name in `insertPost`
+ * (`agent-runner.ts`) is a literal in source, nothing from a request becomes a SQL identifier, and
  * the only inputs to the statement are the model's own text and the owner's
  * settings row. There is nothing in a request to this route that reaches the
  * database at all: it takes no slug, no table, no fields, and no prompt.
@@ -102,75 +96,7 @@ async function authorise(request: Request, secret: string | undefined): Promise<
   return 'owner';
 }
 
-/**
- * That slug, or the first free variant of it.
- *
- * A model asked for a post about the same subject twice will occasionally
- * produce the same title, and the slug is a primary key. Suffixing rather than
- * refusing, because the run has already been paid for by the time this is
- * known — and a second post named `caching-2` is a thing the owner can rename,
- * where a failed insert is a wasted generation.
- */
-async function freeSlug(db: D1Database, base: string): Promise<string> {
-  const taken = async (slug: string) =>
-    Boolean(await db.prepare('SELECT slug FROM journal WHERE slug = ?').bind(slug).first());
-  if (!(await taken(base))) return base;
-  for (let n = 2; n < 30; n += 1) {
-    const candidate = `${base.slice(0, 76)}-${n}`;
-    if (!(await taken(candidate))) return candidate;
-  }
-  throw new Error(`Thirty posts already share the slug "${base}".`);
-}
-
-/** The fields a generated post is inserted with. */
-interface AutoPost {
-  slug: string;
-  title: string;
-  summary: string;
-  tags: string[];
-  readTime: string;
-  body: string;
-  day: string;
-}
-
-/**
- * Insert the post, as a draft or — when the owner's settings say so —
- * published.
- *
- * Written straight to D1 rather than through `POST /api/content`, because that
- * endpoint authenticates a *person* — it presents a GitHub token and asks whose
- * it is — and there is no person here. The rule that endpoint exists to enforce
- * still holds and is what this statement is written to keep: every column name
- * below is a literal in this file, none of them came from a caller, and every
- * value is a bound parameter. Nothing in the request reaches the statement at
- * all; the only inputs are the model's own text and the owner's settings row.
- */
-async function insertPost(db: D1Database, post: AutoPost, status: 'draft' | 'published'): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO journal
-         (slug, title, summary, date, tags, read_time, status, body_md, body_html, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`,
-    )
-    .bind(
-      post.slug,
-      post.title,
-      post.summary,
-      post.day,
-      JSON.stringify(post.tags),
-      post.readTime || null,
-      status,
-      post.body,
-      await renderBody(post.body),
-    )
-    .run();
-  /* Same half of creation the editor's save gets: a generated post floats to
-     the top of the entries list, where the author reads first, rather than
-     under every post a saved order names. */
-  await pinNewJournalPost(db, post.slug);
-}
-
-/** A `documents` singleton, or `{}`. */
+/** A documents singleton, or `{}`. */
 async function readDoc(db: D1Database, slug: string): Promise<unknown> {
   const row = await db.prepare('SELECT json FROM documents WHERE slug = ?').bind(slug).first<{ json: string }>();
   if (!row) return {};
@@ -181,196 +107,31 @@ async function readDoc(db: D1Database, slug: string): Promise<unknown> {
   }
 }
 
-/** Record what this tick did. Best effort: a failed write must not mask why. */
-async function writeRun(db: D1Database, run: AutoJournalRun): Promise<void> {
-  await db
-    .prepare(
-      `INSERT INTO documents (slug, json, updated_at) VALUES (?, ?, datetime('now'))
-       ON CONFLICT(slug) DO UPDATE SET json = excluded.json, updated_at = excluded.updated_at`,
-    )
-    .bind(AUTO_RUN_KEY, JSON.stringify(run))
-    .run();
-}
-
 /**
- * What the daily job may spend starting *lookups*, as ms.
- *
- * Much longer than the interactive `RUN_BUDGET_MS` — no reader is waiting on
- * this one, and a reasoning model on the free pool can deliberate for a minute
- * before it asks for its first page. It bounds the rounds that may still ask;
- * the answer round is sent with no deadline at all, because a non-streamed
- * post arrives in one piece when the model is done and a clock that could
- * abort it a moment before would throw the whole generation away. See
- * `agentComplete()`. The workflow's `curl` waits ten minutes for all of it.
+ * How long a tick keeps starting steps. A step already running may take four
+ * minutes more (`STEP_BUDGET_MS`), and the workflow's `curl` waits ten.
  */
-const DAILY_BUDGET_MS = 240_000;
+const TICK_BUDGET_MS = 300_000;
 
-/**
- * One attempt at the vendor. A whole post on a slow free model, not streamed,
- * is regularly a minute or two; the platform puts no limit on a subrequest
- * while the caller stays connected, and the workflow's `curl` waits ten.
- */
-const DAILY_ATTEMPT_MS = 180_000;
-
-/**
- * A generation that came back unusable, with what it actually was.
- *
- * The run record gets the sentence; the log gets `detail` beside it — the
- * model that answered, how the round ended, what it spent, and the first six
- * hundred characters of what it wrote. That last field is the whole reason
- * this class exists: "the model answered in no recognisable shape" was the
- * only record of a fortnight of failures, and nothing anywhere said what the
- * shape had been. It is the model's own text; no visitor is involved.
- */
-class ComposeError extends Error {
-  constructor(
-    message: string,
-    readonly detail: Record<string, unknown>,
-  ) {
-    super(message);
-    this.name = 'ComposeError';
+/** The response a run's state maps to. A failed day is a 502 so the workflow goes red. */
+function answer(run: PostRun | null, day: string, extra: Record<string, unknown> = {}): Response {
+  const work = run ? summariseRun(run) : null;
+  if (!run) return json({ ok: true, status: 'busy', day, work, ...extra });
+  if (run.phase === 'done') {
+    return json({
+      ok: true,
+      status: 'written',
+      slug: run.slug,
+      title: run.plan?.title,
+      day,
+      edit: `${site.url}/admin/journal/${run.slug}`,
+      work,
+      ...extra,
+    });
   }
-}
-
-/** What the log is told about a finished generation, good or bad. */
-const describe = (done: Completion) => ({
-  model: done.model,
-  stopReason: done.stopReason,
-  calls: done.calls,
-  rounds: done.rounds,
-  reasoningChars: done.reasoning.length,
-  answerChars: done.text.length,
-  ...(done.usage ? { usage: done.usage } : {}),
-});
-
-/** The post's fields, plus what the log is told about producing them. */
-interface Composed {
-  title: string;
-  summary: string;
-  tags: string[];
-  readTime: string;
-  body: string;
-  detail: ReturnType<typeof describe>;
-}
-
-/** Generate one post, or throw with a reason worth writing into the run record. */
-async function compose(
-  db: D1Database,
-  providers: Provider[],
-  settings: AutoJournalSettings,
-  day: string,
-): Promise<Composed> {
-  const task = ASSIST_TASKS.compose;
-  const aiSettings = await getAiSettings(db);
-
-  const tools = providers[0]?.toolsEnabled ? toolsFor('assist') : [];
-
-  const [projects, caseStudies, posts, resume] = await Promise.all([
-    getProjects(db),
-    getCaseStudies(db),
-    getPosts(db),
-    getResume(db),
-  ]);
-
-  const messages = assistPrompt(task, {
-    ownerName: site.name,
-    /* Nothing on screen, because there is no screen. The task's context
-       allowlist is satisfied with an empty draft, which is the same thing
-       `/write-whole-post` sees when the author runs it on a blank editor. */
-    context: {},
-    instruction: autoInstruction(day, settings),
-    corpus: buildIndex({ projects, caseStudies, posts, resume }),
-    persona: aiSettings.persona,
-    history: [],
-    tools: tools.length ? toolSummary('assist') : '',
-  });
-
-  /* The model the owner configured for this job, when it is one of their own
-     rows — the same lookup `/api/ai/assist` does, and for the same reason:
-     a model id that was not already in `ai_providers` would be a value from a
-     settings row deciding what the key pays for. */
-  const wanted = settings.model.trim();
-  const model = providers.some(p => modelsFor(p, 'assist').includes(wanted)) ? wanted : '';
-
-  const call = {
-    maxTokens: task.maxTokens,
-    temperature: task.temperature,
-    timeoutMs: DAILY_ATTEMPT_MS,
-    deadline: Date.now() + DAILY_BUDGET_MS,
-    /* Low, and not negotiable here. The panel has a picker because an author
-       sometimes wants a harder think; a job that runs while nobody is looking
-       has no such moment, and every token of deliberation is billed against the
-       same ceiling the post has to fit in. */
-    effort: 'low' as const,
-    ...(tools.length ? { tools } : {}),
-    ...(model ? { model } : {}),
-  };
-
-  /* Not streamed, and that is the fix for a fortnight of error 1102: the
-     Workers Free plan allows 10 ms of CPU per invocation, a stream is work per
-     token, and waiting on the vendor is free. `agentComplete()` still runs the
-     lookups, still hands a deliberation-only round to the next model once, and
-     still strips reasoning out of the answer — decision 29 holds off the
-     browser because it is a property of what comes back, not of how. */
-  const done = await agentComplete({
-    providers,
-    which: 'assist',
-    call,
-    messages,
-    runTool: (name, args) => runTool(db, name, args),
-    maxCalls: MAX_TOOL_CALLS,
-  });
-  const { text, reasoning, stopReason } = done;
-  /* Every refusal below carries the same account of the round, plus the
-     opening of what the model wrote — the one thing the old rows lacked. */
-  const refuse = (why: string): never => {
-    throw new ComposeError(why, { ...describe(done), head: text.slice(0, 600) });
-  };
-
-  if (!text.trim()) {
-    refuse(
-      reasoning
-        ? `The model spent this whole run thinking — about ${Math.round(reasoning.length / 4)} tokens of ` +
-            'deliberation and no answer, and a retry with reasoning off did the same. Pick a different ' +
-            'model on the Daily journal tab of the Journal screen.'
-        : 'The model finished without writing anything.',
-    );
-  }
-  /* A post cut off by the ceiling is half a post, and this job may be set to
-     publish. Better no entry than one that stops mid-sentence under the
-     author's name; the next tick is the retry. */
-  if (stopReason === 'length') {
-    refuse('The model hit the token ceiling before finishing the post.');
-  }
-
-  const parsed = parseFields(text, POST_KEYS);
-  if (!parsed.recognised) {
-    /* The same rule the editors follow: a response carrying no label at all is
-       not salvaged as body text. That fallback is how a reasoning model's
-       deliberation ended up inside a post — decision 29 — and an unattended job
-       is the last place to reintroduce it. */
-    refuse('The model answered in no recognisable shape.');
-  }
-
-  const title = parsed.values.title?.trim() ?? '';
-  const body = parsed.values.body?.trim() ?? '';
-  if (!title || !body) refuse('The post came back without a title or a body.');
-
-  const summary = parsed.values.summary?.trim() ?? '';
-  return {
-    detail: describe(done),
-    title,
-    body,
-    /* NOT NULL on the column, and a generated post is not worth failing an
-       insert over one missing sentence. */
-    summary: summary || `${title}.`.slice(0, 200),
-    tags: (parsed.values.tags ?? '')
-      .split(',')
-      .map(tag => tag.trim())
-      .filter(Boolean)
-      .slice(0, 6),
-    readTime: parsed.values.readTime?.trim() ?? '',
-  };
+  if (run.phase === 'declined') return json({ ok: true, status: 'declined', reason: run.error, day, work, ...extra });
+  if (run.phase === 'failed') return json({ ok: false, status: 'failed', reason: run.error, day, work, ...extra }, 502);
+  return json({ ok: true, status: 'in-progress', day, work, ...extra });
 }
 
 export const POST: APIRoute = async ({ request, locals }) => {
@@ -386,15 +147,15 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const body = (await request.json().catch(() => ({}))) as { force?: unknown };
   /* Only the owner may jump the schedule. A leaked cron secret that could also
      force a run would be a leaked secret that can spend the whole day's budget
-     in a loop; one that can only ask "is it time yet" is worth much less. */
+     in a loop; one that can only ask "is it time yet" is worth much less. A
+     forced run ignores the clock, not the attempt ceiling: its failed steps
+     are the day's failures like any other. */
   const force = caller === 'owner' && body.force === true;
 
-  const settings = clampAutoSettings(await readDoc(DB, AUTO_KEY));
-  const run = clampAutoRun(await readDoc(DB, AUTO_RUN_KEY));
-
-  const now = new Date();
-  const startedAt = now.getTime();
-  const verdict = decide(now, settings, run);
+  const auto = clampAutoSettings(await readDoc(DB, AUTO_KEY));
+  const record = clampAutoRun(await readDoc(DB, AUTO_RUN_KEY));
+  const started = Date.now();
+  const verdict = decide(new Date(), auto, record);
 
   if (!verdict.act && !force) {
     return json({ ok: true, status: 'skipped', reason: verdict.reason, day: verdict.day });
@@ -402,107 +163,32 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const providers = await usableProviders(DB);
   if (!providers.length) {
-    return json(
-      { ok: false, status: 'failed', reason: 'No AI provider is active and holding a key.' },
-      503,
-    );
+    return json({ ok: false, status: 'failed', reason: 'No AI provider is active and holding a key.' }, 503);
   }
+  const persona = (await getAiSettings(DB)).persona;
 
-  /* Charged before the attempt, not after.
-   *
-   * The thing `maxAttempts` bounds is cost, and an attempt that is recorded
-   * only on the way out is not recorded at all when the isolate is killed
-   * mid-generation — which is precisely the expensive failure. Same reasoning
-   * as the public rate limiter charging before the call and not refunding.
-   *
-   * A forced run is deliberately outside this: it is the owner pressing a
-   * button, it is bounded by their patience, and spending the day's automatic
-   * attempts on a test would leave the schedule with none. */
-  const today = run.day === verdict.day ? run : { ...run, day: verdict.day, attempts: 0, slug: '' };
-  if (!force) {
-    await writeRun(DB, {
-      ...today,
-      attempts: today.attempts + 1,
-      note: 'Generating…',
-      at: now.toISOString(),
-    });
+  let run: PostRun | null = null;
+  let steps = 0;
+  /* Settings and providers are read once per tick, not per step. */
+  while (Date.now() - started < TICK_BUDGET_MS) {
+    const step = await advance(DB, { providers, auto, persona, caller, day: verdict.day });
+    if (step.status === 'busy') return answer(null, verdict.day, { work: step.run ? summariseRun(step.run) : null });
+    run = step.run;
+    if (step.status === 'idle' || isFinished(run)) break;
+    steps += 1;
+    /* A failed step waits for the next tick. Retrying it at once against a
+       provider that is refusing would spend the day's attempts in a minute. */
+    if (!step.ok) break;
   }
-
-  try {
-    const { detail, ...post } = await compose(DB, providers, settings, verdict.day);
-    const base = slugify(post.title);
-    if (!base) throw new Error(`The title produced no usable slug: "${post.title}".`);
-    const slug = await freeSlug(DB, base);
-    const status = settings.publish ? 'published' : 'draft';
-
-    await insertPost(DB, { ...post, slug, day: verdict.day }, status);
-
-    /* The slug is what stops tomorrow's first tick writing a second post today,
-        so it is written even for a forced run — a manual post still counts as
-        the day's post. */
-    await writeRun(DB, {
-      day: verdict.day,
-      attempts: force ? today.attempts : today.attempts + 1,
-      slug,
-      note: status === 'published' ? `Published "${post.title}".` : `Drafted "${post.title}".`,
-      at: new Date().toISOString(),
-    });
-    await record(DB, 'info', 'daily', `${status === 'published' ? 'Published' : 'Drafted'} "${post.title}".`, {
-      slug,
-      day: verdict.day,
-      attempt: force ? 'forced' : today.attempts + 1,
-      caller,
-      ms: Date.now() - startedAt,
-      ...detail,
-    });
-
-    return json({
-      ok: true,
-      status: 'written',
-      postStatus: status,
-      slug,
-      title: post.title,
-      day: verdict.day,
-      edit: `${site.url}/admin/journal/${slug}`,
-      ...(status === 'published' ? { live: `${site.url}/journal/${slug}` } : {}),
-    });
-  } catch (error) {
-    const reason =
-      error instanceof ProviderError || error instanceof Error
-        ? error.message
-        : 'The daily post failed.';
-
-    await writeRun(DB, {
-      ...today,
-      attempts: force ? today.attempts : today.attempts + 1,
-      note: reason.slice(0, 300),
-      at: new Date().toISOString(),
-    }).catch(() => {});
-    await record(DB, 'error', 'daily', `Attempt failed: ${reason}`, {
-      day: verdict.day,
-      attempt: force ? 'forced' : today.attempts + 1,
-      caller,
-      ms: Date.now() - startedAt,
-      /* What the model was and what it wrote, when the generation itself is
-         what failed — see `ComposeError`. A provider refusal carries its
-         status instead. */
-      ...(error instanceof ComposeError ? error.detail : {}),
-      ...(error instanceof ProviderError ? { status: error.status } : {}),
-    });
-
-    /* A 502 rather than a 200, so the workflow's step goes red and the failure
-       is visible in a place the owner already looks — the alternative is a job
-       that reports success every hour while writing nothing for a week. */
-    return json({ ok: false, status: 'failed', reason, day: verdict.day }, 502);
-  }
+  return answer(run, verdict.day, { steps });
 };
 
 /**
- * What the schedule would do right now, without doing it.
+ * What the schedule would do right now, without doing it — plus today's run.
  *
- * Owner-only, and the AI screen's status line. It is a `GET` because it changes
- * nothing: a person opening the settings screen must not consume one of the
- * day's attempts by looking at it.
+ * Owner-only, and the Daily journal tab's status line. A `GET` because it
+ * changes nothing: looking at the screen must not consume one of the day's
+ * attempts.
  */
 export const GET: APIRoute = async ({ request, locals }) => {
   try {
@@ -514,7 +200,9 @@ export const GET: APIRoute = async ({ request, locals }) => {
   const { DB, CRON_SECRET } = locals.runtime.env;
   const settings = clampAutoSettings(await readDoc(DB, AUTO_KEY));
   const run = clampAutoRun(await readDoc(DB, AUTO_RUN_KEY));
-  const verdict = decide(new Date(), settings, run);
+  const now = new Date();
+  const verdict = decide(now, settings, run);
+  const work = await peekRun(DB, verdict.day, now);
 
   return json({
     settings,
@@ -525,5 +213,6 @@ export const GET: APIRoute = async ({ request, locals }) => {
        other field on the screen. */
     scheduled: Boolean(CRON_SECRET && CRON_SECRET.trim()),
     next: verdict.act ? 'Due now.' : verdict.reason,
+    work: work ? summariseRun(work, now) : null,
   });
 };

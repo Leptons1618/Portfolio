@@ -228,14 +228,15 @@ check('a malformed slug is refused before anything is bound', () => {
 });
 
 check('documents is a closed key set, not a collection', () => {
-  /* Five singletons, each with one writer. A sixth is either a typo — which
+  /* Six singletons, each with one writer. A sixth is either a typo — which
      `create` would happily insert as a row nothing reads — or a ledger that
      must not be writable from a form. */
-  for (const key of ['resume', 'ai-assistant', 'journal-auto', 'projects-deep-dives', 'journal-order']) {
+  for (const key of ['resume', 'ai-assistant', 'journal-auto', 'projects-deep-dives', 'journal-order', 'job-watchlist']) {
     assert.doesNotThrow(() => assertSlug('documents', key), `${key} is written by a screen`);
   }
   assert.deepEqual([...TABLES.documents.slugs].sort(), [
     'ai-assistant',
+    'job-watchlist',
     'journal-auto',
     'journal-order',
     'projects-deep-dives',

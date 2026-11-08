@@ -171,6 +171,74 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
             <textarea class="input ai-suggestions" id="ai-suggestions"></textarea>
           </div>
         </section>
+
+        <section class="card elev-sm">
+          <p class="admin-eyebrow">Jev routing</p>
+          <label class="ai-switch">
+            <input type="checkbox" id="ai-jev" />
+            <span>Ask Jev which context a conversation needs</span>
+          </label>
+          <p class="text-muted admin-note">
+            Before a visitor's question (and your own chat in the editors) goes to the answer
+            model, one typed yes/no request asks Jev whether it needs your projects, your writing
+            or your background. A confident answer sends only that part of the index and its
+            lookups; an unsure, slow or failed one changes nothing. It can only narrow what is
+            sent, never widen it, and it is billed separately — the log records both sides so you
+            can see whether it saves anything.
+          </p>
+          <div class="field">
+            <label for="ai-jev-provider">Decision endpoint</label>
+            <select class="input" id="ai-jev-provider">
+              <option value="">None</option>
+            </select>
+          </div>
+
+          <details class="ai-jev-edit">
+            <summary class="admin-eyebrow">Add or edit an endpoint</summary>
+            <div class="field">
+              <label for="jev-slug">Slug</label>
+              <input class="input" id="jev-slug" placeholder="jev" />
+              <span class="text-muted ai-cap">picking an endpoint above loads it here; a new slug adds one</span>
+            </div>
+            <div class="field">
+              <label for="jev-label">Label</label>
+              <input class="input" id="jev-label" placeholder="Jev on OpenRouter" />
+            </div>
+            <div class="field">
+              <label for="jev-kind">Kind</label>
+              <select class="input" id="jev-kind">
+                <option value="openrouter">OpenRouter Decisions — borrows a provider's key</option>
+                <option value="systemone">System One API — its own key</option>
+                <option value="custom">Custom decisions endpoint — its own key</option>
+              </select>
+            </div>
+            <div class="field" id="jev-cred-field">
+              <label for="jev-cred">Key from provider</label>
+              <select class="input" id="jev-cred">
+                <option value="">Choose an OpenRouter provider</option>
+              </select>
+            </div>
+            <div class="field" id="jev-base-field">
+              <label for="jev-base">Base URL</label>
+              <input class="input" id="jev-base" type="url" placeholder="https://…" />
+              <span class="text-muted ai-cap">HTTPS only. System One appends <code>/v1/systemone</code>; custom is used as is.</span>
+            </div>
+            <div class="field">
+              <label for="jev-model">Model</label>
+              <input class="input" id="jev-model" placeholder="typesafe/jev-1.13" />
+            </div>
+            <div class="field" id="jev-key-field">
+              <label for="jev-key">API key</label>
+              <input class="input" id="jev-key" type="password" autocomplete="off" />
+            </div>
+            <div class="ai-jev-actions">
+              <button type="button" class="btn btn-primary btn-sm" id="jev-save">Save endpoint</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="jev-clear-key">Clear key</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="jev-remove">Remove</button>
+            </div>
+            <p class="text-muted admin-note" id="jev-message" aria-live="polite"></p>
+          </details>
+        </section>
       </div>
 
       <aside class="ai-side">
@@ -553,16 +621,22 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
 <script>
   import { onAdminPage, setBusy, setLabel, toast, trackDirty, wireTabs, type DirtyField } from '../../lib/admin';
   import {
+    clearDecisionKey,
     clearKey,
+    createDecisionProvider,
     createProvider,
     loadOverview,
     listModels,
+    removeDecisionProvider,
     removeProvider,
     saveAiSettings,
+    saveDecisionProvider,
     saveProvider,
     setProviderActive,
     testProvider,
     type AiOverview,
+    type DecisionFields,
+    type DecisionSummary,
     type ProviderSummary,
   } from '../../lib/ai-store';
   import { DEFAULTS, type AiSettings } from '../../lib/ai';
@@ -622,6 +696,8 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
       maxTurns: $<HTMLInputElement>('ai-maxturns'),
       maxOutputTokens: $<HTMLInputElement>('ai-maxout'),
       reasoningEffort: $<HTMLSelectElement>('ai-effort'),
+      jevEnabled: $<HTMLInputElement>('ai-jev'),
+      jevProvider: $<HTMLSelectElement>('ai-jev-provider'),
     };
 
     /* — settings —
@@ -657,6 +733,8 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
            the way the numbers above do. `clampSettings` turns anything that is
            not one of the three levels into `null`, which is the same thing. */
         reasoningEffort: clampEffort(settingsFields.reasoningEffort.value),
+        jevEnabled: settingsFields.jevEnabled.checked,
+        jevProvider: settingsFields.jevProvider.value,
       };
     }
 
@@ -675,7 +753,143 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
          is stored as. `?? ''` rather than a branch, because `select.value = ''`
          on a select that has an empty option selects it. */
       settingsFields.reasoningEffort.value = settings.reasoningEffort ?? '';
+      settingsFields.jevEnabled.checked = settings.jevEnabled;
+      settingsFields.jevProvider.value = settings.jevProvider;
     }
+
+    /* — Jev's endpoints —
+
+       One small form for the `ai_decision_providers` table, loaded from
+       whichever endpoint the select above names. The key follows the provider
+       form's rule: blank means "leave it", and Clear key is the one way to
+       remove it. */
+    const jev = {
+      slug: $<HTMLInputElement>('jev-slug'),
+      label: $<HTMLInputElement>('jev-label'),
+      kind: $<HTMLSelectElement>('jev-kind'),
+      cred: $<HTMLSelectElement>('jev-cred'),
+      base: $<HTMLInputElement>('jev-base'),
+      model: $<HTMLInputElement>('jev-model'),
+      key: $<HTMLInputElement>('jev-key'),
+      message: $('jev-message'),
+    };
+    let decisions: DecisionSummary[] = [];
+
+    const jevKindChanged = () => {
+      const borrowed = jev.kind.value === 'openrouter';
+      $('jev-cred-field').hidden = !borrowed;
+      $('jev-base-field').hidden = borrowed;
+      $('jev-key-field').hidden = borrowed;
+      jev.model.placeholder = jev.kind.value === 'systemone' ? 'jev-1.13' : 'typesafe/jev-1.13';
+    };
+    jev.kind.addEventListener('change', jevKindChanged);
+
+    function fillJev(row: DecisionSummary | undefined) {
+      jev.slug.value = row?.slug ?? '';
+      jev.label.value = row?.label ?? '';
+      jev.kind.value = row?.kind ?? 'openrouter';
+      jev.cred.value = row?.credentialProvider ?? '';
+      jev.base.value = row?.baseUrl ?? '';
+      jev.model.value = row?.model ?? '';
+      jev.key.value = '';
+      jev.key.placeholder = row?.keyHint ?? '';
+      jev.message.textContent = '';
+      jevKindChanged();
+    }
+
+    function paintJev(data: AiOverview) {
+      decisions = data.decisionProviders ?? [];
+      const chosen = settingsFields.jevProvider.value;
+      const none = new Option('None', '');
+      settingsFields.jevProvider.replaceChildren(
+        none,
+        ...decisions.map(d => new Option(`${d.label} · ${d.kind}`, d.slug)),
+      );
+      settingsFields.jevProvider.value = decisions.some(d => d.slug === chosen) ? chosen : '';
+      const cred = jev.cred.value;
+      jev.cred.replaceChildren(
+        new Option('Choose an OpenRouter provider', ''),
+        ...data.providers.map(p => new Option(`${p.label} · ${p.slug}`, p.slug)),
+      );
+      jev.cred.value = cred;
+    }
+
+    settingsFields.jevProvider.addEventListener('change', () => {
+      fillJev(decisions.find(d => d.slug === settingsFields.jevProvider.value));
+    });
+
+    const jevSay = (text: string) => {
+      jev.message.textContent = text;
+    };
+
+    $<HTMLButtonElement>('jev-save').addEventListener('click', async event => {
+      const button = event.currentTarget as HTMLButtonElement;
+      const slug = jev.slug.value.trim();
+      if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+        jevSay('A slug is lowercase words joined by hyphens.');
+        jev.slug.focus();
+        return;
+      }
+      const kind = jev.kind.value as DecisionFields['kind'];
+      if (kind === 'openrouter' && !jev.cred.value) {
+        jevSay('Pick the OpenRouter provider whose key Jev should use.');
+        jev.cred.focus();
+        return;
+      }
+      if (kind !== 'openrouter' && !/^https:\/\//.test(jev.base.value.trim())) {
+        jevSay('This kind needs an HTTPS base URL.');
+        jev.base.focus();
+        return;
+      }
+      const fields: DecisionFields = {
+        label: jev.label.value.trim() || slug,
+        kind,
+        baseUrl: kind === 'openrouter' ? '' : jev.base.value,
+        model: jev.model.value.trim() || jev.model.placeholder,
+        credentialProvider: kind === 'openrouter' ? jev.cred.value : '',
+        apiKey: kind === 'openrouter' ? '' : jev.key.value,
+      };
+      setBusy(button, true, 'Saving…');
+      try {
+        const exists = decisions.some(d => d.slug === slug);
+        await (exists ? saveDecisionProvider(slug, fields) : createDecisionProvider(slug, fields));
+        jevSay(exists ? 'Endpoint saved.' : 'Endpoint added. Pick it above and save the settings to use it.');
+        toast('Jev endpoint saved.', { tone: 'success' });
+        await refresh();
+        fillJev(decisions.find(d => d.slug === slug));
+      } catch (error) {
+        jevSay(error instanceof Error ? error.message : 'Could not save the endpoint.');
+      } finally {
+        setBusy(button, false);
+      }
+    });
+
+    $<HTMLButtonElement>('jev-clear-key').addEventListener('click', async () => {
+      const slug = jev.slug.value.trim();
+      if (!decisions.some(d => d.slug === slug)) return jevSay('Load a saved endpoint first.');
+      try {
+        await clearDecisionKey(slug);
+        jevSay('Key removed.');
+        await refresh();
+        fillJev(decisions.find(d => d.slug === slug));
+      } catch (error) {
+        jevSay(error instanceof Error ? error.message : 'Could not clear the key.');
+      }
+    });
+
+    $<HTMLButtonElement>('jev-remove').addEventListener('click', async () => {
+      const slug = jev.slug.value.trim();
+      if (!decisions.some(d => d.slug === slug)) return jevSay('Load a saved endpoint first.');
+      try {
+        await removeDecisionProvider(slug);
+        jevSay('Endpoint removed. If it was selected, Jev is off until you pick another and save.');
+        await refresh();
+        fillJev(undefined);
+      } catch (error) {
+        jevSay(error instanceof Error ? error.message : 'Could not remove the endpoint.');
+      }
+    });
+    jevKindChanged();
 
     /* Save stays disabled until the form differs from the row. Guarded on a
        session like every other screen: signed out, the buttons below already
@@ -1483,8 +1697,11 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
     let settingsFilled = false;
 
     function paint(data: AiOverview) {
+      /* Options before values: a select cannot take a value it has no option for. */
+      paintJev(data);
       if (!settingsFilled) {
         fillSettings(data.settings);
+        fillJev(decisions.find(d => d.slug === data.settings.jevProvider));
         settingsFilled = true;
         settingsDirty?.reset();
       }
@@ -1534,7 +1751,7 @@ const EFFORT_LABELS: Record<ReasoningEffort, string> = { none: 'Off', low: 'Low'
       say('Sign in with GitHub to configure the assistant.', 'error');
       stamp.textContent = 'Signed out.';
       list.replaceChildren();
-      for (const button of ['ai-add', 'ai-save-settings']) {
+      for (const button of ['ai-add', 'ai-save-settings', 'jev-save', 'jev-clear-key', 'jev-remove']) {
         const el = $<HTMLButtonElement>(button);
         el.disabled = true;
         el.title = 'Sign in with GitHub to configure the assistant.';

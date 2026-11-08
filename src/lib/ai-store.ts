@@ -18,13 +18,28 @@ import { clampParams } from './ai-catalog';
 import { ContentError, type WriteResult } from './content-store';
 import { AUTO_KEY, type AutoJournalRun, type AutoJournalSettings } from './journal-auto';
 import { getToken } from './github';
+import type { CaseStudyProgress, RunSummaryView } from './agent-runs';
 
 export type { ProviderSummary, AiSettings };
 
 /* ---------- reading ---------- */
 
+/** A Jev endpoint as the listing returns it: a fingerprint, never the key. */
+export interface DecisionSummary {
+  slug: string;
+  label: string;
+  kind: DecisionFields['kind'];
+  baseUrl: string | null;
+  model: string;
+  credentialProvider: string | null;
+  hasKey: boolean;
+  keyHint: string | null;
+  updatedAt: string | null;
+}
+
 export interface AiOverview {
   providers: ProviderSummary[];
+  decisionProviders: DecisionSummary[];
   /** The stored settings, clamped — what the form edits. */
   settings: AiSettings;
   /** Everything published, as the whole-corpus prompt used to carry it. */
@@ -139,11 +154,12 @@ async function write(
   slug: string,
   op: 'create' | 'patch' | 'delete',
   fields: Record<string, unknown> = {},
+  table: 'ai_providers' | 'ai_decision_providers' = 'ai_providers',
 ): Promise<WriteResult> {
   const response = await fetch('/api/content', {
     method: 'POST',
     headers: authorized(),
-    body: JSON.stringify({ table: 'ai_providers', slug, op, fields }),
+    body: JSON.stringify({ table, slug, op, fields }),
   });
 
   const data = (await response.json().catch(() => ({}))) as { error?: string };
@@ -188,6 +204,39 @@ export const setProviderActive = (slug: string, active: boolean): Promise<WriteR
  */
 export const clearKey = (slug: string): Promise<WriteResult> => write(slug, 'patch', { apiKey: '' });
 
+/* ---------- Jev's decision endpoints ---------- */
+
+/** What the Jev form writes. The key rule is `ProviderFields.apiKey`'s, unchanged. */
+export interface DecisionFields {
+  label: string;
+  kind: 'openrouter' | 'systemone' | 'custom';
+  baseUrl: string;
+  model: string;
+  /** `openrouter` only: the chat provider row whose key is borrowed. */
+  credentialProvider: string;
+  apiKey?: string;
+}
+
+const decisionPayload = ({ apiKey, credentialProvider, baseUrl, ...rest }: DecisionFields) => ({
+  ...rest,
+  /* `''` would be a foreign key to no row; NULL is "none". */
+  credentialProvider: credentialProvider.trim() || null,
+  baseUrl: baseUrl.trim() || null,
+  ...(apiKey?.trim() ? { apiKey: apiKey.trim() } : {}),
+});
+
+export const createDecisionProvider = (slug: string, fields: DecisionFields): Promise<WriteResult> =>
+  write(slug, 'create', decisionPayload(fields), 'ai_decision_providers');
+
+export const saveDecisionProvider = (slug: string, fields: DecisionFields): Promise<WriteResult> =>
+  write(slug, 'patch', decisionPayload(fields), 'ai_decision_providers');
+
+export const removeDecisionProvider = (slug: string): Promise<WriteResult> =>
+  write(slug, 'delete', {}, 'ai_decision_providers');
+
+export const clearDecisionKey = (slug: string): Promise<WriteResult> =>
+  write(slug, 'patch', { apiKey: '' }, 'ai_decision_providers');
+
 /**
  * Save the assistant's settings.
  *
@@ -224,6 +273,8 @@ export interface AutoJournalOverview {
   scheduled: boolean;
   /** What the schedule would do right now, in words. */
   next: string;
+  /** Today's run of steps, or `null` before one starts. */
+  work: RunSummaryView | null;
 }
 
 /** The settings, the last run, and what would happen if the clock ticked now. */
@@ -256,23 +307,60 @@ export async function saveAutoJournal(settings: AutoJournalSettings): Promise<Wr
   return { slug: AUTO_KEY, url: '/admin/journal' };
 }
 
-/**
- * Generate today's post now, regardless of the clock.
- *
- * The owner pressing a button, which is why it goes out with their GitHub token
- * and not with the schedule's secret — and why the endpoint lets only this
- * caller pass `force`. A forced run does not spend one of the day's automatic
- * attempts, so testing the feature cannot leave the schedule with none.
- */
-export async function runAutoJournalNow(): Promise<{
-  status: string;
-  slug?: string;
-  title?: string;
-  reason?: string;
-  live?: string;
-}> {
-  return read('/api/ai/daily', { method: 'POST', body: JSON.stringify({ force: true }) });
+/** One step's outcome, as `/api/ai/runs` reports it to the owner. */
+export interface RunStepResult {
+  id: string;
+  label: string;
+  ok: boolean;
+  note: string | null;
+  ms: number;
+  model: string;
+  /** What it produced — the plan's outline, the section, or the draft's link. */
+  output: string;
 }
+
+/**
+ * Today's run, one step at a time.
+ *
+ * The Journal screen loops this and shows progress between steps; each call is
+ * one bounded step on the server (`/api/ai/runs`, `agent-runner.ts`). A 409
+ * means the schedule holds the run right now, and carries its state.
+ */
+export async function runStep(): Promise<{ run: RunSummaryView | null; step?: RunStepResult; busy?: boolean; error?: string }> {
+  const response = await fetch('/api/ai/runs', {
+    method: 'POST',
+    headers: authorized(),
+    body: JSON.stringify({ kind: 'journal-post', action: 'step' }),
+  });
+  const data = (await response.json().catch(() => ({}))) as {
+    run?: RunSummaryView | null;
+    step?: RunStepResult;
+    error?: string;
+  };
+  if (response.status === 409) return { run: data.run ?? null, busy: true, error: data.error };
+  if (!response.ok) throw new ContentError(data.error ?? `Step failed (${response.status}).`, response.status);
+  return { run: data.run ?? null, ...(data.step ? { step: data.step } : {}) };
+}
+
+/* A long case study's progress, kept server-side so a reload can resume it. */
+export const loadCaseStudyProgress = (slug: string): Promise<{ progress: CaseStudyProgress | null }> =>
+  read(`/api/ai/runs?kind=case-study&key=${encodeURIComponent(slug)}`);
+
+export const saveCaseStudyProgress = (slug: string, progress: Omit<CaseStudyProgress, 'updatedAt'>) =>
+  read<{ ok: boolean }>('/api/ai/runs', {
+    method: 'POST',
+    body: JSON.stringify({ kind: 'case-study', action: 'save', key: slug, progress }),
+  });
+
+export const discardCaseStudyProgress = (slug: string) =>
+  read<{ ok: boolean }>('/api/ai/runs', {
+    method: 'POST',
+    body: JSON.stringify({ kind: 'case-study', action: 'discard', key: slug }),
+  });
+
+/** Throw today's run away. The next step or tick starts a fresh one. */
+export const discardRun = (): Promise<{ ok: boolean }> =>
+  read('/api/ai/runs', { method: 'POST', body: JSON.stringify({ kind: 'journal-post', action: 'discard' }) });
 
 /* ---------- conversations ---------- */
 

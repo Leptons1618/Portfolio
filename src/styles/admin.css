@@ -1265,15 +1265,21 @@ textarea[data-grow] { max-height: 60vh; }
    `::backdrop` — rather than the `brightness()` filter this used to be: a
    page turned dark grey read as a broken screen, where a veil reads as
    "something is open over this", which is the truth. It is a fixed
-   pseudo-element on `<body>` at 64, so it sits over the page, the sticky tab
-   bar (20) and the route progress (60) and under a stepped-down dialog (65),
-   the assistant (70) and the toasts (80, top layer). Instant, deliberately: a
+   pseudo-element at 64, so it sits over the page, the sticky tab bar (20)
+   and the route progress (60) and under a stepped-down dialog (65), the
+   assistant (70) and the toasts (80, top layer).
+
+   It hangs off `.admin-shell`, not `<body>`, and that is load-bearing:
+   `theme.css` makes every `body > *` a stacking context at z 1 so it sits
+   over the grain, which means the dialogs' 65 and 70 are compared *inside*
+   the shell and never against a veil on `<body>` — a body veil at 64 painted
+   over the shell and both dialogs in it, and everything read the same grey. Instant, deliberately: a
    fade that restarts on every recompute reads as flicker. Set and cleared
    with the `inert` itself, by `syncFreeze()` in `src/lib/modal.ts` — which is
    where it lives, rather than in one screen's script, because the same
    coexistence happens on `/admin/ai` and wherever the media library opens.
    Decisions 59 and 64. */
-body[data-asx-freeze]::after {
+body[data-asx-freeze] .admin-shell::after {
   content: '';
   position: fixed;
   inset: 0;
@@ -1962,6 +1968,12 @@ body[data-asx-freeze] {
 .ai-switch input { width: 16px; height: 16px; accent-color: var(--color-accent); }
 .ai-switch-inline { margin-top: 26px; margin-bottom: 0; font-weight: 400; }
 
+/* The Jev endpoint editor on the Public assistant tab: a disclosure, so the
+   card stays one switch and one select until an endpoint needs editing. */
+.ai-jev-edit { margin-top: var(--space-3); }
+.ai-jev-edit > summary { cursor: pointer; margin-bottom: var(--space-2); }
+.ai-jev-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
 /* — the journal writing assistant —
 
    Rendered by `JournalEditor.astro`, and its rules live here rather than in
@@ -2537,6 +2549,13 @@ body[data-asx-freeze] {
 
 .asx-tool-state {
   flex: none;
+  /* A long detail (`SKILL.md (15kb) · 483 ms`) must not push the row past
+     the log and give the transcript a horizontal scrollbar. */
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 10px;
   letter-spacing: 0.04em;
 }
@@ -3132,3 +3151,18 @@ body[data-asx-freeze] {
     background: none;
   }
 }
+
+/* — the delete confirmation (`src/lib/confirm-delete.ts`) —
+
+   Script-built, so here rather than in a page. The eyebrow and the Delete
+   button carry the danger colour; the reversible alternative sits on the left
+   of the foot, apart from the two buttons that end the dialog. */
+.cd-modal .modal-body { display: flex; flex-direction: column; gap: var(--space-3); }
+.cd-eyebrow { color: var(--color-accent-700); }
+.cd-lede code,
+.cd-label code { font-size: 12px; background: var(--color-bg); padding: 1px 5px; }
+.cd-list { margin: 0; padding-left: var(--space-4); font-size: 13px; color: var(--color-text-muted); }
+.cd-list li + li { margin-top: var(--space-1); }
+.cd-label { font-size: 13px; margin-bottom: calc(var(--space-2) * -1); }
+.cd-confirm:not(:disabled) { background: var(--color-accent-700); border-color: var(--color-accent-700); }
+.cd-confirm:disabled { opacity: 0.45; cursor: not-allowed; }

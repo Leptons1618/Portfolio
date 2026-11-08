@@ -21,6 +21,12 @@
  * second is a function with a test. `scripts/test-ai.mjs` hands this a hidden
  * project and a draft post and asserts neither survives.
  *
+ * `applications` is deliberately not an input, and must not become one. It is
+ * the owner's job tracker — which companies, at what stage, and the names of
+ * people there — and a public assistant that could quote it would be telling an
+ * employer who else the owner is talking to. `CorpusInput` has no field for it,
+ * so including it would be a type change rather than a forgotten filter.
+ *
  * ## Two shapes, and the second one is what a request carries now
  *
  * `buildCorpus()` is the whole site as one block of markdown. `buildIndex()` is

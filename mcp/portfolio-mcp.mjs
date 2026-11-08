@@ -45,7 +45,8 @@
  *      default for a live portfolio. `hidden` and `status` are the reversible
  *      ways to take something down, and they are always available.
  *   2. **Configuration is read-only.** Content is writable: projects, case
- *      studies, journal, the resume, the two saved orders. Not writable: the
+ *      studies, journal, the private job tracker (`applications`), the resume,
+ *      the two saved orders. Not writable: the
  *      `ai_providers` rows, the public assistant's settings, the daily
  *      journal's schedule. Those decide what the assistant may spend and how
  *      often it runs, and a model editing its own budget is a conflict of
@@ -102,11 +103,15 @@ const ALLOW_CONFIG = on('PORTFOLIO_MCP_ALLOW_CONFIG');
 
 /* --------------------------------------------------------------------- policy */
 
-/** Content, as opposed to configuration. Always writable. */
-const CONTENT_TABLES = new Set(['projects', 'case_studies', 'journal']);
+/**
+ * Content, as opposed to configuration. Always writable. `applications` is
+ * private rather than public — the owner's job tracker, which the `jobs` skill
+ * exists to write.
+ */
+const CONTENT_TABLES = new Set(['projects', 'case_studies', 'journal', 'applications']);
 
 /** The `documents` singletons that hold content rather than settings. */
-const CONTENT_DOCS = new Set(['resume', 'projects-deep-dives', 'journal-order']);
+const CONTENT_DOCS = new Set(['resume', 'projects-deep-dives', 'journal-order', 'job-watchlist']);
 
 /**
  * Refuse a write this server does not do, before it reaches the network.
@@ -138,7 +143,8 @@ function assertWritable(table, slug, fields) {
 
 /** The policy, in words, for `portfolio_whoami` and the initialize instructions. */
 const policyLines = () => [
-  `Writable: projects, case studies, journal, ${[...CONTENT_DOCS].join(', ')}.`,
+  `Writable: projects, case studies, journal, applications, ${[...CONTENT_DOCS].join(', ')}.`,
+  'Applications are the owner’s private job tracker: no page shows them, and nothing from one belongs in public content.',
   ALLOW_CONFIG
     ? 'Configuration is writable (PORTFOLIO_MCP_ALLOW_CONFIG is set) — except apiKey, which is never writable here.'
     : 'Configuration (ai_providers, ai-assistant, journal-auto) is read-only. apiKey is never writable here.',
@@ -511,6 +517,9 @@ function summary(table, f) {
   }
   if (table === 'journal') return { title: f.title, status: f.status, date: f.date };
   if (table === 'case_studies') return { title: f.title, date: f.date };
+  if (table === 'applications') {
+    return { company: f.company, role: f.role, status: f.status, appliedOn: f.appliedOn, nextOn: f.nextOn };
+  }
   if (table === 'ai_providers') {
     return { label: f.label, active: f.active, model: f.model, hasKey: f.hasKey, priority: f.priority };
   }

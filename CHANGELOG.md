@@ -14,6 +14,39 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **A Jobs screen, and job discovery.** `/admin/jobs` lists every application by
+  status with overdue follow-ups flagged; `/admin/jobs/<slug>` edits one, with
+  `/assess-fit` writing the fit assessment into its field and `/draft-outreach`
+  drafting two versions of a message with their character counts. The Discover
+  tab — and `portfolio jobs` — scan Greenhouse, Lever and Ashby boards on a
+  watchlist straight from the caller, never through the Worker, and track what is
+  new. Rows are fetched with the token, never rendered into the page. Decision
+  **80**.
+- **A private job tracker.** An `applications` table (migration 0015) — company,
+  role, status, the advert, a fit assessment, the resume variant sent, contacts and
+  follow-ups — reachable from the CLI (`portfolio ls application`) and the MCP
+  server as one more content kind, and from nothing public. A `jobs` skill turns
+  an MCP client into the assistant for it: fit against an advert, a tailored
+  resume variant, outreach drafts, a pipeline review and a LinkedIn profile review
+  from the owner's data export. Nothing touches LinkedIn. Decision **79**.
+- **The daily post is written as a resumable run of steps.** A plan, one request
+  per section, then the draft — one row per day, saved after every step, so a
+  tick that runs out of time leaves the next one exactly where to continue and a
+  finished step is never paid for twice. Failed steps are the day's attempts, a
+  day with nothing new to say is declined rather than padded, and the cron tick
+  and Run now share a compare-and-set lock. The Journal screen's Daily journal
+  tab shows the run and its trail, with Run now / Resume / Stop and Discard.
+  Decision **76**.
+- **Jev routing, optional and off by default.** One typed yes/no decision before
+  a conversation says which kinds of content it needs; a confident answer
+  narrows the index and the lookup tools, anything else changes nothing. It can
+  only remove tools, is never retried and never reaches a visitor. Endpoints
+  live in a new `ai_decision_providers` table (migration 0014) with write-only
+  keys. Decision **77**.
+- **Conversations compact themselves** at the history window, and **a long case
+  study resumes after a reload** from its stored plan and finished sections.
+  Decision **78**.
+
 - **`npm run check:edge`** (`scripts/test-edge-cache.mjs`) — the edge cache's key
   and its purge. Both failures it pins are silent: a key that does not carry the
   build serves a stale page after a deploy, and a `purge()` that computes a
@@ -173,6 +206,24 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- **Deleting a post or a project is a dialog, not a second click.** It names the
+  public URL that will 404 and what goes with it, offers Unpublish / Hide as its
+  own button, and enables Delete only once the slug is typed. Either way the list
+  is re-rendered from the rows afterwards, instead of a row greyed out in place.
+- **Run now on the Journal screen writes into the assistant panel** — a turn per
+  step, the plan's outline and each section as they are finished — and the panel
+  answers questions about the entry. The run card keeps the progress and trail;
+  its last-run line counts failed steps rather than a misleading "0 attempts".
+
+- **The tool loop stops paying for the same context twice.** A reasoning
+  provider's own reasoning is sent back to it on the tool-call turn (and to no
+  other model), older lookup results are trimmed once a later round has read
+  more, and usage is summed across rounds. Decision **78**.
+- **The public assistant no longer shows its reasoning.** The stream carries the
+  answer, a "thinking" signal for the wait label and the pages it read — no
+  deliberation, no result text, no model names, costs or loop errors. The
+  public prompt gains a short private answering procedure to cut lookup rounds.
+
 - **The CLI and the MCP server are two front ends over one client.**
   `cli/portfolio-api.mjs` now holds the session, the four endpoints, the kind names
   and the read↔write projection; `cli/portfolio.mjs` keeps only what is true of a
@@ -297,6 +348,13 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fixture.
 
 ### Fixed
+
+- **A non-streamed answer could wait forever for its body.** The attempt timer
+  stopped at the headers; it now covers the body too.
+- **The freeze veil dimmed the dialogs it was meant to sit under.** It hung off
+  `<body>`, and `body > *` is a stacking context, so a stepped-down dialog and
+  the assistant were painted under it. It hangs off `.admin-shell` now.
+- **A long lookup detail widened the assistant's log** into a horizontal scroll.
 
 - **A deploy could serve HTML naming assets that no longer existed.** `/_astro/*`
   filenames carry a content hash and are served `immutable`, which is exactly

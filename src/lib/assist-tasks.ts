@@ -1,8 +1,8 @@
 /**
- * The eighteen things the authoring assistant can be asked to do.
+ * The twenty-five things the authoring assistant can be asked to do.
  *
- * Ten belong to the journal editor, two to the project screen and four to the
- * resume; each task says which by its `surface`, and each screen renders the
+ * Ten belong to the journal editor, two to the project screen, four to the
+ * resume and two to the Jobs screen; each task says which by its `surface`, and each screen renders the
  * menu filtered to its own. One table rather than one per screen, because the
  * property below is a property of the *table* — a second table is a second
  * thing to keep closed, and the first one to be forgotten.
@@ -14,7 +14,7 @@
  * token in a browser tab, and an endpoint that forwards arbitrary prompts on
  * the owner's API key is a general-purpose model with a billing account
  * attached, one stolen session away from being someone else's. A table of tasks
- * bounds what a stolen session is worth: eighteen prompts about writing up
+ * bounds what a stolen session is worth: twenty-five prompts about writing up
  * this person's own work.
  *
  * It also makes the assistant *better*. Each task carries its own temperature,
@@ -108,7 +108,15 @@ export type ProjectTarget = 'project' | 'caseStudy' | 'caseStudyBody';
  */
 export type ResumeTarget = 'resumeSummary';
 
-export type AssistTarget = JournalTarget | ProjectTarget | ResumeTarget;
+/**
+ * The Jobs screen's one live target: the application's fit assessment.
+ *
+ * One field, one answer — the `resumeSummary` argument. The outreach drafts are
+ * not live: two versions of a message are options to pick from, not an edit.
+ */
+export type JobTarget = 'jobFit';
+
+export type AssistTarget = JournalTarget | ProjectTarget | ResumeTarget | JobTarget;
 
 /**
  * Which editor a task belongs to.
@@ -128,7 +136,7 @@ export type AssistTarget = JournalTarget | ProjectTarget | ResumeTarget;
  * reachable everywhere, which is the opposite of every other entry here and is
  * why it says so rather than lying about being a journal task.
  */
-export type AssistSurface = 'journal' | 'project' | 'resume' | 'both';
+export type AssistSurface = 'journal' | 'project' | 'resume' | 'job' | 'both';
 
 /** The surfaces that render a panel. `both` is a wildcard, not a place. */
 export type AssistScreen = Exclude<AssistSurface, 'both'>;
@@ -181,7 +189,11 @@ export type AssistField =
   /** The one section this request writes: heading, brief and length. */
   | 'section'
   /** The end of the section before it, so the prose runs on rather than restarts. */
-  | 'previous';
+  | 'previous'
+  /** An application's fit assessment, for the drafts that must not contradict it. */
+  | 'fit'
+  /** The people at the company the owner has named, one per line. */
+  | 'contacts';
 
 export interface AssistTask {
   /** Shown on the button in the editor. */
@@ -913,6 +925,79 @@ Rules:
   },
 
   /**
+   * The daily post, step one: decide what today's entry is, and gather it.
+   *
+   * Run by `agent-runner.ts`, never typed. The entry is *decided* before a word
+   * of it is written — one angle, the facts, three to six sections — so the
+   * section steps after it are short requests with nothing to look up. The
+   * day's steer (`autoInstruction()`) arrives as the instruction. `NOTHING:`
+   * is a real answer: every subject already covered is a day with no post,
+   * not a duplicate one.
+   */
+  journalplan: {
+    label: 'Plan the daily journal entry',
+    surface: 'journal',
+    group: 'write',
+    step: true,
+    hint: 'Decides today’s entry: its angle, its facts and its sections.',
+    instructions: `Plan today's journal entry. You are not writing it yet — you are deciding what it is about and gathering what it will say.
+
+Read the index, pick the one specific thing this entry is about, and read one or two pages for the facts. Then return the plan in exactly this shape:
+
+TITLE: the entry's title — specific, not clever
+SUMMARY: one sentence under 160 characters, for the card and the meta description
+TAGS: two to five tags, comma-separated, reusing tags already on the site where they fit
+ANGLE: one line — the specific thing this entry is about, and why it is not already covered
+FACTS:
+- one specific, checkable fact per line, fifteen to thirty of them, every one from what you read
+SECTIONS:
+## First section heading
+One sentence: what this section covers.
+## Second section heading
+...
+
+Three to six sections, in the order the entry tells it. A good arc: what I was trying to do, what I tried first and what broke, what worked, what is still open — follow the actual work rather than this list.
+
+If every subject in the index already has an entry that covers it, answer with one line only:
+NOTHING: the reason
+
+Emit nothing before TITLE: (or NOTHING:) and nothing after the last section. Do not wrap the response in a code fence.`,
+    format: 'markdown',
+    maxTokens: 2400,
+    temperature: 0.5,
+    needsCorpus: true,
+    context: [],
+  },
+
+  /**
+   * The daily post, step two: one section, from the plan. No lookups — the
+   * plan's facts are the whole of what it may say.
+   */
+  journalsection: {
+    label: 'Write one journal section',
+    surface: 'journal',
+    group: 'write',
+    step: true,
+    hint: 'One section of the daily entry, from the plan.',
+    instructions: `Write one section of a journal entry, the one named under "The section to write now". The rest of the entry is written separately, section by section.
+
+Rules:
+- The first line is that section's level-2 heading, exactly as given. Then the section, and nothing else — not the next section, no closing summary.
+- The length given with the section, give or take fifty words.
+- First person, past tense, as the author, about work they actually did. Never "you", never "we" for one person's work, and never explain the subject the way a tutorial would.
+- Say what was decided and what it cost. Name the wrong turn before the fix.
+- Inline code for every identifier, filename, flag, command, column and setting. A fenced block with a language tag only where the facts contain the code itself, under fifteen lines.
+- Invent nothing. If a fact is not in the list, do not state it — write the sentence without the number rather than inventing one.
+- Continue from the previous section. Do not re-introduce the subject, and do not repeat a point the outline gives to another section.
+- Markdown only. No preamble, and do not wrap the response in a code fence.`,
+    format: 'markdown',
+    maxTokens: 1200,
+    temperature: 0.65,
+    needsCorpus: false,
+    context: ['title', 'summary', 'facts', 'outline', 'section', 'previous'],
+  },
+
+  /**
    * The selection, rewritten to an instruction typed beside it.
    *
    * `tighten` and `expand` are two fixed things to do to a selection. This is
@@ -1122,6 +1207,96 @@ Emit nothing before LABEL: and nothing after the last project line. Do not wrap 
    * panel applies a chat reply to a field: an answer to a question is not a
    * draft, and the commands are what change the post.
    */
+  /**
+   * How well the owner fits one advert, written into the application's `fit`.
+   *
+   * Live, for the reason `resumeSummary` is: one field and one answer. It reads
+   * the master resume rather than a variant — the question is whether the
+   * record holds a requirement anywhere, not whether one tailored view shows it
+   * — and it may look a project up, which is where most of the evidence beyond
+   * the resume lives. The rubric is `.claude/skills/jobs`'s, so this screen and
+   * a model in the editor assess alike. Decision 80.
+   */
+  jobFit: {
+    label: 'Assess fit',
+    command: 'assess-fit',
+    surface: 'job',
+    group: 'write',
+    hint: 'Scores the advert’s requirements against your resume and projects, with evidence.',
+    instructions: `Assess how well the author fits the role in the advert, for their private job tracker. Nobody else reads this, so be accurate rather than encouraging: a generous score decides where they spend a week of applications.
+
+Write markdown in exactly this shape:
+
+**Verdict:** Strong, Reasonable, Stretch or Poor — one sentence why.
+**Score:** n/10, mostly from the must-haves.
+
+### Must-haves
+- ✅ the requirement — the evidence: the role, project or skill group that shows it
+- ⚠️ the requirement — adjacent experience, named as adjacent
+- ❌ the requirement — nothing in the record
+
+### Nice-to-haves
+The same three marks.
+
+### Gaps worth closing
+Two or three small, concrete steps: a line the resume is missing for work already done, a project that would show the thing, a certification.
+
+### Keywords for the ATS
+Terms from the advert that are true of the author and missing from the resume, comma-separated.
+
+Rules:
+- Every ✅ cites evidence from the resume above or from a project you looked up. If you cannot point at it, it is not a ✅.
+- A requirement stated in years is counted from the dates on the roles, not estimated.
+- One line per requirement. Do not restate the advert.
+- Start at "**Verdict:**". Nothing before it, nothing after the keywords.`,
+    format: 'markdown',
+    maxTokens: 2500,
+    temperature: 0.3,
+    needsCorpus: true,
+    context: ['resume', 'jobDescription'],
+    live: 'jobFit',
+  },
+
+  /**
+   * A message to one person at the company, drafted and never sent.
+   *
+   * Not live: two versions are options to pick from. The page counts each
+   * version's characters itself rather than trusting a model to count, because
+   * a connection note over the limit is the one failure the owner finds out
+   * about only when LinkedIn refuses to send it.
+   */
+  jobOutreach: {
+    label: 'Draft outreach',
+    command: 'draft-outreach',
+    surface: 'job',
+    group: 'suggest',
+    hint: 'A message to someone at the company. Say who, and where: a LinkedIn note, a message or an email.',
+    instructions: `Draft a message from the author to one person at the company in the advert. The author sends it themselves; you only draft it.
+
+Who it is for and which channel are in the author's instruction. Fit the channel:
+- LinkedIn connection note: 200 characters at most, spaces included — a free account's limit.
+- LinkedIn message or InMail: under 600 characters, three short paragraphs at most.
+- Email: a "Subject:" line, a blank line, then under 150 words.
+If no channel is named, write the connection note.
+
+Every draft carries exactly three things:
+1. One specific reason for this company or role, taken from the advert — not flattery.
+2. One piece of evidence from the resume or the fit assessment: a result, a project, a role.
+3. One clear ask, matched to the person: a recruiter about the process, a hiring manager about the team's problem, an engineer for a referral or fifteen minutes.
+
+Rules:
+- Nothing beyond the record. Never lean on a requirement the fit assessment marks ❌.
+- No "I hope this finds you well", no "I came across your profile", no exclamation marks.
+- Use the person's first name when the instruction or the contacts give it; never invent one.
+- Write two versions, separated by a line holding only "---". Nothing else: no heading, no labels, no explanation.`,
+    format: 'markdown',
+    maxTokens: 1200,
+    temperature: 0.6,
+    needsCorpus: false,
+    context: ['resume', 'jobDescription', 'fit', 'contacts'],
+    needsTopic: true,
+  },
+
   chat: {
     label: 'Ask about the draft',
     surface: 'both',
@@ -1170,7 +1345,7 @@ Everything you write goes to someone reading their own draft. If a request is am
     context: [
       'title', 'summary', 'tags', 'body', 'selection', 'stack', 'highlights',
       'problem', 'solution',
-      'resume', 'jobDescription',
+      'resume', 'jobDescription', 'fit', 'contacts',
     ],
     needsTopic: true,
   },
@@ -1280,7 +1455,10 @@ export function parseCommand(line: string): {
  * generating command would silently regenerate work the author wrote by hand.
  */
 /* Steps are sequenced by a page and never named in a request — see `step`. */
-type RoutableTask = Exclude<AssistTaskName, 'chat' | 'casestudyplan' | 'casestudysection'>;
+type RoutableTask = Exclude<
+  AssistTaskName,
+  'chat' | 'casestudyplan' | 'casestudysection' | 'journalplan' | 'journalsection'
+>;
 
 const ROUTE_HINTS: Record<RoutableTask, readonly string[]> = {
   compose: [
@@ -1339,6 +1517,17 @@ const ROUTE_HINTS: Record<RoutableTask, readonly string[]> = {
     'tailor the resume',
     'build me a resume',
     'resume for this role',
+  ],
+  jobFit: ['assess fit', 'assess my fit', 'fit assessment', 'score this role', 'score the fit'],
+  jobOutreach: [
+    'draft outreach',
+    'draft a message',
+    'write a message',
+    'connection note',
+    'linkedin note',
+    'draft an email',
+    'write an email',
+    'cold email',
   ],
 };
 
@@ -1793,7 +1982,12 @@ export const DEFAULT_SECTIONS: readonly PlannedSection[] = [
  * sections is not a plan, so the default arc stands in and `planned` says so.
  * Never throws, and a response with no facts still yields a usable plan.
  */
-export function parsePlan(text: string): CaseStudyPlan {
+export function parsePlan(
+  text: string,
+  options: { min?: number; fallback?: readonly PlannedSection[] } = {},
+): CaseStudyPlan {
+  const min = options.min ?? 4;
+  const fallback = options.fallback ?? DEFAULT_SECTIONS;
   const source = text.replace(/^\s*```[a-z]*\s*\n?/i, '').replace(/\n?```\s*$/, '');
   const facts: string[] = [];
   const sections: PlannedSection[] = [];
@@ -1835,10 +2029,10 @@ export function parsePlan(text: string): CaseStudyPlan {
     (section, index) =>
       sections.findIndex(other => other.heading.toLowerCase() === section.heading.toLowerCase()) === index,
   );
-  const usable = unique.length >= 4;
+  const usable = unique.length >= min;
   return {
     facts: facts.slice(0, 40),
-    sections: (usable ? unique : DEFAULT_SECTIONS.map(section => ({ ...section }))).slice(0, 9),
+    sections: (usable ? unique : fallback.map(section => ({ ...section }))).slice(0, 9),
     planned: usable,
   };
 }
@@ -1948,6 +2142,21 @@ const SECTION_NARRATION =
 export const HISTORY_LIMITS = { turns: 12, chars: 4000 } as const;
 
 /**
+ * When a conversation is compacted on its own, after a run ends.
+ *
+ * At the history window, not past it: the route sends only the last
+ * `HISTORY_LIMITS.turns` turns, so a transcript allowed to grow beyond that
+ * has already lost its opening by the time a summary is asked for. Or at
+ * 24,000 characters, whichever comes first — long answers fill the window's
+ * per-turn caps well before the count does. Pure, so `check:ai` pins it.
+ */
+export const COMPACT_AFTER = { turns: HISTORY_LIMITS.turns, chars: 24_000 } as const;
+
+export const needsCompaction = (turns: readonly { content: string }[]): boolean =>
+  turns.length >= COMPACT_AFTER.turns ||
+  turns.reduce((sum, turn) => sum + turn.content.length, 0) >= COMPACT_AFTER.chars;
+
+/**
  * The editor's fields, as text a model reads, capped so a long post cannot
  * uncap the call.
  *
@@ -1991,6 +2200,8 @@ const CONTEXT_LIMITS: Record<AssistField, number> = {
   outline: 3000,
   section: 1200,
   previous: 1500,
+  fit: 4000,
+  contacts: 1000,
 };
 
 const CONTEXT_LABELS: Record<AssistField, string> = {
@@ -2012,6 +2223,8 @@ const CONTEXT_LABELS: Record<AssistField, string> = {
   outline: 'The whole write-up, section by section',
   section: 'The section to write now',
   previous: 'How the previous section ended',
+  fit: 'The author’s fit assessment for this role',
+  contacts: 'People at the company the author has named',
 };
 
 /**

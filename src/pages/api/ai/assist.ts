@@ -14,6 +14,7 @@ import {
 import { clampEffort } from '../../../lib/ai-catalog';
 import { buildIndex } from '../../../lib/ai-corpus';
 import { MAX_TOOL_CALLS, runTool, toolSummary, toolsFor } from '../../../lib/ai-tools';
+import { jevRoute, needs, toolNamesFor, type JevCategory } from '../../../lib/ai-jev';
 import { getCaseStudies, getPosts, getProjects } from '../../../lib/content';
 import { getResume } from '../../../lib/resume';
 import { ASSIST_TASKS, assistPrompt, isAssistTask, parseFields } from '../../../lib/assist-tasks';
@@ -173,7 +174,25 @@ export const POST: APIRoute = async ({ request, locals }) => {
       Boolean(readme.trim()),
     repoOnly,
   };
-  const tools = wantsTools ? toolsFor('assist', toolOptions) : [];
+  /* Jev, for conversation only: the fixed tasks already know what they need,
+     and a decision request per command would be pure overhead. It can only
+     narrow `toolOptions` — see `ai-jev.ts`. */
+  const deadline = Date.now() + RUN_BUDGET_MS;
+  const history = turns(payload.history);
+  const question = typeof payload.instruction === 'string' ? payload.instruction.slice(0, 2000) : '';
+  const jev =
+    payload.task === 'chat' && wantsTools
+      ? await jevRoute({
+          db: DB,
+          settings,
+          turns: [...history, { role: 'user', content: question }],
+          categories: ['work', 'writing', 'resume', ...(toolOptions.repoAccess ? (['repo'] as JevCategory[]) : [])],
+          deadline,
+        })
+      : { route: null, detail: {} };
+  const route = jev.route;
+  const narrowed = route ? { ...toolOptions, only: toolNamesFor(route) } : toolOptions;
+  const tools = wantsTools ? toolsFor('assist', narrowed) : [];
 
   /* The author's own voice is the point of a writing assistant, and the only
      record of it this system has is what they have already published. Tasks
@@ -194,12 +213,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
   /* A task that may only read the repository needs no slugs, so no index
      either — see `lookups` in `assist-tasks.ts`. */
   let voice = '';
-  if (task.needsCorpus || (wantsTools && !repoOnly)) {
+  const indexed = !route || needs(route, 'work') || needs(route, 'writing') || needs(route, 'resume');
+  if (task.needsCorpus || (wantsTools && !repoOnly && indexed)) {
     const [projects, caseStudies, posts, resume] = await Promise.all([
-      getProjects(DB),
-      getCaseStudies(DB),
-      getPosts(DB),
-      getResume(DB),
+      needs(route, 'work') ? getProjects(DB) : [],
+      needs(route, 'work') ? getCaseStudies(DB) : [],
+      needs(route, 'writing') ? getPosts(DB) : [],
+      needs(route, 'resume') ? getResume(DB) : null,
     ]);
     voice = buildIndex({ projects, caseStudies, posts, resume });
   }
@@ -207,11 +227,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
   const messages = assistPrompt(task, {
     ownerName: site.name,
     context: payload.context ?? {},
-    instruction: typeof payload.instruction === 'string' ? payload.instruction.slice(0, 2000) : '',
+    instruction: question,
     corpus: voice,
     persona: settings.persona,
-    history: turns(payload.history),
-    tools: tools.length ? toolSummary('assist', toolOptions) : '',
+    history,
+    tools: tools.length ? toolSummary('assist', narrowed) : '',
   });
 
   const model = pickModel(providers, payload.model);
@@ -251,7 +271,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
        minute; the *run* may not, because the rounds and the fallback walk
        multiply and the platform kills what overruns — see
        `CallOptions.deadline`. Attempts clamp themselves to what is left. */
-    deadline: Date.now() + RUN_BUDGET_MS,
+    deadline,
     ...(tools.length ? { tools } : {}),
     ...(model ? { model } : {}),
     effort,
@@ -290,6 +310,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
               task: payload.task,
               effort,
               ...report.detail,
+              ...jev.detail,
               ...(shaped ? { shape: shaped.recognised ? 'fields' : 'unrecognised' } : {}),
               ...(unrecognised ? { head: summary.answer.slice(0, 600) } : {}),
             },

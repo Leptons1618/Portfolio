@@ -1,0 +1,553 @@
+---
+/**
+ * One application: the advert, where it stands, and the assistant beside it.
+ *
+ * The slug is the only thing rendered on the server, and it came from the URL
+ * the requester typed. The row itself is fetched over `GET /api/content` with
+ * the owner's token, for the reason `/admin/jobs` gives: `/admin/*` is public
+ * HTML and an application is not public. `prerender = false` only because the
+ * route has a parameter; nothing here reads the database. Decision 80.
+ *
+ * The assistant offers two commands, and both read the *master* resume rather
+ * than a variant — whether the record holds a requirement anywhere is the
+ * question, not whether one tailored view shows it. `/assess-fit` streams into
+ * the Fit field; `/draft-outreach` lands in the panel as two versions with their
+ * character counts, because a connection note over LinkedIn's limit is found out
+ * only when LinkedIn refuses it. Nothing is saved until Save, and nothing is
+ * ever sent.
+ */
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import AssistPanel from '../../../components/AssistPanel.astro';
+import { Icon } from 'astro-icon/components';
+import { APPLICATION_STATUSES } from '../../../lib/content-store';
+
+export const prerender = false;
+
+const slug = Astro.params.slug ?? '';
+---
+<AdminLayout title="Application">
+  <div class="admin-main-wide" id="admin-job" data-slug={slug}>
+    <div class="admin-head">
+      <div>
+        <p class="admin-eyebrow-mono">MODULE: JOBS / APPLICATION</p>
+        <h1 class="admin-title" id="jf-title">{slug}</h1>
+        <span class="text-muted admin-stamp" id="jf-stamp">Sign in to read this application.</span>
+      </div>
+      <div class="admin-actions">
+        <a class="btn btn-secondary" href="/admin/jobs">
+          <Icon name="lucide:arrow-left" class="admin-nav-icon" />All applications
+        </a>
+        <a class="btn btn-secondary" id="jf-open" target="_blank" rel="noopener noreferrer" hidden>
+          <Icon name="lucide:external-link" class="admin-nav-icon" />Posting
+        </a>
+        <button type="button" class="btn btn-secondary" id="assist-open">
+          <Icon name="lucide:sparkles" class="admin-nav-icon" />Assistant
+        </button>
+        <button type="button" class="btn btn-secondary" id="jf-delete">
+          <Icon name="lucide:trash-2" class="admin-nav-icon" />Delete
+        </button>
+        <button type="button" class="btn btn-primary" id="jf-save" disabled>
+          <Icon name="lucide:save" class="admin-nav-icon" />Save
+        </button>
+      </div>
+    </div>
+
+    <p class="admin-note jf-message" id="jf-message"></p>
+
+    <div class="jf-grid">
+      <section class="card elev-sm jf-col">
+        <p class="admin-eyebrow">The role</p>
+        <div class="jf-pair">
+          <div class="field">
+            <label for="jf-company">Company</label>
+            <input class="input" id="jf-company" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="jf-role">Role</label>
+            <input class="input" id="jf-role" autocomplete="off" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="jf-url">Posting URL</label>
+          <input class="input" id="jf-url" type="url" placeholder="https://…" />
+        </div>
+        <div class="field">
+          <label for="jf-jd">Job description</label>
+          <textarea class="input jf-mono" id="jf-jd" rows="10" data-grow placeholder="The advert, verbatim."></textarea>
+        </div>
+        <div class="field">
+          <label for="jf-fit">Fit</label>
+          <textarea class="input" id="jf-fit" rows="6" data-grow placeholder="Matched and missing requirements, with evidence. The assistant writes this; edit it freely."></textarea>
+          <div class="jf-under">
+            <p class="text-muted admin-note">Read against the master resume and your projects.</p>
+            <button type="button" class="btn btn-secondary btn-sm" data-assist-task="jobFit">
+              <Icon name="lucide:sparkles" class="admin-nav-icon" />Assess fit
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="card elev-sm jf-col">
+        <p class="admin-eyebrow">Where it stands</p>
+        <div class="jf-pair">
+          <div class="field">
+            <label for="jf-status">Status</label>
+            <select class="input" id="jf-status">
+              {Object.entries(APPLICATION_STATUSES).map(([value, label]) => <option value={value}>{label}</option>)}
+            </select>
+          </div>
+          <div class="field">
+            <label for="jf-applied">Applied on</label>
+            <input class="input" id="jf-applied" type="date" />
+          </div>
+        </div>
+        <div class="jf-pair">
+          <div class="field">
+            <label for="jf-next-step">Next step</label>
+            <input class="input" id="jf-next-step" placeholder="Follow up with the recruiter" />
+          </div>
+          <div class="field">
+            <label for="jf-next-on">Next on</label>
+            <input class="input" id="jf-next-on" type="date" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="jf-variant">Resume sent</label>
+          <select class="input" id="jf-variant">
+            <option value="">The master resume</option>
+          </select>
+          <p class="text-muted admin-note">
+            A variant from <a href="/admin/resume">the Resume screen</a>, which can build one from this advert.
+          </p>
+        </div>
+        <div class="field">
+          <label for="jf-contacts">Contacts</label>
+          <textarea class="input" id="jf-contacts" rows="3" placeholder="Name — title — profile URL, one per line"></textarea>
+          <div class="jf-under">
+            <p class="text-muted admin-note">Only people you found yourself. Nothing here looks anyone up.</p>
+            <button type="button" class="btn btn-secondary btn-sm" data-assist-task="jobOutreach">
+              <Icon name="lucide:send" class="admin-nav-icon" />Draft outreach
+            </button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="jf-notes">Notes</label>
+          <textarea class="input" id="jf-notes" rows="5" data-grow placeholder="2026-11-08 — connection note to Priya (sent)"></textarea>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <AssistPanel
+    surface="job"
+    sub="Assesses fit and drafts messages from your resume and this advert. It never sends and never saves."
+  />
+</AdminLayout>
+
+<script>
+  import { navigate } from 'astro:transitions/client';
+  import { onAdminPage, setBusy, setLabel, toast, trackDirty, type DirtyField } from '../../../lib/admin';
+  import { runAssist } from '../../../lib/ai-store';
+  import { mountAssistPanel } from '../../../lib/assist-panel';
+  import { ASSIST_MENU, ASSIST_TASKS, isAssistTask, type AssistTask } from '../../../lib/assist-tasks';
+  import { copyText } from '../../../lib/clipboard';
+  import {
+    getApplication,
+    patchApplication,
+    readDocument,
+    removeApplication,
+    type ApplicationFields,
+  } from '../../../lib/content-store';
+  import { SLUG } from '../../../lib/content-schema';
+  import { formatRange } from '../../../lib/format';
+  import { getToken } from '../../../lib/github';
+  import { RESUME_KEY, normaliseResume, resolveVariant, type ResumeDocument, type ResumePerson } from '../../../lib/resume';
+  import { resumeContext } from '../../../lib/resume-render';
+
+  onAdminPage('#admin-job', () => {
+    const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+    const slug = $('admin-job').dataset.slug ?? '';
+    const title = $('jf-title');
+    const stamp = $('jf-stamp');
+    const message = $('jf-message');
+    const save = $<HTMLButtonElement>('jf-save');
+    const remove = $<HTMLButtonElement>('jf-delete');
+    const openPosting = $<HTMLAnchorElement>('jf-open');
+    const assistOpen = $<HTMLButtonElement>('assist-open');
+    const variantPick = $<HTMLSelectElement>('jf-variant');
+    const contacts = $<HTMLTextAreaElement>('jf-contacts');
+    const advert = $<HTMLTextAreaElement>('jf-jd');
+    const fit = $<HTMLTextAreaElement>('jf-fit');
+    const fieldButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-assist-task]'));
+
+    /* Every column but `contacts`, which is a list and is read line by line. */
+    const inputs = {
+      company: $<HTMLInputElement>('jf-company'),
+      role: $<HTMLInputElement>('jf-role'),
+      status: $<HTMLSelectElement>('jf-status'),
+      url: $<HTMLInputElement>('jf-url'),
+      jobDescription: advert,
+      fit,
+      resumeVariant: variantPick,
+      appliedOn: $<HTMLInputElement>('jf-applied'),
+      nextStep: $<HTMLInputElement>('jf-next-step'),
+      nextOn: $<HTMLInputElement>('jf-next-on'),
+      notes: $<HTMLTextAreaElement>('jf-notes'),
+    } satisfies Record<Exclude<keyof ApplicationFields, 'contacts'>, DirtyField>;
+    type Scalar = keyof typeof inputs;
+
+    const say = (text: string, tone: 'info' | 'error' = 'info') => {
+      message.dataset.tone = tone;
+      message.textContent = text;
+    };
+
+    const tracker = trackDirty(() => [...Object.values(inputs), contacts], save);
+    const lock = (why: string) => {
+      for (const button of [save, remove, assistOpen, ...fieldButtons]) {
+        button.disabled = true;
+        button.title = why;
+      }
+      say(why, 'error');
+    };
+
+    if (!getToken()) return lock('Sign in with GitHub to read this application.');
+    if (!SLUG.test(slug)) return lock('That is not an application this tracker could have.');
+
+    let loaded: ApplicationFields | null = null;
+    let resume: ResumeDocument | null = null;
+
+    const lines = (value: string) => value.split('\n').map(line => line.trim()).filter(Boolean);
+    const isWeb = (value: string) => /^https?:\/\//i.test(value.trim());
+
+    /* The link is the owner's own typing, but it becomes an `href` on the
+       origin holding their token — so http(s) or no link, as `job-boards.ts`
+       does for a board's. */
+    const paintHeader = () => {
+      const { company, role } = inputs;
+      title.textContent = [company.value.trim(), role.value.trim()].filter(Boolean).join(' — ') || slug;
+      const url = inputs.url.value.trim();
+      if (isWeb(url)) {
+        openPosting.href = url;
+        openPosting.hidden = false;
+      } else {
+        openPosting.removeAttribute('href');
+        openPosting.hidden = true;
+      }
+    };
+
+    function paintVariants(selected: string) {
+      const variants = resume?.variants ?? [];
+      const options = [new Option('The master resume', '')];
+      for (const variant of variants) options.push(new Option(variant.label || variant.id, variant.id));
+      /* An id the resume no longer has stays selectable, so loading the row
+         does not quietly change what it says was sent. */
+      if (selected && !variants.some(variant => variant.id === selected)) {
+        options.push(new Option(`${selected} (no longer on the resume)`, selected));
+      }
+      variantPick.replaceChildren(...options);
+      variantPick.value = selected;
+    }
+
+    function fill(fields: ApplicationFields) {
+      for (const key of Object.keys(inputs) as Scalar[]) {
+        if (key === 'resumeVariant') continue;
+        inputs[key].value = (fields[key] as string | null) ?? '';
+      }
+      paintVariants(fields.resumeVariant ?? '');
+      contacts.value = fields.contacts.join('\n');
+      paintHeader();
+      tracker.reset();
+    }
+
+    /** What differs from the row as loaded, in the fields the endpoint takes. */
+    function changes(): Partial<ApplicationFields> {
+      if (!loaded) return {};
+      const out: Record<string, unknown> = {};
+      for (const key of Object.keys(inputs) as Scalar[]) {
+        const now = inputs[key].value;
+        if (now !== ((loaded[key] as string | null) ?? '')) out[key] = now;
+      }
+      const people = lines(contacts.value);
+      if (JSON.stringify(people) !== JSON.stringify(loaded.contacts)) out.contacts = people;
+      return out as Partial<ApplicationFields>;
+    }
+
+    async function load() {
+      try {
+        const [row, rawResume] = await Promise.all([getApplication(slug), readDocument(RESUME_KEY).catch(() => null)]);
+        resume = rawResume ? normaliseResume(rawResume as ResumeDocument) : null;
+        loaded = row.fields;
+        fill(loaded);
+        stamp.textContent = row.updatedAt ? `last saved ${row.updatedAt} UTC` : '';
+        say(resume ? '' : 'The resume did not load, so the assistant has nothing to read it against.', resume ? 'info' : 'error');
+      } catch (error) {
+        const text = error instanceof Error ? error.message : 'Could not read this application.';
+        lock(text);
+      }
+    }
+
+    for (const key of ['company', 'role', 'url'] as const) inputs[key].addEventListener('input', paintHeader);
+
+    /* Moving to Applied with no date is almost always "today". */
+    inputs.status.addEventListener('change', () => {
+      if (inputs.status.value === 'applied' && !inputs.appliedOn.value) {
+        inputs.appliedOn.value = new Date().toISOString().slice(0, 10);
+        tracker.check();
+      }
+    });
+
+    save.addEventListener('click', async () => {
+      for (const key of ['company', 'role'] as const) {
+        if (!inputs[key].value.trim()) {
+          inputs[key].focus();
+          toast(`${key === 'company' ? 'Company' : 'Role'} is required.`, { tone: 'error' });
+          return;
+        }
+      }
+      const changed = changes();
+      if (!Object.keys(changed).length || !loaded) return tracker.reset();
+      setBusy(save, true, 'Saving…');
+      const pending = toast('Saving…', { tone: 'pending' });
+      try {
+        await patchApplication(slug, changed);
+        loaded = { ...loaded, ...changed };
+        tracker.reset();
+        say(`Saved ${Object.keys(changed).join(', ')}.`);
+        pending.update('Saved.', { tone: 'success' });
+      } catch (error) {
+        const text = error instanceof Error ? error.message : 'Could not save.';
+        say(text, 'error');
+        pending.update(text, { tone: 'error' });
+      } finally {
+        setBusy(save, false);
+        tracker.check();
+      }
+    });
+
+    /* Two clicks, like a log row: this is private, there is no public page to
+       404, and Withdrawn or Rejected is the usual way out — but the row does
+       not come back. */
+    let armed = false;
+    remove.addEventListener('click', async () => {
+      if (!armed) {
+        armed = true;
+        setLabel(remove, 'Confirm delete');
+        window.setTimeout(() => {
+          armed = false;
+          setLabel(remove, null);
+        }, 4000);
+        return;
+      }
+      armed = false;
+      setLabel(remove, null);
+      setBusy(remove, true, 'Deleting…');
+      try {
+        await removeApplication(slug);
+        toast('Deleted.', { tone: 'success' });
+        await navigate('/admin/jobs', { history: 'replace' });
+      } catch (error) {
+        toast(error instanceof Error ? error.message : 'Could not delete.', { tone: 'error' });
+        setBusy(remove, false);
+      }
+    });
+
+    /* ---------- the assistant ---------- */
+
+    /* `resumeContext()` never reads the person, and the assistant is never
+       given contact details — the master is read without them. */
+    const NOBODY: ResumePerson = {
+      name: '', role: '', location: '', address: '', email: '', phone: '', linkedin: '', github: '', summary: '',
+    };
+
+    function resumeText(): string {
+      if (!resume) return '';
+      const sheet = resolveVariant({ ...resume, person: NOBODY }, '', []);
+      return resumeContext(sheet, {
+        experience: resume.experience.map(entry => ({
+          id: entry.id,
+          title: entry.title,
+          company: entry.company,
+          range: formatRange(entry.start, entry.end) || entry.dates || '',
+        })),
+        skills: resume.skills,
+        education: resume.education.map(entry => ({ id: entry.id, degree: entry.degree, school: entry.school })),
+        certifications: resume.certifications,
+      });
+    }
+
+    const contextFor = (name: string): Record<string, string> => {
+      const task: AssistTask = ASSIST_TASKS[name as keyof typeof ASSIST_TASKS];
+      const source: Record<string, string> = {
+        resume: resumeText(),
+        jobDescription: advert.value,
+        fit: fit.value,
+        contacts: contacts.value,
+      };
+      const out: Record<string, string> = {};
+      for (const key of task.context) out[key] = source[key] ?? '';
+      return out;
+    };
+
+    let assisting: AbortController | null = null;
+
+    async function runTask(name: string, instruction: string) {
+      if (!isAssistTask(name)) return;
+      const task: AssistTask = ASSIST_TASKS[name];
+      const controller = new AbortController();
+      assisting = controller;
+      panel.running(true);
+
+      const turn = panel.begin(task.label, task.command ?? null);
+      const copy = (text: string, label = 'Copy') => ({
+        label,
+        run: () =>
+          void copyText(text).then(ok =>
+            toast(ok ? 'Copied.' : 'Could not copy — select the text instead.', { tone: ok ? 'success' : 'error' }),
+          ),
+      });
+      const again = { label: 'Try again', run: () => void runTask(name, instruction) };
+      const before = fit.value;
+      const undo = {
+        label: 'Undo',
+        run: () => {
+          fit.value = before;
+          tracker.check();
+        },
+      };
+
+      let raw = '';
+      let thought = '';
+      try {
+        const output = await runAssist(
+          name,
+          contextFor(name),
+          instruction,
+          {
+            onDelta: chunk => {
+              raw += chunk;
+              if (task.live === 'jobFit') {
+                fit.value = raw;
+                tracker.check();
+              } else {
+                turn.answer(raw);
+              }
+            },
+            onThinking: chunk => {
+              thought += chunk;
+              turn.thinking(chunk);
+            },
+            onTool: frame => turn.tool(frame),
+            onUsage: frame => turn.usage(frame),
+          },
+          controller.signal,
+          name === 'chat' ? panel.history().slice(0, -1) : undefined,
+          panel.runOptions(),
+        );
+
+        if (!output.trim()) {
+          throw new Error(
+            thought
+              ? 'The model spent the whole token budget thinking and never wrote an answer. Open Thinking above to read it, then lower the effort in the toolbar or set this provider’s output ceiling on the AI screen.'
+              : 'The model finished without writing anything.',
+          );
+        }
+
+        if (task.live === 'jobFit') {
+          fit.value = output;
+          tracker.check();
+          turn.status('Done — it is in the Fit field. Nothing is saved until you press Save.');
+          turn.actions([undo, again]);
+          turn.end(output);
+          toast('Fit assessment written.', { tone: 'success' });
+          return;
+        }
+
+        if (name === 'jobOutreach') {
+          /* Counted here, not trusted from the model: a note over the limit is
+             found out only when LinkedIn refuses to send it. */
+          const versions = output.split(/^\s*-{3,}\s*$/m).map(part => part.trim()).filter(Boolean);
+          turn.answer(output);
+          turn.status(versions.map((part, i) => `Version ${i + 1}: ${part.length} characters`).join(' · '));
+          turn.actions([
+            ...versions.map((part, i) => copy(part, versions.length > 1 ? `Copy ${i + 1}` : 'Copy')),
+            again,
+          ]);
+          turn.end(output);
+          return;
+        }
+
+        /* `chat`: a question about this application, answered in prose. */
+        turn.answer(output);
+        turn.actions([copy(output), again]);
+        turn.end(output);
+      } catch (error) {
+        const wrote = task.live === 'jobFit' && raw ? [undo] : [];
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          turn.status(raw ? 'Stopped.' : 'Stopped before anything arrived.');
+          turn.actions([...wrote, again]);
+        } else {
+          const text = error instanceof Error ? error.message : 'The assistant failed.';
+          turn.note(text, 'error');
+          turn.actions([...wrote, again]);
+          toast(text, { tone: 'error' });
+        }
+        turn.end(raw);
+      } finally {
+        panel.running(false);
+        if (assisting === controller) assisting = null;
+      }
+    }
+
+    const panel = mountAssistPanel({
+      surface: 'job',
+      docSlug: () => slug,
+      stop: () => assisting?.abort(),
+      run: (item, instruction) => runTask(item ? item.name : 'chat', instruction),
+      blocked: (item, instruction) => {
+        if (!advert.value.trim()) return 'Paste the job description first — everything here is read against it.';
+        if (!resume) return 'The resume did not load, so there is nothing to assess against. Reload the page.';
+        if (item.needsTopic && !instruction.trim()) {
+          return `${item.label} needs to know who and where — type it after the command: “LinkedIn note to Priya, the recruiter”.`;
+        }
+        return null;
+      },
+    });
+
+    assistOpen.addEventListener('click', () => {
+      if (panel.isOpen()) panel.close();
+      else panel.open();
+    });
+
+    /* A command that needs an instruction is typed into the composer for the
+       owner to finish; one that does not is sent. */
+    for (const button of fieldButtons) {
+      button.addEventListener('click', () => {
+        const item = ASSIST_MENU.find(entry => entry.name === button.dataset.assistTask);
+        if (!item) return;
+        if (item.needsTopic) panel.open(item.command);
+        else {
+          panel.open();
+          panel.send(`/${item.command}`);
+        }
+      });
+    }
+
+    void load();
+  });
+</script>
+
+<style>
+  .jf-message { min-height: 18px; font-size: 12px; margin: 0 0 var(--space-4); }
+  .jf-message[data-tone='error'] { color: var(--color-accent-700); }
+
+  /* Sized by the room the page actually has, not by the viewport: a docked
+     assistant takes a column of its own, and two cards side by side in what is
+     left squeezed a date field over the input beside it. */
+  .jf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: var(--space-4); align-items: start; }
+  .jf-col { min-width: 0; }
+  .jf-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--space-3); }
+  .jf-mono { font-family: var(--font-mono); font-size: 13px; }
+  .jf-under { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-1); }
+  .jf-under .admin-note { margin: 0; }
+  .jf-under .btn { flex: none; }
+</style>

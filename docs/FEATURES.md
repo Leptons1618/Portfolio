@@ -168,6 +168,8 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 | Test a provider before publishing it | ✅ | One eight-token completion — a real inference call, not `GET /models`, which succeeds on several providers with a key that cannot infer |
 | Editable limits, clamped server-side | ✅ | `clampSettings()` caps every number on read, so the form cannot lift its own ceiling; the screen prints the ceilings beside the fields |
 | Usage panel (answers today, active callers) | 🟡 | Read off `ai_rate`, so it is a request count and not a token or cost figure — the vendor's dashboard is the authority on spend. The per-answer footer is where tokens and the cost estimate live now (decision 66) |
+| Jev routing (optional) | 🟡 | Off by default. One typed yes/no decision before a conversational run says which kinds of content it needs; a confident route narrows the index and the lookup tools, and anything else is the full route. Can only remove tools, never add one; never retried; never shown to a visitor. Endpoints are their own table (`ai_decision_providers`). The limit: whether it saves more than the extra request costs is unmeasured — the log records both sides — decision 77 |
+| The public assistant shows no reasoning | ✅ | `forPublic()` reduces the stream to the answer, one "thinking" signal for the wait label, and lookup rows without their results; usage, cost, model names and loop errors stay on the server and in the log |
 | Cost/token accounting per answer | ✅ | Counts and cache hits off the vendor's `usage` block, an upper-bound cost from the row's stored prices, shown in the panel and written into every run's log detail. The public widget deliberately shows none of it — decision 66 |
 
 ---
@@ -205,6 +207,10 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 | A lookup shows what it returned | ✅ | The outcome frame carries the first 600 characters of the result; the panel renders it behind a collapsed **Result** disclosure on the tool row. The same published content the model was handed — decision 66 |
 | Follow-ups queue while a run is in flight | ✅ | The composer stays typeable; Enter queues, the hint counts the queue, and `running(false)` drains it in order. Closing the panel keeps the queue — decision 66 |
 | A reopened conversation keeps its actions | ✅ | Copy on every assistant message, Try again on plain conversation turns (re-sending the question above). Page-owned actions — Insert, Undo, chips — are deliberately not restored, because their fields may have moved on — decision 66 |
+| Conversations compact themselves | ✅ | When a run ends with the transcript at the history window (twelve turns) or 24,000 characters, the panel runs Compact and leaves a note saying so — at the window, because the route only sends the last twelve turns. The button stays for doing it early — decision 78 |
+| Context is not paid for twice | ✅ | A reasoning provider's own reasoning goes back to it (and only it) on the tool-call turn, and older lookup results are trimmed to an excerpt once a later round has read more — decision 78 |
+| A long case study resumes after a reload | ✅ | The plan and finished sections are stored server-side after each one; reopening the project offers Resume from the next section, or Discard — decision 78 |
+| Deletes are confirmed in a dialog | ✅ | Posts and projects: the URL that will 404 and what goes with it, the reversible alternative (Unpublish / Hide) as its own button, and Delete enabled only once the slug is typed. The list re-renders from the rows afterwards |
 | Mermaid diagrams → SVG in the media table | ✅ | Rendered in the browser, previewed as the exact file that will be uploaded, and uploaded only on Insert. Public pages ship no renderer — decision 25 |
 | Diagram source is kept after upload | ✂️ | The SVG is the artefact. Editing means regenerating; the panel keeps the source visible so it can be copied out first. Storing it would mean a column, a round trip and an editing UI for a thing generated in two seconds |
 | Image generation | ✂️ | Cut on purpose. The `alt` task writes alt text and a caption and says what the image should show; the file comes from the media library that already exists. Generated raster art on a technical portfolio is a liability, not a feature |
@@ -219,13 +225,15 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 | --- | --- | --- |
 | A post a day, at a random hour | ✅ | `/admin/journal` → Daily journal (a tab on the AI screen until decision 64). The hour is *hashed from the date* inside a configured UTC window, so all twenty-four of the day's ticks agree on it with no stored roll and no lock, and it moves between days. Twenty-three ticks answer `skipped` after one D1 read and no tokens — decision 52 |
 | It writes a draft, never a published post | ✅ | `status = 'draft'`: in the admin's list, 404 for everyone else, live only when the author reads it and presses publish. Decision 13's rule applied to a machine with a timer |
-| Retry, and fallback, and they are different things | ✅ | A failed tick leaves the day unwritten and the next hour tries again, up to `maxAttempts` — that is the retry, and the attempt is recorded *before* the generation so an isolate killed mid-run still counts. `callChat` walking models and then providers is the fallback inside one attempt. A rate-limited vendor and a retired model id are two failures and both are handled |
+| Written as resumable steps | ✅ | A plan (the one step with lookups), one request per section, then assembly — one `documents` row per UTC day, saved after every step. A finished step is never redone; a failed one waits for the next tick, and the run's failed steps are the day's attempts, so `maxAttempts` still bounds a bad day. A tick that runs out of budget answers `in-progress` and the next one continues. `callChat` walking models then providers is still the fallback inside one step — decision 76 |
+| One run, two callers, one lock | ✅ | The cron tick and Run now step the same row under a compare-and-set lock on its JSON, taken over after four minutes if an isolate died holding it — decision 76 |
+| A day with nothing new is declined | ✅ | The plan may answer `NOTHING:` when every subject already has an entry. That is a finished day with no post, not a failure, and the schedule stops for it |
 | Topic rotation | ✅ | One topic per day from the configured list, chosen by the same hash as the hour — so it rotates without repeating on consecutive days and needs nothing stored. Empty is supported and is not an unconfigured state: the model is told to find its own angle out of the index and to write the part an existing post left out |
 | The schedule is shown on the reader's clock | ✅ | Stored hours are UTC and stay UTC — the tick is a GitHub cron and `hourFor()` hashes a UTC date, so a local-time field would be a stored number that shifts twice a year. The panel renders the same window in the browser's own timezone under the fields, live as they are typed, and the status card gives today's slot both ways |
-| Run one now | ✅ | Owner-only, and the only caller that may `force` past the clock. It does not spend one of the day's automatic attempts, but it does count as the day's post |
+| Run one now, and resume | ✅ | Owner-only. Steps today's run one request at a time, each step a turn in the assistant panel (the plan's outline, every section, the saved draft), with the trail on the card; Stop keeps every finished step and the button reads Resume. Discard (two clicks) drops the run so the next step starts fresh. It ignores the clock, not the attempt ceiling — decision 76 |
 | The clock is GitHub Actions, not a Cron Trigger | ✅ | Astro's adapter emits a Worker exporting `fetch` and nothing else; a Cron Trigger needs a `scheduled` export beside it, which means wrapping the generated bundle — an unsupported build step a future adapter release breaks silently. An hourly `curl` needs no wrapper. Gated on a `DAILY_JOURNAL` repository variable so an unset fork does not fail hourly — decision 52 |
 | Authorised by a secret that buys one thing | ✅ | `CRON_SECRET`, a Worker secret compared in constant time and *shut* when unset. It authorises asking whether it is time; it cannot force a run, name a model, or reach `/api/content` |
-| Deliberation cannot reach the post | ✅ | The answer is drained through the same streaming path every surface uses, so `thinking` and `delta` stay separate off the browser too, and an unlabelled response is refused rather than salvaged as body text — decisions 29 and 52 |
+| Deliberation cannot reach the post | ✅ | Every step is a non-streamed completion; `thinkStripper()` runs over the finished text and `reasoning` fields are read as thinking, and an unlabelled plan or an empty section is a failed step rather than salvaged text — decisions 29, 61 and 76 |
 | A run that only deliberated is retried with reasoning off | ✅ | The next model on the row first; on a row with one model, the same model again with `reasoning_effort: none`, once. A refusal names what the model wrote and how the round ended, in the log row's detail — decision 64 |
 | A lookup written as text is run, or nudged | ✅ | `<tool_call>…</tool_call>` in the answer channel is read as the call it is: run when tools were offered, answered with one "write it now" turn when they had been withdrawn, and never streamed into a field — decision 64 |
 | Auto-publish after a grace period | ✂️ | Cut on purpose. A second piece of scheduled state for a decision the author makes in one click, and the failure mode is a machine's draft going live because nobody looked |
@@ -252,7 +260,8 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 | Exists | What |
 | --- | --- |
 | yes | `login` / `whoami` / `logout` — token from `--token`, stdin, `$PORTFOLIO_TOKEN`, `$GITHUB_TOKEN` or `gh auth token`; never prompted for, stored at mode 0600 |
-| yes | `ls` / `get` for projects, case studies, journal, providers, documents |
+| yes | `ls` / `get` for projects, case studies, journal, applications, providers, documents |
+| yes | `jobs` — new postings on the watched boards; `--save` tracks them, `--edit` opens the watchlist |
 | yes | `create` / `set` / `rm` — `field=value` parsed against the encoders in `content-schema.ts`; `f=-` clears a field |
 | yes | `edit` — the row as JSON in `$EDITOR`, only the changed keys sent |
 | yes | `body` — the markdown, in `$EDITOR`, or `--in` / `--out` for a script |
@@ -277,11 +286,32 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 | yes | `portfolio_logs` — the site's own record, for when something did not happen |
 | yes | `portfolio_delete` — **only** with `PORTFOLIO_MCP_ALLOW_DELETE=1`, and needs `confirm: true` |
 | yes | `.claude/skills/portfolio/SKILL.md` — the slug/draft/takedown/required-field rules a schema cannot carry |
+| yes | `.claude/skills/jobs/SKILL.md` — fit assessment, resume tailoring, outreach drafts, pipeline review and LinkedIn profile review over the `application` kind |
 | no | Writing configuration. `ai_providers`, the assistant's settings and the daily schedule are read-only unless `PORTFOLIO_MCP_ALLOW_CONFIG=1` |
 | no | Writing an `apiKey`, under any flag. `portfolio provider key` reads one from stdin |
 | no | A remote/HTTP MCP endpoint. That is an internet-facing surface and a second credential; argue for it on its own terms |
 | no | A `resources/` surface. The tools cover reading, and a second way to read the same rows is a second thing to keep honest |
 | no | A directory allowlist on media upload. Single-user tool on the owner's own machine; it would break legitimate use more often than it would help |
+
+## Job search
+
+The `applications` table (migration 0015) — the owner's private job tracker, read and written through `/api/content` from the CLI and the MCP server. The assistant is the editor's model, following `.claude/skills/jobs`. Decision 79.
+
+| Feature | State | Notes |
+| --- | --- | --- |
+| Tracker: company, role, status, advert, fit, variant, contacts, follow-ups, notes | ✅ | `portfolio ls application`; `status` is a CHECK constraint. Nothing public reads it, and `ai-corpus.ts` has no input for it |
+| Fit assessment against an advert | ✅ | The skill's rubric, written into `fit`. Every ✅ must cite the resume or a project |
+| Resume tailored to a posting | ✅ | A variant in the `resume` document (decision 39); the row holds its id. The Resume screen's `build-variant` does the same from the GUI |
+| Outreach drafts — connection note, message, email | 🟡 | Drafted, never sent. Free accounts cap a connection note at 200 characters and allow few a month |
+| LinkedIn profile review | 🟡 | From the owner's data export on disk; suggestions are pasted in by hand |
+| Job discovery from Greenhouse / Lever / Ashby boards | ✅ | `portfolio jobs [--save] [--edit]` and the Jobs screen's Discover tab, one module (`src/lib/job-boards.ts`) in both. Read from the caller, never the Worker — a board is megabytes and the Worker gets 10 ms of CPU. The watchlist is the `job-watchlist` document. Decision 80 |
+| An admin screen for the tracker | ✅ | `/admin/jobs` (by status, overdue follow-ups flagged, closed ones folded) and `/admin/jobs/[slug]`. Rows are fetched with the token, never rendered into the HTML |
+| Fit and outreach in the GUI | ✅ | `/assess-fit` streams into the Fit field; `/draft-outreach` gives two versions with their character counts, counted by the page |
+| Adzuna / JSearch | ⬜ | Keyed APIs: a credential to store and spend. Add one when the ATS boards prove thin for Indian companies |
+| A Jobs conversation in its own history | 🟡 | `/api/ai/chats` files any surface but `project` as `journal`, so it shows in the journal and resume panels' history too. Owner-only either way |
+| LinkedIn sign-in, profile writes, job search, messaging | ✂️ | No self-serve API exists for any of it outside the EU; automating a session breaks the User Agreement and risks the account being used to job-hunt |
+| Sending messages from here | ✂️ | Drafts only. The owner sends |
+| Email-finding services (Hunter, Apollo) | ✂️ | Contacts are what the owner gave; nothing is looked up |
 
 ## Checks
 

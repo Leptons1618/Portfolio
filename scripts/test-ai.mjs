@@ -62,6 +62,13 @@ const {
   callChat,
   agentStream,
   agentComplete,
+  forPublic,
+  PUBLIC_FAILURE,
+  mergeReasoningDetails,
+  reasoningDetailsOf,
+  compactToolResults,
+  addUsage,
+  replayKey,
   textToolCalls,
   effectiveMaxTokens,
   thinkingBudget,
@@ -1148,12 +1155,12 @@ check('every task belongs to a surface, and each surface has tasks', () => {
   const surfaces = new Set();
   for (const [name, task] of Object.entries(ASSIST_TASKS)) {
     assert.ok(
-      ['journal', 'project', 'resume', 'both'].includes(task.surface),
+      ['journal', 'project', 'resume', 'job', 'both'].includes(task.surface),
       `${name} belongs to no known surface: ${task.surface}`,
     );
     surfaces.add(task.surface);
   }
-  assert.deepEqual([...surfaces].sort(), ['both', 'journal', 'project', 'resume']);
+  assert.deepEqual([...surfaces].sort(), ['both', 'job', 'journal', 'project', 'resume']);
 
   /* `both` is for a task that is on no menu and reachable everywhere, which is
      the opposite of every other entry. Exactly one task may be like that; a
@@ -1195,6 +1202,19 @@ check('every task belongs to a surface, and each surface has tasks', () => {
       );
     }
   }
+
+  /* The Jobs screen has an application and the resume, and nothing else — no
+     post, no repository. Same argument as the resume's list above. */
+  const job = ASSIST_MENU.filter(entry => entry.surface === 'job').map(e => e.name);
+  assert.deepEqual(job.sort(), ['jobFit', 'jobOutreach']);
+  for (const name of job) {
+    for (const field of ASSIST_TASKS[name].context) {
+      assert.ok(
+        ['resume', 'jobDescription', 'fit', 'contacts'].includes(field),
+        `${name} asks for ${field}, which the Jobs screen does not have`,
+      );
+    }
+  }
 });
 
 check('every live task names a target its own surface can write', () => {
@@ -1208,6 +1228,8 @@ check('every live task names a target its own surface can write', () => {
        *selection*, and a selection rearranging itself mid-stream is not an edit
        anyone can watch. */
     resume: ['resumeSummary'],
+    /* One, the fit. The outreach drafts are two options, not an edit. */
+    job: ['jobFit'],
   };
   for (const [name, task] of Object.entries(ASSIST_TASKS)) {
     if (!task.live) continue;
@@ -1232,7 +1254,7 @@ check('every live task names a target its own surface can write', () => {
      selection rather than a field. Asserted by name: making one of them live
      would typecheck, and the failure would be a form redrawing itself under
      the author for thirty seconds. */
-  for (const name of ['resumeProjects', 'resumeVariant', 'resumeBullet']) {
+  for (const name of ['resumeProjects', 'resumeVariant', 'resumeBullet', 'jobOutreach']) {
     assert.equal(ASSIST_TASKS[name].live, undefined, `${name} must not stream into a field`);
   }
 });
@@ -1249,6 +1271,9 @@ check('no context field a task declares travels uncapped', () => {
      the largest limit in the table (`body`); nothing may exceed it. */
   const huge = 'x'.repeat(40_000);
   for (const [name, task] of Object.entries(ASSIST_TASKS)) {
+    /* An empty allowlist sends no field at all (`journalplan`: its input is
+       the index and the day's steer), which cannot be uncapped. */
+    if (!task.context.length) continue;
     const context = Object.fromEntries(task.context.map(field => [field, huge]));
     const [, , user] = assistPrompt(task, {
       ownerName: 'Someone',
@@ -2335,7 +2360,7 @@ check('a spoken request is routed to the task it names', () => {
 check('each command appears on exactly one surface', () => {
   for (const item of ASSIST_MENU) {
     assert.ok(
-      ['journal', 'project', 'resume'].includes(item.surface),
+      ['journal', 'project', 'resume', 'job'].includes(item.surface),
       `${item.command} is offered on ${item.surface}`,
     );
   }
@@ -4338,6 +4363,606 @@ check('browser history keeps threads, caps them, and forgets garbage', () => {
   writeChats(denied, cleaned);
   rememberCurrent(denied, 'x');
   rememberCurrent(denied, null);
+});
+
+/* The public widget is read by strangers. Its stream carries the answer and
+   enough to label a wait — never the deliberation, a tool's result text, the
+   model or its cost, or an error naming any of them. */
+await checkAsync('the public stream carries the answer and nothing the owner would not show', async () => {
+  async function* frames() {
+    yield { thinking: 'The visitor wants the stack. ' };
+    yield { thinking: 'Read the project.' };
+    yield { tool: { id: 'c1', name: 'read_project', args: { slug: 'x' }, status: 'running' } };
+    yield { tool: { id: 'c1', name: 'read_project', status: 'done', detail: '1,204 chars', preview: 'SECRET body' } };
+    yield { usage: { prompt: 10, completion: 5, cost: 0.01 }, model: 'vendor/model' };
+    yield { delta: 'Astro and D1.' };
+    yield { error: 'nvidia/x spent its whole run thinking — raise Answer length' };
+    yield { done: true, stopReason: 'stop' };
+  }
+  const out = [];
+  for await (const frame of forPublic(frames())) out.push(frame);
+  const wire = JSON.stringify(out);
+  assert.equal(out.filter(f => f.phase === 'thinking').length, 1);
+  for (const leak of ['visitor wants', 'SECRET', '1,204', 'vendor/model', 'cost', 'nvidia', 'Answer length'])
+    assert.ok(!wire.includes(leak), `public stream leaked ${leak}`);
+  assert.deepEqual(out.find(f => f.delta), { delta: 'Astro and D1.' });
+  assert.deepEqual(out.find(f => f.error), { error: PUBLIC_FAILURE });
+  assert.deepEqual(out.at(-1), { done: true, stopReason: 'stop' });
+});
+
+/** Drain an NDJSON stream into frames. */
+async function forPublicFrames(stream) {
+  const out = [];
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  for (let i = 0; i < 500; i += 1) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) if (line.trim()) out.push(JSON.parse(line));
+  }
+  return out;
+}
+
+/* ---------- part 1 of the 2026-10-05 design: context and rounds ---------- */
+
+check('streamed reasoning_details merge by index, text concatenated', () => {
+  const entries = new Map();
+  mergeReasoningDetails(entries, [{ index: 0, type: 'reasoning.text', text: 'The visitor ' }]);
+  mergeReasoningDetails(entries, [{ index: 0, text: 'wants the stack.' }, { index: 1, type: 'reasoning.encrypted', data: 'ab' }]);
+  mergeReasoningDetails(entries, [{ index: 1, data: 'cd' }, { index: 0, signature: 'sig' }]);
+  mergeReasoningDetails(entries, undefined);
+  mergeReasoningDetails(entries, 'garbage');
+  assert.deepEqual(reasoningDetailsOf(entries), [
+    { index: 0, type: 'reasoning.text', text: 'The visitor wants the stack.', signature: 'sig' },
+    { index: 1, type: 'reasoning.encrypted', data: 'abcd' },
+  ]);
+});
+
+check('older tool results are compacted; the latest round that read something is kept', () => {
+  const big = 'x'.repeat(3000);
+  const call = id => ({ role: 'assistant', content: '', tool_calls: [{ id, type: 'function', function: { name: 'read_post', arguments: '{}' } }] });
+  const one = [{ role: 'user', content: 'q' }, call('a'), { role: 'tool', tool_call_id: 'a', content: big }];
+  assert.equal(compactToolResults(one), one, 'a one-round conversation must come back unchanged');
+
+  const two = [...one, call('b'), { role: 'tool', tool_call_id: 'b', content: big }];
+  const out = compactToolResults(two);
+  assert.ok(out[2].content.length < 1000 && /Already read/.test(out[2].content));
+  assert.equal(out[4].content, big);
+  assert.equal(two[2].content, big, 'compaction must not mutate the conversation it was given');
+
+  /* The limit refused round 2's lookups in one line each; round 1's reads are
+     what the model has to answer from, so they stay whole. */
+  const refused = [...one, call('c'), { role: 'tool', tool_call_id: 'c', content: 'You have reached the limit.' }];
+  assert.equal(compactToolResults(refused)[2].content, big);
+});
+
+check('usage from separate rounds is summed, not overwritten', () => {
+  assert.deepEqual(addUsage({ prompt: 100, completion: 10 }, { prompt: 50, completion: 5, cached: 40 }), {
+    prompt: 150,
+    completion: 15,
+    cached: 40,
+  });
+  assert.deepEqual(addUsage(undefined, { prompt: 1, completion: 2 }), { prompt: 1, completion: 2 });
+});
+
+await checkAsync('reasoning details go back to the provider that sent them, and nowhere else', async () => {
+  const bodies = [];
+  const real = globalThis.fetch;
+  const roundTwo = [text('Astro and D1.')];
+  globalThis.fetch = async (_, init) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(sse(roundTwo), { status: 200 });
+  };
+  const summaries = [];
+  try {
+    const first = {
+      response: new Response(
+        sse([
+          { choices: [{ delta: { reasoning: 'Read it. ', reasoning_details: [{ index: 0, type: 'reasoning.text', text: 'Read it.' }] } }] },
+          wantsTool('c1', 'read_project', '{"slug":"x"}'),
+        ]),
+      ),
+      provider: row({}),
+    };
+    const stream = forPublicFrames(
+      agentStream({
+        first,
+        which: 'chat',
+        call: { maxTokens: 100, tools: toolsFor('chat') },
+        messages: [{ role: 'user', content: 'stack?' }],
+        runTool: async () => ({ ok: true, text: 'Astro, D1', detail: 'ok' }),
+        public: true,
+        onEnd: summary => void summaries.push(summary),
+      }),
+    );
+    const frames = await stream;
+    const sent = bodies[0].messages.find(m => m.role === 'assistant');
+    assert.deepEqual(sent.reasoning_details, [{ index: 0, type: 'reasoning.text', text: 'Read it.' }]);
+    assert.ok(!('replayFor' in sent), 'the pinning key is this repo’s word and must not reach a vendor');
+    assert.ok(!JSON.stringify(frames).includes('reasoning_details'), 'replay fields must never reach a public frame');
+    assert.equal(summaries[0].rounds, 2);
+  } finally {
+    globalThis.fetch = real;
+  }
+
+  /* The same turn, pinned to another model: the field stays home. */
+  const pinned = [
+    { role: 'user', content: 'q' },
+    { role: 'assistant', content: '', reasoning_details: [{ text: 'secret' }], reasoning_content: 'secret', replayFor: replayKey(row({ model: 'other' })) },
+  ];
+  const seen = [];
+  globalThis.fetch = async (_, init) => {
+    seen.push(JSON.parse(init.body));
+    return new Response('{"choices":[{"message":{"content":"ok"}}]}', { status: 200 });
+  };
+  try {
+    await callChat([row({})], { messages: pinned, maxTokens: 50 });
+  } finally {
+    globalThis.fetch = real;
+  }
+  assert.ok(!JSON.stringify(seen[0]).includes('secret'), 'replay fields reached a model that did not write them');
+});
+
+await checkAsync('a non-streamed body slower than its attempt timeout fails the attempt', async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async (_, init) =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(' '));
+          init.signal.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+        },
+      }),
+      { status: 200 },
+    );
+  const started = Date.now();
+  try {
+    await assert.rejects(
+      callChat([row({})], { messages: [{ role: 'user', content: 'q' }], maxTokens: 50, timeoutMs: 1000 }),
+      /did not answer in time/,
+    );
+  } finally {
+    globalThis.fetch = real;
+  }
+  assert.ok(Date.now() - started < 5000, 'the body read was not bounded');
+});
+
+/* ---------- part 2 of the 2026-10-05 design: Jev ---------- */
+
+const jevMod = await load('src/lib/ai-jev.ts');
+
+const decisionRow = fields => ({
+  slug: 'jev',
+  label: 'Jev',
+  kind: 'openrouter',
+  baseUrl: null,
+  model: 'typesafe/jev-1.13',
+  apiKey: null,
+  credentialProvider: 'or',
+  updatedAt: null,
+  ...fields,
+});
+
+check('a decision row resolves to one URL and one key, and only over HTTPS', () => {
+  const or = row({ slug: 'or', baseUrl: 'https://openrouter.ai/api/v1', apiKey: 'sk-or' });
+  assert.deepEqual(jevMod.decisionTarget(decisionRow({}), [or]), {
+    url: 'https://openrouter.ai/api/alpha/decisions',
+    key: 'sk-or',
+    model: 'typesafe/jev-1.13',
+  });
+  /* The borrowed key goes only to the host that issued it. */
+  const elsewhere = row({ slug: 'or', baseUrl: 'https://api.groq.com/openai/v1', apiKey: 'sk-groq' });
+  assert.equal(jevMod.decisionTarget(decisionRow({}), [elsewhere]), null);
+  assert.equal(jevMod.decisionTarget(decisionRow({ credentialProvider: 'missing' }), [or]), null);
+
+  const own = { kind: 'systemone', baseUrl: 'https://api.example.com/', apiKey: 'k', model: 'jev-1.13', credentialProvider: null };
+  assert.equal(jevMod.decisionTarget(decisionRow(own), []).url, 'https://api.example.com/v1/systemone');
+  assert.equal(jevMod.decisionTarget(decisionRow({ ...own, kind: 'custom' }), []).url, 'https://api.example.com');
+  assert.equal(jevMod.decisionTarget(decisionRow({ ...own, kind: 'custom', baseUrl: 'http://api.example.com' }), []), null);
+  assert.equal(jevMod.decisionTarget(decisionRow({ ...own, apiKey: null }), []), null);
+});
+
+check('a Jev route is read strictly, and one unsure answer means the full route', () => {
+  const cats = ['work', 'writing', 'resume'];
+  const answer = (w, x, r) => ({
+    answers: { work: { type: 'noul', noul: w }, writing: { type: 'noul', noul: x }, resume: { type: 'noul', noul: r } },
+  });
+  assert.deepEqual([...jevMod.readRoute(answer(0.97, 0.02, 0.05), cats)], ['work']);
+  assert.deepEqual([...jevMod.readRoute(answer(0.01, 0.02, 0.05), cats)], [], 'confident "none" is a route');
+  assert.equal(jevMod.readRoute(answer(0.97, 0.5, 0.05), cats), null);
+  assert.equal(jevMod.readRoute(answer(0.97, 1.5, 0.05), cats), null);
+  assert.equal(jevMod.readRoute({ answers: { work: { type: 'noul', noul: 0.99 } } }, cats), null);
+  assert.equal(jevMod.readRoute({ answers: { work: { type: 'choice', noul: 0.99 }, writing: {}, resume: {} } }, cats), null);
+  assert.equal(jevMod.readRoute(null, cats), null);
+  assert.equal(jevMod.readRoute('garbage', cats), null);
+});
+
+check('a Jev route can only remove tools, never add one', () => {
+  const all = toolsFor('chat').map(t => t.function.name);
+  const work = toolsFor('chat', { only: jevMod.toolNamesFor(new Set(['work'])) }).map(t => t.function.name);
+  assert.deepEqual(work.sort(), ['read_case_study', 'read_project', 'search_content']);
+  assert.ok(work.every(name => all.includes(name)));
+  /* Repository readers are never on the public list, and naming them cannot put them there. */
+  assert.deepEqual(toolsFor('chat', { only: jevMod.toolNamesFor(new Set(['repo'])) }), []);
+  assert.deepEqual(toolsFor('chat', { only: jevMod.toolNamesFor(new Set()) }), []);
+});
+
+const jevDb = (decisions, chat) => ({
+  prepare: sql => ({
+    all: async () => ({ results: sql.includes('ai_decision_providers') ? decisions : chat }),
+  }),
+});
+const orRow = {
+  slug: 'or', label: 'OpenRouter', base_url: 'https://openrouter.ai/api/v1', api_key: 'sk-or', model: 'm',
+  assist_model: null, fallback_models: null, params: null, max_output_tokens: null, price_prompt: null,
+  price_completion: null, reasoning_effort: null, prompt_cache: 1, tools_enabled: 1, active: 1, priority: 1, updated_at: null,
+};
+const jevRowDb = {
+  slug: 'jev', label: 'Jev', kind: 'openrouter', base_url: null, model: 'typesafe/jev-1.13',
+  api_key: null, credential_provider: 'or', updated_at: null,
+};
+const jevOn = { ...DEFAULTS, jevEnabled: true, jevProvider: 'jev' };
+
+await checkAsync('Jev is asked once, with capped recent turns, and narrows on a confident answer', async () => {
+  const sent = [];
+  const fetcher = async (url, init) => {
+    sent.push({ url, init });
+    return new Response(
+      JSON.stringify({
+        answers: { work: { type: 'noul', noul: 0.98 }, writing: { type: 'noul', noul: 0.03 }, resume: { type: 'noul', noul: 0.04 } },
+        usage: { input_tokens: 400, output_tokens: 6, cost: 0.00002 },
+      }),
+      { status: 200 },
+    );
+  };
+  const turns = Array.from({ length: 8 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: `turn ${i} ${'x'.repeat(1500)}` }));
+  const out = await jevMod.jevRoute({
+    db: jevDb([jevRowDb], [orRow]),
+    settings: jevOn,
+    turns,
+    categories: ['work', 'writing', 'resume'],
+    deadline: Date.now() + 10_000,
+    fetcher,
+  });
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].url, 'https://openrouter.ai/api/alpha/decisions');
+  assert.equal(sent[0].init.headers.Authorization, 'Bearer sk-or');
+  const body = JSON.parse(sent[0].init.body);
+  assert.equal(body.model, 'typesafe/jev-1.13');
+  assert.ok(body.state.length <= 3000);
+  assert.ok(body.state.includes('turn 7') && !body.state.includes('turn 3'), 'only the most recent turns go');
+  assert.deepEqual(Object.keys(body.questions), ['work', 'writing', 'resume']);
+  assert.ok(Object.values(body.questions).every(q => q.type === 'noul'));
+  assert.deepEqual([...out.route], ['work']);
+  assert.ok(!JSON.stringify(out.detail).includes('turn 7'), 'the log detail must not carry the conversation');
+  assert.equal(out.detail.jev.usage.input, 400);
+});
+
+await checkAsync('Jev off, unsure, failing or slow leaves the full route, and is never retried', async () => {
+  const base = { db: jevDb([jevRowDb], [orRow]), turns: [{ role: 'user', content: 'hi' }], categories: ['work'] };
+  let calls = 0;
+  const never = async () => {
+    calls += 1;
+    throw new Error('should not be called');
+  };
+  assert.equal((await jevMod.jevRoute({ ...base, settings: DEFAULTS, deadline: Date.now() + 5000, fetcher: never })).route, null);
+  assert.equal(calls, 0, 'a disabled Jev must not make a request');
+
+  let tries = 0;
+  const down = async () => {
+    tries += 1;
+    throw new TypeError('fetch failed');
+  };
+  const outage = await jevMod.jevRoute({ ...base, settings: jevOn, deadline: Date.now() + 5000, fetcher: down });
+  assert.equal(outage.route, null);
+  assert.equal(tries, 1, 'a failed decision POST is not replayed');
+
+  const http500 = async () => new Response('{}', { status: 500 });
+  assert.equal((await jevMod.jevRoute({ ...base, settings: jevOn, deadline: Date.now() + 5000, fetcher: http500 })).route, null);
+
+  const unsure = async () => new Response(JSON.stringify({ answers: { work: { type: 'noul', noul: 0.6 } } }), { status: 200 });
+  assert.equal((await jevMod.jevRoute({ ...base, settings: jevOn, deadline: Date.now() + 5000, fetcher: unsure })).route, null);
+
+  const slow = (_, init) =>
+    new Promise((_, reject) => init.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))));
+  const started = Date.now();
+  const late = await jevMod.jevRoute({ ...base, settings: jevOn, deadline: Date.now() + 600, fetcher: slow });
+  assert.equal(late.route, null);
+  assert.equal(late.detail.jev.error, 'timed out');
+  assert.ok(Date.now() - started < 2000, 'the run deadline did not bound the Jev call');
+
+  const missing = await jevMod.jevRoute({ ...base, db: jevDb([], [orRow]), settings: jevOn, deadline: Date.now() + 5000, fetcher: never });
+  assert.equal(missing.route, null);
+  assert.equal(calls, 0);
+});
+
+/* ---------- part 3: the daily post as a run of steps ---------- */
+
+const runs = await load('src/lib/agent-runs.ts');
+const runner = await load('src/lib/agent-runner.ts');
+const auto = await load('src/lib/journal-auto.ts');
+
+const T0 = new Date('2026-10-05T12:00:00Z');
+const stepMeta = { ms: 10, model: 'p · m', now: T0, maxAttempts: 3 };
+const PLAN = `TITLE: Moving the daily post onto steps
+SUMMARY: One request per section, and a run that resumes.
+TAGS: Workers, D1
+ANGLE: why one request could not survive the free pool
+FACTS:
+- The Workers Free plan allows 10 ms of CPU per invocation
+- A tick used to wait up to 471 seconds for one body
+SECTIONS:
+## The one request
+What it was.
+## What broke
+The 504s.
+## What steps fixed
+The run.
+## What is still open
+Streaming.`;
+
+check('a run walks plan → each section → finish, and never redoes a finished step', () => {
+  let run = runs.newRun('2026-10-05', T0);
+  assert.equal(runs.nextStep(run).kind, 'plan');
+  run = runs.applyStep(run, runs.nextStep(run), PLAN, stepMeta);
+  assert.equal(run.phase, 'write');
+  assert.equal(run.plan.sections.length, 4);
+  assert.deepEqual(run.plan.tags, ['Workers', 'D1']);
+  for (let i = 0; i < 4; i += 1) {
+    const step = runs.nextStep(run);
+    assert.equal(step.index, i);
+    run = runs.applyStep(run, step, `## ${run.plan.sections[i].heading}\n\nI wrote section ${i + 1}.`, stepMeta);
+  }
+  assert.equal(run.phase, 'finish');
+  assert.equal(runs.nextStep(run).kind, 'finish');
+  /* A stale section answer for an index already written is refused, not appended. */
+  const replay = runs.applyStep(run, { id: 'section:2', label: 'x', kind: 'section', index: 1 }, '## x\n\ny', stepMeta);
+  assert.equal(replay.sections.length, 4);
+  const post = runs.assemblePost(run);
+  assert.ok(post.body.startsWith('## The one request'));
+  assert.equal(post.readTime, '1 min');
+  assert.equal(runs.finishRun(run, 'moving', stepMeta).phase, 'done');
+  assert.equal(runs.nextStep(runs.finishRun(run, 'moving', stepMeta)), null);
+});
+
+check('a plan step reads NOTHING, a missing title, and a thin outline the way it should', () => {
+  const fresh = runs.newRun('2026-10-05', T0);
+  const plan = runs.nextStep(fresh);
+  const declined = runs.applyStep(fresh, plan, 'NOTHING: every subject already has an entry', stepMeta);
+  assert.equal(declined.phase, 'declined');
+  assert.equal(declined.failures, 0);
+
+  const untitled = runs.applyStep(fresh, plan, 'FACTS:\n- a fact here\nSECTIONS:\n## a\n## b\n## c', stepMeta);
+  assert.equal(untitled.phase, 'plan');
+  assert.equal(untitled.failures, 1);
+
+  const thin = runs.applyStep(fresh, plan, 'TITLE: T\nFACTS:\n- a real fact\nSECTIONS:\n## Only one\n## And two', stepMeta);
+  assert.deepEqual(thin.plan.sections.map(x => x.heading), runs.POST_SECTIONS.map(x => x.heading));
+});
+
+check('failed steps count, keep the phase, and stop the run at the ceiling', () => {
+  let run = runs.applyStep(runs.newRun('2026-10-05', T0), runs.nextStep(runs.newRun('2026-10-05', T0)), PLAN, stepMeta);
+  const step = runs.nextStep(run);
+  run = runs.applyStep(run, step, '   ', stepMeta);
+  assert.equal(run.phase, 'write');
+  assert.equal(run.failures, 1);
+  assert.equal(runs.nextStep(run).index, 0, 'the failed section is the one retried');
+  run = runs.failStep(run, step, 'x', stepMeta);
+  run = runs.failStep(run, step, 'x', stepMeta);
+  assert.equal(run.phase, 'failed');
+  assert.equal(runs.nextStep(run), null);
+});
+
+check('a stored run is re-derived, not trusted, and the summary carries no draft text', () => {
+  const fresh = runs.clampRun('garbage', '2026-10-05', T0);
+  assert.equal(fresh.phase, 'plan');
+  assert.equal(runs.clampRun({ kind: 'journal-post', key: '2026-10-04', phase: 'done' }, '2026-10-05', T0).phase, 'plan');
+  /* A write phase with no plan cannot be continued; a lock with no time is no lock. */
+  const odd = runs.clampRun(
+    { kind: 'journal-post', key: '2026-10-05', phase: 'write', failures: -4, lock: { by: 'cron', at: 'never' }, sections: [1, 'x'] },
+    '2026-10-05',
+    T0,
+  );
+  assert.equal(odd.phase, 'plan');
+  assert.equal(odd.failures, 0);
+  assert.equal(odd.lock, undefined);
+
+  let run = runs.applyStep(runs.newRun('2026-10-05', T0), runs.nextStep(runs.newRun('2026-10-05', T0)), PLAN, stepMeta);
+  for (let i = 0; i < 3; i += 1) run = runs.applyStep(run, runs.nextStep(run), `## h\n\nSECRET-SECTION-${i}`, stepMeta);
+  const resumed = runs.clampRun(JSON.parse(JSON.stringify(run)), '2026-10-05', T0);
+  assert.equal(runs.nextStep(resumed).index, 3, 'a resumed run asks for the fourth section');
+  const view = JSON.stringify(runs.summariseRun(resumed, T0));
+  assert.ok(!view.includes('SECRET-SECTION') && !view.includes('10 ms of CPU'), 'facts or sections leaked into the summary');
+});
+
+check('the schedule stops on a declined day, and reads the flag back', () => {
+  const settings = { ...auto.AUTO_DEFAULTS, enabled: true, windowStart: 0, windowEnd: 1 };
+  const declined = auto.clampAutoRun({ day: '2026-10-05', attempts: 0, slug: '', declined: true });
+  assert.equal(declined.declined, true);
+  assert.equal(auto.clampAutoRun({ declined: 'yes' }).declined, false);
+  assert.equal(auto.decide(new Date('2026-10-05T23:00:00Z'), settings, declined).act, false);
+});
+
+/** An in-memory D1 that answers exactly the statements the runner and its callees send. */
+function memDb() {
+  const docs = new Map();
+  const journal = new Map();
+  const changed = n => ({ meta: { changes: n } });
+  return {
+    docs,
+    journal,
+    prepare(sql) {
+      let args = [];
+      const stmt = {
+        bind(...a) {
+          args = a;
+          return stmt;
+        },
+        async first() {
+          if (/FROM documents WHERE slug = \?/.test(sql)) return docs.has(args[0]) ? { json: docs.get(args[0]) } : null;
+          if (/FROM journal WHERE slug = \?/.test(sql)) return journal.has(args[0]) ? { slug: args[0] } : null;
+          return null;
+        },
+        async all() {
+          return { results: [] };
+        },
+        async run() {
+          if (/INSERT INTO documents[\s\S]*DO NOTHING/.test(sql)) {
+            if (docs.has(args[0])) return changed(0);
+            docs.set(args[0], args[1]);
+            return changed(1);
+          }
+          if (/INSERT INTO documents/.test(sql)) {
+            docs.set(args[0], args[1]);
+            return changed(1);
+          }
+          if (/UPDATE documents SET json = \?[\s\S]*WHERE slug = \? AND json = \?/.test(sql)) {
+            if (docs.get(args[1]) !== args[2]) return changed(0);
+            docs.set(args[1], args[0]);
+            return changed(1);
+          }
+          if (/INSERT INTO journal/.test(sql)) {
+            journal.set(args[0], { title: args[1], status: args[6], body: args[7] });
+            return changed(1);
+          }
+          if (/DELETE FROM documents WHERE slug = \?/.test(sql)) {
+            docs.delete(args[0]);
+            return changed(1);
+          }
+          return changed(0);
+        },
+      };
+      return stmt;
+    },
+  };
+}
+
+const answering = texts => {
+  let i = 0;
+  return async () =>
+    new Response(JSON.stringify({ choices: [{ message: { content: texts[Math.min(i++, texts.length - 1)] }, finish_reason: 'stop' }] }), {
+      status: 200,
+    });
+};
+
+await checkAsync('advance() takes one step per call, saves it, and finishes with one inserted draft', async () => {
+  const db = memDb();
+  const real = globalThis.fetch;
+  globalThis.fetch = answering([PLAN, ...[0, 1, 2, 3].map(i => `## heading\n\nSection ${i} body.`)]);
+  const options = {
+    providers: [row({ toolsEnabled: false })],
+    auto: { ...auto.AUTO_DEFAULTS, maxAttempts: 3 },
+    persona: '',
+    caller: 'cron',
+    day: '2026-10-05',
+  };
+  try {
+    const statuses = [];
+    for (let i = 0; i < 8; i += 1) {
+      const out = await runner.advance(db, options);
+      statuses.push(out.status === 'stepped' ? out.step.id : out.status);
+      if (out.status !== 'stepped') break;
+      const stored = JSON.parse(db.docs.get(runner.runKey('2026-10-05')));
+      assert.equal(stored.lock, undefined, 'a saved step must release the lock');
+    }
+    assert.deepEqual(statuses, ['plan', 'section:1', 'section:2', 'section:3', 'section:4', 'finish', 'idle']);
+    assert.equal(db.journal.size, 1);
+    const [slug, post] = [...db.journal.entries()][0];
+    assert.equal(slug, 'moving-the-daily-post-onto-steps');
+    assert.equal(post.status, 'draft');
+    const record = JSON.parse(db.docs.get(auto.AUTO_RUN_KEY));
+    assert.equal(record.slug, slug, 'the schedule record must know the day is written');
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+await checkAsync('a provider refusal is a failed step, saved and returned, never thrown', async () => {
+  const db = memDb();
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => new Response('{"error":{"message":"overloaded"}}', { status: 503 });
+  try {
+    const out = await runner.advance(db, {
+      providers: [row({ toolsEnabled: false })],
+      auto: { ...auto.AUTO_DEFAULTS, maxAttempts: 3 },
+      persona: '',
+      caller: 'owner',
+      day: '2026-10-05',
+    });
+    assert.equal(out.status, 'stepped');
+    assert.equal(out.ok, false);
+    assert.equal(out.run.phase, 'plan');
+    assert.equal(out.run.failures, 1);
+    assert.equal(JSON.parse(db.docs.get(auto.AUTO_RUN_KEY)).attempts, 1, 'failures are the day’s attempts');
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+await checkAsync('a live lock refuses a second caller; a stale one is taken over', async () => {
+  const day = '2026-10-05';
+  const options = { providers: [row({ toolsEnabled: false })], auto: auto.AUTO_DEFAULTS, persona: '', caller: 'owner', day };
+  const db = memDb();
+  const held = { ...runs.newRun(day, new Date()), lock: { by: 'cron', at: new Date().toISOString() } };
+  db.docs.set(runner.runKey(day), JSON.stringify(held));
+  let called = 0;
+  const real = globalThis.fetch;
+  globalThis.fetch = async (...a) => {
+    called += 1;
+    return answering([PLAN])(...a);
+  };
+  try {
+    const busy = await runner.advance(db, options);
+    assert.equal(busy.status, 'busy');
+    assert.equal(called, 0, 'a busy run must not call a model');
+
+    const stale = { ...held, lock: { by: 'cron', at: new Date(Date.now() - runs.LOCK_MS - 1000).toISOString() } };
+    db.docs.set(runner.runKey(day), JSON.stringify(stale));
+    const taken = await runner.advance(db, options);
+    assert.equal(taken.status, 'stepped');
+    assert.equal(taken.run.phase, 'write');
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+/* ---------- phase 2: compaction, and the case study's kept progress ---------- */
+
+const tasksMod = await load('src/lib/assist-tasks.ts');
+
+check('a conversation is compacted at the history window, not after it has lost its opening', () => {
+  const turn = content => ({ role: 'user', content });
+  const window = tasksMod.HISTORY_LIMITS.turns;
+  assert.equal(tasksMod.COMPACT_AFTER.turns, window);
+  assert.equal(tasksMod.needsCompaction(Array.from({ length: window - 1 }, () => turn('hi'))), false);
+  assert.equal(tasksMod.needsCompaction(Array.from({ length: window }, () => turn('hi'))), true);
+  assert.equal(tasksMod.needsCompaction([turn('x'.repeat(24_000))]), true, 'long turns trigger it before the count does');
+  assert.equal(tasksMod.needsCompaction([]), false);
+});
+
+check('a stored case-study run is re-derived, and garbage is nothing to resume', () => {
+  const now = new Date('2026-10-05T12:00:00Z');
+  assert.equal(runs.clampCaseStudyProgress(null, now), null);
+  assert.equal(runs.clampCaseStudyProgress({ sections: ['a'] }, now), null, 'no plan is nothing to resume');
+  const kept = runs.clampCaseStudyProgress(
+    {
+      plan: { facts: ['f', 7], sections: [{ heading: 'One', brief: 'b' }, { heading: '' }, { heading: 'Two' }], planned: true },
+      sections: ['## One\n\nbody', 'x'.repeat(20_000), 'extra beyond the plan'],
+      instruction: 'i'.repeat(5000),
+      evil: '<script>',
+    },
+    now,
+  );
+  assert.deepEqual(kept.plan.sections.map(s => s.heading), ['One', 'Two']);
+  assert.deepEqual(kept.plan.facts, ['f']);
+  assert.equal(kept.sections.length, 2, 'no more sections than the plan has');
+  assert.equal(kept.sections[1].length, 12_000);
+  assert.equal(kept.instruction.length, 2000);
+  assert.ok(!('evil' in kept));
 });
 
 process.stdout.write(`\nai: ${checks} checks passed\n`);

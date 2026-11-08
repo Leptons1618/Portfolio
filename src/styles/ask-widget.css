@@ -262,60 +262,11 @@
     padding: 1px 4px;
   }
 
-  /* — thinking —
-
-     A closed disclosure above the answer, and the *only* place a word of the
-     model's deliberation may appear. The answer is the bubble's prose; this is
-     the working behind it, in mono and muted so it never competes with what it
-     sits above. Collapsed by default because nobody opened this panel to read
-     a model reason with itself — but it is there, which is the difference
-     between an assistant that shows its work and one that hides a failure.
-
-     Everything here is script-built, so it comes through `.ask-log` like the
-     rest. */
-
-  .ask-log .ask-think {
-    margin-bottom: var(--space-2);
-    padding-bottom: var(--space-1);
-    border-bottom: 1px dashed var(--color-divider);
-  }
-
-  .ask-log .ask-think-summary {
-    cursor: pointer;
-    list-style: none;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--color-text-muted);
-  }
-
-  /* Safari still paints the default triangle without this. */
-  .ask-log .ask-think-summary::-webkit-details-marker { display: none; }
-
-  .ask-log .ask-think-summary::before {
-    content: '+ ';
-    font-weight: 600;
-  }
-  .ask-log .ask-think[open] .ask-think-summary::before { content: '− '; }
-
-  .ask-log .ask-think-body {
-    margin-top: var(--space-1);
-    /* The model's own line breaks are the only structure a thought has, and it
-       is not markdown — it is notes. `pre-wrap` keeps them without a parser. */
-    white-space: pre-wrap;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--color-text-muted);
-    max-height: 40vh;
-    overflow-y: auto;
-  }
-
   /* — lookups —
 
      An answer is written from an index of this site plus whatever the model
-     fetched while writing, and these are the fetches. They sit between the
-     thinking disclosure and the prose, in the order things happened.
+     fetched while writing, and these are the fetches. They sit above the
+     prose, in the order things happened.
 
      Quieter than either neighbour on purpose: this is provenance, not content.
      A reader who wants to know where an answer came from can read it in a
@@ -371,10 +322,10 @@
 
      Two different waits, and conflating them is what made the panel feel dead.
      WAITING is "the request is out and nothing has come back". THINKING is the
-     same wait with a reason: `{"thinking":…}` frames are arriving, so the model
-     is deliberating rather than the network being slow, and the visitor is told
-     which one they are looking at. What it is thinking goes into the disclosure
-     above, never into the answer.
+     same wait with a reason: the Worker sent `{"phase":"thinking"}`, so the
+     model is deliberating rather than the network being slow, and the visitor
+     is told which one they are looking at. What it is thinking stays on the
+     server.
 
      Squares, not a spinner and not circles: nothing else in this theme has a
      border radius. */

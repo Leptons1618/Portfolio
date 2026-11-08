@@ -271,9 +271,11 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
 </AdminLayout>
 
 <script>
-  import { onAdminPage, setBusy, setLabel, toast } from '../../lib/admin';
+  import { onAdminPage, setBusy, toast } from '../../lib/admin';
   import { relativeTime } from '../../lib/format';
   import { patchProject, removeProject, saveDeepDives } from '../../lib/content-store';
+  import { confirmDelete } from '../../lib/confirm-delete';
+  import { navigate } from 'astro:transitions/client';
   import {
     canWriteContent,
     fetchRepoMeta,
@@ -534,39 +536,36 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
         }
       });
 
-      /* Two clicks, because the first one is the one people mean to take back.
-         There is no history holding a copy any more — the row is the only one
-         there is — so the confirm is doing more work than it used to and the
-         copy has to say the deletion is final. */
-      let armed = false;
-      let disarm: ReturnType<typeof setTimeout>;
+      /* Final, so the shared dialog: what goes, Hide as the reversible
+         alternative, and Delete only once the slug is typed. The manifest is
+         re-rendered afterwards, so the regions and the counts are the rows'. */
       button('delete').addEventListener('click', async () => {
         const del = button('delete');
         if (!signedIn) return say(line, 'Sign in to delete a project.', 'error');
+        const slug = card.dataset.slug!;
+        const choice = await confirmDelete({
+          title: card.querySelector('.pm-card-title')?.textContent?.trim() || slug,
+          slug,
+          path: `/projects/${slug}`,
+          consequences: [
+            'Its public page stops existing at once — links to it will 404.',
+            'If a case study points at it, the database refuses: unlink the study first.',
+          ],
+          alternative: card.dataset.hidden === '1' ? undefined : 'Hide instead',
+        });
+        if (!choice) return;
 
-        if (!armed) {
-          armed = true;
-          setLabel(del, 'Confirm delete');
-          say(line, `This deletes the row ${card.dataset.path} for good. Click again to confirm.`, 'error');
-          disarm = setTimeout(() => {
-            armed = false;
-            setLabel(del, null);
-            say(line, '');
-          }, 5000);
-          return;
-        }
-
-        clearTimeout(disarm);
-        armed = false;
-        setBusy(del, true, 'Deleting…');
-        say(line, 'Deleting…');
-        const pending = toast(`Deleting ${card.dataset.slug}…`, { tone: 'pending' });
+        setBusy(del, true, choice === 'delete' ? 'Deleting…' : 'Hiding…');
+        const pending = toast(choice === 'delete' ? `Deleting ${slug}…` : `Hiding ${slug}…`, { tone: 'pending' });
         try {
-          await removeProject(card.dataset.slug!);
-          card.classList.add('is-removed');
-          card.querySelectorAll('button').forEach(b => { b.disabled = true; });
-          say(line, 'Deleted. The project is gone from the site.');
-          pending.update(`${card.dataset.slug} is deleted.`, { tone: 'success' });
+          if (choice === 'delete') {
+            await removeProject(slug);
+            pending.update(`${slug} is deleted.`, { tone: 'success' });
+          } else {
+            await patchProject(slug, { hidden: true });
+            pending.update(`${slug} is hidden — off the site, still here to bring back.`, { tone: 'success' });
+          }
+          await navigate(`${location.pathname}${location.search}`, { history: 'replace' });
         } catch (error) {
           setBusy(del, false);
           say(line, message(error), 'error');

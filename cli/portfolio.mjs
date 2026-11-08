@@ -58,6 +58,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { BadRequest, TABLES, assertSlug } from '../src/lib/content-schema.ts';
+import { WATCHLIST_KEY, postingSlug, readWatchlist, scan } from '../src/lib/job-boards.ts';
 import {
   CONFIG,
   Fail,
@@ -138,6 +139,7 @@ const SUMMARY = {
   journal: f => [f.status, f.date],
   ai_providers: f => [f.active ? 'active' : 'off', `p${f.priority}`, f.model, f.hasKey ? `key ${f.keyHint}` : 'NO KEY'],
   documents: () => [],
+  applications: f => [f.status, f.company, f.role, f.nextOn ? `next ${f.nextOn}` : ''],
 };
 
 /* ------------------------------------------------------------------- editing */
@@ -548,9 +550,97 @@ const COMMANDS = {
     out(url);
   },
 
+  /**
+   * New postings on the watched boards: matching, and not tracked yet.
+   *
+   * Runs here, not on the site: a board is megabytes of JSON and the Worker
+   * gets 10 ms of CPU (decision 61), while the boards answer anyone and need no
+   * credential. `--save` tracks each one as a `saved` application with the
+   * advert as its job description; `--edit` opens the watchlist itself, which
+   * is the `job-watchlist` document the Jobs screen edits too. Decision 80.
+   */
+  async jobs(_, flags) {
+    const where = session(flags);
+    let stored = null;
+    try {
+      [{ fields: { json: stored } }] = await rowsOf(where, 'documents', WATCHLIST_KEY);
+    } catch (error) {
+      if (!/^No documents row/.test(error.message)) throw error;
+    }
+
+    if (flags.edit) {
+      const before = stored && typeof stored === 'object' ? stored : WATCHLIST_TEMPLATE;
+      const edited = throughEditor('job-watchlist.json', `${JSON.stringify(before, null, 2)}\n`);
+      let next;
+      try {
+        next = JSON.parse(edited);
+      } catch (error) {
+        die(`That is not valid JSON, so nothing was saved: ${error.message}`);
+      }
+      /* Saved as read back, so a board this cannot scan is dropped here rather
+         than stored and silently skipped on every run. */
+      const clean = readWatchlist(next);
+      if (stored && JSON.stringify(clean) === JSON.stringify(readWatchlist(stored))) return out('No change.');
+      await saveDoc(where, WATCHLIST_KEY, clean);
+      return out(`Saved the watchlist — ${clean.boards.length} board${clean.boards.length === 1 ? '' : 's'}.`);
+    }
+
+    const list = readWatchlist(stored);
+    if (!list.boards.length) die('No boards to watch yet. `portfolio jobs --edit` opens the watchlist.');
+
+    const tracked = await rowsOf(where, 'applications');
+    const result = await scan(list, tracked.map(row => row.fields.url ?? '').filter(Boolean));
+    for (const { board, reason } of result.failed) process.stderr.write(`! ${board.kind}/${board.token}: ${reason}\n`);
+
+    if (flags.json) return out(JSON.stringify(result, null, 2));
+    const boards = list.boards.length - result.failed.length;
+    if (!result.found.length) {
+      return out(`Nothing new: ${result.seen} postings on ${boards} board${boards === 1 ? '' : 's'}, none both matching and untracked.`);
+    }
+    if (!flags.save) {
+      table(result.found.map(posting => [posting.company, posting.role, posting.location, posting.url]));
+      return out(`\n${result.found.length} new of ${result.seen}. \`portfolio jobs --save\` tracks them.`);
+    }
+
+    const taken = new Set(tracked.map(row => row.slug));
+    const day = new Date().toISOString().slice(0, 10);
+    let saved = 0;
+    for (const posting of result.found) {
+      const slug = postingSlug(posting, taken);
+      try {
+        await contentWrite(where, 'applications', slug, 'create', {
+          fields: {
+            company: posting.company,
+            role: posting.role,
+            url: posting.url,
+            jobDescription: posting.description,
+            notes: `${day} — found on the watchlist${posting.location ? ` · ${posting.location}` : ''}`,
+          },
+        });
+        saved += 1;
+        out(`+ ${slug}`);
+      } catch (error) {
+        process.stderr.write(`! ${slug}: ${error.message}\n`);
+      }
+    }
+    out(`\nTracked ${saved} of ${result.found.length}. \`portfolio ls application\` lists them.`);
+  },
+
   help() {
     out(HELP);
   },
+};
+
+/** What `jobs --edit` opens when there is no watchlist yet. Real boards, so it runs as it stands. */
+const WATCHLIST_TEMPLATE = {
+  boards: [
+    { kind: 'greenhouse', token: 'stripe', company: 'Stripe' },
+    { kind: 'lever', token: 'palantir', company: 'Palantir' },
+    { kind: 'ashby', token: 'openai', company: 'OpenAI' },
+  ],
+  keywords: ['engineer'],
+  exclude: ['intern', 'manager', 'director'],
+  locations: ['bengaluru', 'bangalore', 'india', 'remote'],
 };
 
 const HELP = `portfolio — the admin surface, from a terminal
@@ -564,7 +654,7 @@ SESSION
   whoami                         who this is, and whether the site accepts it
   logout                         forget the token
 
-CONTENT                          <kind> = project | case-study | journal | provider | doc
+CONTENT                          <kind> = project | case-study | journal | application | provider | doc
   ls <kind>                      every row, one line each
   get <kind> <slug>              one row as JSON
   create <kind> <slug> f=v …     insert a row  [--file row.json] [--body post.md]
@@ -573,6 +663,11 @@ CONTENT                          <kind> = project | case-study | journal | provi
   body journal|case-study <slug> the markdown, in \$EDITOR  [--out f] [--in f|-]
   rm <kind> <slug>               delete it  [--yes]         (there is no copy)
   order projects|journal [slug …] rearrange; no args prints the saved order  [--auto]
+
+JOBS
+  jobs                           new postings on the watched boards, matching and untracked
+  jobs --save                    …and track each as a saved application
+  jobs --edit                    the watchlist (boards, keywords, exclude, locations) in \$EDITOR
 
 AI
   provider test <slug>           one eight-token completion through it
@@ -617,6 +712,8 @@ const OPTIONS = {
   source: { type: 'string' },
   limit: { type: 'string' },
   clear: { type: 'boolean' },
+  save: { type: 'boolean' },
+  edit: { type: 'boolean' },
   yes: { type: 'boolean', short: 'y' },
   help: { type: 'boolean', short: 'h' },
 };

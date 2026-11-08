@@ -267,12 +267,13 @@ await check('content is not caught by the configuration gate', async () => {
     ['journal', 'a-post'],
     ['project', 'a-thing'],
     ['case-study', 'a-thing'],
+    ['application', 'a-thing'],
     ['doc', 'resume'],
   ]) {
     const attempt = await call(server, 'portfolio_update', {
       kind,
       slug,
-      ...(kind === 'doc' ? { fields: { summary: 'x' } } : { fields: { title: 'x' } }),
+      fields: kind === 'doc' ? { summary: 'x' } : kind === 'application' ? { company: 'x' } : { title: 'x' },
     });
     assert.ok(attempt.isError, 'it still fails — there is no site here');
     assert.doesNotMatch(attempt.text, /configuration|read-only/i, `${kind}/${slug} was not refused by policy`);

@@ -85,6 +85,9 @@ convenience rather than a gate — but a create that bounces twice is a bad turn
 - **case-study** — `title`, `subtitle`, `problem`, `solution`, `date`. Optional:
   `heroImage`, `heroVideo`, `architectureImage`, `achievements`, `stack`,
   `repoUrl`, `demoUrl`, `readTime`. Plus a markdown `body`.
+- **application** — the owner's private job tracker; no page shows it. `company`,
+  `role`. The `jobs` skill has the rest, and nothing from a row belongs in public
+  content.
 - **doc** — a singleton holding one JSON document. `portfolio_update` on a doc
   **replaces the whole document**, so always `portfolio_get` it first and send
   back the edited whole.

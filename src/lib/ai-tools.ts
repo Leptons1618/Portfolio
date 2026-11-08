@@ -298,6 +298,11 @@ export interface ToolOptions {
   readmeGiven?: boolean;
   /** Only the repository readers — a task about one repository needs no slugs. */
   repoOnly?: boolean;
+  /**
+   * Narrow to these names, from a Jev route (`ai-jev.ts`). An intersection
+   * with what the rules above already allow: it can remove a tool, never add one.
+   */
+  only?: ReadonlySet<string>;
 }
 
 const offered = (surface: 'chat' | 'assist', options: ToolOptions): readonly ToolSpec[] =>
@@ -306,7 +311,8 @@ const offered = (surface: 'chat' | 'assist', options: ToolOptions): readonly Too
       (spec.surface === 'both' || spec.surface === surface) &&
       (!spec.needsRepo || options.repoAccess === true) &&
       !(spec.skipWhenReadmeGiven && options.readmeGiven === true) &&
-      !(options.repoOnly === true && !spec.needsRepo),
+      !(options.repoOnly === true && !spec.needsRepo) &&
+      (!options.only || options.only.has(spec.name)),
   );
 
 export const toolsFor = (surface: 'chat' | 'assist', options: ToolOptions = {}) =>

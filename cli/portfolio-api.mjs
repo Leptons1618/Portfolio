@@ -175,10 +175,14 @@ export const KINDS = {
   docs: 'documents',
   document: 'documents',
   documents: 'documents',
+  application: 'applications',
+  applications: 'applications',
+  job: 'applications',
+  jobs: 'applications',
 };
 
 /** The distinct kinds, for a help string or an enum in a schema. */
-export const KIND_NAMES = ['project', 'case-study', 'journal', 'provider', 'doc'];
+export const KIND_NAMES = ['project', 'case-study', 'journal', 'provider', 'doc', 'application'];
 
 export const kindOf = name => {
   const table = KINDS[String(name ?? '').toLowerCase()];

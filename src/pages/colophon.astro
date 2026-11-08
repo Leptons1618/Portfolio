@@ -61,7 +61,7 @@ import { site } from '../lib/site';
 const FACTS: [string, string][] = [
   ['runtime', 'Astro 5 · Cloudflare Workers'],
   ['rendering', 'Static, with an adapter'],
-  ['database', 'Cloudflare D1 — 10 tables'],
+  ['database', 'Cloudflare D1 — 11 tables'],
   ['migrations', '10, applied before each deploy'],
   ['images', 'BLOBs in D1, one route serves them'],
   ['styling', 'Plain CSS · 3 themes × light/dark'],
@@ -75,7 +75,8 @@ const TABLES: [string, string][] = [
   ['journal', 'Posts, with a three-state status. A draft is visible to the author and in development; an unpublished post 404s rather than lingering.'],
   ['documents', 'Singletons keyed by slug — the resume, the assistant settings, the daily schedule, the projects page’s line-up. One JSON column each.'],
   ['media', 'Uploaded images as BLOBs. Nothing else reads this table, which is what keeps “where do the bytes live” a one-file decision.'],
-  ['ai_providers', 'One row per endpoint the site may call, and the one API key this system stores. The admin listing gets a fingerprint of it and never the key.'],
+  ['ai_providers', 'One row per chat endpoint the site may call, with its API key. The admin listing gets a fingerprint of it and never the key.'],
+  ['ai_decision_providers', 'Where an optional decision model is reached — a router asked which context a conversation needs. Kept apart so it can never be called as a chat endpoint; its key, when it has its own, is write-only too.'],
   ['ai_rate', 'Request counters for the public assistant. No visitor text, no readable IP.'],
   ['ai_chats · ai_messages', 'The authoring assistant’s saved conversations. Owner-only, read by nothing public.'],
   ['logs', 'The site’s own record: what the daily job did, what was saved, what a provider refused. Never written per anonymous request, never a visitor’s words.'],
@@ -188,13 +189,13 @@ const SHOTS = {
         <div class="col-split-head">
           <span class="col-split-num"></span>
           <h2>Content is rows, not files</h2>
-          <p class="col-split-hint">Ten tables, and the schema is the validation.</p>
+          <p class="col-split-hint">Eleven tables, and the schema is the validation.</p>
         </div>
         <div class="prose col-split-body">
           <p>
-            There is no <code>src/content/</code>. Ten tables in D1 hold everything
+            There is no <code>src/content/</code>. Eleven tables in D1 hold everything
             the site renders, and the schema is the validation —
-            <code>NOT NULL</code>, <code>CHECK</code> constraints and one foreign key
+            <code>NOT NULL</code>, <code>CHECK</code> constraints and two foreign keys
             refuse a bad write when the author presses save, which is the job a
             build-time schema used to do two minutes too late.
           </p>
