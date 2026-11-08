@@ -260,7 +260,7 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 | Exists | What |
 | --- | --- |
 | yes | `login` / `whoami` / `logout` — token from `--token`, stdin, `$PORTFOLIO_TOKEN`, `$GITHUB_TOKEN` or `gh auth token`; never prompted for, stored at mode 0600 |
-| yes | `ls` / `get` for projects, case studies, journal, providers, documents |
+| yes | `ls` / `get` for projects, case studies, journal, applications, providers, documents |
 | yes | `create` / `set` / `rm` — `field=value` parsed against the encoders in `content-schema.ts`; `f=-` clears a field |
 | yes | `edit` — the row as JSON in `$EDITOR`, only the changed keys sent |
 | yes | `body` — the markdown, in `$EDITOR`, or `--in` / `--out` for a script |
@@ -285,11 +285,29 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 | yes | `portfolio_logs` — the site's own record, for when something did not happen |
 | yes | `portfolio_delete` — **only** with `PORTFOLIO_MCP_ALLOW_DELETE=1`, and needs `confirm: true` |
 | yes | `.claude/skills/portfolio/SKILL.md` — the slug/draft/takedown/required-field rules a schema cannot carry |
+| yes | `.claude/skills/jobs/SKILL.md` — fit assessment, resume tailoring, outreach drafts, pipeline review and LinkedIn profile review over the `application` kind |
 | no | Writing configuration. `ai_providers`, the assistant's settings and the daily schedule are read-only unless `PORTFOLIO_MCP_ALLOW_CONFIG=1` |
 | no | Writing an `apiKey`, under any flag. `portfolio provider key` reads one from stdin |
 | no | A remote/HTTP MCP endpoint. That is an internet-facing surface and a second credential; argue for it on its own terms |
 | no | A `resources/` surface. The tools cover reading, and a second way to read the same rows is a second thing to keep honest |
 | no | A directory allowlist on media upload. Single-user tool on the owner's own machine; it would break legitimate use more often than it would help |
+
+## Job search
+
+The `applications` table (migration 0015) — the owner's private job tracker, read and written through `/api/content` from the CLI and the MCP server. The assistant is the editor's model, following `.claude/skills/jobs`. Decision 78.
+
+| Feature | State | Notes |
+| --- | --- | --- |
+| Tracker: company, role, status, advert, fit, variant, contacts, follow-ups, notes | ✅ | `portfolio ls application`; `status` is a CHECK constraint. Nothing public reads it, and `ai-corpus.ts` has no input for it |
+| Fit assessment against an advert | ✅ | The skill's rubric, written into `fit`. Every ✅ must cite the resume or a project |
+| Resume tailored to a posting | ✅ | A variant in the `resume` document (decision 39); the row holds its id. The Resume screen's `build-variant` does the same from the GUI |
+| Outreach drafts — connection note, message, email | 🟡 | Drafted, never sent. Free accounts cap a connection note at 200 characters and allow few a month |
+| LinkedIn profile review | 🟡 | From the owner's data export on disk; suggestions are pasted in by hand |
+| Job discovery from Greenhouse / Lever / Ashby boards | ⬜ | Phase 3: a CLI command over a watchlist, run locally because the Worker's 10 ms of CPU will not parse a board |
+| An admin screen for the tracker | ⬜ | Phase 4: a manifest by status, a detail page, and `assess-fit` / `draft-outreach` tasks on the existing panel |
+| LinkedIn sign-in, profile writes, job search, messaging | ✂️ | No self-serve API exists for any of it outside the EU; automating a session breaks the User Agreement and risks the account being used to job-hunt |
+| Sending messages from here | ✂️ | Drafts only. The owner sends |
+| Email-finding services (Hunter, Apollo) | ✂️ | Contacts are what the owner gave; nothing is looked up |
 
 ## Checks
 

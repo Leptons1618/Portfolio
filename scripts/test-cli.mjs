@@ -47,6 +47,8 @@ check('every kind resolves to a table the endpoint knows', () => {
     ['journal', 'journal'],
     ['provider', 'ai_providers'],
     ['doc', 'documents'],
+    ['application', 'applications'],
+    ['job', 'applications'],
     ['PROJECT', 'projects'],
   ]) {
     assert.equal(kindOf(typed), table, `${typed} → ${table}`);

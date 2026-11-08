@@ -75,6 +75,22 @@ const JOURNAL_COLUMNS: ColumnMap = {
   status: ['status', 'text'],
 };
 
+/** The private job tracker. No page reads it; decision 78. */
+const APPLICATION_COLUMNS: ColumnMap = {
+  company: ['company', 'text'],
+  role: ['role', 'text'],
+  status: ['status', 'text'],
+  url: ['url', 'text'],
+  jobDescription: ['job_description', 'text'],
+  fit: ['fit', 'text'],
+  resumeVariant: ['resume_variant', 'text'],
+  contacts: ['contacts', 'list'],
+  appliedOn: ['applied_on', 'text'],
+  nextStep: ['next_step', 'text'],
+  nextOn: ['next_on', 'text'],
+  notes: ['notes', 'text'],
+};
+
 /**
  * Singleton documents — currently just the resume.
  *
@@ -201,6 +217,7 @@ export const TABLES = {
   case_studies: { columns: CASE_STUDY_COLUMNS, rendersBody: true, slugs: null, readable: true },
   journal: { columns: JOURNAL_COLUMNS, rendersBody: true, slugs: null, readable: true },
   documents: { columns: DOCUMENT_COLUMNS, rendersBody: false, slugs: DOCUMENT_SLUGS, readable: true },
+  applications: { columns: APPLICATION_COLUMNS, rendersBody: false, slugs: null, readable: true },
   ai_providers: { columns: AI_PROVIDER_COLUMNS, rendersBody: false, slugs: null, readable: false },
   ai_decision_providers: { columns: AI_DECISION_PROVIDER_COLUMNS, rendersBody: false, slugs: null, readable: false },
 } as const satisfies Record<string, TableSpec>;

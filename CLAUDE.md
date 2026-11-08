@@ -39,7 +39,7 @@ Astro 5 on Cloudflare Workers, `output: 'static'` **with an adapter**. Most page
 
 ### D1 is the database
 
-`migrations/` defines eleven tables, and `wrangler.jsonc` binds the database as `DB`:
+`migrations/` defines twelve tables, and `wrangler.jsonc` binds the database as `DB`:
 
 - **`projects`** — the primary index. Drives the home page, `/projects`, and `/projects/[slug]`. **Fields only** — no page renders a project body, so there is no body column. `hidden = 1` (written by the admin's visibility switch) drops a project from every listing *and* makes its detail page 404; `getProjects(db, true)` is how the admin screens see them.
 - **`case_studies`** — long-form write-ups, rendered through `CaseStudyLayout`.
@@ -51,6 +51,7 @@ Astro 5 on Cloudflare Workers, `output: 'static'` **with an adapter**. Most page
 - **`ai_rate`** — request counters for the public assistant, keyed `<scope>:<key>:<window>`. Written only by `charge()` in `src/lib/ai-guard.ts`, swept opportunistically, and holds no visitor text and no readable IP. Decision 23.
 - **`logs`** — the site's own operational record: a daily journal tick and how it ended, a content write, an upload, a screen that faulted, and **every AI run** — which model answered, how long it took, what it spent, how it ended, and (for an authoring run that produced no field labels, or a daily refusal) the opening of what the model wrote. Written only by `record()` in `src/lib/log.ts`, capped at 2,000 rows on every write, read by `/admin/logs` over the owner-only `/api/logs`, which also deletes a row, clears what a filter shows, and pages both ways; the screen exports the filter as JSON. **Never written per anonymous request** — a row for every 401 would let a scanner spend the free tier's daily D1 writes; the public assistant's row is written only for a run the limiter already charged — and never holds a visitor's question, a token or a key. Not in `content-schema.ts`, so `/api/content` cannot reach it. Decisions 62 and 64.
 - **`ai_chats` / `ai_messages`** — the authoring assistant's saved conversations, per surface. Owner-only, written through `/api/ai/chats` and read by nothing public. Two tables rather than a JSON column because a transcript is *appended to* while a reply streams — decision 35. That route is the one write path that is not `/api/content`, and its header says why: it takes no identifier from a caller, and what it needs is an insert rather than a slug-keyed upsert.
+- **`applications`** — the owner's private job tracker: company, role, a closed `status` (`saved` … `offer`, `rejected`, `withdrawn`), the advert verbatim, a fit assessment, the resume variant sent, contacts, follow-up dates and notes. Readable and writable through `/api/content` like any content table, so the CLI and the MCP server reach it with no code of their own; **nothing public reads it** — no page, no sitemap, and `ai-corpus.ts` has no input for it. `.claude/skills/jobs` is how it is used. Decision 78.
 
 The assistant's own settings are a second `documents` singleton (`ai-assistant`), not a table — one JSON row read by two endpoints and written whole by one screen, the same shape and the same reasoning as the resume.
 
@@ -103,7 +104,7 @@ Protocol handling is hand-written against 2025-06-18 with no SDK — this proces
 Three gates, and they are about *what* rather than *who* — the caller holds the owner's token, so this is not authentication:
 
 - **`portfolio_delete` is absent from `tools/list`** unless `PORTFOLIO_MCP_ALLOW_DELETE=1`, and still needs `confirm: true`. Absent rather than refused: a listed tool is one a model proposes and the owner declines every time. `hidden` and `status: 'unpublished'` are the reversible takedowns and are always there.
-- **Configuration is read-only.** Writable: `projects`, `case_studies`, `journal`, and the `resume` / `projects-deep-dives` / `journal-order` documents. Not writable: `ai_providers`, `documents/ai-assistant`, `documents/journal-auto` — they decide what the assistant may spend and how often it runs. `PORTFOLIO_MCP_ALLOW_CONFIG=1` widens it.
+- **Configuration is read-only.** Writable: `projects`, `case_studies`, `journal`, `applications`, and the `resume` / `projects-deep-dives` / `journal-order` documents. Not writable: `ai_providers`, `documents/ai-assistant`, `documents/journal-auto` — they decide what the assistant may spend and how often it runs. `PORTFOLIO_MCP_ALLOW_CONFIG=1` widens it.
 - **`apiKey` is refused whatever is enabled.** A credential must not travel through a conversation; `portfolio provider key` reads one from stdin.
 
 `.claude/skills/portfolio/SKILL.md` carries what a tool schema cannot: that a slug is a live URL and renaming one orphans a page, that a draft stays a draft until the author says otherwise, that the resume holds no contact details, and which fields each kind requires.

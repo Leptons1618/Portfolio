@@ -1948,3 +1948,48 @@ stream inside the free plan's CPU allowance — but the plan and the finished
 sections are stored as `run:case-study:<project>` after each one, so a reload or
 another browser offers Resume from the next section. The key must be an
 existing project's slug before it becomes part of a row name.
+
+## 78. The job tracker is a content table, and LinkedIn is somewhere the owner copies from
+
+**The request.** A CLI that signs in to LinkedIn, reads and edits the profile,
+searches jobs, assesses fit, tailors the resume and messages recruiters — and
+later a GUI for the same thing in the admin.
+
+**What LinkedIn allows.** For an individual developer, very little. Sign In with
+LinkedIn returns a name, an email and a photo. There is no self-serve API to edit
+a profile, search or read jobs (the Job Posting API is publish-only and closed to
+new partners), or message anyone. The Member Data Portability API exposes the full
+profile, but only to members in the EU, EEA and Switzerland. Anything else is
+automating a logged-in session, which the User Agreement prohibits and LinkedIn
+enforces by restricting accounts — and the account at risk is the one the owner is
+job-hunting with. So none of it is built. The profile arrives as the owner's own
+data export, read from disk; a posting arrives as pasted text; outreach is drafted
+and sent by hand.
+
+**What is built is a table.** `applications`, migration 0015, added to `TABLES` in
+`content-schema.ts` like any content table. That one entry is the whole server
+change: `/api/content` reads and writes it behind `requireOwner()`, the CLI parses
+its fields against the same map (decision 73), and the MCP server writes it as
+content (decision 74). No new endpoint, no new credential, and no field names in
+either client. `check:cli` and `check:mcp` gained the kind.
+
+**The assistant is the editor's model, not this site's.** Fit assessment,
+tailoring and drafting are written down in `.claude/skills/jobs/SKILL.md` and run
+by whatever MCP client is open, over the tools that already exist. That spends
+nothing from the site's provider budget and adds no task to `ASSIST_TASKS`. The
+admin's resume screen already turns an advert into a variant (decision 41), so
+tailoring is a variant id on the row, not a second resume.
+
+**It is private, and that is structural.** No page renders a row. `ai-corpus.ts`
+has no input for it, so the public assistant gaining it would be a type change
+rather than a forgotten filter. The skill forbids copying anything from a row into
+public content. `contacts` holds other people's names, so it holds only what the
+owner typed.
+
+**Rejected.** LinkedIn OAuth — it yields a name and photo `site.ts` already has.
+An unofficial client or browser automation — the account risk above. Firebase or a
+second cloud — D1, `authorize.ts` and the provider layer already do everything it
+would. A separate SDK package — `cli/portfolio-api.mjs` is the client library, and
+an admin screen is another caller of `/api/content`. Fetching job boards inside
+the Worker — the free plan's 10 ms of CPU (decision 61) will not parse a large
+board; discovery, when it comes, runs in the CLI.

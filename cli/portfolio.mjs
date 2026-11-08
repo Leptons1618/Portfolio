@@ -138,6 +138,7 @@ const SUMMARY = {
   journal: f => [f.status, f.date],
   ai_providers: f => [f.active ? 'active' : 'off', `p${f.priority}`, f.model, f.hasKey ? `key ${f.keyHint}` : 'NO KEY'],
   documents: () => [],
+  applications: f => [f.status, f.company, f.role, f.nextOn ? `next ${f.nextOn}` : ''],
 };
 
 /* ------------------------------------------------------------------- editing */
