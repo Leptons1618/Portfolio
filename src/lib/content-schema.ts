@@ -184,7 +184,7 @@ interface TableSpec {
 }
 
 /**
- * The five `documents` rows this endpoint writes.
+ * The six `documents` rows this endpoint writes.
  *
  * `documents` is not a collection — it is a handful of singletons, each with
  * exactly one writer and one reader, and its primary key is therefore a closed
@@ -199,8 +199,9 @@ interface TableSpec {
  *
  * Spelled out rather than imported: each constant lives in the module that owns
  * the document (`RESUME_KEY` in `resume.ts`, `AI_SETTINGS_KEY` in `ai.ts`,
- * `AUTO_KEY` in `journal-auto.ts`, the two order keys in `content.ts`), and
- * three of those four modules cannot be loaded by a plain Node script — which
+ * `AUTO_KEY` in `journal-auto.ts`, the two order keys in `content.ts`,
+ * `WATCHLIST_KEY` in `job-boards.ts`), and
+ * three of those five modules cannot be loaded by a plain Node script — which
  * `npm run check:schema` is. The test asserts the list, so a rename that
  * forgets this file fails there rather than in production.
  */
@@ -210,6 +211,8 @@ const DOCUMENT_SLUGS = [
   'journal-auto',
   'projects-deep-dives',
   'journal-order',
+  /* The boards `portfolio jobs` and the Jobs screen scan — decision 79. */
+  'job-watchlist',
 ] as const;
 
 export const TABLES = {

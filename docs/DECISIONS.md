@@ -1993,3 +1993,55 @@ would. A separate SDK package — `cli/portfolio-api.mjs` is the client library,
 an admin screen is another caller of `/api/content`. Fetching job boards inside
 the Worker — the free plan's 10 ms of CPU (decision 61) will not parse a large
 board; discovery, when it comes, runs in the CLI.
+
+## 79. The job tracker gets a screen, and the boards are read from the browser
+
+**Extends decision 78. Nothing in it is reopened.**
+
+**Discovery.** `src/lib/job-boards.ts` reads Greenhouse, Lever and Ashby — the
+three ATS vendors that publish every company's open roles as public JSON so
+third parties can build job sites. All three answer
+`Access-Control-Allow-Origin: *`, which settled where the code runs: in whatever
+is asking. `portfolio jobs` runs it in Node and the Jobs screen's Discover tab
+runs it in the browser, and neither goes through the Worker. That is not a
+preference — a board is several megabytes of JSON (Stripe's is six, OpenAI's
+thirteen) and the free plan's 10 ms of CPU (decision 61) would not parse one.
+The module imports nothing, for the reason `content-schema.ts` imports nothing.
+
+What to scan is a sixth `documents` singleton, `job-watchlist`: boards,
+title keywords, title exclusions and locations. A document rather than a local
+file because the CLI and the screen both edit it. It is rebuilt on read —
+`readWatchlist()` drops a board of an unknown kind or with a name that could not
+be one, and a blank keyword, which would otherwise match nothing — so a hand
+edit cannot break a scan. A posting is new when its URL is not already on a
+row; nothing else is compared, because Greenhouse's `?gh_jid=` *is* the
+identity.
+
+**A board's link is untrusted.** It becomes an `href` on the admin origin, which
+holds the owner's token, so `readBoard()` keeps http(s) and drops the posting
+otherwise; the detail screen applies the same rule to a URL typed by hand.
+`check:cli` pins both the rule and that garbage from a vendor is an empty list.
+
+**The screens fetch; they never render a row.** `/admin/*` is public HTML, and an
+application is who the owner is talking to. `/admin/jobs` is prerendered and
+`/admin/jobs/[slug]` renders only the slug from its own URL; rows arrive over
+`GET /api/content` with the token, like the AI and Logs screens' rows.
+
+**Two assistant tasks on a fifth surface, `job`.** `jobFit` streams into the
+Fit field — one field, one answer, the `resumeSummary` argument — and reads the
+*master* resume, because the question is whether the record holds a requirement
+anywhere. `jobOutreach` is two versions in the panel; the page counts each
+version's characters itself, because a connection note over LinkedIn's limit is
+found out only when LinkedIn refuses it. Two new context fields, `fit` and
+`contacts`, capped like every other. Same endpoint, same closed table, same
+`requireOwner()` — decision 24 holds.
+
+**Known edge.** `/api/ai/chats` stores any surface that is not `project` as
+`journal` (the resume screen already does), so a Jobs conversation is listed in
+the journal and resume panels' history. Owner-only either way; widening the
+`ai_chats.surface` CHECK means rebuilding that table, which is its own change.
+
+**Not built.** Adzuna and JSearch — keyed APIs, so a credential to store and
+spend, for listings the ATS boards mostly already carry. Add one when the
+watchlist proves thin for Indian companies, which most Indian job sites will:
+Naukri, Instahyre and the Keka and Darwinbox boards publish no feed.

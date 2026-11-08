@@ -261,6 +261,7 @@ guard; `docs/admin-ai.html` walks the admin-side AI features in depth.
 | --- | --- |
 | yes | `login` / `whoami` / `logout` — token from `--token`, stdin, `$PORTFOLIO_TOKEN`, `$GITHUB_TOKEN` or `gh auth token`; never prompted for, stored at mode 0600 |
 | yes | `ls` / `get` for projects, case studies, journal, applications, providers, documents |
+| yes | `jobs` — new postings on the watched boards; `--save` tracks them, `--edit` opens the watchlist |
 | yes | `create` / `set` / `rm` — `field=value` parsed against the encoders in `content-schema.ts`; `f=-` clears a field |
 | yes | `edit` — the row as JSON in `$EDITOR`, only the changed keys sent |
 | yes | `body` — the markdown, in `$EDITOR`, or `--in` / `--out` for a script |
@@ -303,8 +304,11 @@ The `applications` table (migration 0015) — the owner's private job tracker, r
 | Resume tailored to a posting | ✅ | A variant in the `resume` document (decision 39); the row holds its id. The Resume screen's `build-variant` does the same from the GUI |
 | Outreach drafts — connection note, message, email | 🟡 | Drafted, never sent. Free accounts cap a connection note at 200 characters and allow few a month |
 | LinkedIn profile review | 🟡 | From the owner's data export on disk; suggestions are pasted in by hand |
-| Job discovery from Greenhouse / Lever / Ashby boards | ⬜ | Phase 3: a CLI command over a watchlist, run locally because the Worker's 10 ms of CPU will not parse a board |
-| An admin screen for the tracker | ⬜ | Phase 4: a manifest by status, a detail page, and `assess-fit` / `draft-outreach` tasks on the existing panel |
+| Job discovery from Greenhouse / Lever / Ashby boards | ✅ | `portfolio jobs [--save] [--edit]` and the Jobs screen's Discover tab, one module (`src/lib/job-boards.ts`) in both. Read from the caller, never the Worker — a board is megabytes and the Worker gets 10 ms of CPU. The watchlist is the `job-watchlist` document. Decision 79 |
+| An admin screen for the tracker | ✅ | `/admin/jobs` (by status, overdue follow-ups flagged, closed ones folded) and `/admin/jobs/[slug]`. Rows are fetched with the token, never rendered into the HTML |
+| Fit and outreach in the GUI | ✅ | `/assess-fit` streams into the Fit field; `/draft-outreach` gives two versions with their character counts, counted by the page |
+| Adzuna / JSearch | ⬜ | Keyed APIs: a credential to store and spend. Add one when the ATS boards prove thin for Indian companies |
+| A Jobs conversation in its own history | 🟡 | `/api/ai/chats` files any surface but `project` as `journal`, so it shows in the journal and resume panels' history too. Owner-only either way |
 | LinkedIn sign-in, profile writes, job search, messaging | ✂️ | No self-serve API exists for any of it outside the EU; automating a session breaks the User Agreement and risks the account being used to job-hunt |
 | Sending messages from here | ✂️ | Drafts only. The owner sends |
 | Email-finding services (Hunter, Apollo) | ✂️ | Contacts are what the owner gave; nothing is looked up |

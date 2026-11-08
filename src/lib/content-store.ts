@@ -32,6 +32,7 @@
 import type { CaseStudyData, Category, PostStatus, ProjectStatus } from './content';
 import { DEEP_DIVES_KEY, JOURNAL_ORDER_KEY } from './content';
 import { getToken } from './github';
+import { WATCHLIST_KEY, type Watchlist } from './job-boards';
 import { RESUME_KEY, type ResumeDocument } from './resume';
 
 export type { PostStatus };
@@ -149,7 +150,7 @@ export interface WriteResult {
   url: string;
 }
 
-type Table = 'projects' | 'case_studies' | 'journal' | 'documents';
+type Table = 'projects' | 'case_studies' | 'journal' | 'documents' | 'applications';
 
 /** Where a row is readable once written. */
 const LIVE_PATH: Record<Table, (slug: string) => string> = {
@@ -158,7 +159,9 @@ const LIVE_PATH: Record<Table, (slug: string) => string> = {
   projects: slug => `/projects/${encodeURIComponent(slug)}`,
   // The resume is a singleton; its key is not part of its URL. So are the
   // projects page's deep-dive picks, whose "page" is the listing itself.
-  documents: slug => (slug === DEEP_DIVES_KEY ? '/projects' : '/resume'),
+  documents: slug => (slug === DEEP_DIVES_KEY ? '/projects' : slug === WATCHLIST_KEY ? '/admin/jobs' : '/resume'),
+  // Private: the only page an application has is its own admin screen.
+  applications: slug => `/admin/jobs/${encodeURIComponent(slug)}`,
 };
 
 const liveUrl = (table: Table, slug: string): string => LIVE_PATH[table](slug);
@@ -411,6 +414,115 @@ export async function saveJournalOrder(slugs: string[]): Promise<WriteResult> {
   } catch (error) {
     if (error instanceof ContentError && error.status === 404) {
       return write('documents', JOURNAL_ORDER_KEY, 'create', { fields });
+    }
+    throw error;
+  }
+}
+
+/* ---------- applications ---------- */
+
+/**
+ * The job tracker's statuses, in pipeline order — migration 0015's CHECK
+ * constraint, and the order the Jobs screen groups by. There is no `content.ts`
+ * type to `satisfies` against, because no public page reads the table; this map
+ * is that type. Decision 78.
+ */
+export const APPLICATION_STATUSES = {
+  saved: 'Saved',
+  applied: 'Applied',
+  screening: 'Screening',
+  interview: 'Interview',
+  offer: 'Offer',
+  rejected: 'Rejected',
+  withdrawn: 'Withdrawn',
+} as const;
+
+export type ApplicationStatus = keyof typeof APPLICATION_STATUSES;
+
+/** Where a row stops moving. The Jobs screen folds these away. */
+export const CLOSED_STATUSES: readonly ApplicationStatus[] = ['rejected', 'withdrawn'];
+
+/** One row, as `GET /api/content` hands it back and `POST` takes it. */
+export interface ApplicationFields {
+  company: string;
+  role: string;
+  status: ApplicationStatus;
+  url: string | null;
+  jobDescription: string | null;
+  fit: string | null;
+  resumeVariant: string | null;
+  contacts: string[];
+  appliedOn: string | null;
+  nextStep: string | null;
+  nextOn: string | null;
+  notes: string | null;
+}
+
+export interface Application {
+  slug: string;
+  updatedAt: string | null;
+  fields: ApplicationFields;
+}
+
+/**
+ * A read through `GET /api/content`, owner-only.
+ *
+ * The other screens read D1 server-side through `content.ts`, and these must
+ * not: `/admin/*` is public HTML, so a row rendered into it is a row anyone can
+ * `curl`. An application holds who the owner is talking to, so it is fetched
+ * here, with the token, the way the AI and Logs screens fetch theirs.
+ */
+async function read<T>(query: Record<string, string>): Promise<T> {
+  const token = getToken();
+  if (!token) throw new ContentError('Sign in with GitHub to read this.', 401);
+  const response = await fetch(`/api/content?${new URLSearchParams(query)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  const data = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (!response.ok) throw new ContentError(data.error ?? `Read failed (${response.status}).`, response.status);
+  return data;
+}
+
+export const listApplications = async (): Promise<Application[]> =>
+  (await read<{ rows: Application[] }>({ table: 'applications' })).rows;
+
+export const getApplication = async (slug: string): Promise<Application> =>
+  (await read<{ rows: Application[] }>({ table: 'applications', slug })).rows[0];
+
+/** A `documents` row's JSON, or `null` when nothing has written it yet. */
+export async function readDocument(key: string): Promise<unknown> {
+  try {
+    const { rows } = await read<{ rows: { fields: { json: string | null } }[] }>({ table: 'documents', slug: key });
+    return JSON.parse(rows[0]?.fields.json ?? 'null');
+  } catch (error) {
+    if (error instanceof ContentError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+export function createApplication(
+  slug: string,
+  fields: Partial<ApplicationFields> & Pick<ApplicationFields, 'company' | 'role'>,
+): Promise<WriteResult> {
+  return write('applications', slug, 'create', { fields });
+}
+
+export function patchApplication(slug: string, changes: Partial<ApplicationFields>): Promise<WriteResult> {
+  return write('applications', slug, 'patch', { fields: changes });
+}
+
+export function removeApplication(slug: string): Promise<WriteResult> {
+  return write('applications', slug, 'delete');
+}
+
+/** The boards to scan. No migration seeds it, so the first save creates it. */
+export async function saveWatchlist(list: Watchlist): Promise<WriteResult> {
+  const fields = { json: JSON.stringify(list) };
+  try {
+    return await write('documents', WATCHLIST_KEY, 'patch', { fields });
+  } catch (error) {
+    if (error instanceof ContentError && error.status === 404) {
+      return write('documents', WATCHLIST_KEY, 'create', { fields });
     }
     throw error;
   }

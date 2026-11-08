@@ -27,6 +27,15 @@ import { fileURLToPath } from 'node:url';
 
 import { defaultSite, kindOf, parsePair, writable } from '../cli/portfolio.mjs';
 import { BadRequest, TABLES } from '../src/lib/content-schema.ts';
+import {
+  boardUrl,
+  htmlToText,
+  matches,
+  parseBoardLine,
+  postingSlug,
+  readBoard,
+  readWatchlist,
+} from '../src/lib/job-boards.ts';
 
 let checks = 0;
 const check = (name, fn) => {
@@ -219,6 +228,143 @@ check('the toolchain reuses the endpoint’s own field map', () => {
   const mcp = sources[2];
   assert.doesNotMatch(mcp, /D1Database|wrangler|CLOUDFLARE_/, 'the MCP server has no database access');
   assert.match(mcp, /assertWritable/, 'and it gates writes before they reach the network');
+});
+
+/* ---------- job boards ---------- */
+
+/* Fixtures in the shape each vendor actually answers — read off the live
+   endpoints, cut down to the fields that are read. */
+const GREENHOUSE = {
+  jobs: [
+    {
+      title: 'Backend Engineer',
+      absolute_url: 'https://example.com/jobs?gh_jid=1',
+      location: { name: 'Bengaluru, India' },
+      content: '&lt;h2&gt;About&lt;/h2&gt;&lt;p&gt;Build &amp;amp; run APIs.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;Go&lt;/li&gt;&lt;li&gt;Postgres&lt;/li&gt;&lt;/ul&gt;',
+    },
+    { title: '', absolute_url: 'https://example.com/jobs?gh_jid=2', location: null, content: '' },
+  ],
+  meta: { total: 2 },
+};
+const LEVER = [
+  {
+    text: 'Platform Engineer',
+    hostedUrl: 'https://jobs.lever.co/acme/abc',
+    categories: { location: 'Remote', allLocations: ['Remote', 'Bangalore'] },
+    descriptionPlain: 'We run the platform.',
+    lists: [{ text: 'What you will do', content: '<li>Own the cluster</li><li>Write Terraform</li>' }],
+    additionalPlain: 'Equal opportunity.',
+  },
+];
+const ASHBY = {
+  jobs: [
+    {
+      title: 'ML Engineer',
+      jobUrl: 'https://jobs.ashbyhq.com/acme/1',
+      location: 'San Francisco',
+      secondaryLocations: [{ location: 'London, UK' }],
+      isRemote: true,
+      isListed: true,
+      descriptionPlain: 'Train models.',
+    },
+    { title: 'Hidden', jobUrl: 'https://jobs.ashbyhq.com/acme/2', isListed: false, descriptionPlain: 'x' },
+  ],
+};
+
+check('each board is read into the fields an application takes', () => {
+  const [gh, ...rest] = readBoard({ kind: 'greenhouse', token: 'acme', company: 'Acme' }, GREENHOUSE);
+  assert.equal(rest.length, 0, 'a posting with no title is dropped, not tracked');
+  assert.deepEqual(
+    { company: gh.company, role: gh.role, url: gh.url, location: gh.location },
+    { company: 'Acme', role: 'Backend Engineer', url: 'https://example.com/jobs?gh_jid=1', location: 'Bengaluru, India' },
+  );
+  /* Greenhouse escapes its HTML once, so an ampersand in the prose arrives
+     escaped twice and has to come out as one. */
+  assert.equal(gh.description, 'About\nBuild & run APIs.\n\n- Go\n- Postgres');
+
+  const [lever] = readBoard({ kind: 'lever', token: 'acme' }, LEVER);
+  assert.equal(lever.company, 'acme', 'the board name stands in for a missing company');
+  assert.equal(lever.location, 'Remote / Bangalore', 'locations are joined without repeats');
+  assert.match(lever.description, /We run the platform\.\n\nWhat you will do\n- Own the cluster\n- Write Terraform\n\nEqual opportunity\./);
+
+  const ashby = readBoard({ kind: 'ashby', token: 'acme' }, ASHBY);
+  assert.equal(ashby.length, 1, 'an unlisted posting is not offered');
+  assert.equal(ashby[0].location, 'San Francisco / London, UK / Remote');
+});
+
+check('a board’s link is http(s) or nothing — it becomes an href beside the token', () => {
+  for (const url of ['javascript:alert(document.cookie)', 'JaVaScRiPt:x', 'data:text/html,x', '//evil.example', ' ']) {
+    assert.deepEqual(readBoard({ kind: 'ashby', token: 'a' }, { jobs: [{ title: 'Engineer', jobUrl: url }] }), []);
+  }
+  assert.equal(readBoard({ kind: 'lever', token: 'a' }, [{ text: 'Engineer', hostedUrl: ' HTTPS://x.example/1 ' }])[0].url, 'HTTPS://x.example/1');
+});
+
+check('a third party’s garbage is an empty list, not a throw', () => {
+  for (const kind of ['greenhouse', 'lever', 'ashby']) {
+    for (const junk of [null, 'x', 7, {}, { jobs: 'no' }, [null, 3]]) {
+      assert.deepEqual(readBoard({ kind, token: 'a' }, junk), []);
+    }
+  }
+});
+
+check('a board name cannot become anything but one path segment', () => {
+  assert.equal(boardUrl({ kind: 'lever', token: 'acme' }), 'https://api.lever.co/v0/postings/acme?mode=json');
+  for (const token of ['../admin', 'a/b', 'a?x=1', '', ' acme', '.hidden']) {
+    assert.throws(() => boardUrl({ kind: 'greenhouse', token }), /not a board name/);
+  }
+  assert.throws(() => boardUrl({ kind: 'linkedin', token: 'acme' }), /not a board this reads/);
+});
+
+check('a stored watchlist is rebuilt rather than trusted', () => {
+  const list = readWatchlist({
+    boards: [
+      { kind: 'greenhouse', token: 'stripe', company: ' Stripe ' },
+      { kind: 'linkedin', token: 'acme' },
+      { kind: 'lever', token: '../x' },
+      'nonsense',
+    ],
+    keywords: ['engineer', '  ', ''],
+    exclude: 'intern',
+  });
+  assert.deepEqual(list.boards, [{ kind: 'greenhouse', token: 'stripe', company: 'Stripe' }]);
+  assert.deepEqual(list.keywords, ['engineer'], 'a blank keyword would otherwise match nothing');
+  assert.deepEqual(list.exclude, []);
+  assert.deepEqual(readWatchlist('not json').boards, []);
+  assert.deepEqual(readWatchlist(JSON.stringify({ boards: [{ kind: 'ashby', token: 'openai' }] })).boards, [
+    { kind: 'ashby', token: 'openai' },
+  ]);
+});
+
+check('a board line reads kind, name, then the company as written', () => {
+  assert.deepEqual(parseBoardLine('Greenhouse  stripe  Stripe Inc'), { kind: 'greenhouse', token: 'stripe', company: 'Stripe Inc' });
+  assert.deepEqual(parseBoardLine('lever palantir'), { kind: 'lever', token: 'palantir' });
+  assert.equal(parseBoardLine('workday acme'), null);
+  assert.equal(parseBoardLine('ashby'), null);
+});
+
+check('matching is title against keywords and exclusions, location against locations', () => {
+  const list = readWatchlist({ keywords: ['engineer'], exclude: ['intern'], locations: ['bangalore', 'remote'] });
+  const posting = { company: 'A', role: 'Senior Engineer', url: 'u', location: 'Remote / Bangalore', description: '' };
+  assert.ok(matches(posting, list));
+  assert.ok(!matches({ ...posting, role: 'Engineering Intern' }, list), 'an exclusion wins');
+  assert.ok(!matches({ ...posting, role: 'Designer' }, list));
+  assert.ok(!matches({ ...posting, location: 'Dublin' }, list));
+  assert.ok(matches({ ...posting, role: 'Designer', location: 'Dublin' }, readWatchlist({})), 'an empty list matches all');
+});
+
+check('a posting slug is the write endpoint’s shape and never collides', () => {
+  const taken = new Set(['acme-backend-engineer']);
+  const slug = postingSlug({ company: 'Acme', role: 'Backend Engineer' }, taken);
+  assert.equal(slug, 'acme-backend-engineer-2');
+  assert.ok(taken.has(slug), 'it joins the set, so the next one is -3');
+  assert.equal(postingSlug({ company: 'Acme', role: 'Backend Engineer' }, taken), 'acme-backend-engineer-3');
+  for (const role of ['Señor Ingeniero (Go) — Plataforma', '!!!', 'x'.repeat(200)]) {
+    assert.match(postingSlug({ company: 'Café', role }, new Set()), /^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+  }
+});
+
+check('advert HTML reads as text, and a script body does not survive', () => {
+  assert.equal(htmlToText('<p>One&nbsp;two<br>three &#8212; &#x2013;</p><script>alert(1)</script>'), 'One two\nthree — –');
 });
 
 assert(new BadRequest('x') instanceof Error, 'BadRequest is the shared refusal type');

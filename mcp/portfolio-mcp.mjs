@@ -111,7 +111,7 @@ const ALLOW_CONFIG = on('PORTFOLIO_MCP_ALLOW_CONFIG');
 const CONTENT_TABLES = new Set(['projects', 'case_studies', 'journal', 'applications']);
 
 /** The `documents` singletons that hold content rather than settings. */
-const CONTENT_DOCS = new Set(['resume', 'projects-deep-dives', 'journal-order']);
+const CONTENT_DOCS = new Set(['resume', 'projects-deep-dives', 'journal-order', 'job-watchlist']);
 
 /**
  * Refuse a write this server does not do, before it reaches the network.

@@ -52,12 +52,25 @@ The slug is `<company>-<role>`, lowercase and hyphenated, kept short:
 `acme-senior-backend`. It is the row's key, not a public URL, but it still never
 changes. List first: if the company and role already have a row, update it.
 
+There is a screen for all of this too — `/admin/jobs` — and the owner may be
+using it alongside you. It reads and writes the same rows.
+
 From a shell, the pasted-advert flow is one line:
 
 ```sh
 portfolio create application acme-senior-backend company=Acme role="Senior Backend Engineer" \
   url=https://… jobDescription="$(pbpaste)"
 ```
+
+## Find postings
+
+The `job-watchlist` document lists the boards to scan — `greenhouse`, `lever`
+or `ashby`, plus the board's name from its careers URL — with title keywords,
+exclusions and locations. `portfolio jobs` lists what is new and matching;
+`portfolio jobs --save` tracks each as `saved`, advert included. To change the
+watchlist, `portfolio_get doc job-watchlist`, edit, and `portfolio_update` the
+whole document. `remote` matches remote roles anywhere, including US-only ones:
+read the location before calling one a fit.
 
 ## Assess fit
 

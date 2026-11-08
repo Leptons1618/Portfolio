@@ -32,6 +32,7 @@ const NAV_GROUPS = [
       { label: 'Projects', href: '/admin/projects', icon: 'lucide:folder-git-2' },
       { label: 'Journal', href: '/admin/journal', icon: 'lucide:pen-line' },
       { label: 'Resume', href: '/admin/resume', icon: 'lucide:file-text' },
+      { label: 'Jobs', href: '/admin/jobs', icon: 'lucide:briefcase' },
     ],
   },
   {
@@ -95,7 +96,7 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
     </button>
   </div>
 
-  {/* The seven destinations, numbered in the order they appear. The number is
+  {/* The eight destinations, numbered in the order they appear. The number is
       the accelerator below and the `title` is how it is discovered; neither is
       shown at rest, because a rail that labels every row with a key reads as a
       spreadsheet. `aria-keyshortcuts` carries the same fact to a screen
@@ -415,8 +416,8 @@ const isCurrent = (href: string) => here === href || here.startsWith(`${href}/`)
 
   /* — section accelerators —
 
-     Alt+1 … Alt+7. Seven destinations, and the rail is `transition:persist`ed
-     so a keyboard user crosses the same seven links again on every navigation.
+     Alt+1 … Alt+8. Eight destinations, and the rail is `transition:persist`ed
+     so a keyboard user crosses the same eight links again on every navigation.
      Alt+digit is the binding GitHub, Linear and the browser itself use for
      "jump to a place", it survives the collapsed rail (where there are no
      labels to read), and it needs no second modifier that would collide with
