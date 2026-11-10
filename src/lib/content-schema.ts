@@ -94,6 +94,8 @@ const APPLICATION_COLUMNS: ColumnMap = {
   nextStep: ['next_step', 'text'],
   nextOn: ['next_on', 'text'],
   notes: ['notes', 'text'],
+  /* The kept drafts, as markdown sections. Read by `job-view.ts`, not a table. */
+  outreach: ['outreach', 'text'],
 };
 
 /**

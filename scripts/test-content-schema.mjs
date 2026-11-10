@@ -108,6 +108,19 @@ check('a case study takes its overview facts, each through its own encoder', () 
   throws(() => bind('case_studies', { chapters: ['x'] }));
 });
 
+check('an application takes its kept outreach drafts as text', () => {
+  // Decision 83. Markdown sections, not JSON: the CLI and the MCP server keep
+  // writing what a person reads, and `job-view.ts` parses it on read.
+  const markdown = '## Priya Nair · LinkedIn note\nHi Priya, I build MCP servers end to end.';
+  const { columns, values } = bind('applications', { outreach: markdown });
+  assert.deepEqual(columns, ['outreach']);
+  assert.deepEqual(values, [markdown]);
+  // A cleared draft set is NULL, like every other cleared text column.
+  assert.deepEqual(bind('applications', { outreach: '' }).values, [null]);
+  // And it is an application field, not one of another table's.
+  throws(() => bind('projects', { outreach: markdown }));
+});
+
 check('a SQL fragment as a key is refused', () => {
   throws(() => bind('projects', { 'title = 1; DROP TABLE projects; --': 'x' }));
 });

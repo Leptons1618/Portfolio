@@ -193,7 +193,7 @@ const slug = Astro.params.slug ?? '';
       nextStep: $<HTMLInputElement>('jf-next-step'),
       nextOn: $<HTMLInputElement>('jf-next-on'),
       notes: $<HTMLTextAreaElement>('jf-notes'),
-    } satisfies Record<Exclude<keyof ApplicationFields, 'contacts'>, DirtyField>;
+    } satisfies Record<Exclude<keyof ApplicationFields, 'contacts' | 'outreach'>, DirtyField>;
     type Scalar = keyof typeof inputs;
 
     const say = (text: string, tone: 'info' | 'error' = 'info') => {

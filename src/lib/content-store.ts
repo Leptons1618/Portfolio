@@ -456,6 +456,8 @@ export interface ApplicationFields {
   nextStep: string | null;
   nextOn: string | null;
   notes: string | null;
+  /** The kept drafts, one `## Contact · Channel` section each — migration 0017. */
+  outreach: string | null;
 }
 
 export interface Application {
