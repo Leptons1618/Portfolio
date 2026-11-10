@@ -1248,13 +1248,18 @@ Two or three small, concrete steps: a line the resume is missing for work alread
 ### Keywords for the ATS
 Terms from the advert that are true of the author and missing from the resume, comma-separated.
 
+### Projects to lead with
+slug — one sentence saying why this project makes the case for this role
+
 Rules:
 - Every ✅ cites evidence from the resume above or from a project you looked up. If you cannot point at it, it is not a ✅.
 - A requirement stated in years is counted from the dates on the roles, not estimated.
 - One line per requirement. Do not restate the advert.
-- Start at "**Verdict:**". Nothing before it, nothing after the keywords.`,
+- Three to five projects, strongest first. Fewer when fewer genuinely fit.
+- The slug must be one from the project index above. Read the project before writing its line.
+- Start at "**Verdict:**". Nothing before it, nothing after the last project line.`,
     format: 'markdown',
-    maxTokens: 2500,
+    maxTokens: 3000,
     temperature: 0.3,
     needsCorpus: true,
     context: ['resume', 'jobDescription'],
@@ -1268,6 +1273,9 @@ Rules:
    * version's characters itself rather than trusting a model to count, because
    * a connection note over the limit is the one failure the owner finds out
    * about only when LinkedIn refuses to send it.
+   *
+   * The three limits in the instructions below are the ones `OUTREACH_CHANNELS`
+   * in `job-view.ts` states; keep the two in agreement.
    */
   jobOutreach: {
     label: 'Draft outreach',

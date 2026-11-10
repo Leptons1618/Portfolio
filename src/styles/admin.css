@@ -3495,7 +3495,6 @@ body[data-asx-freeze] {
   overflow-wrap: anywhere;
 }
 .jw-fit-text { width: 100%; font-family: var(--font-mono); font-size: 12px; }
-.jw-resume { max-width: 62ch; }
 
 /* — the details dialog — */
 
@@ -3637,4 +3636,79 @@ body[data-asx-freeze] {
 
 @container (max-width: 620px) {
   .jw-versions { grid-template-columns: 1fr; }
+}
+
+/* — Resume & projects — */
+
+.jw-resume-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  max-width: 980px;
+}
+
+.jw-resume-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.jw-summary-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.jw-summary-head .jw-subhead { margin: 0; }
+.jw-summary { margin: 0; max-width: 68ch; white-space: pre-wrap; }
+
+.jw-listed { display: flex; flex-direction: column; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+.jw-listed-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
+  font-size: 13px;
+}
+.jw-listed-item:last-child { padding-bottom: 0; border-bottom: 0; }
+.jw-listed-name { font-weight: 600; }
+.jw-listed-line { color: var(--color-text-muted); }
+
+.jw-resume-actions { margin: var(--space-3) 0; }
+.jw-shortlist-open { margin-top: var(--space-2); }
+
+.jw-project {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+.jw-project:first-child { padding-top: 0; }
+.jw-project:last-child { padding-bottom: 0; border-bottom: 0; }
+.jw-project-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.jw-project-title { font-size: 15px; }
+.jw-flags { display: flex; gap: 4px; flex-wrap: wrap; }
+.jw-project-line-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.jw-project-line { margin: 0; font-size: 13px; color: var(--color-text-muted); }
+.jw-project-links {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
 }

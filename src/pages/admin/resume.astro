@@ -55,6 +55,25 @@ const seed = {
       </div>
     </div>
 
+    {/* — an advert handed over from an application —
+
+        Session-scoped and offered rather than applied: the Jobs screen writes
+        `ADMIN_KEYS.resumeHandoff`, this bar asks first, and either answer clears
+        the key. Nothing here is written back to the application. */}
+    <div class="re-handoff" id="re-handoff" role="status" hidden>
+      <div class="re-handoff-copy">
+        <p class="re-handoff-title" id="re-handoff-title">Build a variant?</p>
+        <p class="text-muted admin-note">
+          The advert came from an application. Nothing is saved back to it — pick this variant in
+          the application's Resume tab once it is saved.
+        </p>
+      </div>
+      <div class="re-handoff-actions">
+        <button type="button" class="btn btn-primary btn-sm" id="re-handoff-build">Build</button>
+        <button type="button" class="btn btn-secondary btn-sm" id="re-handoff-dismiss">Dismiss</button>
+      </div>
+    </div>
+
     {/* — which resume is open —
 
         Above the tabs rather than inside them, because it governs both of
@@ -1746,6 +1765,69 @@ const seed = {
        typecheck fail if the resume tasks are ever removed from the table. */
     void ASSIST_MENU;
 
+    /* ---------- the hand-off from an application ---------- */
+
+    interface ResumeHandoff {
+      slug?: string;
+      company?: string;
+      role?: string;
+      advert?: string;
+    }
+
+    function readHandoff(): ResumeHandoff | null {
+      try {
+        const raw = sessionStorage.getItem(ADMIN_KEYS.resumeHandoff);
+        if (!raw) return null;
+        const value = JSON.parse(raw) as ResumeHandoff;
+        if (!value || typeof value.advert !== 'string' || !value.advert.trim()) return null;
+        return value;
+      } catch {
+        return null;
+      }
+    }
+
+    let handoff: ResumeHandoff | null = readHandoff();
+
+    function offerHandoff() {
+      const bar = $<HTMLElement>('re-handoff');
+      if (!handoff) {
+        bar.hidden = true;
+        return;
+      }
+      const who = [handoff.company, handoff.role].filter(Boolean).join(' — ');
+      $('re-handoff-title').textContent = who ? `Build a variant for ${who}?` : 'Build a variant from this advert?';
+      bar.hidden = false;
+    }
+
+    function clearHandoff() {
+      handoff = null;
+      sessionStorage.removeItem(ADMIN_KEYS.resumeHandoff);
+      $<HTMLElement>('re-handoff').hidden = true;
+    }
+
+    $<HTMLButtonElement>('re-handoff-dismiss').addEventListener('click', () => {
+      clearHandoff();
+      toast('Dismissed. The advert was not kept.', { tone: 'info' });
+    });
+
+    $<HTMLButtonElement>('re-handoff-build').addEventListener('click', () => {
+      if (!handoff) return;
+      const label = (handoff.role || handoff.company || '').trim() || newLabel();
+      createVariant(label);
+      const variant = openVariant();
+      if (variant) {
+        variant.jobDescription = handoff.advert ?? '';
+        persist();
+        renderAll();
+      }
+      clearHandoff();
+      panel.open();
+      panel.send('/build-variant');
+      toast('Variant created — the assistant is tailoring it. Save writes the whole document.', {
+        tone: 'success',
+      });
+    });
+
     /* ---------- restore ---------- */
 
     try {
@@ -1761,6 +1843,7 @@ const seed = {
       /* ignore a corrupt draft */
     }
 
+    offerHandoff();
     renderAll();
   });
 </script>
@@ -1770,6 +1853,26 @@ const seed = {
      other editors use (`.admin-main-wide`), which is the shell's own measure,
      so no screen is visibly thinner than the dashboard beside it. */
   .re-wrap { max-width: 1400px; margin-inline: auto; }
+
+  /* The offer from a job application. An offer, not an application: nothing is
+     added to the document until Build; Dismiss clears the session key. */
+  .re-handoff {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-4);
+    border: 1px solid var(--color-accent);
+    border-left-width: 3px;
+    border-radius: var(--radius-md);
+    background: var(--color-accent-100, var(--color-surface));
+  }
+  .re-handoff[hidden] { display: none; }
+  .re-handoff-copy { min-width: 0; }
+  .re-handoff-title { margin: 0; font-weight: 600; font-size: 14px; }
+  .re-handoff-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
 
   .editor-col { display: flex; flex-direction: column; gap: var(--space-4); }
   .re-hint { margin: 0 0 var(--space-1); }

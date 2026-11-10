@@ -99,7 +99,9 @@ convenience rather than a gate — but a create that bounces twice is a bad turn
     renaming a heading in a paged study moves that page (the old URL redirects
     to the overview). Write each `## ` section so it reads on its own.
 - **application** — the owner's private job tracker; no page shows it. `company`,
-  `role`. The `jobs` skill has the rest, and nothing from a row belongs in public
+  `role`. `outreach` holds the kept drafts, one `## Contact · Channel` section
+  each; keeping a new draft for the same contact and channel replaces the old
+  one. The `jobs` skill has the rest, and nothing from a row belongs in public
   content.
 - **doc** — a singleton holding one JSON document. `portfolio_update` on a doc
   **replaces the whole document**, so always `portfolio_get` it first and send

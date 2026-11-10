@@ -1,6 +1,6 @@
 # The application screen becomes a workspace: read first, act second
 
-**Date:** 2026-11-10 · **Status:** plan approved for implementation, not started
+**Date:** 2026-11-10 · **Status:** implemented
 **Screen:** `/admin/jobs/[slug]` (`src/pages/admin/jobs/[slug].astro`)
 **Decision this will record:** 83
 **Who does what:** an implementing agent (CommandCode) builds this phase by phase. The planner

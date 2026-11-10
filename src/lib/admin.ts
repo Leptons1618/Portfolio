@@ -10,6 +10,9 @@ export const ADMIN_KEYS = {
   journalDraft: 'om-admin-journal-draft',
   resumeDraft: 'om-admin-resume-draft',
   settings: 'om-admin-settings',
+  /* Session, not local: an advert is private, and the hand-off is one trip
+     between two screens rather than a draft worth surviving the browser. */
+  resumeHandoff: 'om-admin-resume-handoff',
 } as const;
 
 /** Every draft key, for the dashboard's clear-all action. */

@@ -14,6 +14,17 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **An application is a workspace, not a form.** `/admin/jobs/<slug>` is now four
+  tabs — Overview, Fit, Resume & projects and Outreach. The advert is readable at
+  a measure; the fit is a two-column comparison with filters; the chosen resume
+  variant's facts and the fit's project shortlist sit beside the keywords the
+  resume is missing; and each contact has a card that drafts a message in place,
+  measures it against the channel's limit, keeps it, and marks it sent. Everything
+  shown is derived from the stored markdown on read; `outreach` is one new
+  markdown column (migration 0017). "Build a variant from this advert" hands the
+  advert to the Resume screen through sessionStorage, never a URL, and that
+  screen offers it as a variant to build. Decision **83**.
+
 - **Case studies as an overview and chapters.** Four new facts on a case study —
   your role, the team, up to four key numbers and labelled links — shown on its
   overview and on its project's page; no assistant task can write them. With

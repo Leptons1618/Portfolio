@@ -61,8 +61,8 @@ import { site } from '../lib/site';
 const FACTS: [string, string][] = [
   ['runtime', 'Astro 5 · Cloudflare Workers'],
   ['rendering', 'Static, with an adapter'],
-  ['database', 'Cloudflare D1 — 11 tables'],
-  ['migrations', '16, applied before each deploy'],
+  ['database', 'Cloudflare D1 — 12 tables'],
+  ['migrations', '17, applied before each deploy'],
   ['images', 'BLOBs in D1, one route serves them'],
   ['styling', 'Plain CSS · 3 themes × light/dark'],
   ['client js', 'No framework on a public page'],
@@ -74,6 +74,7 @@ const TABLES: [string, string][] = [
   ['case_studies', 'Long-form write-ups. A project points at one; nothing points back.'],
   ['journal', 'Posts, with a three-state status. A draft is visible to the author and in development; an unpublished post 404s rather than lingering.'],
   ['documents', 'Singletons keyed by slug — the resume, the assistant settings, the daily schedule, the projects page’s line-up. One JSON column each.'],
+  ['applications', 'The owner’s private job tracker: applications, adverts, fits and kept drafts. Nothing public reads it; the Jobs screen, the CLI and the MCP server write it through the same endpoint.'],
   ['media', 'Uploaded images as BLOBs. Nothing else reads this table, which is what keeps “where do the bytes live” a one-file decision.'],
   ['ai_providers', 'One row per chat endpoint the site may call, with its API key. The admin listing gets a fingerprint of it and never the key.'],
   ['ai_decision_providers', 'Where an optional decision model is reached — a router asked which context a conversation needs. Kept apart so it can never be called as a chat endpoint; its key, when it has its own, is write-only too.'],

@@ -302,14 +302,15 @@ The `applications` table (migration 0015) — the owner's private job tracker, r
 
 | Feature | State | Notes |
 | --- | --- | --- |
-| Tracker: company, role, status, advert, fit, variant, contacts, follow-ups, notes | ✅ | `portfolio ls application`; `status` is a CHECK constraint. Nothing public reads it, and `ai-corpus.ts` has no input for it |
+| Tracker: company, role, status, advert, fit, variant, contacts, follow-ups, notes, kept outreach drafts | ✅ | `portfolio ls application`; `status` is a CHECK constraint. Nothing public reads it, and `ai-corpus.ts` has no input for it |
 | Fit assessment against an advert | ✅ | The skill's rubric, written into `fit`. Every ✅ must cite the resume or a project |
 | Resume tailored to a posting | ✅ | A variant in the `resume` document (decision 39); the row holds its id. The Resume screen's `build-variant` does the same from the GUI |
-| Outreach drafts — connection note, message, email | 🟡 | Drafted, never sent. Free accounts cap a connection note at 200 characters and allow few a month |
+| Outreach drafts — connection note, message, referral ask, email, follow-up | ✅ | A card per contact and a button per channel; two versions with a live meter against the channel's limit; Keep writes one `## Contact · Channel` section to `outreach`; kept drafts edit with a live meter, and Mark sent writes a dated note and a follow-up date. Drafted, never sent; a free connection note is 200 characters |
 | LinkedIn profile review | 🟡 | From the owner's data export on disk; suggestions are pasted in by hand |
 | Job discovery from Greenhouse / Lever / Ashby boards | ✅ | `portfolio jobs [--save] [--edit]` and the Jobs screen's Discover tab, one module (`src/lib/job-boards.ts`) in both. Read from the caller, never the Worker — a board is megabytes and the Worker gets 10 ms of CPU. The watchlist is the `job-watchlist` document. Decision 80 |
-| An admin screen for the tracker | ✅ | `/admin/jobs` (by status, overdue follow-ups flagged, closed ones folded) and `/admin/jobs/[slug]`. Rows are fetched with the token, never rendered into the HTML |
-| Fit and outreach in the GUI | ✅ | `/assess-fit` streams into the Fit field; `/draft-outreach` gives two versions with their character counts, counted by the page |
+| An admin screen for the tracker | ✅ | `/admin/jobs` (by status, overdue follow-ups flagged, closed ones folded) and `/admin/jobs/[slug]`, a four-tab workspace. Rows are fetched with the token, never rendered into the HTML |
+| Fit and outreach in the GUI | ✅ | The Fit tab renders the assessment as a filterable comparison and streams a re-assessment; each contact card drafts in place with Stop, meters, Copy and Keep; Mark sent is a form change, not a send |
+| The application screen as a workspace | ✅ | Overview (the advert, dates, people, notes), Fit (verdict, score, comparison, gaps, keywords), Resume & projects (the chosen variant's facts, the fit's shortlist joined to the project rows, missing keywords) and Outreach. Decisions 80 and 83 |
 | Adzuna / JSearch | ⬜ | Keyed APIs: a credential to store and spend. Add one when the ATS boards prove thin for Indian companies |
 | A Jobs conversation in its own history | 🟡 | `/api/ai/chats` files any surface but `project` as `journal`, so it shows in the journal and resume panels' history too. Owner-only either way |
 | LinkedIn sign-in, profile writes, job search, messaging | ✂️ | No self-serve API exists for any of it outside the EU; automating a session breaks the User Agreement and risks the account being used to job-hunt |

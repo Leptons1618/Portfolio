@@ -12,10 +12,12 @@
  * keys that changed — but the page reads before it edits: the advert at a
  * reading measure, the fit as a comparison, the contacts as people.
  *
- * This phase builds the shell, Overview and Fit. Resume & projects and Outreach
- * are still empty states; the fields those tabs will own are editable in the
- * places this phase puts them (the resume select on its tab, contact lines on
- * Overview).
+ * Four tabs read the row before it is edited: Overview (the advert and where it
+ * stands), Fit (the assessment as a comparison), Resume & projects (the variant
+ * chosen and the projects the fit recommends) and Outreach (one card per
+ * contact, with drafts kept against each channel). The form is still underneath
+ * all of it — one Save, and only the keys that changed — and the assistant
+ * writes into that form, never into a row.
  */
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import AssistPanel from '../../../components/AssistPanel.astro';
@@ -248,23 +250,47 @@ const slug = Astro.params.slug ?? '';
       </div>
 
       <div class="tab-panel" id="jw-panel-resume" role="tabpanel" aria-labelledby="jw-tab-resume" hidden>
-        <div class="jw-resume">
+        <div class="jw-resume-tab">
           <section class="card elev-sm">
-            <p class="admin-eyebrow">Resume to send</p>
+            <div class="jw-card-head">
+              <div>
+                <p class="admin-eyebrow">Resume to send</p>
+                <p class="text-muted admin-note">Read from the resume this page already loaded.</p>
+              </div>
+              <a class="btn btn-secondary btn-sm" id="jw-resume-open" href="/admin/resume">
+                <Icon name="lucide:external-link" class="admin-nav-icon" />Open in the Resume screen
+              </a>
+            </div>
+
             <div class="field">
               <label for="jf-variant">Resume sent</label>
               <select class="input" id="jf-variant">
                 <option value="">The master resume</option>
               </select>
-              <p class="text-muted admin-note">
-                A variant from <a href="/admin/resume">the Resume screen</a>, which can build one
-                from this advert.
-              </p>
+            </div>
+
+            <div class="jw-resume-facts" id="jw-resume-facts"></div>
+
+            <div class="jw-resume-actions">
+              <button type="button" class="btn btn-primary btn-sm" id="jw-resume-handoff">
+                <Icon name="lucide:wand-sparkles" class="admin-nav-icon" />Build a variant from this advert
+              </button>
             </div>
             <p class="text-muted admin-note">
-              The chosen variant's facts, the projects to lead with and the hand-off to the Resume
-              screen arrive with the next phase. Until then the variant is still what you send.
+              The advert travels in this browser's session, never in a URL. Nothing writes back to
+              this application — pick the variant in the select above once it is saved on the Resume
+              screen.
             </p>
+          </section>
+
+          <section class="card elev-sm">
+            <p class="admin-eyebrow">Projects to lead with</p>
+            <div id="jw-project-shortlist"></div>
+          </section>
+
+          <section class="card elev-sm">
+            <p class="admin-eyebrow">Keywords the resume is missing</p>
+            <div id="jw-resume-keywords"></div>
           </section>
         </div>
       </div>
@@ -396,6 +422,7 @@ const slug = Astro.params.slug ?? '';
 <script>
   import { navigate } from 'astro:transitions/client';
   import {
+    ADMIN_KEYS,
     mountAutoGrow,
     onAdminPage,
     setBusy,
@@ -411,10 +438,12 @@ const slug = Astro.params.slug ?? '';
   import { copyText } from '../../../lib/clipboard';
   import {
     getApplication,
+    listProjects,
     patchApplication,
     readDocument,
     removeApplication,
     type ApplicationFields,
+    type ProjectRecord,
   } from '../../../lib/content-store';
   import { SLUG } from '../../../lib/content-schema';
   import { formatRange } from '../../../lib/format';
@@ -442,6 +471,8 @@ const slug = Astro.params.slug ?? '';
     resolveVariant,
     type ResumeDocument,
     type ResumePerson,
+    type ResumeSheet,
+    type ResumeVariant,
   } from '../../../lib/resume';
   import { resumeContext } from '../../../lib/resume-render';
 
@@ -489,6 +520,10 @@ const slug = Astro.params.slug ?? '';
     const contactName = $<HTMLInputElement>('jc-name');
     const contactTitle = $<HTMLInputElement>('jc-title');
     const contactUrl = $<HTMLInputElement>('jc-url');
+    const resumeFacts = $('jw-resume-facts');
+    const resumeShortlist = $('jw-project-shortlist');
+    const resumeKeywords = $('jw-resume-keywords');
+    const resumeHandoff = $<HTMLButtonElement>('jw-resume-handoff');
 
     /* Every column but `contacts`, which is a list and is read line by line.
        `outreach` is a hidden holder until Phase 3's cards write it; keeping it
@@ -549,6 +584,11 @@ const slug = Astro.params.slug ?? '';
     let drafting: AbortController | null = null;
     let outreachPaintPending = false;
     let editingContact: number | null = null;
+    /* The project rows, read once and only when the Resume tab is first shown.
+       `null` is "not asked yet", which is different from "asked and empty". */
+    let projects: ProjectRecord[] | null = null;
+    let projectsLoading = false;
+    let projectsFailed = false;
 
     const say = (text: string, tone: 'info' | 'error' = 'info') => {
       message.dataset.tone = tone;
@@ -579,6 +619,12 @@ const slug = Astro.params.slug ?? '';
     const splitVersions = (text: string): string[] =>
       text.split(/^\s*-{3,}\s*$/m).map(part => part.trim()).filter(Boolean);
 
+    /* The resume's identity fields come from `site.ts` and are never sent to the
+       assistant; the sheet still needs a person-shaped object. */
+    const NOBODY: ResumePerson = {
+      name: '', role: '', location: '', address: '', email: '', phone: '', linkedin: '', github: '', summary: '',
+    };
+
     const showView = () => {
       $('jw-loading').hidden = true;
       $('jw-view').hidden = false;
@@ -605,6 +651,10 @@ const slug = Astro.params.slug ?? '';
       const key = PANEL_HASH[id] ?? '';
       history.replaceState(null, '', `${location.pathname}${location.search}${key ? `#${key}` : ''}`);
       if (id === 'jw-panel-fit') paintFit();
+      if (id === 'jw-panel-resume') {
+        ensureProjects();
+        paintResumeTab();
+      }
     });
 
     const selectTab = (id: string) => {
@@ -706,6 +756,9 @@ const slug = Astro.params.slug ?? '';
       dirtyLine.textContent = keys.length
         ? `Unsaved: ${keys.map(key => FIELD_LABELS[key] ?? key).join(', ')}`
         : '';
+      /* The hand-off leaves this page, so its button has to say "not yet" the
+         moment anything is unsaved — not only when it is pressed. */
+      paintHandoff();
     }
 
     /* ---------- the Next strip ---------- */
@@ -1254,6 +1307,256 @@ const slug = Astro.params.slug ?? '';
       return zone;
     }
 
+    /* ---------- Resume & projects ---------- */
+
+    const muted = (text: string): HTMLParagraphElement => {
+      const note = document.createElement('p');
+      note.className = 'admin-note jw-muted';
+      note.textContent = text;
+      return note;
+    };
+
+    const tag = (text: string, className: string): HTMLSpanElement => {
+      const span = document.createElement('span');
+      span.className = `tag ${className}`;
+      span.textContent = text;
+      return span;
+    };
+
+    const link = (href: string, text: string, external = false): HTMLAnchorElement => {
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.textContent = text;
+      if (external) {
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+      }
+      return anchor;
+    };
+
+    const openVariantNow = (): ResumeVariant | null =>
+      resume?.variants.find(variant => variant.id === inputs.resumeVariant.value) ?? null;
+
+    const projectRows = () =>
+      (projects ?? []).map(row => ({
+        slug: row.slug,
+        data: {
+          title: row.fields.title,
+          summary: row.fields.summary,
+          repoUrl: row.fields.repoUrl,
+          demoUrl: row.fields.demoUrl,
+          hidden: Boolean(row.fields.hidden),
+        },
+      }));
+
+    function ensureProjects() {
+      if (projects || projectsLoading) return;
+      projectsLoading = true;
+      projectsFailed = false;
+      paintResumeTab();
+      void listProjects()
+        .then(rows => {
+          projects = rows;
+        })
+        .catch(() => {
+          projectsFailed = true;
+        })
+        .finally(() => {
+          projectsLoading = false;
+          paintResumeTab();
+        });
+    }
+
+    function paintResumeFacts(variant: ResumeVariant | null, sheet: ResumeSheet) {
+      resumeFacts.replaceChildren();
+
+      const fact = (label: string, value: string) => {
+        const line = document.createElement('div');
+        line.className = 'jw-fact-line';
+        const key = document.createElement('span');
+        key.className = 'jw-fact-label';
+        key.textContent = label;
+        const text = document.createElement('span');
+        text.textContent = value || '—';
+        line.append(key, text);
+        return line;
+      };
+
+      resumeFacts.appendChild(fact('Label', sheet.variantLabel || 'The master resume'));
+      resumeFacts.appendChild(fact('Headline', sheet.person.role || 'No headline'));
+
+      const summaryHead = document.createElement('div');
+      summaryHead.className = 'jw-summary-head';
+      summaryHead.appendChild(subhead('Summary'));
+      if (sheet.summary.trim()) summaryHead.appendChild(copyButton(sheet.summary));
+      const summary = document.createElement('p');
+      summary.className = 'jw-summary';
+      summary.textContent = sheet.summary.trim() || 'No summary.';
+      resumeFacts.append(summaryHead, summary);
+
+      resumeFacts.appendChild(subhead('Projects it lists'));
+      const listed = variant?.projects ?? [];
+      if (!variant) {
+        resumeFacts.appendChild(muted('The master resume lists no projects; a variant can.'));
+        return;
+      }
+      if (!listed.length) {
+        resumeFacts.appendChild(muted('This variant lists no projects.'));
+        return;
+      }
+
+      const list = document.createElement('ul');
+      list.className = 'jw-listed';
+      for (const pick of listed) {
+        const project = projects?.find(row => row.slug === pick.slug) ?? null;
+        const item = document.createElement('li');
+        item.className = 'jw-listed-item';
+        const name = document.createElement('span');
+        name.className = 'jw-listed-name';
+        name.textContent = project?.fields.title || pick.slug;
+        if (!project) name.append(document.createTextNode(' (no such project)'));
+        const line = document.createElement('span');
+        line.className = 'jw-listed-line';
+        line.textContent = pick.line?.trim() || project?.fields.summary || '';
+        item.append(name, line);
+        list.appendChild(item);
+      }
+      resumeFacts.appendChild(list);
+    }
+
+    function paintShortlist(variant: ResumeVariant | null) {
+      resumeShortlist.replaceChildren();
+      const view = parseFit(inputs.fit.value);
+
+      if (!view.projects.length) {
+        resumeShortlist.appendChild(muted('Re-assess to get a project shortlist.'));
+        const open = document.createElement('button');
+        open.type = 'button';
+        open.className = 'btn btn-secondary btn-sm jw-shortlist-open';
+        open.textContent = 'Open the Fit tab';
+        open.addEventListener('click', () => selectTab('jw-panel-fit'));
+        resumeShortlist.appendChild(open);
+        return;
+      }
+
+      if (projectsLoading) {
+        resumeShortlist.appendChild(muted('Reading the project list…'));
+        return;
+      }
+      if (projectsFailed) {
+        resumeShortlist.appendChild(muted('The project list did not load; titles show their slugs.'));
+      }
+
+      const bySlug = new Map((projects ?? []).map(row => [row.slug, row]));
+      for (const pick of view.projects) {
+        const project = bySlug.get(pick.slug) ?? null;
+        const card = document.createElement('article');
+        card.className = 'jw-project';
+
+        const head = document.createElement('div');
+        head.className = 'jw-project-head';
+        const title = document.createElement('strong');
+        title.className = 'jw-project-title';
+        title.textContent = project?.fields.title || pick.slug;
+        head.appendChild(title);
+
+        const flags = document.createElement('div');
+        flags.className = 'jw-flags';
+        const inResume = Boolean(variant?.projects.some(entry => entry.slug === pick.slug));
+        flags.appendChild(
+          tag(inResume ? 'in this resume' : 'not in this resume', inResume ? 'tag-accent-2' : 'tag-neutral'),
+        );
+        if (project && project.fields.hidden) flags.appendChild(tag('hidden on the site', 'tag-neutral'));
+        if (!project) flags.appendChild(tag('no such project', 'tag-neutral'));
+        head.appendChild(flags);
+        card.appendChild(head);
+
+        const lineRow = document.createElement('div');
+        lineRow.className = 'jw-project-line-row';
+        const line = document.createElement('p');
+        line.className = 'jw-project-line';
+        line.textContent = pick.line || 'No line from the assessment.';
+        lineRow.appendChild(line);
+        if (pick.line) lineRow.appendChild(copyButton(pick.line));
+        card.appendChild(lineRow);
+
+        if (project) {
+          const links = document.createElement('div');
+          links.className = 'jw-project-links';
+          links.appendChild(link(`/admin/projects/${encodeURIComponent(pick.slug)}`, 'Admin'));
+          if (project.fields.hidden) links.appendChild(muted('no public page'));
+          else links.appendChild(link(`/projects/${encodeURIComponent(pick.slug)}`, 'Public page ↗', true));
+          card.appendChild(links);
+        }
+
+        resumeShortlist.appendChild(card);
+      }
+    }
+
+    function paintResumeKeywords() {
+      resumeKeywords.replaceChildren();
+      const view = parseFit(inputs.fit.value);
+      renderKeywordChips(resumeKeywords, view.keywords);
+      if (!view.keywords.length) resumeKeywords.appendChild(muted('The assessment lists no keywords.'));
+    }
+
+    function paintHandoff() {
+      const advert = inputs.jobDescription.value.trim();
+      const dirty = Object.keys(changes()).length > 0;
+      const reason = !advert
+        ? 'Paste the advert first — it is what the variant is built from.'
+        : !resume
+          ? 'The resume did not load.'
+          : dirty
+            ? 'Save first — you have unsaved changes.'
+            : '';
+      resumeHandoff.disabled = Boolean(reason);
+      resumeHandoff.title = reason;
+    }
+
+    function paintResumeTab() {
+      if (!resume) {
+        resumeFacts.replaceChildren(muted('The resume did not load, so there is no variant to show.'));
+        paintShortlist(null);
+        paintResumeKeywords();
+        paintHandoff();
+        return;
+      }
+      const variant = openVariantNow();
+      const sheet = resolveVariant({ ...resume, person: NOBODY }, variant?.id ?? '', projectRows());
+      paintResumeFacts(variant, sheet);
+      paintShortlist(variant);
+      paintResumeKeywords();
+      paintHandoff();
+    }
+
+    resumeHandoff.addEventListener('click', () => {
+      if (Object.keys(changes()).length) {
+        toast('Save first — you have unsaved changes.', { tone: 'error' });
+        return;
+      }
+      const advert = inputs.jobDescription.value;
+      if (!advert.trim()) {
+        toast('Paste the advert first.', { tone: 'error' });
+        return;
+      }
+      try {
+        sessionStorage.setItem(
+          ADMIN_KEYS.resumeHandoff,
+          JSON.stringify({
+            slug,
+            company: inputs.company.value.trim(),
+            role: inputs.role.value.trim(),
+            advert,
+          }),
+        );
+      } catch {
+        toast('Could not hand the advert over in this browser.', { tone: 'error' });
+        return;
+      }
+      void navigate('/admin/resume');
+    });
+
     function paintGlance() {
       const view = parseFit(inputs.fit.value);
       glanceHost.replaceChildren();
@@ -1474,13 +1777,13 @@ const slug = Astro.params.slug ?? '';
       fitGaps.appendChild(list);
     }
 
-    function paintKeywords(view: FitView) {
-      fitKeywords.replaceChildren();
-      if (!view.keywords.length) return;
-      fitKeywords.appendChild(subhead('Keywords for the ATS'));
+    /** The chips are one render, mounted on the Fit tab and on Resume & projects. */
+    function renderKeywordChips(host: HTMLElement, keywords: string[]) {
+      host.replaceChildren();
+      if (!keywords.length) return;
       const row = document.createElement('div');
       row.className = 'jw-kw';
-      for (const keyword of view.keywords) {
+      for (const keyword of keywords) {
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'tag tag-button';
@@ -1491,7 +1794,16 @@ const slug = Astro.params.slug ?? '';
         });
         row.appendChild(chip);
       }
-      fitKeywords.append(row, copyButton(view.keywords.join(', '), 'Copy all'));
+      host.append(row, copyButton(keywords.join(', '), 'Copy all'));
+    }
+
+    function paintKeywords(view: FitView) {
+      fitKeywords.replaceChildren();
+      if (!view.keywords.length) return;
+      fitKeywords.appendChild(subhead('Keywords for the ATS'));
+      const host = document.createElement('div');
+      renderKeywordChips(host, view.keywords);
+      fitKeywords.appendChild(host);
     }
 
     /* An assessment's other sections are prose, and the page's renderer is the
@@ -1593,6 +1905,7 @@ const slug = Astro.params.slug ?? '';
         fitQueued = false;
         paintFit();
         paintGlance();
+        if (!$('jw-panel-resume').hidden) paintResumeTab();
       });
     };
 
@@ -1780,8 +2093,10 @@ const slug = Astro.params.slug ?? '';
         if (key === 'jobDescription') {
           paintAdvert();
           paintOutreach();
+          paintHandoff();
         }
         if (key === 'fit') scheduleFitPaint();
+        if (key === 'resumeVariant') paintResumeTab();
         if (key === 'company' || key === 'role') paintSearches();
         if (key === 'status' || key === 'appliedOn') paintOutreach();
       };
@@ -1864,10 +2179,6 @@ const slug = Astro.params.slug ?? '';
     });
 
     /* ---------- the assistant ---------- */
-
-    const NOBODY: ResumePerson = {
-      name: '', role: '', location: '', address: '', email: '', phone: '', linkedin: '', github: '', summary: '',
-    };
 
     function resumeText(): string {
       if (!resume) return '';
@@ -2049,11 +2360,13 @@ const slug = Astro.params.slug ?? '';
     if (!getToken()) {
       showView();
       paintOutreach();
+      paintResumeTab();
       return lock('Sign in with GitHub to read this application.');
     }
     if (!SLUG.test(slug)) {
       showView();
       paintOutreach();
+      paintResumeTab();
       return lock('That is not an application this tracker could have.');
     }
 
@@ -2072,6 +2385,7 @@ const slug = Astro.params.slug ?? '';
         paintAdvert();
         paintFit();
         paintOutreach();
+        paintResumeTab();
         refresh();
         if (!resume) say('The resume did not load, so the assistant has nothing to read it against.', 'error');
       } catch (error) {
