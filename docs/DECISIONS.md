@@ -2124,3 +2124,158 @@ the journal and resume panels' history. Owner-only either way; widening the
 spend, for listings the ATS boards mostly already carry. Add one when the
 watchlist proves thin for Indian companies, which most Indian job sites will:
 Naukri, Instahyre and the Keka and Darwinbox boards publish no feed.
+
+---
+
+## 81. A case study is an overview and chapters, and its numbers are the owner's to type
+
+**Extends decisions 46 and 53. Nothing in either is reopened.**
+
+**Context.** A case study has two readers. A recruiter gives it a minute: what
+it is, what the owner did, what it achieved, the stack, one picture. An engineer
+wants the architecture, the decisions and the hard parts. The page was one
+column — Problem, Solution, an optional architecture image, achievements,
+stack, then one long write-up — so the first reader dug for the facts and the
+second scrolled one very long page.
+
+**Decision.** Five columns on `case_studies` (migration 0016) and one new route.
+
+- **`role`, `team`, `metrics`, `links`** are the overview's facts. `metrics` and
+  `links` are lists of `"<value> | <label>"` / `"<Label> | <url>"` strings, the
+  encoding every other list here uses, so the write boundary, the CLI and the
+  MCP server took them with no new code — `check:cli` stayed green untouched.
+  `chapters.ts` reads them at render: four metric cards at most, and **a link
+  that is not an absolute http(s) URL is dropped**, because it becomes an `href`
+  on this origin (the rule `job-boards.ts` applies).
+- **No assistant task writes any of the four.** `CASE_STUDY_KEYS` does not carry
+  them, so no run can produce one. Several case studies here were found to be
+  fabricated; an invented "40%" in front of a recruiter is the worst thing this
+  page could say. `check:ai` pins the absence.
+- **`paged`** reads the write-up as one page per `## ` at
+  `/case-studies/<slug>/<heading id>`. Off by default — every existing study
+  rendered exactly as before on deploy, and a two-minute read split into
+  one-paragraph pages is worse, so the author decides.
+
+**Chapters are cut from the stored HTML on read.** `renderBody()` already gives
+every heading an id, so `splitChapters()` cuts `body_html` at each heading the
+author wrote. One stored body, no chapters column to keep in step with it. The
+match is exact on purpose — a line-start `<h2 id="slug">`, `id` its only
+attribute, slug characters only — because the serialiser leaves `<` unescaped
+inside an attribute value: a link title can hold the text `<h2 id=`, and a
+looser pattern took that attribute's closing quote for the id's opening one,
+cut the body mid-tag and handed `set:html` attribute text as live markup. A
+review caught it; `check:markdown` pins it with that body. A heading inside a
+blockquote is not a boundary, and GFM's footnotes section is lifted off and
+given back to each chapter that cites a note.
+
+**The heading id is the URL**, so renaming a heading moves the chapter. An
+unknown id redirects to the overview rather than 404ing — the study is still
+there — and a chapter URL on a study that is not paged redirects to
+`overview#id`, which lands on the same heading in the full page.
+
+**A save purges every chapter.** `affected()` takes the chapter ids and the
+linking project (whose page now shows the numbers); `POST /api/content` reads
+both back *after* the write, because a patch that only flips `paged` changes
+every chapter URL without carrying a body. Stated limit: a heading renamed by a
+save leaves its old URL's cached copy for up to `s-maxage` (60s) before the
+route answers it with the redirect.
+
+**An outline per kind of project.** `CHAPTER_OUTLINES` is typed against
+`Category`, so a new category fails the typecheck until it has one. The editor's
+Insert outline puts it at the caret as headings with an italic brief — not an
+HTML comment, which the markdown pass would print — and the long case-study
+writer's plan is handed it as its starting point (a new `category` context
+field, capped), with the outline as the fallback when a plan names no sections.
+
+**Rejected.** A chapters table (it splits one markdown body into rows for no
+reader-visible gain); tabs on one page (hidden content has no URL and is
+invisible to find-in-page); splitting automatically above a length (a threshold
+is a guess); a structured `json` encoder for metrics and links (it touches the
+trust boundary, the CLI and the MCP server for what a ` | ` split does).
+
+---
+
+## 82. Drawings are Excalidraw on the admin and an SVG for readers, and the SVG carries its own scene
+
+**Extends decision 25, and removes its stated cost.**
+
+**Context.** Decision 25 made a diagram an image file rather than a renderer on
+every page, and paid one price for it: the Mermaid source is not stored, so
+changing an arrow means generating the whole diagram again.
+
+**Decision.** Excalidraw, on the admin only. `src/lib/drawing.ts` opens it in a
+full-screen native `<dialog>` and saves with `exportEmbedScene`, which **embeds
+the scene in the exported SVG**; `loadFromBlob()` reads it back out of the same
+file. So one row in `media` is both what a reader's `<img>` shows and what the
+editor reopens — no table, no second file, no new media type. A save overwrites
+its own path, and `/api/media` already upserts and purges. Drawings live under
+`images/drawings/`, apart from Mermaid's `images/diagrams/`.
+
+- **Nothing reaches a reader.** React, ReactDOM and Excalidraw are imported
+  inside `openDrawing()`, and `drawing.ts` is itself only reached through
+  `import()`. `check:content` fails the build if anything else names
+  `@excalidraw/*`, `react` or `react-dom`, or imports `drawing.ts` statically.
+  While editing, Excalidraw loads its fonts from its own CDN; the exported SVG
+  embeds the glyphs it used, so the `<img>` fetches nothing.
+- **Dark mode inverts drawings** — `invert(0.93) hue-rotate(180deg)`, what
+  Excalidraw's own dark mode does — on `img[src^="/media/images/drawings/"]`
+  only, under both mode axes and screen-only. Mermaid diagrams bake their
+  colours and are untouched.
+- **Mermaid becomes editable shapes.** The dialog's From Mermaid converts with
+  `@excalidraw/mermaid-to-excalidraw`, so the assistant's `/draw-diagram` source
+  can be tidied by hand instead of regenerated.
+- **The dialog is not modal, on purpose.** Excalidraw appends its own dialogs
+  (help, export, the reset confirmation) and its tooltips to `<body>`, and
+  under `showModal()` everything outside the top layer is drawn beneath and
+  cannot be clicked. So it is opened with `show()` as a fixed overlay at a
+  z-index under Excalidraw's modal layer, with the rest of `<body>` made
+  `inert` while it is open — which also leaves Escape to Excalidraw, where it
+  clears a selection. Cancel works before anything has loaded, a chunk that
+  fails to load leaves Cancel as the way out, Cancel with changes asks first,
+  and both buttons wait for a save in flight.
+- **The stylesheet is inside the dialog.** Imported as a string rather than
+  left as the `<link>` Vite adds to `<head>`, because the admin's
+  `ClientRouter` replaces the head on navigation and Vite never re-adds a
+  preloaded stylesheet — the second drawing of a session would open unstyled.
+
+**Paste and drop, in the same change.** `attachMarkdownImages()` in
+`image-upload.ts` puts a placeholder at the caret, uploads through the one
+`putMedia()` every image path on the surface now shares, and swaps the
+placeholder for the image line. It acts only when the clipboard carries an
+image *file* and is not rich text — a screenshot, a browser's Copy image, a file
+copied in Finder — so pasting words from a document or a page still pastes
+words. Each image gets its own name, because `/api/media` replaces by path.
+
+**Click to enlarge.** An image in a case study opens at the viewport's size in a
+native modal `<dialog>` (`Lightbox.astro`), which gives a reader most of what
+live pan-and-zoom would for twenty lines and no dependency.
+
+**Rejected.** Live Excalidraw on public pages — React and Excalidraw, about a
+megabyte compressed, for every case-study reader; it reverses decision 25. A
+`diagrams` table holding the scene — a table, a write path and a test to store
+what the SVG already carries.
+
+---
+
+## 83. The application screen reads the row before it edits it, and everything it shows is derived on read
+
+**Extends decisions 79 and 80. Neither is reopened: `applications` is still one private content table written through the one endpoint, and the screen still fetches it with the token.**
+
+**Context.** `/admin/jobs/[slug]` was one form: twelve inputs in two cards. That is the right shape for typing a row in and the wrong shape for using one. The advert — a thousand words — was a ten-row textarea; the fit assessment was raw markdown; contacts were lines; outreach lived only in the assistant panel and was gone when the panel closed; and nothing said what to do next. The owner's use is a workflow repeated per role: understand the posting, compare, tailor, pick the projects that make the case, ask for a referral, write, track.
+
+**Decision.** Four tabs and a dialog over the same row.
+
+- **Overview, Fit, Resume & projects, Outreach.** The page renders the slug from its own URL and nothing else; the row arrives over `GET /api/content` with the token. The form did not go away: every old input is still the value, in the dialog, the rail or a hidden holder, so `trackDirty` and Save keep working and a save still sends only the keys that changed.
+- **The advert is read, not reflowed.** It is stored verbatim; the screen paints it as text at a reading measure and clamps it, with a Show the whole advert control. Nothing tries to reformat a posting.
+- **The assessment becomes a comparison.** `parseFit()` reads the stored markdown on every render: verdict, score, must/nice items with met/adjacent/missing marks, gaps, keywords, a project shortlist, and every other `###` section. It is tolerant of the shapes assessments really take — bold requirements with an em dash inside them, ⚠ with or without U+FE0F, continuation lines, a keywords lead-in — and returns `recognised: false` for anything it cannot read, in which case the screen shows the text through `POST /api/preview` rather than losing it. It is a pure function of the whole string, called on every streamed delta; `check:cli` feeds it one character at a time and asserts the item count never falls.
+- **Contacts and drafts are parsed too.** `parseContact()` and `parseOutreach()` own the two formats. The fit, the contacts and the kept drafts are read every time from the columns that hold them; none of the views is stored. That is the `chapters.ts` arrangement (decision 81), and it is what keeps the CLI, the MCP server and the `jobs` skill working on plain markdown — there is no second representation to keep in step.
+- **`outreach` is one markdown column, migration 0017.** One `## Contact · Channel` section per kept draft; a Keep for the same pair replaces the section. A column rather than JSON or a table because it is read and edited by a person, because the CLI and the MCP server already read and write plain text with no new encoder, and because "the drafts for this contact" is a slice of a document rather than a row anything queries. The write boundary, the CLI and the MCP server needed only the one `content-schema.ts` entry; `check:schema` pins it. Known limit, pinned by `check:cli`: a `## ` line inside a draft's own text starts a new draft. These are messages, not documents, so the heading is the only delimiter the format has.
+- **The form moved into a dialog, not out of the DOM.** Company, role, posting URL and the advert are behind Edit details; status, dates, resume and notes are in the rail; fit is behind Edit as text; contacts and outreach are hidden holders written by the Outreach tab. A dialog because typing a row in is a short, occasional job and reading it is the common one; the inputs stay because one Save and one dirty tracker are simpler and safer than a second write path.
+- **The project shortlist is a join, not a stored list.** `jobFit` gained a `### Projects to lead with` section; `parseFit()` returns `slug — sentence`, and the Resume & projects tab reads the project rows once, lazily, and joins them for titles, links and the `hidden` flag. An unknown slug is shown as text with "no such project"; a hidden project is flagged and gets no public link (its page 404s) but keeps its Admin link. Keywords are the Fit tab's chips through the same renderer.
+- **A card calls `runAssist()` directly, and no task was added.** The two tasks are still `jobFit` and `jobOutreach`; a card passes `jobOutreach`'s context, `outreachInstruction()` and a signal to the same endpoint the panel uses. One run at a time per page, whichever control started it; the card owns the Stop and the versions; the panel keeps conversation and typed commands, and `/draft-outreach` behaves as it did. `jobFit` gained the projects section and a 3,000-token ceiling; the job surface and the `check:ai` assertions did not change.
+- **The hand-off is sessionStorage, never a URL.** The advert is private, and a URL is persisted in history, logs and referrers. `ADMIN_KEYS.resumeHandoff` holds `{ slug, company, role, advert }` for one trip to `/admin/resume`, which offers the existing restore-bar pattern. Build reuses `createVariant()`, sets the variant's `jobDescription`, selects it and opens `/build-variant`; Dismiss clears the key. Both answers clear it, nothing writes back to the application, and the copy says to pick the variant once it is saved.
+- **`nextAction()` decides what to do next.** Its rules are the workflow's order, and `today` is a parameter rather than `new Date()`, which is what makes every rule testable.
+
+**Tests.** `check:cli` drives `job-view.ts` in plain Node: the template-shaped and real-shaped fit fixtures, the one-character-at-a-time parser, the contact URL rule, the outreach round trip, the meters and every `nextAction` rule. `check:schema` covers the new column. `check:ai` is untouched and green; no task, surface or endpoint was added.
+
+**Rejected.** A structured JSON `fit` — a migration, a second representation, and a CLI/MCP change for what a parse on read does. A table for chapters or drafts — a row per paragraph for no reader-visible gain. A per-contact table — contacts are one line each and the drafts one document. New assistant tasks or an endpoint for the card — the closed table and one endpoint are the security property. Handing the advert to the Resume screen in a URL — private text does not belong in history. Autosave — one Save, as on every screen. A direct write from the Resume screen back to the application — the advert already lives here, and a second writer would give two sources of truth.

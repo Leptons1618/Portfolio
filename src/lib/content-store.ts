@@ -456,6 +456,8 @@ export interface ApplicationFields {
   nextStep: string | null;
   nextOn: string | null;
   notes: string | null;
+  /** The kept drafts, one `## Contact · Channel` section each — migration 0017. */
+  outreach: string | null;
 }
 
 export interface Application {
@@ -485,6 +487,23 @@ async function read<T>(query: Record<string, string>): Promise<T> {
 
 export const listApplications = async (): Promise<Application[]> =>
   (await read<{ rows: Application[] }>({ table: 'applications' })).rows;
+
+/**
+ * One project row, as `GET /api/content` hands it back.
+ *
+ * The Jobs screen reads this when its Resume tab first opens: a shortlist names
+ * projects by slug, and the title, public page and `hidden` flag all live on the
+ * project row. It is a read with the token like `listApplications()` — nothing
+ * public reads it from here.
+ */
+export interface ProjectRecord {
+  slug: string;
+  updatedAt: string | null;
+  fields: ProjectFields;
+}
+
+export const listProjects = async (): Promise<ProjectRecord[]> =>
+  (await read<{ rows: ProjectRecord[] }>({ table: 'projects' })).rows;
 
 export const getApplication = async (slug: string): Promise<Application> =>
   (await read<{ rows: Application[] }>({ table: 'applications', slug })).rows[0];

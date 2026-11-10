@@ -61,12 +61,12 @@ import { site } from '../lib/site';
 const FACTS: [string, string][] = [
   ['runtime', 'Astro 5 · Cloudflare Workers'],
   ['rendering', 'Static, with an adapter'],
-  ['database', 'Cloudflare D1 — 11 tables'],
-  ['migrations', '10, applied before each deploy'],
+  ['database', 'Cloudflare D1 — 12 tables'],
+  ['migrations', '17, applied before each deploy'],
   ['images', 'BLOBs in D1, one route serves them'],
   ['styling', 'Plain CSS · 3 themes × light/dark'],
-  ['client js', 'No framework'],
-  ['dependencies', '15 runtime · 3 dev'],
+  ['client js', 'No framework on a public page'],
+  ['dependencies', '20 runtime · 5 dev'],
 ];
 
 const TABLES: [string, string][] = [
@@ -74,6 +74,7 @@ const TABLES: [string, string][] = [
   ['case_studies', 'Long-form write-ups. A project points at one; nothing points back.'],
   ['journal', 'Posts, with a three-state status. A draft is visible to the author and in development; an unpublished post 404s rather than lingering.'],
   ['documents', 'Singletons keyed by slug — the resume, the assistant settings, the daily schedule, the projects page’s line-up. One JSON column each.'],
+  ['applications', 'The owner’s private job tracker: applications, adverts, fits and kept drafts. Nothing public reads it; the Jobs screen, the CLI and the MCP server write it through the same endpoint.'],
   ['media', 'Uploaded images as BLOBs. Nothing else reads this table, which is what keeps “where do the bytes live” a one-file decision.'],
   ['ai_providers', 'One row per chat endpoint the site may call, with its API key. The admin listing gets a fingerprint of it and never the key.'],
   ['ai_decision_providers', 'Where an optional decision model is reached — a router asked which context a conversation needs. Kept apart so it can never be called as a chat endpoint; its key, when it has its own, is write-only too.'],
@@ -549,7 +550,7 @@ const SHOTS = {
         <div class="prose col-split-body">
           <ul>
             <li><strong>No analytics, no cookies, no third-party scripts.</strong> Nothing on a public page phones anywhere except the assistant, and only when a visitor asks it something.</li>
-            <li><strong>No UI framework.</strong> Tailwind is installed and contributes essentially only its preflight; the components are global classes plus a page-scoped block.</li>
+            <li><strong>No UI framework.</strong> Tailwind is installed and contributes essentially only its preflight; the components are global classes plus a page-scoped block. React arrives only with the admin's drawing editor, loaded when Draw is pressed, and never on a page a reader sees.</li>
             <li><strong>No agent framework.</strong> The retrieval loop is one function with three bounds, and the bounds are the design rather than defensive extras.</li>
             <li><strong>No commit path.</strong> The GitHub App is read-only. Nothing in the admin writes to the repository, and the permission that used to allow it is gone.</li>
           </ul>

@@ -36,6 +36,18 @@ import {
   readBoard,
   readWatchlist,
 } from '../src/lib/job-boards.ts';
+import {
+  OUTREACH_CHANNELS,
+  formatContact,
+  formatOutreach,
+  measure,
+  nextAction,
+  outreachInstruction,
+  parseContact,
+  parseFit,
+  parseOutreach,
+  peopleSearches,
+} from '../src/lib/job-view.ts';
 
 let checks = 0;
 const check = (name, fn) => {
@@ -365,6 +377,349 @@ check('a posting slug is the write endpoint’s shape and never collides', () =>
 
 check('advert HTML reads as text, and a script body does not survive', () => {
   assert.equal(htmlToText('<p>One&nbsp;two<br>three &#8212; &#x2013;</p><script>alert(1)</script>'), 'One two\nthree — –');
+});
+
+/* ---------- job view: the fit assessment ---------- */
+
+/* The template `jobFit` asks for, filled in. */
+const FIT_TEMPLATE = `**Verdict:** Reasonable — the stack matches, the domain does not.
+**Score:** 6/10 — mostly from the must-haves.
+
+### Must-haves
+- ✅ **TypeScript** — five years across two roles
+- ⚠️ Kubernetes — adjacent: Docker on ECS
+- ❌ Rust — nothing in the record
+
+### Nice-to-haves
+- ✅ Design systems — built the admin surface
+
+### Gaps worth closing
+- Add the MCP server to the resume's project list.
+- Write up the edge-cache work.
+
+### Keywords for the ATS
+True and missing: edge computing, D1, Workers.
+
+### Resume
+Backend, fintech.`;
+
+/* What a model working through the `jobs` skill actually wrote: bold
+   requirements, an em dash inside one, ⚠ with and without U+FE0F, a
+   continuation line, a keywords lead-in, and sections the template never
+   named. */
+const FIT_REAL = `**Verdict:** Stretch — strong systems record, no ML production.
+**Score:** 5/10 — must-haves are half met.
+
+### Must haves
+- ✅ **AI-native — orchestrate agents** — not "uses AI tools", but shipped tool loops
+  and an evaluation harness.
+- ⚠️ **Kubernetes in production** — adjacent: Docker on ECS at Acme. Say adjacent.
+- ⚠ **Go** — adjacent: wrote the CLI in Node and Go tooling
+- ❌ **PyTorch** — nothing in the record
+
+### Nice to have
+- ✅ **Public writing** — eight posts
+
+### Gaps worth closing
+- A project showing a production model.
+- A line about evaluation.
+
+### Keywords for the ATS
+Terms that are true and missing: RAG, evals, vector search.
+
+### Projects to lead with
+- echoscript — the agent tool loop is the closest thing to this role.
+- markov-chain-lab — shows the evaluation habit.
+- Bad Slug — this row is dropped.
+
+### Resume
+new variant
+
+### Route in
+Priya Nair, staff engineer.
+
+### Note on the advert
+Posted twice this quarter.`;
+
+check('a fit in the template shape parses into the comparison', () => {
+  const view = parseFit(FIT_TEMPLATE);
+  assert.equal(view.recognised, true);
+  assert.deepEqual(view.verdict, { level: 'Reasonable', why: 'the stack matches, the domain does not.' });
+  assert.deepEqual(view.score, { value: 6, why: 'mostly from the must-haves.' });
+  assert.deepEqual(view.must.map(item => item.mark), ['met', 'adjacent', 'missing']);
+  assert.deepEqual(view.must[0], { mark: 'met', requirement: 'TypeScript', evidence: 'five years across two roles' });
+  assert.deepEqual(view.must[1], { mark: 'adjacent', requirement: 'Kubernetes', evidence: 'adjacent: Docker on ECS' });
+  assert.deepEqual(view.must[2], { mark: 'missing', requirement: 'Rust', evidence: 'nothing in the record' });
+  assert.deepEqual(view.nice.map(item => item.requirement), ['Design systems']);
+  assert.deepEqual(view.gaps, [
+    "Add the MCP server to the resume's project list.",
+    'Write up the edge-cache work.',
+  ]);
+  assert.deepEqual(view.keywords, ['edge computing', 'D1', 'Workers']);
+  assert.deepEqual(view.projects, []);
+  assert.deepEqual(view.extra, [{ title: 'Resume', markdown: 'Backend, fintech.' }]);
+});
+
+check('a fit in the real shape keeps every item and every extra section', () => {
+  const view = parseFit(FIT_REAL);
+  assert.equal(view.recognised, true);
+  assert.deepEqual(view.verdict, { level: 'Stretch', why: 'strong systems record, no ML production.' });
+  assert.deepEqual(view.score, { value: 5, why: 'must-haves are half met.' });
+  assert.equal(view.must.length, 4);
+  /* The em dash inside the bold requirement is not the separator. */
+  assert.deepEqual(view.must[0], {
+    mark: 'met',
+    requirement: 'AI-native — orchestrate agents',
+    evidence: 'not "uses AI tools", but shipped tool loops and an evaluation harness.',
+  });
+  assert.equal(view.must[1].mark, 'adjacent');
+  assert.equal(view.must[2].mark, 'adjacent', '⚠ without U+FE0F is still adjacent');
+  assert.equal(view.must[3].mark, 'missing');
+  assert.deepEqual(view.nice.map(item => item.mark), ['met']);
+  assert.deepEqual(view.gaps, ['A project showing a production model.', 'A line about evaluation.']);
+  assert.deepEqual(view.keywords, ['RAG', 'evals', 'vector search']);
+  /* A slug that is not the shape `content-schema.ts` emits is dropped. */
+  assert.deepEqual(view.projects, [
+    { slug: 'echoscript', line: 'the agent tool loop is the closest thing to this role.' },
+    { slug: 'markov-chain-lab', line: 'shows the evaluation habit.' },
+  ]);
+  assert.deepEqual(view.extra.map(section => section.title), ['Resume', 'Route in', 'Note on the advert']);
+  assert.equal(view.extra[0].markdown, 'new variant');
+  assert.equal(view.extra[2].markdown, 'Posted twice this quarter.');
+});
+
+check('garbage, prose and CRLF are objects rather than throws', () => {
+  for (const input of ['', '   ', 'A paragraph about the role, with no structure at all.', null, undefined, 7]) {
+    const view = parseFit(input);
+    assert.equal(view.recognised, false);
+    assert.deepEqual(view.must, []);
+    assert.deepEqual(view.verdict, { level: null, why: '' });
+  }
+  assert.deepEqual(parseFit(FIT_REAL.replace(/\n/g, '\r\n')), parseFit(FIT_REAL));
+});
+
+check('a fit arriving one character at a time never throws and never loses an item', () => {
+  let seen = 0;
+  for (let end = 0; end <= FIT_REAL.length; end += 1) {
+    const view = parseFit(FIT_REAL.slice(0, end));
+    const count = view.must.length + view.nice.length;
+    assert.ok(count >= seen, `item count fell at ${end}: ${seen} → ${count}`);
+    seen = count;
+  }
+  assert.equal(seen, 5);
+});
+
+/* ---------- job view: contacts ---------- */
+
+check('a contact line splits into name, title and a link only when http(s)', () => {
+  assert.deepEqual(parseContact('Priya Raman — Technical Recruiter — https://www.linkedin.com/in/priya'), {
+    name: 'Priya Raman',
+    title: 'Technical Recruiter',
+    url: 'https://www.linkedin.com/in/priya',
+    raw: 'Priya Raman — Technical Recruiter — https://www.linkedin.com/in/priya',
+  });
+  for (const bad of [
+    'Priya Nair — javascript:alert(document.cookie)',
+    'Priya Nair — /in/priya',
+    'Priya Nair — data:text/html,x',
+  ]) {
+    const contact = parseContact(bad);
+    assert.equal(contact.name, 'Priya Nair');
+    assert.equal(contact.url, null, `${bad} is not a link`);
+  }
+  assert.deepEqual(parseContact('Priya Nair'), { name: 'Priya Nair', title: '', url: null, raw: 'Priya Nair' });
+  assert.equal(parseContact('').name, '');
+  /* A title may contain a spaced hyphen, and the link is still the last part. */
+  assert.deepEqual(parseContact('Priya Nair — Recruiter - India — https://example.com/priya'), {
+    name: 'Priya Nair',
+    title: 'Recruiter - India',
+    url: 'https://example.com/priya',
+    raw: 'Priya Nair — Recruiter - India — https://example.com/priya',
+  });
+  /* With no em dash at all, the plain hyphen is still the separator. */
+  const hyphenated = parseContact('Priya Nair - Engineer - https://example.com/priya');
+  assert.deepEqual(
+    { name: hyphenated.name, title: hyphenated.title, url: hyphenated.url },
+    { name: 'Priya Nair', title: 'Engineer', url: 'https://example.com/priya' },
+  );
+});
+
+check('a contact written back reads the same again', () => {
+  const contact = { name: 'Priya Raman', title: 'Technical Recruiter', url: 'https://example.com/priya' };
+  assert.equal(formatContact(contact), 'Priya Raman — Technical Recruiter — https://example.com/priya');
+  const again = parseContact(formatContact(contact));
+  assert.deepEqual(
+    { name: again.name, title: again.title, url: again.url },
+    contact,
+    'format → parse round-trips',
+  );
+  /* Without a link the title is still the second part, not a URL. */
+  assert.equal(formatContact({ name: 'Priya', title: 'Engineer', url: 'javascript:alert(1)' }), 'Priya — Engineer');
+});
+
+/* ---------- job view: outreach ---------- */
+
+check('kept drafts round-trip through the stored markdown', () => {
+  const drafts = [
+    { contact: 'Priya Nair', channel: 'LinkedIn note', text: 'Hi Priya, I build MCP servers and agent tooling end to end…' },
+    { contact: 'Arjun Mehta', channel: 'Referral ask', text: 'Hi Arjun, we overlapped at Initech…' },
+  ];
+  assert.deepEqual(parseOutreach(formatOutreach(drafts)), drafts);
+  assert.deepEqual(parseOutreach(''), []);
+  assert.deepEqual(parseOutreach(null), []);
+});
+
+check('a `## ` line inside a draft body starts a draft — the format’s one limit', () => {
+  /* Pinned, not accidental: the heading is the only delimiter the column has.
+     Drafts are messages, not markdown documents, so this is the trade taken. */
+  const tricky = [{ contact: 'Priya', channel: 'Email', text: 'One\n## Two\nThree' }];
+  const parsed = parseOutreach(formatOutreach(tricky));
+  assert.equal(parsed.length, 2);
+  assert.deepEqual(parsed[0], { contact: 'Priya', channel: 'Email', text: 'One' });
+  assert.deepEqual(parsed[1], { contact: 'Two', channel: '', text: 'Three' });
+});
+
+check('the channel table is closed and its instructions name the person', () => {
+  assert.deepEqual(Object.keys(OUTREACH_CHANNELS), ['note', 'message', 'referral', 'email', 'followup']);
+  assert.equal(OUTREACH_CHANNELS.note.limit, 200);
+  assert.equal(OUTREACH_CHANNELS.message.limit, 600);
+  assert.equal(OUTREACH_CHANNELS.email.unit, 'words');
+
+  const priya = { name: 'Priya Raman', title: 'Technical Recruiter', url: null, raw: '' };
+  assert.equal(outreachInstruction(priya, 'note'), 'LinkedIn connection note to Priya, Technical Recruiter');
+  assert.match(outreachInstruction(priya, 'referral'), /refer me for this role/);
+  assert.match(outreachInstruction(priya, 'followup', '2026-11-01'), /applied on 2026-11-01/);
+});
+
+check('a draft is measured by the page, at the limit and one over', () => {
+  assert.deepEqual(measure('x'.repeat(200), 'note'), {
+    count: 200,
+    limit: 200,
+    unit: 'characters',
+    over: false,
+  });
+  assert.equal(measure('x'.repeat(201), 'note').over, true);
+  const words = count => Array.from({ length: count }, () => 'word').join(' ');
+  assert.deepEqual(measure(words(150), 'email'), { count: 150, limit: 150, unit: 'words', over: false });
+  assert.equal(measure(words(151), 'email').over, true);
+  assert.equal(measure('', 'email').count, 0);
+});
+
+/* ---------- job view: what to do next ---------- */
+
+const FIT_GOOD = `**Verdict:** Reasonable — ok.
+**Score:** 6/10 — fine.
+
+### Must-haves
+- ✅ **TypeScript** — yes`;
+
+const FIT_POOR = FIT_GOOD.replace('Reasonable', 'Poor');
+const TODAY = '2026-11-10';
+const ready = { jobDescription: 'the advert', fit: FIT_GOOD, status: 'saved' };
+
+check('nextAction: no advert comes before everything', () => {
+  const next = nextAction({}, TODAY);
+  assert.match(next.text, /Paste the advert/);
+  assert.equal(next.tab, 'overview');
+  assert.equal(next.button, 'Paste the advert');
+  assert.equal(next.act, 'details', 'the action is data, not a match on the label');
+});
+
+check('nextAction: an advert with no assessment asks for one', () => {
+  const next = nextAction({ jobDescription: 'the advert', fit: '' }, TODAY);
+  assert.equal(next.act, 'assess');
+  assert.equal(next.tab, 'fit');
+});
+
+check('nextAction: a Poor verdict on a saved row is information, not a change', () => {
+  const next = nextAction({ ...ready, fit: FIT_POOR }, TODAY);
+  assert.match(next.text, /scored Poor/);
+  assert.equal(next.tab, 'overview');
+  assert.equal(next.act, 'notes');
+});
+
+check('nextAction: a saved row with no resume variant goes to Resume', () => {
+  const next = nextAction(ready, TODAY);
+  assert.equal(next.tab, 'resume');
+  assert.equal(next.act, undefined);
+});
+
+check('nextAction: a contact with no kept draft asks for the referral', () => {
+  const next = nextAction(
+    { ...ready, resumeVariant: 'backend', contacts: ['Priya Nair — Staff Engineer — https://example.com/priya'] },
+    TODAY,
+  );
+  assert.match(next.text, /Ask before you apply/);
+  assert.equal(next.tab, 'outreach');
+  assert.equal(next.act, 'draft');
+  /* Once a draft is kept, the same row is ready to apply. */
+  const kept = nextAction(
+    {
+      ...ready,
+      resumeVariant: 'backend',
+      contacts: ['Priya Nair — Staff Engineer'],
+      outreach: '## Priya Nair · LinkedIn note\nHi Priya…',
+    },
+    TODAY,
+  );
+  assert.equal(kept.act, 'applied');
+});
+
+check('nextAction: a saved row with everything else in place is ready to apply', () => {
+  const next = nextAction({ ...ready, resumeVariant: 'backend' }, TODAY);
+  assert.match(next.text, /Ready to apply/);
+  assert.equal(next.act, 'applied');
+});
+
+check('nextAction: a due follow-up comes before the one-week rule', () => {
+  const next = nextAction(
+    { ...ready, status: 'applied', appliedOn: '2026-11-01', nextOn: '2026-11-09', nextStep: 'Follow up with Priya' },
+    TODAY,
+  );
+  assert.equal(next.text, 'Follow-up is due: Follow up with Priya.');
+  assert.equal(next.tab, 'outreach');
+  assert.equal(next.act, undefined);
+});
+
+check('nextAction: a week after applying with nothing scheduled asks for a follow-up', () => {
+  const next = nextAction({ ...ready, status: 'applied', appliedOn: '2026-11-01' }, TODAY);
+  assert.match(next.text, /A week since you applied/);
+  assert.equal(next.tab, 'outreach');
+  assert.equal(next.act, undefined);
+});
+
+check('nextAction: a closed row is never due a follow-up', () => {
+  for (const status of ['rejected', 'withdrawn']) {
+    const next = nextAction(
+      { ...ready, status, appliedOn: '2026-11-01', nextOn: '2026-11-09', nextStep: 'Follow up with Priya' },
+      TODAY,
+    );
+    assert.deepEqual(next, { text: 'Nothing due.', button: '', tab: 'overview' });
+  }
+});
+
+check('nextAction: otherwise nothing is due, and there is no button', () => {
+  const next = nextAction({ ...ready, status: 'applied', appliedOn: '2026-11-09' }, TODAY);
+  assert.equal(next.text, 'Nothing due.');
+  assert.equal(next.button, '');
+});
+
+/* ---------- job view: searches ---------- */
+
+check('people searches are strings the owner can paste, never a request', () => {
+  const searches = peopleSearches('Acme', 'Senior Full-Stack Builder');
+  assert.equal(searches.length, 3);
+  assert.equal(searches[0], 'Acme technical recruiter');
+  assert.equal(searches[1], 'Acme engineering manager Senior Full-Stack');
+  assert.equal(searches[2], 'Acme talent acquisition');
+});
+
+check('job-view holds no import, so plain Node can load it', () => {
+  const source = readFileSync(new URL('../src/lib/job-view.ts', import.meta.url), 'utf8').replace(
+    /\/\*[\s\S]*?\*\//g,
+    ' ',
+  );
+  assert.doesNotMatch(source, /^\s*import\b/m, 'it must stay import-free like job-boards.ts');
 });
 
 assert(new BadRequest('x') instanceof Error, 'BadRequest is the shared refusal type');

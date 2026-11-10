@@ -99,6 +99,20 @@ for (const table of ['projects', 'case_studies', 'journal', 'documents']) {
   }
 }
 
+// A case study is several pages since decision 81: its overview, one per
+// chapter, and the page of the project that links it (which shows its numbers).
+{
+  const paths = affected('case_studies', 'echoscript', { chapters: ['the-pipeline', 'results'], projects: ['echoscript', 'echoscript-v2'] });
+  for (const page of ['/case-studies/echoscript', '/case-studies/echoscript/the-pipeline', '/case-studies/echoscript/results', '/projects/echoscript', '/projects/echoscript-v2']) {
+    assert.ok(paths.includes(page), `a case-study write must purge ${page}`);
+  }
+  // Nothing to say about chapters is the old behaviour exactly.
+  assert.deepEqual(affected('case_studies', 'echoscript', {}), affected('case_studies', 'echoscript'));
+  // And the extra pages belong to case studies only: a project write handed
+  // chapters by mistake does not invent URLs under /projects.
+  assert.deepEqual(affected('projects', 'x', { chapters: ['a'], projects: ['y'] }), affected('projects', 'x'));
+}
+
 // Handed out fresh: a caller that sorted or spliced the result must not be
 // editing the next caller's list.
 affected('projects', 'x').push('/mutated');

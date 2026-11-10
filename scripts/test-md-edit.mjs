@@ -317,6 +317,54 @@ function applyWithSelection(text, edit) {
   assert.deepEqual(s.headings.map(h => h.line), [0, 2], 'and each knows its own line');
 }
 
+/* ------------------------------------------- pasted images, drawings --- */
+
+{
+  // A pasted image lands as its own block, padded off the paragraph it was
+  // pasted into, and the caret goes after it.
+  const text = 'before\nafter';
+  const edit = md.insertImageLine(text, { start: 6, end: 6 }, 'Uploading shot…', '#k1');
+  const after = apply(text, edit);
+  assert.equal(after, 'before\n\n![Uploading shot…](#k1)\n\nafter');
+  assert.equal(after.slice(0, edit.selStart).endsWith('(#k1)'), true, 'the caret sits after the image');
+  assert.equal(md.uploadPlaceholder('shot', 'k1'), '![Uploading shot…](#k1)', 'the placeholder is exactly what was inserted');
+}
+{
+  // Alt text cannot close itself early.
+  const edit = md.insertImageLine('', { start: 0, end: 0 }, 'a [b] c', '/media/x.png');
+  assert.equal(apply('', edit), '![a b c](/media/x.png)');
+}
+{
+  // The upload finishes after the author typed above it: the placeholder is
+  // found where it has moved to, and only that one is replaced.
+  const placeholder = md.uploadPlaceholder('shot', 'k2');
+  const text = `typed meanwhile\n\n![Uploading other…](#k1)\n\n${placeholder}\n`;
+  const fix = md.replaceText(text, placeholder, '![shot](/media/images/journal/p-k2.png)');
+  assert.equal(apply(text, fix), 'typed meanwhile\n\n![Uploading other…](#k1)\n\n![shot](/media/images/journal/p-k2.png)\n');
+  assert.equal(md.replaceText('the author deleted it', placeholder, 'x'), null, 'a deleted placeholder is not an error');
+}
+{
+  // Edit drawing: the drawing on the caret's line, and nothing else.
+  const text = 'para\n\n![Drawing](/media/images/drawings/post-ab12.svg)\n\n![Photo](/media/images/journal/p.png)';
+  const onDrawing = text.indexOf('Drawing');
+  assert.deepEqual(md.drawingAt(text, onDrawing), { url: '/media/images/drawings/post-ab12.svg', name: 'post-ab12' });
+  assert.equal(md.drawingAt(text, 2), null, 'a paragraph is not a drawing');
+  assert.equal(md.drawingAt(text, text.indexOf('Photo')), null, 'an uploaded photo is not a drawing');
+  assert.equal(md.drawingAt('![x](/media/images/diagrams/m.svg)', 3), null, 'a Mermaid diagram has no scene to reopen');
+  assert.equal(md.drawingAt('![x](/media/images/drawings/../../x.svg)', 3), null, 'a path that is not a plain stem is not reopened');
+  assert.equal(md.drawingName('/media/images/drawings/arch-1.svg'), 'arch-1');
+  assert.equal(md.drawingName('/media/images/case-studies/arch.png'), null);
+  assert.equal(md.drawingName('https://evil.example/x?/media/images/drawings/a.svg'), null, 'a value that only contains a drawing path is not one');
+  assert.equal(md.drawingName('/media/images/drawings/a.svg#x'), null, 'nor one with anything after it');
+  assert.equal(md.drawingName('  /media/images/drawings/a-1.svg '), 'a-1', 'surrounding spaces are a typing accident');
+}
+{
+  // Insert outline pads both sides, so text after the caret stays its own paragraph.
+  const text = 'Intro paragraph.';
+  const after = apply(text, md.insertBlock(text, { start: 0, end: 0 }, '## Design\n\n_brief_\n'));
+  assert.equal(after, '## Design\n\n_brief_\n\nIntro paragraph.');
+}
+
 assert.equal(md.duration(75), '1:15');
 assert.equal(md.duration(0), '', 'a zero duration is no duration');
 assert.equal(md.duration(3600), '60:00');

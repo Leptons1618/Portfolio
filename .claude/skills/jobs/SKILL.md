@@ -42,6 +42,7 @@ assistant cannot see one. The resume it tailors is the `resume` document. Decisi
 | `url` | The posting. |
 | `jobDescription` | The advert, **verbatim**. Not a summary — postings get taken down, and the fit and the variant are both answers to this text. |
 | `fit` | The assessment, as markdown (below). |
+| `outreach` | Kept drafts, as markdown: one `## Contact · Channel` section each. The channel labels are LinkedIn note, LinkedIn message, Referral ask, Email and Follow-up. Keeping a new draft for the same contact and channel replaces the old one. The screen's Mark sent appends a dated note; you never send anything. |
 | `resumeVariant` | The `id` of a variant in the resume document. |
 | `contacts` | A list of `"Name — title — profile URL"`. Only people the owner named or pasted. Never look anyone up, never guess an email. The CLI's `contacts=` splits on commas, so an entry with a comma in it ("Director, Engineering") goes in through `portfolio edit` or the MCP tools. |
 | `appliedOn`, `nextOn` | `YYYY-MM-DD`. Nothing checks the format, and "what's due" compares them as text — so get it right. |
@@ -97,6 +98,9 @@ report the verdict and the top two gaps in chat:
 ### Keywords for the ATS
 Terms from the advert that are true of the owner and missing from the resume.
 
+### Projects to lead with
+- <project-slug> — one sentence saying why this project makes the case for this role
+
 ### Resume
 An existing variant id that fits, or "new variant" and what it should select.
 ```
@@ -105,6 +109,10 @@ An existing variant id that fits, or "new variant" and what it should select.
 is ⚠️ and named as adjacent. A requirement stated in years is counted from the
 roles' `start`/`end`, not estimated. A generous score helps nobody: it decides
 where the owner spends a week of applications.
+
+**Three to five projects**, strongest first — fewer only when fewer genuinely
+fit. The slug must be one from `portfolio_list project`, and read the project
+before writing its line.
 
 ## Tailor the resume
 

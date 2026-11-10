@@ -31,6 +31,7 @@ import { getToken } from './github';
 import { MAX_MEDIA_BYTES, MEDIA_TYPES } from './media';
 import { openMediaLibrary } from './media-library';
 import { toast } from './admin';
+import { insertImageLine, replaceText, uploadPlaceholder } from './md-edit';
 
 export interface ImageUploadOptions {
   /** Storage directory, unslashed at both ends — `images/projects`. */
@@ -289,6 +290,14 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
     const file = event.dataTransfer?.files?.[0];
     if (file) void upload(file);
   });
+  /* A screenshot pasted while the frame has focus — the frame is a button, so
+     it can hold focus, and a paste is the quickest way a screenshot arrives. */
+  frame.addEventListener('paste', event => {
+    const [file] = imageFiles(event.clipboardData);
+    if (!file) return;
+    event.preventDefault();
+    void upload(file);
+  });
 
   /** The frame's busy state — a spinner over whatever it is currently showing. */
   function setUploading(on: boolean, label = 'Uploading…') {
@@ -302,28 +311,10 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
   }
 
   async function upload(file: File): Promise<void> {
-    const extension = MEDIA_TYPES[file.type];
-    if (!extension) {
-      const message = `${file.type || 'That file'} is not an image this site can serve. Use ${ACCEPTED}.`;
-      say(message, 'error');
-      toast(message, { tone: 'error' });
-      return;
-    }
-    if (file.size > MAX_MEDIA_BYTES) {
-      const message =
-        `${fileSize(file.size)} is too large for a page image — resize it under ` +
-        `${fileSize(MAX_MEDIA_BYTES)} first. WebP at about 1600px wide is what the rest of the site uses.`;
-      say(message, 'error');
-      toast(`That image is ${fileSize(file.size)} — the ceiling is ${fileSize(MAX_MEDIA_BYTES)}.`, {
-        tone: 'error',
-      });
-      return;
-    }
-    const token = getToken();
-    if (!token) {
-      const message = 'Uploading writes to the site, so it needs a session. Sign in from the rail.';
-      say(message, 'error');
-      toast(message, { tone: 'error' });
+    const problem = refusal(file);
+    if (problem) {
+      say(problem, 'error');
+      toast(problem, { tone: 'error' });
       return;
     }
 
@@ -334,25 +325,12 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
     const pending = toast(`Uploading ${file.name}…`, { tone: 'pending' });
 
     try {
-      /* The bytes go up as the request body rather than base64 inside JSON: the
-         endpoint stores them as a BLOB, so there is no envelope inflating them
-         by a third on the way. */
-      const query = new URLSearchParams({ dir: options.dir, name: stem });
-      const response = await fetch(`/api/media?${query}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': file.type },
-        body: await file.arrayBuffer(),
-      });
-      const result = (await response.json().catch(() => ({}))) as { url?: string; error?: string };
-      if (!response.ok || !result.url) {
-        throw new Error(result.error ?? `The upload failed (${response.status}).`);
-      }
-
-      input.value = result.url;
+      const url = await putMedia(file, options.dir, stem);
+      input.value = url;
       say(`Uploaded — ${fileSize(file.size)}. Save the form to reference it.`, 'success');
       pending.update('Image uploaded. Save the form to reference it.', {
         tone: 'success',
-        action: { label: 'open the file ↗', href: result.url },
+        action: { label: 'open the file ↗', href: url },
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'The upload failed.';
@@ -364,4 +342,142 @@ export function attachImageUpload(input: HTMLInputElement, options: ImageUploadO
   }
 
   show();
+}
+
+/** Why this file cannot be uploaded from here, or `null` when it can. */
+function refusal(file: File): string | null {
+  if (!MEDIA_TYPES[file.type]) {
+    return `${file.type || 'That file'} is not an image this site can serve. Use ${ACCEPTED}.`;
+  }
+  if (file.size > MAX_MEDIA_BYTES) {
+    return (
+      `${fileSize(file.size)} is too large for a page image — resize it under ` +
+      `${fileSize(MAX_MEDIA_BYTES)} first. WebP at about 1600px wide is what the rest of the site uses.`
+    );
+  }
+  if (!getToken()) return 'Uploading writes to the site, so it needs a session. Sign in from the rail.';
+  return null;
+}
+
+/**
+ * Store the bytes and answer with the `/media/…` URL they are served from.
+ * One request for every way an image arrives on this surface — an image
+ * field's picker, a drop, a paste into a write-up — so they cannot disagree
+ * about the endpoint, the headers or what a refusal says.
+ */
+export async function putMedia(file: File, dir: string, name: string): Promise<string> {
+  /* The bytes go up as the request body rather than base64 inside JSON: the
+     endpoint stores them as a BLOB, so there is no envelope inflating them by
+     a third on the way. */
+  const query = new URLSearchParams({ dir, name });
+  const response = await fetch(`/api/media?${query}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${getToken() ?? ''}`, 'Content-Type': file.type },
+    body: await file.arrayBuffer(),
+  });
+  const result = (await response.json().catch(() => ({}))) as { url?: string; error?: string };
+  if (!response.ok || !result.url) throw new Error(result.error ?? `The upload failed (${response.status}).`);
+  return result.url;
+}
+
+/**
+ * The image files a paste or a drop carries — or none, when it is a text
+ * paste that happens to carry an image too.
+ *
+ * Rich text copied from a document or a web page arrives as `text/plain` *and*
+ * `text/html`, sometimes with an image alongside; that is a paste of words and
+ * stays one. Everything else that carries an image file is an image: a
+ * screenshot (no text at all), "Copy image" in a browser (HTML, no plain text),
+ * a file copied in Finder (its name as plain text, no HTML).
+ */
+function imageFiles(data: DataTransfer | null): File[] {
+  if (!data) return [];
+  const files = [...data.files].filter(file => file.type.startsWith('image/'));
+  const richText = data.types.includes('text/plain') && data.types.includes('text/html');
+  return richText ? [] : files;
+}
+
+/**
+ * Paste or drop images into a markdown body — the journal's, a case study's.
+ *
+ * Each image gets a placeholder line at the caret at once, uploads, and is
+ * swapped for `![name](/media/…)` when the bytes are stored; a failure removes
+ * the placeholder and says why. Edits go through `setRangeText`, so the
+ * textarea's own undo keeps working, and an `input` event follows each one
+ * because a range edit fires none and the editors' dirty tracking, autosave
+ * and preview all listen for it. The text transforms are the pure ones in
+ * `md-edit.ts`, which `check:editor` tests.
+ *
+ * Every image gets its own name — `<name>-<id>` — because `/api/media`
+ * replaces by path, and three screenshots pasted into one post must not be
+ * one file overwritten twice.
+ */
+export function attachMarkdownImages(area: HTMLTextAreaElement, options: ImageUploadOptions): void {
+  let sequence = 0;
+
+  const changed = () => area.dispatchEvent(new Event('input', { bubbles: true }));
+
+  /**
+   * Swap a placeholder without moving the author. Not `setRangeText(…,
+   * 'preserve')`: under it a caret sitting at the placeholder's end — exactly
+   * where a paste leaves it — becomes a selection of the whole new line, and
+   * the next keystroke deletes the image. The selection is carried across by
+   * hand instead: shifted when it is after the swap, parked after the new text
+   * when it was inside it.
+   */
+  const swap = (fix: { from: number; to: number; insert: string }) => {
+    const { selectionStart, selectionEnd } = area;
+    const shift = fix.insert.length - (fix.to - fix.from);
+    const carry = (at: number) => (at >= fix.to ? at + shift : at > fix.from ? fix.from + fix.insert.length : at);
+    area.setRangeText(fix.insert, fix.from, fix.to);
+    area.setSelectionRange(carry(selectionStart), carry(selectionEnd));
+    changed();
+  };
+
+  const place = (file: File) => {
+    const problem = refusal(file);
+    if (problem) {
+      toast(problem, { tone: 'error' });
+      return;
+    }
+    const id = `${Date.now().toString(36)}${(sequence++).toString(36)}`;
+    const stem = stemOf(file.name) || 'image';
+    const placeholder = uploadPlaceholder(stem, id);
+    const edit = insertImageLine(area.value, { start: area.selectionStart, end: area.selectionEnd }, `Uploading ${stem}…`, `#${id}`);
+    area.setRangeText(edit.insert, edit.from, edit.to, 'end');
+    area.setSelectionRange(edit.selStart, edit.selEnd);
+    changed();
+
+    const name = `${slugify(options.name()) || 'image'}-${id}`;
+    void putMedia(file, options.dir, name).then(
+      url => {
+        const fix = replaceText(area.value, placeholder, `![${stem}](${url})`);
+        if (!fix) return;
+        swap(fix);
+        toast(`${file.name} uploaded. Save to keep it in the post.`, { tone: 'success' });
+      },
+      (error: unknown) => {
+        const fix = replaceText(area.value, placeholder, '');
+        if (fix) swap(fix);
+        toast(error instanceof Error ? error.message : 'The upload failed.', { tone: 'error' });
+      },
+    );
+  };
+
+  area.addEventListener('paste', event => {
+    const files = imageFiles(event.clipboardData);
+    if (!files.length) return;
+    event.preventDefault();
+    files.forEach(place);
+  });
+  area.addEventListener('dragover', event => {
+    if (event.dataTransfer?.types.includes('Files')) event.preventDefault();
+  });
+  area.addEventListener('drop', event => {
+    const files = imageFiles(event.dataTransfer);
+    if (!files.length) return;
+    event.preventDefault();
+    area.focus();
+    files.forEach(place);
+  });
 }

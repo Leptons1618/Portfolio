@@ -67,6 +67,15 @@ export interface CaseStudyData {
   demoUrl?: string;
   date: string;
   readTime?: string;
+  /** What the owner did — "Solo — design, backend, ML". */
+  role?: string;
+  team?: string;
+  /** "<value> | <label>" lines; `metricsOf()` in `chapters.ts` reads them. */
+  metrics: string[];
+  /** "<Label> | <url>" lines; `linksOf()` drops anything not http(s). */
+  links: string[];
+  /** Read the write-up as one page per `## ` section. Decision 81. */
+  paged: boolean;
 }
 
 export interface PostData {
@@ -202,6 +211,11 @@ const toCaseStudy = (r: Row): CaseStudy => ({
     demoUrl: opt(r.demo_url),
     date: r.date,
     readTime: opt(r.read_time),
+    role: opt(r.role),
+    team: opt(r.team),
+    metrics: list(r.metrics),
+    links: list(r.links),
+    paged: r.paged === 1,
   },
 });
 

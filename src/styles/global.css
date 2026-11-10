@@ -287,6 +287,18 @@ pre {
   filter: grayscale(1) contrast(1.08);
 }
 
+/* — drawings: Excalidraw exports dark ink on white, so a dark page inverts it
+   the way Excalidraw's own dark mode does. Only `/media/images/drawings/`:
+   Mermaid diagrams under `images/diagrams/` bake their colours (decision 25).
+   Written twice for the two-axis mode, like every theme file's dark ramp, and
+   screen-only — paper has no dark mode. Decision 82. — */
+@media screen {
+  :root[data-mode='dark'] img[src^='/media/images/drawings/'] { filter: invert(0.93) hue-rotate(180deg); }
+}
+@media screen and (prefers-color-scheme: dark) {
+  :root:not([data-mode='light']) img[src^='/media/images/drawings/'] { filter: invert(0.93) hue-rotate(180deg); }
+}
+
 /* — rules — */
 .hr {
   height: 2px;

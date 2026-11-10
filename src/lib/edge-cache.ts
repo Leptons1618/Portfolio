@@ -103,8 +103,16 @@ const LISTINGS = ['/', '/projects', '/journal', '/resume', '/sitemap.xml'];
  *
  * `documents` — the resume, the two saved orders — has no page of its own; its
  * rows are read *by* the listings, which is why the default is those alone.
+ *
+ * A case study is more than one page since decision 81: one per chapter, and
+ * the page of every project that links it, which shows its numbers. The caller reads both
+ * from the database — this module imports nothing — and passes them in.
  */
-export function affected(table: string, slug: string): string[] {
+export function affected(
+  table: string,
+  slug: string,
+  study: { chapters?: string[]; projects?: string[] } = {},
+): string[] {
   const page =
     table === 'projects'
       ? `/projects/${slug}`
@@ -113,7 +121,14 @@ export function affected(table: string, slug: string): string[] {
         : table === 'journal'
           ? `/journal/${slug}`
           : null;
-  return page ? [...LISTINGS, page] : [...LISTINGS];
+  if (!page) return [...LISTINGS];
+  if (table !== 'case_studies') return [...LISTINGS, page];
+  return [
+    ...LISTINGS,
+    page,
+    ...(study.chapters ?? []).map(id => `${page}/${id}`),
+    ...(study.projects ?? []).map(project => `/projects/${project}`),
+  ];
 }
 
 /**

@@ -1,0 +1,94 @@
+---
+/**
+ * Click to enlarge, for the images in a case study.
+ *
+ * An architecture drawing set in an 8-column track is a picture of a diagram
+ * rather than a diagram you can read. Live Excalidraw on the page would let a
+ * reader zoom, at the price of React and Excalidraw on every case-study load —
+ * decision 82 rejects that — so an image under any `[data-zoom]` container
+ * opens at the viewport's size in a native modal `<dialog>` instead. The top
+ * layer, focus and Escape are the platform's; only the backdrop click is
+ * wired. Nothing is fetched: the image is the one already on the page.
+ *
+ * Images are made focusable and open on Enter as well as a click, because a
+ * control a mouse can reach and a keyboard cannot is not a control.
+ */
+import { Icon } from 'astro-icon/components';
+---
+<dialog class="lightbox" id="lightbox" aria-label="Enlarged image">
+  <img class="lightbox-img" id="lightbox-img" alt="" />
+  <button type="button" class="lightbox-close" id="lightbox-close" aria-label="Close">
+    <Icon name="lucide:x" class="lightbox-icon" />
+  </button>
+</dialog>
+<script>
+  const dialog = document.getElementById('lightbox') as HTMLDialogElement | null;
+  const large = document.getElementById('lightbox-img') as HTMLImageElement | null;
+  if (dialog && large) {
+    const open = (img: HTMLImageElement) => {
+      /* The attribute, not `currentSrc`: the dark-mode rule that inverts a
+         drawing matches the site-relative path, and `currentSrc` is absolute. */
+      large.src = img.getAttribute('src') ?? img.src;
+      large.alt = img.alt;
+      /* A photograph inside `.grayscale` prints in black and white on the page;
+         enlarged, it should be the same picture. */
+      large.classList.toggle('grayscale', Boolean(img.closest('.grayscale')));
+      dialog.showModal();
+    };
+    document.querySelectorAll<HTMLImageElement>('[data-zoom] img').forEach(img => {
+      img.tabIndex = 0;
+      img.title = 'Enlarge';
+      img.addEventListener('click', () => open(img));
+      img.addEventListener('keydown', event => {
+        if (event.key === 'Enter') open(img);
+      });
+    });
+    /* The backdrop, and the enlarged image itself (it reads `zoom-out`). */
+    dialog.addEventListener('click', event => {
+      if (event.target === dialog || event.target === large) dialog.close();
+    });
+    document.getElementById('lightbox-close')?.addEventListener('click', () => dialog.close());
+  }
+</script>
+<style>
+  :global([data-zoom] img) { cursor: zoom-in; }
+
+  .lightbox {
+    max-width: 96vw;
+    max-height: 92vh;
+    padding: var(--space-3);
+    border: 1px solid var(--color-divider);
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+  .lightbox::backdrop { background: color-mix(in srgb, var(--color-bg) 80%, transparent); }
+  /* An explicit width, not `auto`: a diagram is an SVG whose root says
+     `width="100%"`, which has no intrinsic size, so inside a dialog that
+     shrinks to fit its content an auto-width image is zero pixels wide. The
+     height follows the ratio and is capped; `contain` keeps a tall one whole. */
+  .lightbox-img {
+    display: block;
+    width: min(1600px, calc(96vw - 2 * var(--space-3)));
+    height: auto;
+    max-height: calc(92vh - 2 * var(--space-3));
+    object-fit: contain;
+    cursor: zoom-out;
+  }
+  .lightbox-close {
+    position: absolute;
+    top: var(--space-2);
+    right: var(--space-2);
+    display: inline-grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    cursor: pointer;
+    color: var(--color-text);
+    background: var(--color-surface);
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md);
+  }
+  .lightbox-icon { width: 18px; height: 18px; }
+  @media print { .lightbox { display: none; } }
+</style>

@@ -5,6 +5,7 @@ import PathLine from '../../components/PathLine.astro';
 import SectionSep from '../../components/SectionSep.astro';
 import { categoryLabel, getCaseStudy, getProject, getProjects } from '../../lib/content';
 import { formatDate } from '../../lib/format';
+import { metricsOf, splitChapters } from '../../lib/chapters';
 
 /* Read from D1 per request. `getProject` applies the same `hidden` filter the
    listing does, so a retired project's URL 404s rather than staying reachable
@@ -41,6 +42,9 @@ const contents = study
       .slice(0, 10)
   : [];
 const studyWords = study ? study.body.split(/\s+/).filter(Boolean).length : 0;
+/* A study read as chapters lists them as links — each is a page of its own. */
+const chapterLinks = study?.data.paged ? splitChapters(study.html).chapters.slice(0, 10) : [];
+const studyMetrics = study ? metricsOf(study.data.metrics) : [];
 
 /* Related by shared tags, strongest overlap first — the old filter took the
    first eight that shared *any* tag, in featured order. */
@@ -190,6 +194,19 @@ const tagHref = (tag: string) => `/projects?tags=${encodeURIComponent(tag)}`;
                 </h3>
                 <p class="study-subtitle">{study.data.subtitle}</p>
 
+                {/* The numbers first: a recruiter often lands on this page and
+                    never opens the study. */}
+                {studyMetrics.length > 0 && (
+                  <ul class="study-metrics">
+                    {studyMetrics.map(card => (
+                      <li class="study-metric">
+                        <span class="study-metric-value">{card.value}</span>
+                        {card.label && <span class="study-metric-label">{card.label}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
                 <div class="study-split">
                   <div class="study-block">
                     <p class="study-label">The problem</p>
@@ -213,7 +230,14 @@ const tagHref = (tag: string) => `/projects?tags=${encodeURIComponent(tag)}`;
                   </div>
                 )}
 
-                {contents.length > 0 && (
+                {chapterLinks.length > 0 ? (
+                  <div class="study-block">
+                    <p class="study-label">Chapters</p>
+                    <ol class="study-contents">
+                      {chapterLinks.map(chapter => <li><a href={`/case-studies/${study.slug}/${chapter.id}`}>{chapter.title}</a></li>)}
+                    </ol>
+                  </div>
+                ) : contents.length > 0 && (
                   <div class="study-block">
                     <p class="study-label">Inside the write-up</p>
                     <ol class="study-contents">
@@ -390,6 +414,23 @@ const tagHref = (tag: string) => `/projects?tags=${encodeURIComponent(tag)}`;
   .study-subtitle { margin: calc(-1 * var(--space-2)) 0 0; font-size: 15px; line-height: 1.55; opacity: 0.8; }
   .study-split { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
   .study-block { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+  .study-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: var(--space-2);
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .study-metric {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--color-accent);
+  }
+  .study-metric-value { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 22px; line-height: 1.1; color: var(--color-text); overflow-wrap: anywhere; }
+  .study-metric-label { font-size: 12px; color: var(--color-text-muted); }
   .study-label {
     margin: 0;
     font-family: var(--font-mono);

@@ -14,6 +14,37 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **An application is a workspace, not a form.** `/admin/jobs/<slug>` is now four
+  tabs — Overview, Fit, Resume & projects and Outreach. The advert is readable at
+  a measure; the fit is a two-column comparison with filters; the chosen resume
+  variant's facts and the fit's project shortlist sit beside the keywords the
+  resume is missing; and each contact has a card that drafts a message in place,
+  measures it against the channel's limit, keeps it, and marks it sent. Everything
+  shown is derived from the stored markdown on read; `outreach` is one new
+  markdown column (migration 0017). "Build a variant from this advert" hands the
+  advert to the Resume screen through sessionStorage, never a URL, and that
+  screen offers it as a variant to build. Decision **83**.
+
+- **Case studies as an overview and chapters.** Four new facts on a case study —
+  your role, the team, up to four key numbers and labelled links — shown on its
+  overview and on its project's page; no assistant task can write them. With
+  **Split into chapters** on, each `## ` of the write-up is its own page at
+  `/case-studies/<slug>/<heading>`, with a chapter rail and previous/next;
+  off, nothing changes. A renamed heading redirects to the overview. Images in
+  a case study open full-size on click. Migration 0016, decision **81**.
+- **Excalidraw drawings that stay editable.** Draw on the case-study tab, the
+  architecture image field and the journal editor; the drawing is saved as an
+  SVG with its scene inside it, so Edit drawing reopens it and a save replaces
+  it everywhere it is shown. Readers get a plain image — the editor never loads
+  on a public page, and the build fails if it could. From Mermaid turns a
+  diagram's source into shapes to move by hand. Drawings invert in dark mode.
+  Decision **82**.
+- **Paste or drop images into a write-up.** A screenshot pasted into the journal
+  body or a case study's write-up uploads and becomes an image line; rich text
+  still pastes as text.
+- **Insert outline** puts a starting set of chapters for the project's kind at
+  the caret, and the long case-study writer plans from the same outline.
+
 - **A Jobs screen, and job discovery.** `/admin/jobs` lists every application by
   status with overdue follow-ups flagged; `/admin/jobs/<slug>` edits one, with
   `/assess-fit` writing the fit assessment into its field and `/draft-outreach`

@@ -3,8 +3,10 @@ import BaseLayout from './BaseLayout.astro';
 import PathLine from '../components/PathLine.astro';
 import SectionSep from '../components/SectionSep.astro';
 import Tag from '../components/Tag.astro';
+import Lightbox from '../components/Lightbox.astro';
 import { Icon } from 'astro-icon/components';
 import { formatDate } from '../lib/format';
+import { linksOf, metricsOf, type Chapter } from '../lib/chapters';
 
 /** A neighbouring case study in the prev/next footer. */
 export interface Neighbour { slug: string; title: string }
@@ -13,15 +15,33 @@ interface Props {
   title: string; subtitle: string; heroImage?: string; heroVideo?: string;
   problem: string; solution: string; architectureImage?: string; achievements: string[];
   stack: string[]; repoUrl?: string; demoUrl?: string; date: string; readTime?: string;
+  role?: string; team?: string; metrics: string[]; links: string[];
   /* Resolved by the page: the design's eyebrow reads "{category} · {year}",
      neither of which a case study carries. */
   eyebrow: string;
+  /* Present when the study is read as chapters (decision 81): the slot then
+     holds only the write-up's opening, and these are listed under it. */
+  chapters?: Chapter[] | null;
   prev?: Neighbour | null; next?: Neighbour | null;
 }
 const {
   title, subtitle, heroImage, heroVideo, problem, solution, architectureImage,
-  achievements, stack, repoUrl, demoUrl, date, readTime, eyebrow, prev = null, next = null,
+  achievements, stack, repoUrl, demoUrl, date, readTime, role, team, eyebrow,
+  chapters = null, prev = null, next = null,
 } = Astro.props;
+
+const cards = metricsOf(Astro.props.metrics);
+const extraLinks = linksOf(Astro.props.links);
+/* "Solo — design, backend, ML · Solo" says the same word twice; a team that
+   only repeats the role's opening is left out. */
+const facts = [role, team && !role?.startsWith(team) ? team : undefined].filter(Boolean) as string[];
+
+/* The sections are numbered as a specification is, so the number follows
+   whichever of them this study has. */
+const sections = ['problem', 'solution', ...(architectureImage ? ['architecture'] : []),
+  ...(chapters?.length ? ['chapters'] : []), 'achievements', 'stack'];
+const num = (name: string) => String(sections.indexOf(name) + 1).padStart(2, '0');
+const base = Astro.url.pathname.replace(/\/+$/, '');
 
 /* The prompt's cwd is the URL — the layout takes no slug, and the path bar is
    already the one thing that names where a reader is. */
@@ -36,6 +56,7 @@ const glance: [string, string][] = [
   ['stack', `${stack.length} ${stack.length === 1 ? 'tool' : 'tools'}`],
   ['outcomes', String(achievements.length)],
   ['media', heroVideo ? 'video' : heroImage ? 'image' : '—'],
+  ...(chapters?.length ? [['chapters', String(chapters.length)] as [string, string]] : []),
 ];
 ---
 <BaseLayout title={title} description={subtitle}>
@@ -89,6 +110,7 @@ const glance: [string, string][] = [
         </div>
         <h1 class="cs-title">{title}</h1>
         <p class="cs-subtitle">{subtitle}</p>
+        {facts.length > 0 && <p class="cs-facts">{facts.join(' · ')}</p>}
       </header>
     </div>
 
@@ -104,30 +126,63 @@ const glance: [string, string][] = [
         ))}
       </dl>
 
+      {/* The recruiter's minute: up to four numbers the owner typed — no task
+          writes these (decision 81). */}
+      {cards.length > 0 && (
+        <ul class="cs-metrics" data-reveal>
+          {cards.map(card => (
+            <li class="card elev-sm cs-metric">
+              <span class="cs-metric-value">{card.value}</span>
+              {card.label && <span class="cs-metric-label">{card.label}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+
       <section class="cs-split" data-reveal>
-        <h3 class="cs-split-head"><span class="cs-split-num">01</span>The Problem</h3>
+        <h3 class="cs-split-head"><span class="cs-split-num">{num('problem')}</span>The Problem</h3>
         <div class="card elev-sm cs-split-body"><p class="cs-copy">{problem}</p></div>
       </section>
 
       <section class="cs-split" data-reveal>
-        <h3 class="cs-split-head"><span class="cs-split-num">02</span>The Solution</h3>
+        <h3 class="cs-split-head"><span class="cs-split-num">{num('solution')}</span>The Solution</h3>
         <div class="card elev-sm cs-split-body"><p class="cs-copy">{solution}</p></div>
       </section>
 
       <div class="cs-split">
         <div></div>
-        <div class="prose cs-content"><slot /></div>
+        <div class="prose cs-content" data-zoom><slot /></div>
       </div>
 
       {architectureImage && (
         <section class="cs-split" data-reveal>
-          <h3 class="cs-split-head"><span class="cs-split-num">03</span>Architecture</h3>
-          <figure class="grayscale cs-arch"><img src={architectureImage} alt="Architecture diagram" /></figure>
+          <h3 class="cs-split-head"><span class="cs-split-num">{num('architecture')}</span>Architecture</h3>
+          <figure class="grayscale cs-arch" data-zoom><img src={architectureImage} alt={`Architecture of ${title}`} /></figure>
+        </section>
+      )}
+
+      {chapters && chapters.length > 0 && (
+        <section class="cs-split" data-reveal>
+          <h3 class="cs-split-head"><span class="cs-split-num">{num('chapters')}</span>Chapters</h3>
+          <ol class="cs-chapters">
+            {chapters.map((chapter, i) => (
+              <li>
+                <a class="card elev-sm cs-chapter" href={`${base}/${chapter.id}`}>
+                  <span class="cs-chapter-num">{String(i + 1).padStart(2, '0')}</span>
+                  <span class="cs-chapter-text">
+                    <strong class="cs-chapter-title">{chapter.title}</strong>
+                    {chapter.lead && <span class="cs-chapter-lead">{chapter.lead}</span>}
+                  </span>
+                  <span class="cs-chapter-go" aria-hidden="true">→</span>
+                </a>
+              </li>
+            ))}
+          </ol>
         </section>
       )}
 
       <section class="cs-split" data-reveal>
-        <h3 class="cs-split-head"><span class="cs-split-num">{architectureImage ? '04' : '03'}</span>Achievements</h3>
+        <h3 class="cs-split-head"><span class="cs-split-num">{num('achievements')}</span>Achievements</h3>
         <div class="card elev-sm cs-split-body">
           <ol class="cs-list">
             {achievements.map((a, i) => (
@@ -138,7 +193,7 @@ const glance: [string, string][] = [
       </section>
 
       <section class="cs-split" data-reveal>
-        <h3 class="cs-split-head"><span class="cs-split-num">{architectureImage ? '05' : '04'}</span>Stack</h3>
+        <h3 class="cs-split-head"><span class="cs-split-num">{num('stack')}</span>Stack</h3>
         <div class="cs-split-body">
           <div class="cs-stack">
             {stack.map(s => <Tag text={s} variant="neutral" />)}
@@ -148,6 +203,9 @@ const glance: [string, string][] = [
               ? <a class="btn btn-primary" href={repoUrl} target="_blank" rel="noopener">Repo ↗</a>
               : <span class="btn repo-private" title="The source code lives in a private repository"><Icon name="lucide:lock" />Private repository</span>}
             {demoUrl && <a class="btn btn-secondary" href={demoUrl} target="_blank" rel="noopener">Demo ↗</a>}
+            {extraLinks.map(link => (
+              <a class="btn btn-secondary" href={link.url} target="_blank" rel="noopener">{link.label} ↗</a>
+            ))}
           </div>
         </div>
       </section>
@@ -172,6 +230,7 @@ const glance: [string, string][] = [
       </nav>
     )}
   </article>
+  <Lightbox />
 </BaseLayout>
 <script>
   /* — reading progress —
@@ -414,6 +473,55 @@ const glance: [string, string][] = [
   .cs-content:empty { display: none; }
 
   .cs-arch { margin: 0; }
+
+  /* What the owner did, under the lead — mono, the glance strip's voice. */
+  .cs-facts {
+    margin: var(--space-3) 0 0;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--color-text-muted);
+  }
+
+  /* — the numbers — up to four, as equal cards; the value carries the weight. */
+  .cs-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: var(--space-3);
+    list-style: none;
+    padding: 0;
+    margin: 0 0 var(--space-8);
+  }
+  .cs-metric { gap: var(--space-1); }
+  .cs-metric-value {
+    font-family: var(--font-heading);
+    font-weight: var(--font-heading-weight);
+    font-size: 28px;
+    line-height: 1.1;
+    color: var(--color-accent);
+    overflow-wrap: anywhere;
+  }
+  .cs-metric-label { font-size: 13px; color: var(--color-text-muted); }
+
+  /* — the chapter list — a card per chapter, numbered, its first sentence
+     under the title so a reader can choose without opening each one. */
+  .cs-chapters { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--space-3); }
+  .cs-chapter {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: start;
+    gap: var(--space-3);
+    text-decoration: none;
+    color: var(--color-text);
+  }
+  .cs-chapter-num { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; color: var(--color-accent); padding-top: 0.35em; }
+  .cs-chapter-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .cs-chapter-title { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 16px; }
+  .cs-chapter-lead { font-size: 14px; color: var(--color-text-muted); }
+  .cs-chapter-go { color: var(--color-text-faint); }
+  .cs-chapter:hover .cs-chapter-title,
+  .cs-chapter:focus-visible .cs-chapter-title { color: var(--color-accent); }
+  .cs-chapter:hover .cs-chapter-go,
+  .cs-chapter:focus-visible .cs-chapter-go { color: var(--color-accent); }
 
   /* Outcomes are counted, not bulleted: `01`, `02` in the mono accent, the
      same register the project page's highlights use. */

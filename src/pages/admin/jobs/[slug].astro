@@ -1,20 +1,23 @@
 ---
 /**
- * One application: the advert, where it stands, and the assistant beside it.
+ * One application: read first, act second.
  *
- * The slug is the only thing rendered on the server, and it came from the URL
- * the requester typed. The row itself is fetched over `GET /api/content` with
- * the owner's token, for the reason `/admin/jobs` gives: `/admin/*` is public
- * HTML and an application is not public. `prerender = false` only because the
- * route has a parameter; nothing here reads the database. Decision 80.
+ * The row is never server-rendered. `/admin/*` is public HTML and an
+ * application names the companies the owner is talking to and the people there,
+ * so the page renders the slug from its own URL and nothing else; the row
+ * arrives over `GET /api/content` with the token. Decision 80.
  *
- * The assistant offers two commands, and both read the *master* resume rather
- * than a variant — whether the record holds a requirement anywhere is the
- * question, not whether one tailored view shows it. `/assess-fit` streams into
- * the Fit field; `/draft-outreach` lands in the panel as two versions with their
- * character counts, because a connection note over LinkedIn's limit is found out
- * only when LinkedIn refuses it. Nothing is saved until Save, and nothing is
- * ever sent.
+ * What used to be one form is now a shell with four tabs and a dialog. The
+ * inputs did not go away — they are the value, and Save still sends only the
+ * keys that changed — but the page reads before it edits: the advert at a
+ * reading measure, the fit as a comparison, the contacts as people.
+ *
+ * Four tabs read the row before it is edited: Overview (the advert and where it
+ * stands), Fit (the assessment as a comparison), Resume & projects (the variant
+ * chosen and the projects the fit recommends) and Outreach (one card per
+ * contact, with drafts kept against each channel). The form is still underneath
+ * all of it — one Save, and only the keys that changed — and the assistant
+ * writes into that form, never into a row.
  */
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import AssistPanel from '../../../components/AssistPanel.astro';
@@ -27,115 +30,387 @@ const slug = Astro.params.slug ?? '';
 ---
 <AdminLayout title="Application">
   <div class="admin-main-wide" id="admin-job" data-slug={slug}>
-    <div class="admin-head">
-      <div>
+    <div class="admin-head jw-head">
+      <div class="jw-id">
         <p class="admin-eyebrow-mono">MODULE: JOBS / APPLICATION</p>
         <h1 class="admin-title" id="jf-title">{slug}</h1>
-        <span class="text-muted admin-stamp" id="jf-stamp">Sign in to read this application.</span>
+        <span class="text-muted admin-stamp" id="jf-stamp">Reading this application…</span>
       </div>
-      <div class="admin-actions">
-        <a class="btn btn-secondary" href="/admin/jobs">
-          <Icon name="lucide:arrow-left" class="admin-nav-icon" />All applications
-        </a>
-        <a class="btn btn-secondary" id="jf-open" target="_blank" rel="noopener noreferrer" hidden>
-          <Icon name="lucide:external-link" class="admin-nav-icon" />Posting
-        </a>
-        <button type="button" class="btn btn-secondary" id="assist-open">
-          <Icon name="lucide:sparkles" class="admin-nav-icon" />Assistant
-        </button>
-        <button type="button" class="btn btn-secondary" id="jf-delete">
-          <Icon name="lucide:trash-2" class="admin-nav-icon" />Delete
-        </button>
-        <button type="button" class="btn btn-primary" id="jf-save" disabled>
-          <Icon name="lucide:save" class="admin-nav-icon" />Save
-        </button>
+      <div class="jw-head-right">
+        <div class="admin-actions">
+          <a class="btn btn-secondary" id="jf-open" target="_blank" rel="noopener noreferrer" hidden>
+            <Icon name="lucide:external-link" class="admin-nav-icon" />Posting
+          </a>
+          <button type="button" class="btn btn-secondary" id="assist-open">
+            <Icon name="lucide:sparkles" class="admin-nav-icon" />Assistant
+          </button>
+          <details class="menu jw-menu" id="jw-menu">
+            <summary class="btn btn-secondary" aria-label="More actions">
+              <Icon name="lucide:more-horizontal" class="admin-nav-icon" />More
+            </summary>
+            <div class="menu-panel">
+              <button type="button" class="menu-item" id="jw-edit">Edit details</button>
+              <button type="button" class="menu-item" id="jw-copy-advert">Copy advert</button>
+              <hr class="menu-sep" />
+              <button type="button" class="menu-item menu-item-danger" id="jf-delete">Delete</button>
+            </div>
+          </details>
+          <button type="button" class="btn btn-primary" id="jf-save" disabled>
+            <Icon name="lucide:save" class="admin-nav-icon" />Save
+          </button>
+        </div>
+        <p class="jw-dirty" id="jw-dirty" aria-live="polite"></p>
       </div>
     </div>
 
-    <p class="admin-note jf-message" id="jf-message"></p>
+    <p class="admin-note jw-message" id="jf-message"></p>
 
-    <div class="jf-grid">
-      <section class="card elev-sm jf-col">
-        <p class="admin-eyebrow">The role</p>
-        <div class="jf-pair">
-          <div class="field">
-            <label for="jf-company">Company</label>
-            <input class="input" id="jf-company" autocomplete="off" />
+    <div class="jw-chips" role="group" aria-label="Application status">
+      <div class="jw-chip jw-chip-status">
+        <span class="jw-chip-label">Status</span>
+        <select class="input is-auto" id="jf-status" aria-label="Status">
+          {Object.entries(APPLICATION_STATUSES).map(([value, label]) => <option value={value}>{label}</option>)}
+        </select>
+      </div>
+      <button type="button" class="jw-chip" id="jw-chip-fit">
+        <span class="jw-chip-label">Fit</span><span id="jw-chip-fit-text">Not assessed</span>
+      </button>
+      <button type="button" class="jw-chip" id="jw-chip-resume">
+        <span class="jw-chip-label">Resume</span><span id="jw-chip-resume-text">Master resume</span>
+      </button>
+      <button type="button" class="jw-chip" id="jw-chip-next">
+        <span class="jw-chip-label">Next</span><span id="jw-chip-next-text">No next step</span>
+      </button>
+    </div>
+
+    <section class="jw-next" id="jw-next" aria-labelledby="jw-next-label" hidden>
+      <p class="jw-next-line">
+        <span class="jw-next-label" id="jw-next-label">Next</span>
+        <span id="jw-next-text"></span>
+      </p>
+      <button type="button" class="btn btn-secondary btn-sm" id="jw-next-btn" hidden>
+        <span id="jw-next-btn-text"></span>
+      </button>
+    </section>
+
+    <div class="jw-skeleton" id="jw-loading" aria-hidden="true">
+      <div class="jw-skel jw-skel-head"></div>
+      <div class="jw-skel jw-skel-block"></div>
+      <div class="jw-skel jw-skel-block jw-skel-short"></div>
+    </div>
+
+    <div id="jw-view" hidden>
+      <div class="tab-bar" role="tablist" aria-label="Application sections" id="jw-tabs">
+        <button type="button" class="tab" role="tab" id="jw-tab-overview" aria-controls="jw-panel-overview" aria-selected="true">
+          <Icon name="lucide:list" class="admin-nav-icon" />Overview
+        </button>
+        <button type="button" class="tab" role="tab" id="jw-tab-fit" aria-controls="jw-panel-fit" aria-selected="false">
+          <Icon name="lucide:target" class="admin-nav-icon" />Fit
+        </button>
+        <button type="button" class="tab" role="tab" id="jw-tab-resume" aria-controls="jw-panel-resume" aria-selected="false">
+          <Icon name="lucide:file-text" class="admin-nav-icon" />Resume &amp; projects
+        </button>
+        <button type="button" class="tab" role="tab" id="jw-tab-outreach" aria-controls="jw-panel-outreach" aria-selected="false">
+          <Icon name="lucide:send" class="admin-nav-icon" />Outreach
+        </button>
+      </div>
+
+      <div class="tab-panel" id="jw-panel-overview" role="tabpanel" aria-labelledby="jw-tab-overview">
+        <div class="jw-overview">
+          <div class="jw-overview-grid">
+            <section class="card elev-sm jw-card">
+              <div class="jw-card-head">
+                <div>
+                  <p class="admin-eyebrow">The advert</p>
+                  <p class="text-muted admin-note">Stored verbatim. Nothing here reformats it.</p>
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm" id="jw-advert-copy">
+                  <Icon name="lucide:copy" class="admin-nav-icon" />Copy
+                </button>
+              </div>
+              <div class="admin-empty" id="jw-advert-empty" hidden>
+                <h3 class="admin-empty-title">No advert yet</h3>
+                <p class="admin-empty-copy">
+                  Everything on this screen is read against the posting: the fit, the resume, the
+                  message. Paste it verbatim — postings get taken down.
+                </p>
+                <div class="admin-empty-actions">
+                  <button type="button" class="btn btn-primary btn-sm" id="jw-advert-paste">
+                    <Icon name="lucide:clipboard-paste" class="admin-nav-icon" />Paste the advert
+                  </button>
+                </div>
+              </div>
+              <div class="jw-advert-body" id="jw-advert-body" hidden></div>
+              <button type="button" class="btn btn-ghost btn-sm jw-advert-toggle" id="jw-advert-toggle" hidden>
+                <span id="jw-advert-toggle-label">Show the whole advert</span>
+              </button>
+            </section>
+
+            <aside class="jw-rail">
+              <section class="card elev-sm jw-card">
+                <p class="admin-eyebrow">Where it stands</p>
+                <div class="field">
+                  <label for="jf-applied">Applied on</label>
+                  <input class="input" id="jf-applied" type="date" />
+                </div>
+                <div class="field">
+                  <label for="jf-next-step">Next step</label>
+                  <input class="input" id="jf-next-step" placeholder="Follow up with the recruiter" />
+                </div>
+                <div class="field">
+                  <label for="jf-next-on">Next on</label>
+                  <input class="input" id="jf-next-on" type="date" />
+                </div>
+                <div class="jw-fact-line">
+                  <span class="jw-fact-label">Resume sent</span>
+                  <span id="jw-resume-sent">The master resume</span>
+                  <button type="button" class="btn btn-ghost btn-sm" id="jw-resume-change">change</button>
+                </div>
+              </section>
+
+              <section class="card elev-sm jw-card">
+                <p class="admin-eyebrow">People</p>
+                <div class="jw-people" id="jw-people"></div>
+                <p class="text-muted admin-note" id="jw-drafts"></p>
+                {/* The value, written by the Outreach tab's Add / Edit / Remove. */}
+                <textarea id="jf-contacts" hidden></textarea>
+                <button type="button" class="btn btn-secondary btn-sm" id="jw-people-outreach">Open outreach</button>
+              </section>
+
+              <section class="card elev-sm jw-card">
+                <p class="admin-eyebrow">Fit at a glance</p>
+                <div id="jw-fit-glance"></div>
+                <button type="button" class="btn btn-secondary btn-sm" id="jw-glance-open">See the comparison</button>
+              </section>
+
+              <section class="card elev-sm jw-card">
+                <div class="jw-card-head">
+                  <p class="admin-eyebrow">Notes</p>
+                  <button type="button" class="btn btn-ghost btn-sm" id="jw-note-add">Add dated line</button>
+                </div>
+                <textarea class="input" id="jf-notes" rows="5" data-grow placeholder="2026-11-08 — connection note to Priya (sent)"></textarea>
+              </section>
+            </aside>
           </div>
-          <div class="field">
-            <label for="jf-role">Role</label>
-            <input class="input" id="jf-role" autocomplete="off" />
-          </div>
         </div>
-        <div class="field">
-          <label for="jf-url">Posting URL</label>
-          <input class="input" id="jf-url" type="url" placeholder="https://…" />
-        </div>
-        <div class="field">
-          <label for="jf-jd">Job description</label>
-          <textarea class="input jf-mono" id="jf-jd" rows="10" data-grow placeholder="The advert, verbatim."></textarea>
-        </div>
-        <div class="field">
-          <label for="jf-fit">Fit</label>
-          <textarea class="input" id="jf-fit" rows="6" data-grow placeholder="Matched and missing requirements, with evidence. The assistant writes this; edit it freely."></textarea>
-          <div class="jf-under">
-            <p class="text-muted admin-note">Read against the master resume and your projects.</p>
-            <button type="button" class="btn btn-secondary btn-sm" data-assist-task="jobFit">
-              <Icon name="lucide:sparkles" class="admin-nav-icon" />Assess fit
+      </div>
+
+      <div class="tab-panel" id="jw-panel-fit" role="tabpanel" aria-labelledby="jw-tab-fit" hidden>
+        <div class="jw-fit">
+          <div class="jw-fit-tools">
+            <button type="button" class="btn btn-primary btn-sm" id="jw-fit-assess">
+              <Icon name="lucide:sparkles" class="admin-nav-icon" /><span id="jw-fit-assess-label">Assess fit</span>
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="jw-fit-copy">
+              <Icon name="lucide:copy" class="admin-nav-icon" />Copy assessment
+            </button>
+            <button type="button" class="btn btn-secondary btn-sm" id="jw-fit-toggle">
+              <span id="jw-fit-toggle-label">Edit as text</span>
             </button>
           </div>
-        </div>
-      </section>
 
-      <section class="card elev-sm jf-col">
-        <p class="admin-eyebrow">Where it stands</p>
-        <div class="jf-pair">
-          <div class="field">
-            <label for="jf-status">Status</label>
-            <select class="input" id="jf-status">
-              {Object.entries(APPLICATION_STATUSES).map(([value, label]) => <option value={value}>{label}</option>)}
-            </select>
+          <div class="admin-empty" id="jw-fit-empty">
+            <h3 class="admin-empty-title">Not assessed yet</h3>
+            <p class="admin-empty-copy">
+              The assessment reads the master resume and your projects against the advert and marks
+              each requirement met, adjacent or missing. It is written by the assistant; you can
+              edit it freely.
+            </p>
+            <div class="admin-empty-actions">
+              <button type="button" class="btn btn-primary btn-sm" id="jw-fit-assess-empty">
+                <Icon name="lucide:sparkles" class="admin-nav-icon" />Assess fit
+              </button>
+            </div>
           </div>
-          <div class="field">
-            <label for="jf-applied">Applied on</label>
-            <input class="input" id="jf-applied" type="date" />
+
+          <div id="jw-fit-view" hidden>
+            <div class="jw-fit-banner" id="jw-fit-banner"></div>
+            <div class="jw-fit-filters" id="jw-fit-filters" role="group" aria-label="Filter the comparison"></div>
+            <div class="jw-fit-table-wrap">
+              <table class="jw-fit-table" id="jw-fit-table"></table>
+            </div>
+            <div id="jw-fit-gaps"></div>
+            <div id="jw-fit-keywords"></div>
+            <div class="prose jw-preview" id="jw-fit-extra" hidden></div>
+            <pre class="jw-fallback" id="jw-fit-extra-fallback" hidden></pre>
+          </div>
+
+          <div id="jw-fit-raw" hidden>
+            <p class="admin-note">
+              This assessment is not in the usual shape, so it is shown as written. Re-assess to get
+              the comparison.
+            </p>
+            <div class="prose jw-preview" id="jw-fit-raw-body" hidden></div>
+            <pre class="jw-fallback" id="jw-fit-raw-fallback" hidden></pre>
+          </div>
+
+          <textarea class="input jw-fit-text" id="jf-fit" rows="12" data-grow hidden
+            placeholder="Matched and missing requirements, with evidence. The assistant writes this; edit it freely."></textarea>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="jw-panel-resume" role="tabpanel" aria-labelledby="jw-tab-resume" hidden>
+        <div class="jw-resume-tab">
+          <section class="card elev-sm">
+            <div class="jw-card-head">
+              <div>
+                <p class="admin-eyebrow">Resume to send</p>
+                <p class="text-muted admin-note">Read from the resume this page already loaded.</p>
+              </div>
+              <a class="btn btn-secondary btn-sm" id="jw-resume-open" href="/admin/resume">
+                <Icon name="lucide:external-link" class="admin-nav-icon" />Open in the Resume screen
+              </a>
+            </div>
+
+            <div class="field">
+              <label for="jf-variant">Resume sent</label>
+              <select class="input" id="jf-variant">
+                <option value="">The master resume</option>
+              </select>
+            </div>
+
+            <div class="jw-resume-facts" id="jw-resume-facts"></div>
+
+            <div class="jw-resume-actions">
+              <button type="button" class="btn btn-primary btn-sm" id="jw-resume-handoff">
+                <Icon name="lucide:wand-sparkles" class="admin-nav-icon" />Build a variant from this advert
+              </button>
+            </div>
+            <p class="text-muted admin-note">
+              The advert travels in this browser's session, never in a URL. Nothing writes back to
+              this application — pick the variant in the select above once it is saved on the Resume
+              screen.
+            </p>
+          </section>
+
+          <section class="card elev-sm">
+            <p class="admin-eyebrow">Projects to lead with</p>
+            <div id="jw-project-shortlist"></div>
+          </section>
+
+          <section class="card elev-sm">
+            <p class="admin-eyebrow">Keywords the resume is missing</p>
+            <div id="jw-resume-keywords"></div>
+          </section>
+        </div>
+      </div>
+
+      <div class="tab-panel" id="jw-panel-outreach" role="tabpanel" aria-labelledby="jw-tab-outreach" hidden>
+        <div class="jw-outreach">
+          <div class="jw-outreach-head">
+            <div>
+              <p class="admin-eyebrow">People</p>
+              <p class="text-muted admin-note">
+                Only people you found yourself. Nothing here looks anyone up.
+              </p>
+            </div>
+            <button type="button" class="btn btn-secondary btn-sm" id="jw-contact-add">
+              <Icon name="lucide:user-plus" class="admin-nav-icon" />Add contact
+            </button>
+          </div>
+
+          <div id="jw-contact-cards"></div>
+
+          <div class="admin-empty" id="jw-outreach-empty" hidden>
+            <h3 class="admin-empty-title">Who to look for</h3>
+            <p class="admin-empty-copy">
+              The recruiter who posted it, the hiring manager for the team, or someone you have
+              worked with. Search for them yourself — nothing here looks anyone up. Paste a search
+              into your own search box.
+            </p>
+            <div class="jw-searches" id="jw-people-searches"></div>
+            <div class="admin-empty-actions">
+              <button type="button" class="btn btn-secondary btn-sm" id="jw-contact-add-empty">
+                <Icon name="lucide:user-plus" class="admin-nav-icon" />Add contact
+              </button>
+            </div>
           </div>
         </div>
-        <div class="jf-pair">
-          <div class="field">
-            <label for="jf-next-step">Next step</label>
-            <input class="input" id="jf-next-step" placeholder="Follow up with the recruiter" />
+      </div>
+    </div>
+
+    <textarea id="jf-outreach" hidden></textarea>
+
+    <dialog class="modal" id="jw-details" aria-labelledby="jw-details-title">
+      <div class="modal-head">
+        <div class="modal-head-copy">
+          <h2 class="modal-title" id="jw-details-title">The role</h2>
+          <p class="modal-lede text-muted">The posting itself. Changes are saved with the page's Save button.</p>
+        </div>
+        <form method="dialog" class="modal-close-form">
+          <button class="btn btn-icon" aria-label="Close">
+            <Icon name="lucide:x" class="admin-nav-icon" />
+          </button>
+        </form>
+      </div>
+      <div class="modal-body">
+        <div class="jw-details-grid">
+          <div class="jw-details-pair">
+            <div class="field">
+              <label for="jf-company">Company</label>
+              <input class="input" id="jf-company" autocomplete="off" />
+            </div>
+            <div class="field">
+              <label for="jf-role">Role</label>
+              <input class="input" id="jf-role" autocomplete="off" />
+            </div>
           </div>
           <div class="field">
-            <label for="jf-next-on">Next on</label>
-            <input class="input" id="jf-next-on" type="date" />
+            <label for="jf-url">Posting URL</label>
+            <input class="input" id="jf-url" type="url" placeholder="https://…" />
+          </div>
+          <div class="field">
+            <label for="jf-jd">Job description</label>
+            <textarea class="input jw-jd" id="jf-jd" rows="16" data-grow placeholder="The advert, verbatim."></textarea>
           </div>
         </div>
-        <div class="field">
-          <label for="jf-variant">Resume sent</label>
-          <select class="input" id="jf-variant">
-            <option value="">The master resume</option>
-          </select>
-          <p class="text-muted admin-note">
-            A variant from <a href="/admin/resume">the Resume screen</a>, which can build one from this advert.
+      </div>
+      <div class="modal-foot">
+        <p class="modal-foot-note text-muted">Changes are saved with the page's Save button.</p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-primary" id="jw-details-done">Done</button>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog class="modal" id="jw-contact-dialog" aria-labelledby="jw-contact-title">
+      <div class="modal-head">
+        <div class="modal-head-copy">
+          <h2 class="modal-title" id="jw-contact-title">Add contact</h2>
+          <p class="modal-lede text-muted">
+            Only people you found yourself. Nothing here looks anyone up.
           </p>
         </div>
-        <div class="field">
-          <label for="jf-contacts">Contacts</label>
-          <textarea class="input" id="jf-contacts" rows="3" placeholder="Name — title — profile URL, one per line"></textarea>
-          <div class="jf-under">
-            <p class="text-muted admin-note">Only people you found yourself. Nothing here looks anyone up.</p>
-            <button type="button" class="btn btn-secondary btn-sm" data-assist-task="jobOutreach">
-              <Icon name="lucide:send" class="admin-nav-icon" />Draft outreach
-            </button>
+        <form method="dialog" class="modal-close-form">
+          <button class="btn btn-icon" aria-label="Close">
+            <Icon name="lucide:x" class="admin-nav-icon" />
+          </button>
+        </form>
+      </div>
+      <div class="modal-body">
+        <div class="jw-details-grid">
+          <div class="field">
+            <label for="jc-name">Name</label>
+            <input class="input" id="jc-name" autocomplete="off" />
+          </div>
+          <div class="field">
+            <label for="jc-title">Title (optional)</label>
+            <input class="input" id="jc-title" autocomplete="off" placeholder="Technical Recruiter" />
+          </div>
+          <div class="field">
+            <label for="jc-url">Profile URL (optional)</label>
+            <input class="input" id="jc-url" type="url" placeholder="https://…" />
           </div>
         </div>
-        <div class="field">
-          <label for="jf-notes">Notes</label>
-          <textarea class="input" id="jf-notes" rows="5" data-grow placeholder="2026-11-08 — connection note to Priya (sent)"></textarea>
+      </div>
+      <div class="modal-foot">
+        <p class="modal-foot-note text-muted">Saved with the rest of the application.</p>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-secondary" id="jw-contact-cancel">Cancel</button>
+          <button type="button" class="btn btn-primary" id="jw-contact-save">Save contact</button>
         </div>
-      </section>
-    </div>
+      </div>
+    </dialog>
   </div>
 
   <AssistPanel
@@ -146,23 +421,84 @@ const slug = Astro.params.slug ?? '';
 
 <script>
   import { navigate } from 'astro:transitions/client';
-  import { onAdminPage, setBusy, setLabel, toast, trackDirty, type DirtyField } from '../../../lib/admin';
+  import {
+    ADMIN_KEYS,
+    mountAutoGrow,
+    onAdminPage,
+    setBusy,
+    setLabel,
+    toast,
+    trackDirty,
+    wireTabs,
+    type DirtyField,
+  } from '../../../lib/admin';
   import { runAssist } from '../../../lib/ai-store';
   import { mountAssistPanel } from '../../../lib/assist-panel';
-  import { ASSIST_MENU, ASSIST_TASKS, isAssistTask, type AssistTask } from '../../../lib/assist-tasks';
+  import { ASSIST_TASKS, isAssistTask, type AssistTask } from '../../../lib/assist-tasks';
   import { copyText } from '../../../lib/clipboard';
   import {
     getApplication,
+    listProjects,
     patchApplication,
     readDocument,
     removeApplication,
     type ApplicationFields,
+    type ProjectRecord,
   } from '../../../lib/content-store';
   import { SLUG } from '../../../lib/content-schema';
   import { formatRange } from '../../../lib/format';
   import { getToken } from '../../../lib/github';
-  import { RESUME_KEY, normaliseResume, resolveVariant, type ResumeDocument, type ResumePerson } from '../../../lib/resume';
+  import {
+    OUTREACH_CHANNELS,
+    formatContact,
+    formatOutreach,
+    measure,
+    nextAction,
+    outreachInstruction,
+    parseContact,
+    parseFit,
+    parseOutreach,
+    peopleSearches,
+    type Channel,
+    type Contact,
+    type Draft,
+    type FitItem,
+    type FitView,
+  } from '../../../lib/job-view';
+  import {
+    RESUME_KEY,
+    normaliseResume,
+    resolveVariant,
+    type ResumeDocument,
+    type ResumePerson,
+    type ResumeSheet,
+    type ResumeVariant,
+  } from '../../../lib/resume';
   import { resumeContext } from '../../../lib/resume-render';
+
+  const MARK_GLYPH = { met: '✓', adjacent: '≈', missing: '×' } as const;
+  const MARK_WORD = { met: 'Met', adjacent: 'Adjacent', missing: 'Missing' } as const;
+  const LEVEL_GLYPH = { Strong: '▲', Reasonable: '●', Stretch: '◆', Poor: '▼' } as const;
+
+  const CHANNEL_BY_LABEL = new Map<string, Channel>(
+    Object.entries(OUTREACH_CHANNELS).map(([key, channel]) => [channel.label, key as Channel]),
+  );
+
+  const FIELD_LABELS: Record<string, string> = {
+    company: 'company',
+    role: 'role',
+    status: 'status',
+    url: 'posting URL',
+    jobDescription: 'advert',
+    fit: 'fit',
+    resumeVariant: 'resume',
+    appliedOn: 'applied date',
+    nextStep: 'next step',
+    nextOn: 'next date',
+    notes: 'notes',
+    outreach: 'outreach',
+    contacts: 'contacts',
+  };
 
   onAdminPage('#admin-job', () => {
     const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -174,73 +510,180 @@ const slug = Astro.params.slug ?? '';
     const remove = $<HTMLButtonElement>('jf-delete');
     const openPosting = $<HTMLAnchorElement>('jf-open');
     const assistOpen = $<HTMLButtonElement>('assist-open');
+    const menu = $<HTMLDetailsElement>('jw-menu');
     const variantPick = $<HTMLSelectElement>('jf-variant');
     const contacts = $<HTMLTextAreaElement>('jf-contacts');
-    const advert = $<HTMLTextAreaElement>('jf-jd');
-    const fit = $<HTMLTextAreaElement>('jf-fit');
-    const fieldButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-assist-task]'));
+    const fitButtons = [$<HTMLButtonElement>('jw-fit-assess'), $<HTMLButtonElement>('jw-fit-assess-empty')];
+    const contactCards = $('jw-contact-cards');
+    const outreachEmpty = $('jw-outreach-empty');
+    const contactDialog = $<HTMLDialogElement>('jw-contact-dialog');
+    const contactName = $<HTMLInputElement>('jc-name');
+    const contactTitle = $<HTMLInputElement>('jc-title');
+    const contactUrl = $<HTMLInputElement>('jc-url');
+    const resumeFacts = $('jw-resume-facts');
+    const resumeShortlist = $('jw-project-shortlist');
+    const resumeKeywords = $('jw-resume-keywords');
+    const resumeHandoff = $<HTMLButtonElement>('jw-resume-handoff');
 
-    /* Every column but `contacts`, which is a list and is read line by line. */
+    /* Every column but `contacts`, which is a list and is read line by line.
+       `outreach` is a hidden holder until Phase 3's cards write it; keeping it
+       here means Save, revert and the dirty tracker cover it already. */
     const inputs = {
       company: $<HTMLInputElement>('jf-company'),
       role: $<HTMLInputElement>('jf-role'),
       status: $<HTMLSelectElement>('jf-status'),
       url: $<HTMLInputElement>('jf-url'),
-      jobDescription: advert,
-      fit,
+      jobDescription: $<HTMLTextAreaElement>('jf-jd'),
+      fit: $<HTMLTextAreaElement>('jf-fit'),
       resumeVariant: variantPick,
       appliedOn: $<HTMLInputElement>('jf-applied'),
       nextStep: $<HTMLInputElement>('jf-next-step'),
       nextOn: $<HTMLInputElement>('jf-next-on'),
       notes: $<HTMLTextAreaElement>('jf-notes'),
+      outreach: $<HTMLTextAreaElement>('jf-outreach'),
     } satisfies Record<Exclude<keyof ApplicationFields, 'contacts'>, DirtyField>;
     type Scalar = keyof typeof inputs;
+
+    const advertBody = $('jw-advert-body');
+    const advertEmpty = $('jw-advert-empty');
+    const advertToggle = $<HTMLButtonElement>('jw-advert-toggle');
+    const peopleHost = $('jw-people');
+    const glanceHost = $('jw-fit-glance');
+    const dirtyLine = $('jw-dirty');
+    const nextBox = $('jw-next');
+    const nextText = $('jw-next-text');
+    const nextButton = $<HTMLButtonElement>('jw-next-btn');
+    const nextButtonText = $('jw-next-btn-text');
+    const fitEmpty = $('jw-fit-empty');
+    const fitView = $('jw-fit-view');
+    const fitRaw = $('jw-fit-raw');
+    const fitBanner = $('jw-fit-banner');
+    const fitFilters = $('jw-fit-filters');
+    const fitTable = $('jw-fit-table');
+    const fitGaps = $('jw-fit-gaps');
+    const fitKeywords = $('jw-fit-keywords');
+    const fitExtra = $('jw-fit-extra');
+    const fitExtraFallback = $<HTMLPreElement>('jw-fit-extra-fallback');
+    const fitRawBody = $('jw-fit-raw-body');
+    const fitRawFallback = $<HTMLPreElement>('jw-fit-raw-fallback');
+    /* Held rather than looked up by id: `setLabel()` moves the button's children
+       aside while “Click again to replace” is on it, and a lookup during those
+       four seconds returns null. */
+    const fitAssessLabel = $('jw-fit-assess-label');
+    const details = $<HTMLDialogElement>('jw-details');
+
+    let loaded: ApplicationFields | null = null;
+    let resume: ResumeDocument | null = null;
+    let advertExpanded = false;
+    let fitEditing = false;
+    let fitFilter: 'all' | 'met' | 'adjacent' | 'missing' = 'all';
+    let fitArm = false;
+    /* The one in-card draft that may be streaming. `assisting` is the page-wide
+       controller shared with the panel; this is what stops the Outreach view
+       repainting over the card it is writing into. */
+    let drafting: AbortController | null = null;
+    let outreachPaintPending = false;
+    let editingContact: number | null = null;
+    /* The project rows, read once and only when the Resume tab is first shown.
+       `null` is "not asked yet", which is different from "asked and empty". */
+    let projects: ProjectRecord[] | null = null;
+    let projectsLoading = false;
+    let projectsFailed = false;
 
     const say = (text: string, tone: 'info' | 'error' = 'info') => {
       message.dataset.tone = tone;
       message.textContent = text;
     };
 
+    const lines = (value: string) => value.split('\n').map(line => line.trim()).filter(Boolean);
+    const isWeb = (value: string) => /^https?:\/\//i.test(value.trim());
+
+    const today = (): string => {
+      const now = new Date();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      return `${now.getFullYear()}-${month}-${day}`;
+    };
+
+    const inSevenDays = (): string => {
+      const date = new Date();
+      date.setDate(date.getDate() + 7);
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${date.getFullYear()}-${month}-${day}`;
+    };
+
+    const firstName = (name: string): string => (name.trim().split(/\s+/)[0] ?? '').trim();
+
+    /** The `---` split the panel already used; one helper for both kinds of run. */
+    const splitVersions = (text: string): string[] =>
+      text.split(/^\s*-{3,}\s*$/m).map(part => part.trim()).filter(Boolean);
+
+    /* The resume's identity fields come from `site.ts` and are never sent to the
+       assistant; the sheet still needs a person-shaped object. */
+    const NOBODY: ResumePerson = {
+      name: '', role: '', location: '', address: '', email: '', phone: '', linkedin: '', github: '', summary: '',
+    };
+
+    const showView = () => {
+      $('jw-loading').hidden = true;
+      $('jw-view').hidden = false;
+    };
+
     const tracker = trackDirty(() => [...Object.values(inputs), contacts], save);
     const lock = (why: string) => {
-      for (const button of [save, remove, assistOpen, ...fieldButtons]) {
+      for (const button of [save, remove, assistOpen, ...fitButtons, $<HTMLButtonElement>('jw-edit'), $<HTMLButtonElement>('jw-copy-advert'), $<HTMLButtonElement>('jw-advert-copy'), $<HTMLButtonElement>('jw-contact-add'), $<HTMLButtonElement>('jw-contact-add-empty')]) {
         button.disabled = true;
         button.title = why;
       }
       say(why, 'error');
     };
 
-    if (!getToken()) return lock('Sign in with GitHub to read this application.');
-    if (!SLUG.test(slug)) return lock('That is not an application this tracker could have.');
+    /* ---------- tabs and the hash ---------- */
 
-    let loaded: ApplicationFields | null = null;
-    let resume: ResumeDocument | null = null;
-
-    const lines = (value: string) => value.split('\n').map(line => line.trim()).filter(Boolean);
-    const isWeb = (value: string) => /^https?:\/\//i.test(value.trim());
-
-    /* The link is the owner's own typing, but it becomes an `href` on the
-       origin holding their token — so http(s) or no link, as `job-boards.ts`
-       does for a board's. */
-    const paintHeader = () => {
-      const { company, role } = inputs;
-      title.textContent = [company.value.trim(), role.value.trim()].filter(Boolean).join(' — ') || slug;
-      const url = inputs.url.value.trim();
-      if (isWeb(url)) {
-        openPosting.href = url;
-        openPosting.hidden = false;
-      } else {
-        openPosting.removeAttribute('href');
-        openPosting.hidden = true;
-      }
+    const PANEL_HASH: Record<string, string> = {
+      'jw-panel-fit': 'fit',
+      'jw-panel-resume': 'resume',
+      'jw-panel-outreach': 'outreach',
     };
+
+    const tabs = wireTabs($('jw-tabs'), id => {
+      const key = PANEL_HASH[id] ?? '';
+      history.replaceState(null, '', `${location.pathname}${location.search}${key ? `#${key}` : ''}`);
+      if (id === 'jw-panel-fit') paintFit();
+      if (id === 'jw-panel-resume') {
+        ensureProjects();
+        paintResumeTab();
+      }
+    });
+
+    const selectTab = (id: string) => {
+      tabs.select(id);
+      $('jw-tabs').scrollIntoView({ block: 'nearest' });
+    };
+
+    const initialPanel =
+      Object.entries(PANEL_HASH).find(([, key]) => location.hash === `#${key}`)?.[0] ?? 'jw-panel-overview';
+    if (initialPanel !== 'jw-panel-overview') tabs.select(initialPanel);
+
+    /* ---------- the row as fields ---------- */
+
+    const fieldsNow = () => ({
+      jobDescription: inputs.jobDescription.value,
+      fit: inputs.fit.value,
+      status: inputs.status.value,
+      resumeVariant: inputs.resumeVariant.value,
+      contacts: lines(contacts.value),
+      outreach: inputs.outreach.value,
+      appliedOn: inputs.appliedOn.value,
+      nextStep: inputs.nextStep.value,
+      nextOn: inputs.nextOn.value,
+    });
 
     function paintVariants(selected: string) {
       const variants = resume?.variants ?? [];
       const options = [new Option('The master resume', '')];
       for (const variant of variants) options.push(new Option(variant.label || variant.id, variant.id));
-      /* An id the resume no longer has stays selectable, so loading the row
-         does not quietly change what it says was sent. */
       if (selected && !variants.some(variant => variant.id === selected)) {
         options.push(new Option(`${selected} (no longer on the resume)`, selected));
       }
@@ -255,11 +698,9 @@ const slug = Astro.params.slug ?? '';
       }
       paintVariants(fields.resumeVariant ?? '');
       contacts.value = fields.contacts.join('\n');
-      paintHeader();
       tracker.reset();
     }
 
-    /** What differs from the row as loaded, in the fields the endpoint takes. */
     function changes(): Partial<ApplicationFields> {
       if (!loaded) return {};
       const out: Record<string, unknown> = {};
@@ -272,29 +713,1413 @@ const slug = Astro.params.slug ?? '';
       return out as Partial<ApplicationFields>;
     }
 
-    async function load() {
-      try {
-        const [row, rawResume] = await Promise.all([getApplication(slug), readDocument(RESUME_KEY).catch(() => null)]);
-        resume = rawResume ? normaliseResume(rawResume as ResumeDocument) : null;
-        loaded = row.fields;
-        fill(loaded);
-        stamp.textContent = row.updatedAt ? `last saved ${row.updatedAt} UTC` : '';
-        say(resume ? '' : 'The resume did not load, so the assistant has nothing to read it against.', resume ? 'info' : 'error');
-      } catch (error) {
-        const text = error instanceof Error ? error.message : 'Could not read this application.';
-        lock(text);
+    /* ---------- the header ---------- */
+
+    function paintHeader() {
+      const company = inputs.company.value.trim();
+      const role = inputs.role.value.trim();
+      title.textContent = [company, role].filter(Boolean).join(' — ') || slug;
+
+      const url = inputs.url.value.trim();
+      if (isWeb(url)) {
+        openPosting.href = url;
+        openPosting.hidden = false;
+      } else {
+        openPosting.removeAttribute('href');
+        openPosting.hidden = true;
+      }
+
+      const fit = parseFit(inputs.fit.value);
+      const fitChip = $('jw-chip-fit-text');
+      if (!inputs.fit.value.trim()) fitChip.textContent = 'Not assessed';
+      else if (fit.verdict.level || fit.score.value !== null) {
+        fitChip.textContent = [fit.verdict.level, fit.score.value !== null ? `${fit.score.value}/10` : '']
+          .filter(Boolean)
+          .join(' · ');
+      } else fitChip.textContent = 'Assessed';
+
+      const selectedVariant = variantPick.selectedOptions[0]?.textContent ?? '';
+      $('jw-chip-resume-text').textContent = selectedVariant || 'Master resume';
+      $('jw-resume-sent').textContent = selectedVariant || 'The master resume';
+
+      const step = inputs.nextStep.value.trim();
+      const on = inputs.nextOn.value.trim();
+      const overdue = Boolean(on) && on <= today();
+      const nextParts = [step || (overdue ? 'Follow-up' : ''), on, overdue ? 'overdue' : ''].filter(Boolean);
+      $('jw-chip-next-text').textContent = nextParts.length ? nextParts.join(' · ') : 'No next step';
+
+      paintDirty();
+    }
+
+    function paintDirty() {
+      const keys = Object.keys(changes());
+      dirtyLine.textContent = keys.length
+        ? `Unsaved: ${keys.map(key => FIELD_LABELS[key] ?? key).join(', ')}`
+        : '';
+      /* The hand-off leaves this page, so its button has to say "not yet" the
+         moment anything is unsaved — not only when it is pressed. */
+      paintHandoff();
+    }
+
+    /* ---------- the Next strip ---------- */
+
+    function paintNext() {
+      if (!loaded) return;
+      const next = nextAction(fieldsNow(), today());
+      nextText.textContent = next.text;
+      nextBox.hidden = false;
+
+      if (!next.button) {
+        nextButton.hidden = true;
+        return;
+      }
+      nextButton.hidden = false;
+      nextButtonText.textContent = next.button;
+      /* The action is returned by `nextAction()`, not inferred from the label:
+         rewording a button must not silently stop it working. */
+      nextButton.dataset.act = next.act ?? next.tab;
+    }
+
+    /* ---------- Overview ---------- */
+
+    function paintAdvert() {
+      const raw = inputs.jobDescription.value;
+      const text = raw.trim();
+      advertEmpty.hidden = Boolean(text);
+      advertBody.hidden = !text;
+      if (!text) {
+        advertBody.textContent = '';
+        advertToggle.hidden = true;
+        return;
+      }
+      advertBody.textContent = raw;
+      const long = raw.length > 1200 || raw.split('\n').length > 28;
+      advertToggle.hidden = !long;
+      advertBody.classList.toggle('is-clamped', long && !advertExpanded);
+      $('jw-advert-toggle-label').textContent = advertExpanded ? 'Show less' : 'Show the whole advert';
+    }
+
+    function paintPeople() {
+      const people = lines(contacts.value).map(parseContact).filter(contact => contact.name);
+      const drafts = parseOutreach(inputs.outreach.value);
+      peopleHost.replaceChildren();
+
+      if (!people.length) {
+        const empty = document.createElement('p');
+        empty.className = 'admin-note jw-muted';
+        empty.textContent = 'No contacts yet.';
+        peopleHost.appendChild(empty);
+      } else {
+        for (const person of people) {
+          const row = document.createElement('div');
+          row.className = 'jw-person';
+          const who = document.createElement('div');
+          const name = document.createElement('span');
+          name.className = 'jw-person-name';
+          name.textContent = person.name;
+          who.appendChild(name);
+          if (person.title) {
+            const role = document.createElement('span');
+            role.className = 'jw-person-title';
+            role.textContent = person.title;
+            who.append(document.createTextNode(' · '), role);
+          }
+          const kept = document.createElement('span');
+          kept.className = 'jw-person-count';
+          const count = drafts.filter(draft => draft.contact === person.name).length;
+          kept.textContent = count ? `${count} draft${count === 1 ? '' : 's'}` : '';
+          row.append(who, kept);
+          peopleHost.appendChild(row);
+        }
+      }
+
+      $('jw-drafts').textContent = drafts.length
+        ? `${drafts.length} kept draft${drafts.length === 1 ? '' : 's'}.`
+        : '';
+    }
+
+    /* ---------- Outreach ---------- */
+
+    function paintSearches() {
+      const host = $('jw-people-searches');
+      host.replaceChildren(
+        ...peopleSearches(inputs.company.value, inputs.role.value).map(search => {
+          const row = document.createElement('div');
+          row.className = 'jw-search';
+          const text = document.createElement('span');
+          text.className = 'jw-search-text';
+          text.textContent = search;
+          row.append(text, copyButton(search));
+          return row;
+        }),
+      );
+    }
+
+    /** Why a draft cannot run, or null. Stated on the button and under the row. */
+    function outreachBlocked(): string | null {
+      if (!getToken()) return 'Sign in with GitHub to draft a message.';
+      if (!inputs.jobDescription.value.trim()) {
+        return 'Paste the job description first — a draft is read against it.';
+      }
+      if (!resume) return 'The resume did not load, so there is nothing to draft against. Reload the page.';
+      if (assisting) return 'Another assistant run is going. Stop it before starting a draft.';
+      return null;
+    }
+
+    function openContactDialog(index: number | null) {
+      editingContact = index;
+      const current = index === null ? null : parseContact(lines(contacts.value)[index] ?? '');
+      $('jw-contact-title').textContent = index === null ? 'Add contact' : 'Edit contact';
+      contactName.value = current?.name ?? '';
+      contactTitle.value = current?.title ?? '';
+      contactUrl.value = current?.url ?? '';
+      contactDialog.showModal();
+      contactName.focus();
+    }
+
+    function saveContact() {
+      const name = contactName.value.trim();
+      if (!name) {
+        toast('A contact needs a name.', { tone: 'error' });
+        contactName.focus();
+        return;
+      }
+      const url = contactUrl.value.trim();
+      if (url && !isWeb(url)) {
+        toast('The profile URL has to start with http:// or https://.', { tone: 'error' });
+        contactUrl.focus();
+        return;
+      }
+
+      const all = lines(contacts.value);
+      const previousName = editingContact === null ? null : parseContact(all[editingContact] ?? '').name;
+      const line = formatContact({ name, title: contactTitle.value.trim(), url: url || null });
+      if (editingContact === null) all.push(line);
+      else all[editingContact] = line;
+      contacts.value = all.join('\n');
+
+      /* A renamed contact keeps their drafts: the heading is a name, not an id,
+         and orphaning them here would silently lose text the owner kept. */
+      if (previousName && previousName !== name) {
+        const drafts = parseOutreach(inputs.outreach.value).map(draft =>
+          draft.contact === previousName ? { ...draft, contact: name } : draft,
+        );
+        inputs.outreach.value = formatOutreach(drafts);
+      }
+
+      contactDialog.close();
+      editingContact = null;
+      tracker.check();
+      refresh();
+      paintOutreach();
+      toast(previousName === null ? 'Contact added — press Save.' : 'Contact updated — press Save.', {
+        tone: 'success',
+      });
+    }
+
+    function removeContact(index: number) {
+      const all = lines(contacts.value);
+      const contact = parseContact(all[index] ?? '');
+      if (!contact.name) return;
+      all.splice(index, 1);
+      contacts.value = all.join('\n');
+      inputs.outreach.value = formatOutreach(
+        parseOutreach(inputs.outreach.value).filter(draft => draft.contact !== contact.name),
+      );
+      tracker.check();
+      refresh();
+      paintOutreach();
+      toast(`Removed ${contact.name} and their kept drafts. Press Save.`, { tone: 'success' });
+    }
+
+    function paintOutreach() {
+      /* A repaint during a streaming draft would take the card being written
+         into out of the document. The run repaints once when it is done. */
+      if (drafting) {
+        outreachPaintPending = true;
+        return;
+      }
+
+      const all = lines(contacts.value);
+      const people = all
+        .map((line, index) => ({ index, contact: parseContact(line) }))
+        .filter(person => person.contact.name);
+      const drafts = parseOutreach(inputs.outreach.value);
+
+      outreachEmpty.hidden = people.length > 0;
+      $('jw-contact-add').hidden = people.length === 0;
+      paintSearches();
+      contactCards.replaceChildren(
+        ...people.map(person => contactCard(person.index, person.contact, drafts)),
+      );
+      mountAutoGrow();
+    }
+
+    function contactCard(index: number, person: Contact, drafts: Draft[]): HTMLElement {
+      const card = document.createElement('section');
+      card.className = 'card elev-sm jw-contact';
+
+      const head = document.createElement('div');
+      head.className = 'jw-contact-head';
+
+      const who = document.createElement('div');
+      who.className = 'jw-contact-id';
+      const name = document.createElement('span');
+      name.className = 'jw-contact-name';
+      name.textContent = person.name;
+      who.appendChild(name);
+      if (person.title) {
+        const title = document.createElement('span');
+        title.className = 'jw-contact-title';
+        title.textContent = person.title;
+        who.appendChild(title);
+      }
+      if (person.url) {
+        const profile = document.createElement('a');
+        profile.className = 'jw-profile';
+        profile.href = person.url;
+        profile.target = '_blank';
+        profile.rel = 'noopener noreferrer';
+        profile.textContent = 'Profile ↗';
+        who.appendChild(profile);
+      }
+
+      const menu = document.createElement('details');
+      menu.className = 'menu jw-card-menu';
+      const summary = document.createElement('summary');
+      summary.className = 'btn btn-ghost btn-sm';
+      summary.setAttribute('aria-label', `Actions for ${person.name}`);
+      summary.textContent = 'More';
+      const panel = document.createElement('div');
+      panel.className = 'menu-panel';
+      const edit = document.createElement('button');
+      edit.type = 'button';
+      edit.className = 'menu-item';
+      edit.textContent = 'Edit contact';
+      edit.addEventListener('click', () => {
+        menu.open = false;
+        openContactDialog(index);
+      });
+
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'menu-item menu-item-danger';
+      remove.title = 'Removes this contact and every draft kept for them.';
+      remove.textContent = 'Remove contact';
+      let armed = false;
+      remove.addEventListener('click', () => {
+        if (!armed) {
+          armed = true;
+          setLabel(remove, 'Confirm remove');
+          window.setTimeout(() => {
+            armed = false;
+            setLabel(remove, null);
+          }, 4000);
+          return;
+        }
+        armed = false;
+        menu.open = false;
+        removeContact(index);
+      });
+      panel.append(edit, remove);
+      menu.append(summary, panel);
+      head.append(who, menu);
+
+      const channels = document.createElement('div');
+      channels.className = 'jw-channels';
+      const blocked = outreachBlocked();
+      for (const [key, channel] of Object.entries(OUTREACH_CHANNELS) as [Channel, (typeof OUTREACH_CHANNELS)[Channel]][]) {
+        if (key === 'followup' && !inputs.appliedOn.value.trim()) continue;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-secondary btn-sm';
+        button.textContent = channel.label;
+        if (blocked) {
+          button.disabled = true;
+          button.title = blocked;
+        } else {
+          button.addEventListener('click', () => startDraft(person, key, card));
+        }
+        channels.appendChild(button);
+      }
+
+      card.append(head, channels);
+      if (blocked) {
+        const why = document.createElement('p');
+        why.className = 'jw-blocked';
+        why.textContent = blocked;
+        card.appendChild(why);
+      }
+
+      for (const draft of drafts.filter(entry => entry.contact === person.name)) {
+        card.appendChild(keptDraft(draft));
+      }
+      return card;
+    }
+
+    function keptDraft(draft: Draft): HTMLElement {
+      const box = document.createElement('div');
+      box.className = 'jw-kept';
+
+      const head = document.createElement('div');
+      head.className = 'jw-kept-head';
+      const label = document.createElement('span');
+      label.className = 'jw-channel-label';
+      label.textContent = draft.channel;
+
+      const meter = document.createElement('span');
+      meter.className = 'jw-meter';
+      const channel = CHANNEL_BY_LABEL.get(draft.channel) ?? null;
+      const paintMeter = (text: string) => {
+        if (!channel) {
+          meter.textContent = 'channel not recognised';
+          return;
+        }
+        const counted = measure(text, channel);
+        meter.textContent = `${counted.count} / ${counted.limit} ${counted.unit}${counted.over ? ' · over the limit' : ''}`;
+        meter.classList.toggle('is-over', counted.over);
+      };
+      paintMeter(draft.text);
+      head.append(label, meter);
+
+      const text = document.createElement('textarea');
+      text.className = 'input';
+      text.dataset.grow = 'on';
+      text.value = draft.text;
+      text.setAttribute('aria-label', `${draft.channel} to ${draft.contact}`);
+      text.addEventListener('input', () => {
+        const drafts = parseOutreach(inputs.outreach.value);
+        const found = drafts.find(entry => entry.contact === draft.contact && entry.channel === draft.channel);
+        if (found) found.text = text.value;
+        inputs.outreach.value = formatOutreach(drafts);
+        paintMeter(text.value);
+        tracker.check();
+        paintDirty();
+      });
+
+      const actions = document.createElement('div');
+      actions.className = 'jw-kept-actions';
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'btn btn-ghost btn-sm';
+      copy.textContent = 'Copy';
+      copy.addEventListener('click', () => {
+        void copyText(text.value).then(ok =>
+          toast(ok ? 'Copied.' : 'Could not copy — select the text instead.', { tone: ok ? 'success' : 'error' }),
+        );
+      });
+      const sent = document.createElement('button');
+      sent.type = 'button';
+      sent.className = 'btn btn-secondary btn-sm';
+      sent.textContent = 'Mark sent';
+      sent.addEventListener('click', () => markSent(draft, text.value));
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'btn btn-ghost btn-sm';
+      remove.textContent = 'Remove';
+      remove.addEventListener('click', () => {
+        inputs.outreach.value = formatOutreach(
+          parseOutreach(inputs.outreach.value).filter(
+            entry => !(entry.contact === draft.contact && entry.channel === draft.channel),
+          ),
+        );
+        tracker.check();
+        refresh();
+        paintOutreach();
+        toast('Draft removed. Press Save.', { tone: 'info' });
+      });
+      actions.append(copy, sent, remove);
+
+      box.append(head, text, actions);
+      return box;
+    }
+
+    function keepDraft(person: Contact, channel: Channel, text: string) {
+      const label = OUTREACH_CHANNELS[channel].label;
+      const drafts = parseOutreach(inputs.outreach.value);
+      const at = drafts.findIndex(entry => entry.contact === person.name && entry.channel === label);
+      const next: Draft = { contact: person.name, channel: label, text: text.trim() };
+      if (at >= 0) drafts[at] = next;
+      else drafts.push(next);
+      inputs.outreach.value = formatOutreach(drafts);
+      tracker.check();
+      refresh();
+      paintOutreach();
+      toast('Draft kept — press Save.', { tone: 'success' });
+    }
+
+    function markSent(draft: Draft, text: string) {
+      const drafts = parseOutreach(inputs.outreach.value);
+      const found = drafts.find(entry => entry.contact === draft.contact && entry.channel === draft.channel);
+      if (found) {
+        found.text = text;
+        inputs.outreach.value = formatOutreach(drafts);
+      }
+
+      const line = `${today()} — ${draft.channel} to ${draft.contact} (sent)`;
+      inputs.notes.value = inputs.notes.value.trim() ? `${line}\n${inputs.notes.value}` : line;
+      if (!inputs.nextStep.value.trim()) inputs.nextStep.value = `Follow up with ${firstName(draft.contact)}`;
+      if (!inputs.nextOn.value.trim()) inputs.nextOn.value = inSevenDays();
+      tracker.check();
+      refresh();
+      toast('Noted — press Save.', { tone: 'success' });
+    }
+
+    function startDraft(person: Contact, channel: Channel, card: HTMLElement) {
+      const blocked = outreachBlocked();
+      if (blocked) {
+        toast(blocked, { tone: 'error' });
+        return;
+      }
+
+      for (const stale of Array.from(card.querySelectorAll('.jw-versions, .jw-draft-zone, .jw-draft-note'))) stale.remove();
+
+      const zone = document.createElement('div');
+      zone.className = 'jw-draft-zone';
+      const line = document.createElement('div');
+      line.className = 'jw-draft-head';
+      const status = document.createElement('p');
+      status.className = 'jw-draft-status';
+      status.textContent = 'Drafting…';
+      const stop = document.createElement('button');
+      stop.type = 'button';
+      stop.className = 'btn btn-secondary btn-sm';
+      stop.textContent = 'Stop';
+      line.append(status, stop);
+      const live = document.createElement('pre');
+      live.className = 'jw-draft-live';
+      zone.append(line, live);
+      card.appendChild(zone);
+
+      const controller = new AbortController();
+      drafting = controller;
+      assisting = controller;
+      stop.addEventListener('click', () => controller.abort());
+
+      let raw = '';
+      let queued = false;
+      const paintLive = () => {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(() => {
+          queued = false;
+          live.textContent = raw;
+          status.textContent = raw ? `Drafting… ${raw.length} characters` : 'Drafting…';
+        });
+      };
+
+      void (async () => {
+        try {
+          const output = await runAssist(
+            'jobOutreach',
+            contextFor('jobOutreach'),
+            outreachInstruction(person, channel, inputs.appliedOn.value.trim() || undefined),
+            {
+              onDelta: chunk => {
+                raw += chunk;
+                paintLive();
+              },
+              onThinking: () => {
+                status.textContent = 'Thinking…';
+              },
+            },
+            controller.signal,
+            undefined,
+            panel.runOptions(),
+          );
+
+          if (!output.trim()) throw new Error('The model finished without writing anything. Try again.');
+          const versions = splitVersions(output);
+          if (!versions.length) throw new Error('The model answered without a usable version.');
+
+          zone.remove();
+          card.appendChild(versionsBox(person, channel, versions));
+        } catch (error) {
+          zone.remove();
+          const note = document.createElement('p');
+          note.className = 'jw-draft-status jw-draft-note';
+          if (error instanceof DOMException && error.name === 'AbortError') {
+            note.textContent = 'Stopped — nothing was kept.';
+            toast('Stopped. Nothing was kept.', { tone: 'info' });
+          } else {
+            const text = error instanceof Error ? error.message : 'The draft failed.';
+            note.textContent = text;
+            note.dataset.tone = 'error';
+            toast(text, { tone: 'error' });
+          }
+          card.appendChild(note);
+        } finally {
+          drafting = null;
+          if (assisting === controller) assisting = null;
+          if (outreachPaintPending) {
+            outreachPaintPending = false;
+            paintOutreach();
+          }
+        }
+      })();
+    }
+
+    function versionsBox(person: Contact, channel: Channel, versions: string[]): HTMLElement {
+      const zone = document.createElement('div');
+      zone.className = 'jw-versions';
+      const hint = document.createElement('p');
+      hint.className = 'jw-hint';
+      hint.textContent = 'Keep what you want — anything unkept is gone when you leave.';
+      zone.appendChild(hint);
+
+      for (const text of versions) {
+        const box = document.createElement('div');
+        box.className = 'jw-version';
+        const body = document.createElement('p');
+        body.className = 'jw-version-text';
+        body.textContent = text;
+        const foot = document.createElement('div');
+        foot.className = 'jw-version-actions';
+
+        const counted = measure(text, channel);
+        const meter = document.createElement('span');
+        meter.className = 'jw-meter';
+        meter.textContent = `${counted.count} / ${counted.limit} ${counted.unit}${counted.over ? ' · over the limit' : ''}`;
+        meter.classList.toggle('is-over', counted.over);
+
+        const copy = document.createElement('button');
+        copy.type = 'button';
+        copy.className = 'btn btn-ghost btn-sm';
+        copy.textContent = 'Copy';
+        copy.addEventListener('click', () => {
+          void copyText(text).then(ok =>
+            toast(ok ? 'Copied.' : 'Could not copy — select the text instead.', { tone: ok ? 'success' : 'error' }),
+          );
+        });
+        const keep = document.createElement('button');
+        keep.type = 'button';
+        keep.className = 'btn btn-primary btn-sm';
+        keep.textContent = 'Keep';
+        keep.addEventListener('click', () => keepDraft(person, channel, text));
+
+        const controls = document.createElement('div');
+        controls.className = 'jw-version-buttons';
+        controls.append(copy, keep);
+        foot.append(meter, controls);
+        box.append(body, foot);
+        zone.appendChild(box);
+      }
+      return zone;
+    }
+
+    /* ---------- Resume & projects ---------- */
+
+    const muted = (text: string): HTMLParagraphElement => {
+      const note = document.createElement('p');
+      note.className = 'admin-note jw-muted';
+      note.textContent = text;
+      return note;
+    };
+
+    const tag = (text: string, className: string): HTMLSpanElement => {
+      const span = document.createElement('span');
+      span.className = `tag ${className}`;
+      span.textContent = text;
+      return span;
+    };
+
+    const link = (href: string, text: string, external = false): HTMLAnchorElement => {
+      const anchor = document.createElement('a');
+      anchor.href = href;
+      anchor.textContent = text;
+      if (external) {
+        anchor.target = '_blank';
+        anchor.rel = 'noopener noreferrer';
+      }
+      return anchor;
+    };
+
+    const openVariantNow = (): ResumeVariant | null =>
+      resume?.variants.find(variant => variant.id === inputs.resumeVariant.value) ?? null;
+
+    const projectRows = () =>
+      (projects ?? []).map(row => ({
+        slug: row.slug,
+        data: {
+          title: row.fields.title,
+          summary: row.fields.summary,
+          repoUrl: row.fields.repoUrl,
+          demoUrl: row.fields.demoUrl,
+          hidden: Boolean(row.fields.hidden),
+        },
+      }));
+
+    function ensureProjects() {
+      if (projects || projectsLoading) return;
+      projectsLoading = true;
+      projectsFailed = false;
+      paintResumeTab();
+      void listProjects()
+        .then(rows => {
+          projects = rows;
+        })
+        .catch(() => {
+          projectsFailed = true;
+        })
+        .finally(() => {
+          projectsLoading = false;
+          paintResumeTab();
+        });
+    }
+
+    function paintResumeFacts(variant: ResumeVariant | null, sheet: ResumeSheet) {
+      resumeFacts.replaceChildren();
+
+      const fact = (label: string, value: string) => {
+        const line = document.createElement('div');
+        line.className = 'jw-fact-line';
+        const key = document.createElement('span');
+        key.className = 'jw-fact-label';
+        key.textContent = label;
+        const text = document.createElement('span');
+        text.textContent = value || '—';
+        line.append(key, text);
+        return line;
+      };
+
+      resumeFacts.appendChild(fact('Label', sheet.variantLabel || 'The master resume'));
+      resumeFacts.appendChild(fact('Headline', sheet.person.role || 'No headline'));
+
+      const summaryHead = document.createElement('div');
+      summaryHead.className = 'jw-summary-head';
+      summaryHead.appendChild(subhead('Summary'));
+      if (sheet.summary.trim()) summaryHead.appendChild(copyButton(sheet.summary));
+      const summary = document.createElement('p');
+      summary.className = 'jw-summary';
+      summary.textContent = sheet.summary.trim() || 'No summary.';
+      resumeFacts.append(summaryHead, summary);
+
+      resumeFacts.appendChild(subhead('Projects it lists'));
+      const listed = variant?.projects ?? [];
+      if (!variant) {
+        resumeFacts.appendChild(muted('The master resume lists no projects; a variant can.'));
+        return;
+      }
+      if (!listed.length) {
+        resumeFacts.appendChild(muted('This variant lists no projects.'));
+        return;
+      }
+
+      const list = document.createElement('ul');
+      list.className = 'jw-listed';
+      for (const pick of listed) {
+        const project = projects?.find(row => row.slug === pick.slug) ?? null;
+        const item = document.createElement('li');
+        item.className = 'jw-listed-item';
+        const name = document.createElement('span');
+        name.className = 'jw-listed-name';
+        name.textContent = project?.fields.title || pick.slug;
+        if (!project) name.append(document.createTextNode(' (no such project)'));
+        const line = document.createElement('span');
+        line.className = 'jw-listed-line';
+        line.textContent = pick.line?.trim() || project?.fields.summary || '';
+        item.append(name, line);
+        list.appendChild(item);
+      }
+      resumeFacts.appendChild(list);
+    }
+
+    function paintShortlist(variant: ResumeVariant | null) {
+      resumeShortlist.replaceChildren();
+      const view = parseFit(inputs.fit.value);
+
+      if (!view.projects.length) {
+        resumeShortlist.appendChild(muted('Re-assess to get a project shortlist.'));
+        const open = document.createElement('button');
+        open.type = 'button';
+        open.className = 'btn btn-secondary btn-sm jw-shortlist-open';
+        open.textContent = 'Open the Fit tab';
+        open.addEventListener('click', () => selectTab('jw-panel-fit'));
+        resumeShortlist.appendChild(open);
+        return;
+      }
+
+      if (projectsLoading) {
+        resumeShortlist.appendChild(muted('Reading the project list…'));
+        return;
+      }
+      if (projectsFailed) {
+        resumeShortlist.appendChild(muted('The project list did not load; titles show their slugs.'));
+      }
+
+      const bySlug = new Map((projects ?? []).map(row => [row.slug, row]));
+      for (const pick of view.projects) {
+        const project = bySlug.get(pick.slug) ?? null;
+        const card = document.createElement('article');
+        card.className = 'jw-project';
+
+        const head = document.createElement('div');
+        head.className = 'jw-project-head';
+        const title = document.createElement('strong');
+        title.className = 'jw-project-title';
+        title.textContent = project?.fields.title || pick.slug;
+        head.appendChild(title);
+
+        const flags = document.createElement('div');
+        flags.className = 'jw-flags';
+        const inResume = Boolean(variant?.projects.some(entry => entry.slug === pick.slug));
+        flags.appendChild(
+          tag(inResume ? 'in this resume' : 'not in this resume', inResume ? 'tag-accent-2' : 'tag-neutral'),
+        );
+        if (project && project.fields.hidden) flags.appendChild(tag('hidden on the site', 'tag-neutral'));
+        if (!project) flags.appendChild(tag('no such project', 'tag-neutral'));
+        head.appendChild(flags);
+        card.appendChild(head);
+
+        const lineRow = document.createElement('div');
+        lineRow.className = 'jw-project-line-row';
+        const line = document.createElement('p');
+        line.className = 'jw-project-line';
+        line.textContent = pick.line || 'No line from the assessment.';
+        lineRow.appendChild(line);
+        if (pick.line) lineRow.appendChild(copyButton(pick.line));
+        card.appendChild(lineRow);
+
+        if (project) {
+          const links = document.createElement('div');
+          links.className = 'jw-project-links';
+          links.appendChild(link(`/admin/projects/${encodeURIComponent(pick.slug)}`, 'Admin'));
+          if (project.fields.hidden) links.appendChild(muted('no public page'));
+          else links.appendChild(link(`/projects/${encodeURIComponent(pick.slug)}`, 'Public page ↗', true));
+          card.appendChild(links);
+        }
+
+        resumeShortlist.appendChild(card);
       }
     }
 
-    for (const key of ['company', 'role', 'url'] as const) inputs[key].addEventListener('input', paintHeader);
+    function paintResumeKeywords() {
+      resumeKeywords.replaceChildren();
+      const view = parseFit(inputs.fit.value);
+      renderKeywordChips(resumeKeywords, view.keywords);
+      if (!view.keywords.length) resumeKeywords.appendChild(muted('The assessment lists no keywords.'));
+    }
+
+    function paintHandoff() {
+      const advert = inputs.jobDescription.value.trim();
+      const dirty = Object.keys(changes()).length > 0;
+      const reason = !advert
+        ? 'Paste the advert first — it is what the variant is built from.'
+        : !resume
+          ? 'The resume did not load.'
+          : dirty
+            ? 'Save first — you have unsaved changes.'
+            : '';
+      resumeHandoff.disabled = Boolean(reason);
+      resumeHandoff.title = reason;
+    }
+
+    function paintResumeTab() {
+      if (!resume) {
+        resumeFacts.replaceChildren(muted('The resume did not load, so there is no variant to show.'));
+        paintShortlist(null);
+        paintResumeKeywords();
+        paintHandoff();
+        return;
+      }
+      const variant = openVariantNow();
+      const sheet = resolveVariant({ ...resume, person: NOBODY }, variant?.id ?? '', projectRows());
+      paintResumeFacts(variant, sheet);
+      paintShortlist(variant);
+      paintResumeKeywords();
+      paintHandoff();
+    }
+
+    resumeHandoff.addEventListener('click', () => {
+      if (Object.keys(changes()).length) {
+        toast('Save first — you have unsaved changes.', { tone: 'error' });
+        return;
+      }
+      const advert = inputs.jobDescription.value;
+      if (!advert.trim()) {
+        toast('Paste the advert first.', { tone: 'error' });
+        return;
+      }
+      try {
+        sessionStorage.setItem(
+          ADMIN_KEYS.resumeHandoff,
+          JSON.stringify({
+            slug,
+            company: inputs.company.value.trim(),
+            role: inputs.role.value.trim(),
+            advert,
+          }),
+        );
+      } catch {
+        toast('Could not hand the advert over in this browser.', { tone: 'error' });
+        return;
+      }
+      void navigate('/admin/resume');
+    });
+
+    function paintGlance() {
+      const view = parseFit(inputs.fit.value);
+      glanceHost.replaceChildren();
+      if (!inputs.fit.value.trim()) {
+        const empty = document.createElement('p');
+        empty.className = 'admin-note jw-muted';
+        empty.textContent = 'Not assessed yet.';
+        glanceHost.appendChild(empty);
+        return;
+      }
+      if (!view.recognised) {
+        const note = document.createElement('p');
+        note.className = 'admin-note jw-muted';
+        note.textContent = 'The assessment is not in the usual shape, so there is no summary to show.';
+        glanceHost.appendChild(note);
+        return;
+      }
+
+      const level = document.createElement('p');
+      level.className = 'jw-glance-level';
+      level.textContent = view.verdict.level
+        ? `${LEVEL_GLYPH[view.verdict.level]} ${view.verdict.level}`
+        : 'Assessed';
+      if (view.score.value !== null) {
+        const score = document.createElement('span');
+        score.className = 'jw-glance-score';
+        score.textContent = ` ${view.score.value}/10`;
+        level.appendChild(score);
+      }
+      glanceHost.appendChild(level);
+
+      const counts = countMarks(view);
+      const row = document.createElement('p');
+      row.className = 'jw-glance-counts';
+      row.textContent = `${counts.met} met · ${counts.adjacent} adjacent · ${counts.missing} missing`;
+      glanceHost.appendChild(row);
+    }
+
+    function countMarks(view: FitView) {
+      const counts = { met: 0, adjacent: 0, missing: 0 };
+      for (const item of [...view.must, ...view.nice]) counts[item.mark] += 1;
+      return counts;
+    }
+
+    /* ---------- Fit ---------- */
+
+    function appendInline(host: HTMLElement, text: string) {
+      const pattern = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+      let at = 0;
+      for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+        if (match.index > at) host.appendChild(document.createTextNode(text.slice(at, match.index)));
+        const token = match[0];
+        const isBold = token.startsWith('**');
+        const element = document.createElement(isBold ? 'strong' : 'code');
+        element.textContent = isBold ? token.slice(2, -2) : token.slice(1, -1);
+        host.appendChild(element);
+        at = match.index + token.length;
+      }
+      if (at < text.length) host.appendChild(document.createTextNode(text.slice(at)));
+    }
+
+    function paintBanner(view: FitView) {
+      fitBanner.replaceChildren();
+      const parts: Node[] = [];
+      if (view.verdict.level) {
+        const level = document.createElement('p');
+        level.className = 'jw-fit-level';
+        level.textContent = `${LEVEL_GLYPH[view.verdict.level]} ${view.verdict.level}`;
+        parts.push(level);
+      }
+      if (view.verdict.why) {
+        const why = document.createElement('p');
+        why.className = 'jw-fit-why';
+        why.textContent = view.verdict.why;
+        parts.push(why);
+      }
+      if (view.score.value !== null) {
+        const score = document.createElement('p');
+        score.className = 'jw-fit-score';
+        score.textContent = `${view.score.value}/10`;
+        if (view.score.why) score.append(document.createTextNode(` — ${view.score.why}`));
+        parts.push(score);
+      }
+      fitBanner.replaceChildren(...parts);
+      fitBanner.hidden = parts.length === 0;
+    }
+
+    function fitRow(item: FitItem): HTMLTableRowElement {
+      const row = document.createElement('tr');
+      row.dataset.mark = item.mark;
+
+      const mark = document.createElement('td');
+      mark.className = 'jw-fit-mark';
+      const glyph = document.createElement('span');
+      glyph.className = 'jw-fit-mark-glyph';
+      glyph.setAttribute('aria-hidden', 'true');
+      glyph.textContent = MARK_GLYPH[item.mark];
+      /* The word is visible, not only for a screen reader: the glyphs are small
+         and all one colour, and a match column has to be readable at a glance. */
+      const word = document.createElement('span');
+      word.className = 'jw-fit-mark-word';
+      word.textContent = MARK_WORD[item.mark];
+      mark.append(glyph, word);
+
+      const requirement = document.createElement('th');
+      requirement.scope = 'row';
+      requirement.className = 'jw-fit-req';
+      appendInline(requirement, item.requirement);
+
+      const evidence = document.createElement('td');
+      evidence.className = 'jw-fit-ev';
+      appendInline(evidence, item.evidence || (item.mark === 'missing' ? 'Nothing in the record.' : ''));
+
+      row.append(mark, requirement, evidence);
+      return row;
+    }
+
+    function paintComparison(view: FitView) {
+      const head = document.createElement('thead');
+      const headRow = document.createElement('tr');
+      for (const label of ['Match', 'The role asks for', 'Your record shows']) {
+        const cell = document.createElement('th');
+        cell.scope = 'col';
+        cell.textContent = label;
+        headRow.appendChild(cell);
+      }
+      head.appendChild(headRow);
+
+      const body = document.createElement('tbody');
+      for (const [title, items] of [
+        ['Must-haves', view.must],
+        ['Nice-to-haves', view.nice],
+      ] as const) {
+        if (!items.length) continue;
+        const group = document.createElement('tr');
+        group.className = 'jw-fit-group';
+        const cell = document.createElement('th');
+        cell.colSpan = 3;
+        cell.scope = 'colgroup';
+        cell.textContent = title;
+        group.appendChild(cell);
+        body.appendChild(group);
+        for (const item of items) body.appendChild(fitRow(item));
+      }
+
+      fitTable.replaceChildren(head, body);
+      applyFitFilter();
+    }
+
+    function applyFitFilter() {
+      for (const row of Array.from(fitTable.querySelectorAll<HTMLTableRowElement>('tbody tr[data-mark]'))) {
+        row.hidden = fitFilter !== 'all' && row.dataset.mark !== fitFilter;
+      }
+    }
+
+    function paintFilters(view: FitView) {
+      const counts = countMarks(view);
+      const options: [typeof fitFilter, string, number][] = [
+        ['all', 'All', view.must.length + view.nice.length],
+        ['met', 'Met', counts.met],
+        ['adjacent', 'Adjacent', counts.adjacent],
+        ['missing', 'Missing', counts.missing],
+      ];
+      fitFilters.replaceChildren(
+        ...options.map(([mark, label, count]) => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'jw-filter';
+          button.dataset.mark = mark;
+          button.setAttribute('aria-pressed', String(fitFilter === mark));
+          button.textContent = `${label} ${count}`;
+          button.addEventListener('click', () => {
+            fitFilter = mark;
+            for (const other of Array.from(fitFilters.querySelectorAll<HTMLButtonElement>('.jw-filter'))) {
+              other.setAttribute('aria-pressed', String(other.dataset.mark === mark));
+            }
+            applyFitFilter();
+          });
+          return button;
+        }),
+      );
+    }
+
+    function subhead(text: string): HTMLHeadingElement {
+      const heading = document.createElement('h3');
+      heading.className = 'jw-subhead';
+      heading.textContent = text;
+      return heading;
+    }
+
+    function copyButton(text: string, label = 'Copy'): HTMLButtonElement {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'btn btn-ghost btn-sm';
+      button.textContent = label;
+      button.addEventListener('click', () => {
+        void copyText(text).then(ok =>
+          toast(ok ? 'Copied.' : 'Could not copy — select the text instead.', { tone: ok ? 'success' : 'error' }),
+        );
+      });
+      return button;
+    }
+
+    function paintGaps(view: FitView) {
+      fitGaps.replaceChildren();
+      if (!view.gaps.length) return;
+      fitGaps.appendChild(subhead('Gaps worth closing'));
+      const list = document.createElement('ul');
+      list.className = 'jw-gaps';
+      for (const gap of view.gaps) {
+        const item = document.createElement('li');
+        item.className = 'jw-gap';
+        const text = document.createElement('span');
+        text.textContent = gap;
+        item.append(text, copyButton(gap));
+        list.appendChild(item);
+      }
+      fitGaps.appendChild(list);
+    }
+
+    /** The chips are one render, mounted on the Fit tab and on Resume & projects. */
+    function renderKeywordChips(host: HTMLElement, keywords: string[]) {
+      host.replaceChildren();
+      if (!keywords.length) return;
+      const row = document.createElement('div');
+      row.className = 'jw-kw';
+      for (const keyword of keywords) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'tag tag-button';
+        chip.textContent = keyword;
+        chip.title = 'Copy this keyword';
+        chip.addEventListener('click', () => {
+          void copyText(keyword).then(ok => toast(ok ? 'Copied.' : 'Could not copy.', { tone: ok ? 'success' : 'error' }));
+        });
+        row.appendChild(chip);
+      }
+      host.append(row, copyButton(keywords.join(', '), 'Copy all'));
+    }
+
+    function paintKeywords(view: FitView) {
+      fitKeywords.replaceChildren();
+      if (!view.keywords.length) return;
+      fitKeywords.appendChild(subhead('Keywords for the ATS'));
+      const host = document.createElement('div');
+      renderKeywordChips(host, view.keywords);
+      fitKeywords.appendChild(host);
+    }
+
+    /* An assessment's other sections are prose, and the page's renderer is the
+       only one — `POST /api/preview` is `renderBody()`, the same call a save
+       makes. Degrades to the markdown, as written, signed out or on failure. */
+    let previewTimer: ReturnType<typeof setTimeout> | undefined;
+    let previewSeq = 0;
+
+    function schedulePreview(target: HTMLElement, fallback: HTMLElement, markdown: string) {
+      const seq = (previewSeq += 1);
+      target.replaceChildren();
+      target.hidden = true;
+      fallback.textContent = markdown;
+      fallback.hidden = false;
+      clearTimeout(previewTimer);
+
+      const token = getToken();
+      if (!token) return;
+
+      previewTimer = setTimeout(async () => {
+        try {
+          const response = await fetch('/api/preview', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ markdown }),
+          });
+          if (!response.ok || seq !== previewSeq) return;
+          const data = (await response.json()) as { html?: string };
+          target.innerHTML = String(data.html ?? '');
+          target.hidden = false;
+          fallback.hidden = true;
+        } catch {
+          /* The fallback is already on screen. */
+        }
+      }, 220);
+    }
+
+    function paintExtras(view: FitView) {
+      if (!view.extra.length) {
+        fitExtra.replaceChildren();
+        fitExtra.hidden = true;
+        fitExtraFallback.hidden = true;
+        return;
+      }
+      const markdown = view.extra
+        .map(section => `### ${section.title}\n\n${section.markdown}`)
+        .join('\n\n');
+      schedulePreview(fitExtra, fitExtraFallback, markdown);
+    }
+
+    function paintFit() {
+      const raw = inputs.fit.value;
+      const view = parseFit(raw);
+
+      $('jw-fit-assess').hidden = fitEditing;
+      fitAssessLabel.textContent = raw.trim() ? 'Re-assess' : 'Assess fit';
+      $('jw-fit-copy').hidden = !raw.trim() || fitEditing;
+      $('jw-fit-toggle-label').textContent = fitEditing ? 'View the comparison' : 'Edit as text';
+
+      if (fitEditing) {
+        fitEmpty.hidden = true;
+        fitView.hidden = true;
+        fitRaw.hidden = true;
+        $('jf-fit').hidden = false;
+        return;
+      }
+      $('jf-fit').hidden = true;
+
+      if (!raw.trim()) {
+        fitEmpty.hidden = false;
+        fitView.hidden = true;
+        fitRaw.hidden = true;
+        return;
+      }
+
+      fitEmpty.hidden = true;
+      if (!view.recognised) {
+        fitView.hidden = true;
+        fitRaw.hidden = false;
+        schedulePreview(fitRawBody, fitRawFallback, raw);
+        return;
+      }
+
+      fitRaw.hidden = true;
+      fitView.hidden = false;
+      paintBanner(view);
+      paintFilters(view);
+      paintComparison(view);
+      paintGaps(view);
+      paintKeywords(view);
+      paintExtras(view);
+    }
+
+    let fitQueued = false;
+    const scheduleFitPaint = () => {
+      if (fitQueued) return;
+      fitQueued = true;
+      requestAnimationFrame(() => {
+        fitQueued = false;
+        paintFit();
+        paintGlance();
+        if (!$('jw-panel-resume').hidden) paintResumeTab();
+      });
+    };
+
+    /* ---------- everything that repaints together ---------- */
+
+    let queued = false;
+    const refresh = () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
+        paintHeader();
+        paintNext();
+        paintPeople();
+        paintGlance();
+        paintDirty();
+      });
+    };
+
+    /* ---------- the details dialog ---------- */
+
+    const openDetails = (advert = false) => {
+      const active = document.activeElement;
+      detailsOpener = active instanceof HTMLElement ? active : null;
+      /* The menu closes before the dialog opens, so its item is no longer
+         rendered when the dialog later restores focus. The close handler below
+         puts focus back on whatever opened it — or on the menu's summary when
+         that was a menu item. */
+      menu.open = false;
+      details.showModal();
+      (advert ? inputs.jobDescription : inputs.company).focus();
+    };
+
+    let detailsOpener: HTMLElement | null = null;
+
+    $('jw-edit').addEventListener('click', () => openDetails(false));
+    $('jw-advert-paste').addEventListener('click', () => openDetails(true));
+    $('jw-details-done').addEventListener('click', () => details.close());
+    details.addEventListener('click', event => {
+      if (event.target === details) details.close();
+    });
+    details.addEventListener('close', () => {
+      refresh();
+      paintAdvert();
+      const opener = detailsOpener;
+      detailsOpener = null;
+      const restore = () => {
+        /* `offsetParent` and `getClientRects()` both still report an item inside
+           a closed `<details>` — Chromium hides that content without removing it
+           from the box tree — so the question is whether the menu it belongs to
+           is open. When it is not, the summary is the control that opened this. */
+        const closed = opener?.closest('details');
+        const usable = opener?.isConnected && (!closed || closed.open);
+        if (opener && usable) opener.focus();
+        else $('jw-menu').querySelector<HTMLElement>('summary')?.focus();
+      };
+      /* Twice: the platform restores focus after firing `close`, so the
+         immediate attempt can be replaced by it. The delayed one wins. */
+      restore();
+      window.setTimeout(restore, 120);
+    });
+
+    $('jw-copy-advert').addEventListener('click', () => {
+      menu.open = false;
+      void copyText(inputs.jobDescription.value).then(ok =>
+        toast(ok ? 'Advert copied.' : 'Could not copy — select it instead.', { tone: ok ? 'success' : 'error' }),
+      );
+    });
+
+    $('jw-advert-copy').addEventListener('click', () => {
+      void copyText(inputs.jobDescription.value).then(ok =>
+        toast(ok ? 'Advert copied.' : 'Could not copy — select it instead.', { tone: ok ? 'success' : 'error' }),
+      );
+    });
+
+    $('jw-advert-toggle').addEventListener('click', () => {
+      advertExpanded = !advertExpanded;
+      paintAdvert();
+    });
+
+    /* ---------- chips and the Next button ---------- */
+
+    $('jw-chip-fit').addEventListener('click', () => selectTab('jw-panel-fit'));
+    $('jw-chip-resume').addEventListener('click', () => selectTab('jw-panel-resume'));
+    $('jw-chip-next').addEventListener('click', () => selectTab('jw-panel-overview'));
+    $('jw-glance-open').addEventListener('click', () => selectTab('jw-panel-fit'));
+    $('jw-resume-change').addEventListener('click', () => selectTab('jw-panel-resume'));
+    $('jw-people-outreach').addEventListener('click', () => selectTab('jw-panel-outreach'));
+
+    $('jw-contact-add').addEventListener('click', () => openContactDialog(null));
+    $('jw-contact-add-empty').addEventListener('click', () => openContactDialog(null));
+    $('jw-contact-cancel').addEventListener('click', () => contactDialog.close());
+    $('jw-contact-save').addEventListener('click', saveContact);
+    contactDialog.addEventListener('click', event => {
+      if (event.target === contactDialog) contactDialog.close();
+    });
+    contactDialog.addEventListener('close', () => {
+      editingContact = null;
+    });
+    for (const field of [contactName, contactTitle, contactUrl]) {
+      field.addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          saveContact();
+        }
+      });
+    }
+
+    $('jw-note-add').addEventListener('click', () => {
+      const prefix = `${today()} — `;
+      inputs.notes.value = `${prefix}${inputs.notes.value}`;
+      inputs.notes.focus();
+      inputs.notes.setSelectionRange(prefix.length, prefix.length);
+      inputs.notes.dispatchEvent(new Event('input', { bubbles: true }));
+      tracker.check();
+      refresh();
+    });
+
+    function markApplied() {
+      inputs.status.value = 'applied';
+      if (!inputs.appliedOn.value) inputs.appliedOn.value = today();
+      tracker.check();
+      refresh();
+      toast('Marked applied — press Save to keep it.', { tone: 'info' });
+    }
+
+    nextButton.addEventListener('click', () => {
+      const act = nextButton.dataset.act;
+      if (act === 'assess') return runFitAssess(fitButtons[0]);
+      if (act === 'applied') return markApplied();
+      if (act === 'details') return openDetails(true);
+      if (act === 'notes') {
+        selectTab('jw-panel-overview');
+        inputs.notes.focus();
+        return;
+      }
+      if (act === 'fit') return selectTab('jw-panel-fit');
+      if (act === 'resume') return selectTab('jw-panel-resume');
+      if (act === 'outreach') return selectTab('jw-panel-outreach');
+      selectTab('jw-panel-overview');
+    });
+
+    /* ---------- the fit controls ---------- */
+
+    function runFitAssess(button: HTMLButtonElement) {
+      if (inputs.fit.value.trim() && !fitArm) {
+        fitArm = true;
+        setLabel(button, 'Click again to replace');
+        window.setTimeout(() => {
+          fitArm = false;
+          setLabel(button, null);
+        }, 4000);
+        return;
+      }
+      fitArm = false;
+      setLabel(button, null);
+      panel.open();
+      panel.send('/assess-fit');
+    }
+
+    for (const button of fitButtons) button.addEventListener('click', () => runFitAssess(button));
+
+    $('jw-fit-copy').addEventListener('click', () => {
+      void copyText(inputs.fit.value).then(ok =>
+        toast(ok ? 'Assessment copied.' : 'Could not copy — select the text instead.', { tone: ok ? 'success' : 'error' }),
+      );
+    });
+
+    $('jw-fit-toggle').addEventListener('click', () => {
+      fitEditing = !fitEditing;
+      if (fitEditing) {
+        $('jf-fit').hidden = false;
+        $('jf-fit').focus();
+      }
+      paintFit();
+    });
+
+    /* ---------- input wiring ---------- */
+
+    for (const key of Object.keys(inputs) as Scalar[]) {
+      const field = inputs[key];
+      const onEdit = () => {
+        tracker.check();
+        refresh();
+        if (key === 'jobDescription') {
+          paintAdvert();
+          paintOutreach();
+          paintHandoff();
+        }
+        if (key === 'fit') scheduleFitPaint();
+        if (key === 'resumeVariant') paintResumeTab();
+        if (key === 'company' || key === 'role') paintSearches();
+        if (key === 'status' || key === 'appliedOn') paintOutreach();
+      };
+      field.addEventListener('input', onEdit);
+      field.addEventListener('change', onEdit);
+    }
+
+    contacts.addEventListener('input', () => {
+      tracker.check();
+      refresh();
+      paintOutreach();
+    });
 
     /* Moving to Applied with no date is almost always "today". */
     inputs.status.addEventListener('change', () => {
       if (inputs.status.value === 'applied' && !inputs.appliedOn.value) {
-        inputs.appliedOn.value = new Date().toISOString().slice(0, 10);
+        inputs.appliedOn.value = today();
         tracker.check();
+        refresh();
       }
     });
+
+    /* ---------- save and delete ---------- */
 
     save.addEventListener('click', async () => {
       for (const key of ['company', 'role'] as const) {
@@ -310,10 +2135,13 @@ const slug = Astro.params.slug ?? '';
       const pending = toast('Saving…', { tone: 'pending' });
       try {
         await patchApplication(slug, changed);
-        loaded = { ...loaded, ...changed };
+        loaded = { ...loaded, ...changed } as ApplicationFields;
         tracker.reset();
-        say(`Saved ${Object.keys(changed).join(', ')}.`);
+        say(`Saved ${Object.keys(changed).map(key => FIELD_LABELS[key] ?? key).join(', ')}.`);
         pending.update('Saved.', { tone: 'success' });
+        refresh();
+        paintAdvert();
+        paintFit();
       } catch (error) {
         const text = error instanceof Error ? error.message : 'Could not save.';
         say(text, 'error');
@@ -324,11 +2152,10 @@ const slug = Astro.params.slug ?? '';
       }
     });
 
-    /* Two clicks, like a log row: this is private, there is no public page to
-       404, and Withdrawn or Rejected is the usual way out — but the row does
-       not come back. */
     let armed = false;
     remove.addEventListener('click', async () => {
+      /* The menu stays open on the first click: closing it hid the very
+         “Confirm delete” the click had just put there. */
       if (!armed) {
         armed = true;
         setLabel(remove, 'Confirm delete');
@@ -353,12 +2180,6 @@ const slug = Astro.params.slug ?? '';
 
     /* ---------- the assistant ---------- */
 
-    /* `resumeContext()` never reads the person, and the assistant is never
-       given contact details — the master is read without them. */
-    const NOBODY: ResumePerson = {
-      name: '', role: '', location: '', address: '', email: '', phone: '', linkedin: '', github: '', summary: '',
-    };
-
     function resumeText(): string {
       if (!resume) return '';
       const sheet = resolveVariant({ ...resume, person: NOBODY }, '', []);
@@ -379,8 +2200,8 @@ const slug = Astro.params.slug ?? '';
       const task: AssistTask = ASSIST_TASKS[name as keyof typeof ASSIST_TASKS];
       const source: Record<string, string> = {
         resume: resumeText(),
-        jobDescription: advert.value,
-        fit: fit.value,
+        jobDescription: inputs.jobDescription.value,
+        fit: inputs.fit.value,
         contacts: contacts.value,
       };
       const out: Record<string, string> = {};
@@ -392,6 +2213,11 @@ const slug = Astro.params.slug ?? '';
 
     async function runTask(name: string, instruction: string) {
       if (!isAssistTask(name)) return;
+      /* A draft started from an Outreach card owns the page's one run. */
+      if (assisting) {
+        toast('One assistant run at a time — stop the running one first.', { tone: 'error' });
+        return;
+      }
       const task: AssistTask = ASSIST_TASKS[name];
       const controller = new AbortController();
       assisting = controller;
@@ -406,12 +2232,14 @@ const slug = Astro.params.slug ?? '';
           ),
       });
       const again = { label: 'Try again', run: () => void runTask(name, instruction) };
-      const before = fit.value;
+      const before = inputs.fit.value;
       const undo = {
         label: 'Undo',
         run: () => {
-          fit.value = before;
+          inputs.fit.value = before;
           tracker.check();
+          scheduleFitPaint();
+          refresh();
         },
       };
 
@@ -426,8 +2254,10 @@ const slug = Astro.params.slug ?? '';
             onDelta: chunk => {
               raw += chunk;
               if (task.live === 'jobFit') {
-                fit.value = raw;
+                inputs.fit.value = raw;
                 tracker.check();
+                scheduleFitPaint();
+                refresh();
               } else {
                 turn.answer(raw);
               }
@@ -453,9 +2283,11 @@ const slug = Astro.params.slug ?? '';
         }
 
         if (task.live === 'jobFit') {
-          fit.value = output;
+          inputs.fit.value = output;
           tracker.check();
-          turn.status('Done — it is in the Fit field. Nothing is saved until you press Save.');
+          scheduleFitPaint();
+          refresh();
+          turn.status('Done — it is in the Fit tab. Nothing is saved until you press Save.');
           turn.actions([undo, again]);
           turn.end(output);
           toast('Fit assessment written.', { tone: 'success' });
@@ -463,11 +2295,7 @@ const slug = Astro.params.slug ?? '';
         }
 
         if (name === 'jobOutreach') {
-          /* Counted here, not trusted from the model: a note over the limit is
-             found out only when LinkedIn refuses to send it. The counts ride on
-             the Copy buttons because `status()` writes the same element
-             `answer()` does — a status line here replaced the drafts. */
-          const versions = output.split(/^\s*-{3,}\s*$/m).map(part => part.trim()).filter(Boolean);
+          const versions = splitVersions(output);
           turn.answer(output);
           turn.actions([
             ...versions.map((part, i) =>
@@ -479,13 +2307,18 @@ const slug = Astro.params.slug ?? '';
           return;
         }
 
-        /* `chat`: a question about this application, answered in prose. */
         turn.answer(output);
         turn.actions([copy(output), again]);
         turn.end(output);
       } catch (error) {
         const wrote = task.live === 'jobFit' && raw ? [undo] : [];
         if (error instanceof DOMException && error.name === 'AbortError') {
+          if (task.live === 'jobFit' && raw) {
+            inputs.fit.value = raw;
+            tracker.check();
+            scheduleFitPaint();
+            refresh();
+          }
           turn.status(raw ? 'Stopped.' : 'Stopped before anything arrived.');
           turn.actions([...wrote, again]);
         } else {
@@ -498,6 +2331,7 @@ const slug = Astro.params.slug ?? '';
       } finally {
         panel.running(false);
         if (assisting === controller) assisting = null;
+        paintOutreach();
       }
     }
 
@@ -507,7 +2341,7 @@ const slug = Astro.params.slug ?? '';
       stop: () => assisting?.abort(),
       run: (item, instruction) => runTask(item ? item.name : 'chat', instruction),
       blocked: (item, instruction) => {
-        if (!advert.value.trim()) return 'Paste the job description first — everything here is read against it.';
+        if (!inputs.jobDescription.value.trim()) return 'Paste the job description first — everything here is read against it.';
         if (!resume) return 'The resume did not load, so there is nothing to assess against. Reload the page.';
         if (item.needsTopic && !instruction.trim()) {
           return `${item.label} needs to know who and where — type it after the command: “LinkedIn note to Priya, the recruiter”.`;
@@ -521,18 +2355,43 @@ const slug = Astro.params.slug ?? '';
       else panel.open();
     });
 
-    /* A command that needs an instruction is typed into the composer for the
-       owner to finish; one that does not is sent. */
-    for (const button of fieldButtons) {
-      button.addEventListener('click', () => {
-        const item = ASSIST_MENU.find(entry => entry.name === button.dataset.assistTask);
-        if (!item) return;
-        if (item.needsTopic) panel.open(item.command);
-        else {
-          panel.open();
-          panel.send(`/${item.command}`);
-        }
-      });
+    /* ---------- load ---------- */
+
+    if (!getToken()) {
+      showView();
+      paintOutreach();
+      paintResumeTab();
+      return lock('Sign in with GitHub to read this application.');
+    }
+    if (!SLUG.test(slug)) {
+      showView();
+      paintOutreach();
+      paintResumeTab();
+      return lock('That is not an application this tracker could have.');
+    }
+
+    async function load() {
+      try {
+        const [row, rawResume] = await Promise.all([
+          getApplication(slug),
+          readDocument(RESUME_KEY).catch(() => null),
+        ]);
+        if (!row?.fields) throw new Error('No application with that slug.');
+        resume = rawResume ? normaliseResume(rawResume as ResumeDocument) : null;
+        loaded = row.fields;
+        fill(loaded);
+        stamp.textContent = row.updatedAt ? `last saved ${row.updatedAt} UTC` : '';
+        showView();
+        paintAdvert();
+        paintFit();
+        paintOutreach();
+        paintResumeTab();
+        refresh();
+        if (!resume) say('The resume did not load, so the assistant has nothing to read it against.', 'error');
+      } catch (error) {
+        showView();
+        lock(error instanceof Error ? error.message : 'Could not read this application.');
+      }
     }
 
     void load();
@@ -540,17 +2399,15 @@ const slug = Astro.params.slug ?? '';
 </script>
 
 <style>
-  .jf-message { min-height: 18px; font-size: 12px; margin: 0 0 var(--space-4); }
-  .jf-message[data-tone='error'] { color: var(--color-accent-700); }
-
-  /* Sized by the room the page actually has, not by the viewport: a docked
-     assistant takes a column of its own, and two cards side by side in what is
-     left squeezed a date field over the input beside it. */
-  .jf-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: var(--space-4); align-items: start; }
-  .jf-col { min-width: 0; }
-  .jf-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--space-3); }
-  .jf-mono { font-family: var(--font-mono); font-size: 13px; }
-  .jf-under { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-1); }
-  .jf-under .admin-note { margin: 0; }
-  .jf-under .btn { flex: none; }
+  /* The shell's own layout only. Everything the script builds — and every
+     `.jw-*` component — lives in `admin.css`, because script-built DOM carries
+     no `data-astro-cid` and a scoped rule would silently match nothing. */
+  .jw-head { align-items: flex-start; }
+  .jw-id { min-width: 0; }
+  .jw-head-right { display: flex; flex-direction: column; align-items: flex-end; gap: var(--space-2); }
+  .jw-message { min-height: 18px; font-size: 12px; margin: 0 0 var(--space-3); }
+  /* No message, no band: an empty paragraph was adding a line of paper between
+     the header actions and the status chips. */
+  .jw-message:empty { min-height: 0; margin: 0; }
+  .jw-message[data-tone='error'] { color: var(--color-accent-700); }
 </style>

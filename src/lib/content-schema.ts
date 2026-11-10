@@ -62,6 +62,11 @@ const CASE_STUDY_COLUMNS: ColumnMap = {
   demoUrl: ['demo_url', 'text'],
   date: ['date', 'text'],
   readTime: ['read_time', 'text'],
+  role: ['role', 'text'],
+  team: ['team', 'text'],
+  metrics: ['metrics', 'list'],
+  links: ['links', 'list'],
+  paged: ['paged', 'bool'],
 };
 
 const JOURNAL_COLUMNS: ColumnMap = {
@@ -89,6 +94,8 @@ const APPLICATION_COLUMNS: ColumnMap = {
   nextStep: ['next_step', 'text'],
   nextOn: ['next_on', 'text'],
   notes: ['notes', 'text'],
+  /* The kept drafts, as markdown sections. Read by `job-view.ts`, not a table. */
+  outreach: ['outreach', 'text'],
 };
 
 /**
