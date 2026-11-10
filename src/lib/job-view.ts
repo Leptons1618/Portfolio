@@ -271,21 +271,29 @@ export interface Contact {
  * on the origin that holds the owner's token — the rule `job-boards.ts` applies
  * to a board's link. Anything else stays text: a relative path is not a profile,
  * and `javascript:` is not a link at all.
+ *
+ * The em dash is the separator the form writes, so it is tried first: a title
+ * can itself contain a spaced hyphen (`Recruiter - India`), and splitting on any
+ * dash before looking for the URL lost the link entirely. The URL is whatever
+ * follows the last separator and is http(s); the rest is name and title.
  */
 export function parseContact(line: string): Contact {
   const raw = typeof line === 'string' ? line.trim() : '';
   if (!raw) return { name: '', title: '', url: null, raw };
-  const [name = '', second = '', third = ''] = raw.split(/\s+[—–-]\s+/, 3);
-  let title = second.trim();
+
+  const byDash = raw.split(/\s+[—–]\s+/);
+  const parts = byDash.length > 1 ? byDash : raw.split(/\s+-\s+/);
+
   let url: string | null = null;
-  if (third) {
-    if (isWeb(third)) url = third.trim();
-    else title = [title, third.trim()].filter(Boolean).join(' — ');
-  } else if (isWeb(title)) {
-    url = title;
-    title = '';
+  const last = parts[parts.length - 1]?.trim() ?? '';
+  if (parts.length > 1 && isWeb(last)) {
+    url = last;
+    parts.pop();
   }
-  return { name: name.trim(), title, url, raw };
+
+  const name = (parts[0] ?? '').trim();
+  const title = parts.slice(1).map(part => part.trim()).filter(Boolean).join(' — ');
+  return { name, title, url, raw };
 }
 
 /** The inverse of `parseContact`, for what the Add / Edit dialog writes back. */
@@ -421,7 +429,12 @@ export interface NextAction {
   /** Empty when there is nothing to press. */
   button: string;
   tab: 'overview' | 'fit' | 'resume' | 'outreach';
-  act?: 'assess' | 'draft' | 'applied';
+  /**
+   * What the button does, named here rather than inferred from its label — a
+   * page that matched on button copy silently stopped working the first time a
+   * label was reworded.
+   */
+  act?: 'assess' | 'draft' | 'applied' | 'details' | 'notes';
 }
 
 /** The fields this reads. A subset of `ApplicationFields`, so the screen can pass its holder. */
@@ -473,6 +486,7 @@ export function nextAction(fields: NextActionFields, today: string): NextAction 
       text: 'Paste the advert — everything else is read against it.',
       button: 'Paste the advert',
       tab: 'overview',
+      act: 'details',
     };
   }
   if (!textOf(fields.fit)) {
@@ -488,6 +502,7 @@ export function nextAction(fields: NextActionFields, today: string): NextAction 
       text: 'This one scored Poor. Withdraw it, or keep it and say why in the notes.',
       button: 'Open the notes',
       tab: 'overview',
+      act: 'notes',
     };
   }
   if (status === 'saved' && !textOf(fields.resumeVariant)) {
@@ -512,6 +527,13 @@ export function nextAction(fields: NextActionFields, today: string): NextAction 
       tab: 'overview',
       act: 'applied',
     };
+  }
+
+  if (status === 'rejected' || status === 'withdrawn') {
+    /* A closed row has no next step, whatever `nextOn` still says. Checking it
+       before the date rules is the point: a withdrawn application kept a due
+       follow-up forever, because nothing clears the date when the status moves. */
+    return { text: 'Nothing due.', button: '', tab: 'overview' };
   }
 
   const due = dayNumber(nextOn);

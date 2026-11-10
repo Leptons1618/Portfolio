@@ -727,6 +727,8 @@ export function trackDirty(
  * `image-upload.ts` override theirs: the assistant assigns `.value` on every
  * frame while it streams, and a property assignment fires no `input` event.
  */
+let autoGrowMounted = false;
+
 export function mountAutoGrow(): void {
   const grow = (field: HTMLTextAreaElement) => {
     /* Measured from nothing each time — `scrollHeight` on an element already
@@ -775,5 +777,11 @@ export function mountAutoGrow(): void {
   };
 
   run();
-  document.addEventListener('astro:page-load', run);
+  /* A screen with script-built fields calls this after every repaint. The
+     listener belongs to the document, so it is registered once — calling this
+     again only attaches the fields that are in the document now. */
+  if (!autoGrowMounted) {
+    autoGrowMounted = true;
+    document.addEventListener('astro:page-load', run);
+  }
 }

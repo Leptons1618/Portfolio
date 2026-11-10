@@ -529,6 +529,19 @@ check('a contact line splits into name, title and a link only when http(s)', () 
   }
   assert.deepEqual(parseContact('Priya Nair'), { name: 'Priya Nair', title: '', url: null, raw: 'Priya Nair' });
   assert.equal(parseContact('').name, '');
+  /* A title may contain a spaced hyphen, and the link is still the last part. */
+  assert.deepEqual(parseContact('Priya Nair — Recruiter - India — https://example.com/priya'), {
+    name: 'Priya Nair',
+    title: 'Recruiter - India',
+    url: 'https://example.com/priya',
+    raw: 'Priya Nair — Recruiter - India — https://example.com/priya',
+  });
+  /* With no em dash at all, the plain hyphen is still the separator. */
+  const hyphenated = parseContact('Priya Nair - Engineer - https://example.com/priya');
+  assert.deepEqual(
+    { name: hyphenated.name, title: hyphenated.title, url: hyphenated.url },
+    { name: 'Priya Nair', title: 'Engineer', url: 'https://example.com/priya' },
+  );
 });
 
 check('a contact written back reads the same again', () => {
@@ -609,6 +622,7 @@ check('nextAction: no advert comes before everything', () => {
   assert.match(next.text, /Paste the advert/);
   assert.equal(next.tab, 'overview');
   assert.equal(next.button, 'Paste the advert');
+  assert.equal(next.act, 'details', 'the action is data, not a match on the label');
 });
 
 check('nextAction: an advert with no assessment asks for one', () => {
@@ -621,7 +635,7 @@ check('nextAction: a Poor verdict on a saved row is information, not a change', 
   const next = nextAction({ ...ready, fit: FIT_POOR }, TODAY);
   assert.match(next.text, /scored Poor/);
   assert.equal(next.tab, 'overview');
-  assert.equal(next.act, undefined);
+  assert.equal(next.act, 'notes');
 });
 
 check('nextAction: a saved row with no resume variant goes to Resume', () => {
@@ -672,6 +686,16 @@ check('nextAction: a week after applying with nothing scheduled asks for a follo
   assert.match(next.text, /A week since you applied/);
   assert.equal(next.tab, 'outreach');
   assert.equal(next.act, undefined);
+});
+
+check('nextAction: a closed row is never due a follow-up', () => {
+  for (const status of ['rejected', 'withdrawn']) {
+    const next = nextAction(
+      { ...ready, status, appliedOn: '2026-11-01', nextOn: '2026-11-09', nextStep: 'Follow up with Priya' },
+      TODAY,
+    );
+    assert.deepEqual(next, { text: 'Nothing due.', button: '', tab: 'overview' });
+  }
 });
 
 check('nextAction: otherwise nothing is due, and there is no button', () => {
