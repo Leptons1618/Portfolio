@@ -62,11 +62,11 @@ const FACTS: [string, string][] = [
   ['runtime', 'Astro 5 · Cloudflare Workers'],
   ['rendering', 'Static, with an adapter'],
   ['database', 'Cloudflare D1 — 11 tables'],
-  ['migrations', '10, applied before each deploy'],
+  ['migrations', '16, applied before each deploy'],
   ['images', 'BLOBs in D1, one route serves them'],
   ['styling', 'Plain CSS · 3 themes × light/dark'],
-  ['client js', 'No framework'],
-  ['dependencies', '15 runtime · 3 dev'],
+  ['client js', 'No framework on a public page'],
+  ['dependencies', '20 runtime · 5 dev'],
 ];
 
 const TABLES: [string, string][] = [
@@ -549,7 +549,7 @@ const SHOTS = {
         <div class="prose col-split-body">
           <ul>
             <li><strong>No analytics, no cookies, no third-party scripts.</strong> Nothing on a public page phones anywhere except the assistant, and only when a visitor asks it something.</li>
-            <li><strong>No UI framework.</strong> Tailwind is installed and contributes essentially only its preflight; the components are global classes plus a page-scoped block.</li>
+            <li><strong>No UI framework.</strong> Tailwind is installed and contributes essentially only its preflight; the components are global classes plus a page-scoped block. React arrives only with the admin's drawing editor, loaded when Draw is pressed, and never on a page a reader sees.</li>
             <li><strong>No agent framework.</strong> The retrieval loop is one function with three bounds, and the bounds are the design rather than defensive extras.</li>
             <li><strong>No commit path.</strong> The GitHub App is read-only. Nothing in the admin writes to the repository, and the permission that used to allow it is gone.</li>
           </ul>

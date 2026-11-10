@@ -89,6 +89,25 @@ check('nothing a caller sends can reach a column name', () => {
   }
 });
 
+check('a case study takes its overview facts, each through its own encoder', () => {
+  // Decision 81. metrics and links are lists of "a | b" strings, so the CLI
+  // and the MCP server write them with the encoder every other list uses.
+  const { columns, values } = bind('case_studies', {
+    role: 'Solo — design, backend, ML',
+    team: 'Solo',
+    metrics: ['40% | latency cut'],
+    links: ['Docs | https://example.com'],
+    paged: true,
+  });
+  assert.deepEqual(columns, ['role', 'team', 'metrics', 'links', 'paged']);
+  assert.deepEqual(values, ['Solo — design, backend, ML', 'Solo', '["40% | latency cut"]', '["Docs | https://example.com"]', 1]);
+  // A cleared role is NULL, and an emptied list is still a list.
+  assert.deepEqual(bind('case_studies', { role: '', metrics: [] }).values, [null, '[]']);
+  // They are case-study fields and nothing else's.
+  throws(() => bind('projects', { metrics: ['x'] }));
+  throws(() => bind('case_studies', { chapters: ['x'] }));
+});
+
 check('a SQL fragment as a key is refused', () => {
   throws(() => bind('projects', { 'title = 1; DROP TABLE projects; --': 'x' }));
 });

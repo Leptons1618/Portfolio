@@ -14,6 +14,26 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Case studies as an overview and chapters.** Four new facts on a case study —
+  your role, the team, up to four key numbers and labelled links — shown on its
+  overview and on its project's page; no assistant task can write them. With
+  **Split into chapters** on, each `## ` of the write-up is its own page at
+  `/case-studies/<slug>/<heading>`, with a chapter rail and previous/next;
+  off, nothing changes. A renamed heading redirects to the overview. Images in
+  a case study open full-size on click. Migration 0016, decision **81**.
+- **Excalidraw drawings that stay editable.** Draw on the case-study tab, the
+  architecture image field and the journal editor; the drawing is saved as an
+  SVG with its scene inside it, so Edit drawing reopens it and a save replaces
+  it everywhere it is shown. Readers get a plain image — the editor never loads
+  on a public page, and the build fails if it could. From Mermaid turns a
+  diagram's source into shapes to move by hand. Drawings invert in dark mode.
+  Decision **82**.
+- **Paste or drop images into a write-up.** A screenshot pasted into the journal
+  body or a case study's write-up uploads and becomes an image line; rich text
+  still pastes as text.
+- **Insert outline** puts a starting set of chapters for the project's kind at
+  the caret, and the long case-study writer plans from the same outline.
+
 - **A Jobs screen, and job discovery.** `/admin/jobs` lists every application by
   status with overdue follow-ups flagged; `/admin/jobs/<slug>` edits one, with
   `/assess-fit` writing the fit assessment into its field and `/draft-outreach`

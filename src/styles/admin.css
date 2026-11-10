@@ -3166,3 +3166,54 @@ body[data-asx-freeze] {
 .cd-label { font-size: 13px; margin-bottom: calc(var(--space-2) * -1); }
 .cd-confirm:not(:disabled) { background: var(--color-accent-700); border-color: var(--color-accent-700); }
 .cd-confirm:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* — the drawing editor — `src/lib/drawing.ts`, decision 82.
+
+   Full-screen, because Excalidraw is a canvas and a canvas in a box is a
+   canvas you scroll around inside. Built in script, so its rules live here.
+   `display` on `[open]` only — the modal rule above, for the same reason. */
+/* Not modal (see `drawing.ts`): a fixed overlay under Excalidraw's own modal
+   layer, which sits at 1000 in containers appended to `<body>`. */
+.drawing {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+.drawing[open] { display: grid; grid-template-rows: auto 1fr; }
+.drawing-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+}
+.drawing-title { font-family: var(--font-heading); }
+.drawing-status { flex: 1; min-width: 0; font-size: 13px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawing-status[data-tone='error'] { color: var(--color-accent-700); }
+.drawing-canvas { position: relative; min-height: 0; }
+.drawing-mermaid { position: relative; }
+.drawing-mermaid > summary { list-style: none; }
+.drawing-mermaid > summary::-webkit-details-marker { display: none; }
+.drawing-mermaid-pop {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--space-1));
+  z-index: 10;
+  display: grid;
+  gap: var(--space-2);
+  width: min(420px, 90vw);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  box-shadow: var(--shadow-lg);
+}
+.drawing-mermaid-source { min-height: 160px; font-family: var(--font-mono); font-size: 12px; }

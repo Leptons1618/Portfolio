@@ -1,6 +1,7 @@
 ---
 import CaseStudyLayout from '../../layouts/CaseStudyLayout.astro';
 import { caseStudyNeighbours, categoryLabel, getCaseStudy, projectForCaseStudy } from '../../lib/content';
+import { splitChapters } from '../../lib/chapters';
 
 /* Read from D1 per request, so a case study published a minute ago is live a
    minute ago. `getStaticPaths` used to hand this page its entry already
@@ -12,7 +13,10 @@ const { DB } = Astro.locals.runtime.env;
 const entry = Astro.params.slug ? await getCaseStudy(DB, Astro.params.slug) : undefined;
 if (!entry) return new Response(null, { status: 404 });
 
-const { title, subtitle, heroImage, heroVideo, problem, solution, architectureImage, achievements, stack, repoUrl, demoUrl, date, readTime } = entry.data;
+const {
+  title, subtitle, heroImage, heroVideo, problem, solution, architectureImage, achievements, stack,
+  repoUrl, demoUrl, date, readTime, role, team, metrics, links, paged,
+} = entry.data;
 
 /* The eyebrow reads "{category} · {year}" — a case study carries neither, so
    both come from the project that links to it. */
@@ -22,13 +26,20 @@ const eyebrow = project ? `${categoryLabel(project.data.category)} · ${year}` :
 
 const { prev, next } = await caseStudyNeighbours(DB, entry.slug);
 const neighbour = (cs: typeof prev) => (cs ? { slug: cs.slug, title: cs.data.title } : null);
+
+/* Read as chapters only when the author asked for it and there are any: the
+   overview then carries the write-up's opening, and each `## ` is a page of
+   its own. Otherwise the whole write-up is here, as it always was. Decision 81. */
+const split = paged ? splitChapters(entry.html) : null;
+const chapters = split?.chapters.length ? split.chapters : null;
+const body = chapters ? split!.intro : entry.html;
 ---
 <CaseStudyLayout
   title={title} subtitle={subtitle} heroImage={heroImage} heroVideo={heroVideo}
   problem={problem} solution={solution} architectureImage={architectureImage}
   achievements={achievements} stack={stack} repoUrl={repoUrl} demoUrl={demoUrl}
-  date={date} readTime={readTime}
-  eyebrow={eyebrow} prev={neighbour(prev)} next={neighbour(next)}
+  date={date} readTime={readTime} role={role} team={team} metrics={metrics} links={links}
+  chapters={chapters} eyebrow={eyebrow} prev={neighbour(prev)} next={neighbour(next)}
 >
-  <Fragment set:html={entry.html} />
+  <Fragment set:html={body} />
 </CaseStudyLayout>

@@ -105,4 +105,137 @@ assert.match(html, /<table>/, 'GFM tables still render');
 assert.equal(await renderBody(''), '');
 assert.equal(await renderBody('   \n'), '');
 
+/* — chapters (decision 81) —
+
+   Split on `renderBody()`'s real output, not on hand-written HTML: the whole
+   arrangement rests on the processor giving every `## ` an id, and a test
+   against invented markup would pass the day that stopped being true. */
+const { splitChapters, metricsOf, linksOf, outlineMarkdown, CHAPTER_OUTLINES } = await import(
+  pathToFileURL(join(root, 'src/lib/chapters.ts')).href
+);
+
+const paged = await renderBody(
+  [
+    'An opening paragraph. It says what the project is.',
+    '',
+    '## How it fits together',
+    '',
+    'The parser reads the file. Then the planner runs.',
+    '',
+    '### A subheading stays inside its chapter',
+    '',
+    'More.',
+    '',
+    '## The `Cache` & its keys',
+    '',
+    '![A drawing](/media/images/drawings/x-1.svg)',
+    '',
+    'Keys carry the build id.',
+    '',
+    '```md',
+    '## not a heading',
+    '```',
+  ].join('\n'),
+);
+const split = splitChapters(paged);
+assert.match(split.intro, /An opening paragraph/, 'the text before the first `## ` is the intro');
+assert.doesNotMatch(split.intro, /<h2/, 'and carries no heading');
+assert.equal(split.chapters.length, 2, 'one chapter per `## `, and a fenced `## ` is code, not a chapter');
+assert.equal(split.chapters[0].id, 'how-it-fits-together', 'the heading id is the chapter id');
+assert.equal(split.chapters[0].title, 'How it fits together');
+assert.equal(split.chapters[0].lead, 'The parser reads the file.', 'the lead is the first sentence');
+assert.match(split.chapters[0].html, /<h3[^>]*>A subheading/, 'an `### ` stays inside its chapter');
+assert.doesNotMatch(split.chapters[0].html, /Keys carry/, 'a chapter stops at the next `## `');
+assert.equal(split.chapters[1].title, 'The Cache & its keys', 'markup is dropped and entities decoded in a title');
+assert.match(split.chapters[1].id, /^the-cache--its-keys$|^the-cache-its-keys$/, 'an id survives inline code and an ampersand');
+assert.equal(split.chapters[1].lead, 'Keys carry the build id.', 'an image paragraph is skipped for the lead');
+
+/* The serialiser leaves `<` unescaped inside an attribute value, so a link
+   title can hold the text `<h2 id=`. A split that took it for a heading would
+   cut the body mid-tag and hand `set:html` attribute text as markup — stored
+   XSS past every other guard here. Only the processor's own headings split. */
+{
+  const crafted = await renderBody(
+    [
+      '## Real',
+      '',
+      'See [this](/x "a <h2 id=")x<img src=x onerror=alert(1)>").',
+      '',
+      'And [that](/y "<img src=x onerror=alert(2)>").',
+      '',
+      '## Second',
+      '',
+      'Text.',
+    ].join('\n'),
+  );
+  const parts = splitChapters(crafted);
+  assert.deepEqual(parts.chapters.map(c => c.id), ['real', 'second'], 'a heading written inside an attribute is not a chapter');
+  for (const chapter of parts.chapters) {
+    assert.doesNotMatch(chapter.html, /^[^<]*"/, `chapter ${chapter.id} does not begin inside an attribute`);
+    assert.doesNotMatch(chapter.html.replace(/"[^"]*"/g, '""'), /<img[^>]*onerror/i, `chapter ${chapter.id} carries no live handler`);
+  }
+}
+
+/* Footnotes are not a chapter, and a chapter citing one keeps the notes. */
+{
+  const noted = splitChapters(await renderBody(['## One', '', 'A claim.[^1]', '', '## Two', '', 'No notes here.', '', '[^1]: The source.'].join('\n')));
+  assert.deepEqual(noted.chapters.map(c => c.id), ['one', 'two'], 'the footnotes heading is not a chapter');
+  assert.match(noted.chapters[0].html, /data-footnotes/, 'the chapter that cites a note carries the notes');
+  assert.doesNotMatch(noted.chapters[1].html, /data-footnotes/, 'a chapter that cites none does not');
+}
+
+/* A heading quoted inside a blockquote is not a chapter boundary. */
+{
+  const quoted = splitChapters(await renderBody(['## Outer', '', '> ## Quoted', '>', '> words', '', 'After the quote.'].join('\n')));
+  assert.deepEqual(quoted.chapters.map(c => c.id), ['outer'], 'a quoted `## ` does not split the quote across pages');
+  assert.match(quoted.chapters[0].html, /<\/blockquote>[\s\S]*After the quote/, 'the quote stays whole inside its chapter');
+}
+
+const flat = splitChapters(await renderBody('Just a paragraph.\n\n### Only a level three'));
+assert.equal(flat.chapters.length, 0, 'a write-up with no `## ` has no chapters');
+assert.match(flat.intro, /Just a paragraph/, 'and is all intro');
+assert.deepEqual(splitChapters(''), { intro: '', chapters: [] }, 'an empty body splits to nothing');
+
+/* The overview's numbers: value | label, four at most. */
+assert.deepEqual(
+  metricsOf(['40% | latency cut', '  10k  |  daily users ', 'just a value', '', '5', '6', '7']),
+  [
+    { value: '40%', label: 'latency cut' },
+    { value: '10k', label: 'daily users' },
+    { value: 'just a value', label: '' },
+    { value: '5', label: '' },
+  ],
+  'a metric splits on the first ` | `, blank lines drop, and four is the ceiling',
+);
+
+/* The links are an `href` on this origin: only absolute http(s) survives. */
+assert.deepEqual(
+  linksOf([
+    'Docs | https://docs.example.com/x',
+    'https://example.com/paper.pdf',
+    'Evil | javascript:alert(1)',
+    'javascript:alert(1)',
+    'Data | data:text/html,<script>alert(1)</script>',
+    'Relative | /admin',
+    'Mail | mailto:a@b.c',
+    'Plain | http://example.org',
+    'Spaced |   https://example.net  ',
+  ]),
+  [
+    { label: 'Docs', url: 'https://docs.example.com/x' },
+    { label: 'example.com', url: 'https://example.com/paper.pdf' },
+    { label: 'Plain', url: 'http://example.org' },
+    { label: 'Spaced', url: 'https://example.net' },
+  ],
+  'javascript:, data:, relative and mailto links are dropped; a bare URL is labelled with its host',
+);
+
+/* The outline scaffold renders as headings, and every category has one. */
+for (const [category, outline] of Object.entries(CHAPTER_OUTLINES)) {
+  assert.ok(outline.length >= 4, `${category} has a usable outline`);
+  const scaffold = splitChapters(await renderBody(outlineMarkdown(category)));
+  assert.equal(scaffold.chapters.length, outline.length, `${category}'s scaffold renders one chapter per heading`);
+  assert.doesNotMatch(await renderBody(outlineMarkdown(category)), /&#x3C;!--|<!--/, 'the scaffold prints no comment');
+}
+
 console.log('markdown: ok');

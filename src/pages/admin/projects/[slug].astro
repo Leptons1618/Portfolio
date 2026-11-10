@@ -425,6 +425,37 @@ const STATUS_VARIANT: Record<string, string> = {
           <div class="field">
             <label for="cs-arch">Architecture image (optional)</label>
             <input class="input" id="cs-arch" placeholder="/images/arch.svg" />
+            {/* Draw it, or reopen the drawing it already is — decision 82. */}
+            <div class="pd-draw-row">
+              <button type="button" class="btn btn-secondary btn-sm" id="cs-arch-draw">
+                <Icon name="lucide:pen-tool" class="admin-nav-icon" /><span id="cs-arch-draw-label">Draw it</span>
+              </button>
+            </div>
+          </div>
+          {/* The overview's facts — decision 81. Typed by the owner; no assistant
+              task writes any of them, because an invented number in front of a
+              recruiter is the worst thing this page could say. */}
+          <div class="field">
+            <label for="cs-role">Your role (optional)</label>
+            <input class="input" id="cs-role" placeholder="Solo — design, backend, ML" />
+          </div>
+          <div class="field">
+            <label for="cs-team">Team (optional)</label>
+            <input class="input" id="cs-team" placeholder="Solo · 4 engineers" />
+          </div>
+          <div class="field">
+            <label for="cs-metrics">Key numbers (one per line, up to four)</label>
+            <textarea class="input pf-highlights" id="cs-metrics" data-grow placeholder="40% | latency cut"></textarea>
+          </div>
+          <div class="field">
+            <label for="cs-links">More links (one per line)</label>
+            <textarea class="input pf-highlights" id="cs-links" data-grow placeholder="Docs | https://…"></textarea>
+          </div>
+          <div class="field pf-wide">
+            <label class="pd-switch-label">
+              <input type="checkbox" id="cs-paged" />
+              Split into chapters — each <code>## </code> section of the write-up becomes its own page
+            </label>
           </div>
           {/* The write-up itself. It had no field until now, which is why every
               case study on the site was a header over the one paragraph
@@ -433,7 +464,22 @@ const STATUS_VARIANT: Record<string, string> = {
               way into D1, same as a post. */}
           <div class="field pf-wide">
             <label for="cs-body">The write-up (markdown)</label>
+            <div class="pd-body-tools">
+              <button type="button" class="btn btn-secondary btn-sm" id="cs-outline">
+                <Icon name="lucide:list-tree" class="admin-nav-icon" />Insert outline
+              </button>
+              <button type="button" class="btn btn-secondary btn-sm" id="cs-draw">
+                <Icon name="lucide:pen-tool" class="admin-nav-icon" /><span id="cs-draw-label">Draw</span>
+              </button>
+              <span class="text-muted pd-body-hint">Paste or drop an image to upload it.</span>
+            </div>
             <textarea class="input pd-cs-body" id="cs-body" spellcheck="true"></textarea>
+            {/* What the chapters will be, as the author types — the `## `
+                headings, in order. Built in script. */}
+            <div class="pd-chapters" id="cs-chapters" hidden>
+              <span class="text-muted">Chapters:</span>
+              <ol class="pd-chapters-list" id="cs-chapters-list"></ol>
+            </div>
             {/* Filled from the server's copy of an unfinished long write-up, so
                 a reload — or another browser — can carry on from the next
                 section. Hidden until there is one. */}
@@ -558,7 +604,10 @@ const STATUS_VARIANT: Record<string, string> = {
     parseRepoUrl,
     repoFacts,
   } from '../../../lib/github';
-  import { attachImageUpload } from '../../../lib/image-upload';
+  import { attachImageUpload, attachMarkdownImages } from '../../../lib/image-upload';
+  import { CHAPTER_OUTLINES, outlineLine, outlineMarkdown } from '../../../lib/chapters';
+  import { drawingAt, drawingName, insertBlock, insertImageLine } from '../../../lib/md-edit';
+  import type { Category } from '../../../lib/content';
   import {
     completeness,
     mountChips,
@@ -963,6 +1012,11 @@ const STATUS_VARIANT: Record<string, string> = {
         demo: $<HTMLInputElement>('cs-demo'),
         hero: $<HTMLInputElement>('cs-hero'),
         architecture: $<HTMLInputElement>('cs-arch'),
+        role: $<HTMLInputElement>('cs-role'),
+        team: $<HTMLInputElement>('cs-team'),
+        metrics: $<HTMLTextAreaElement>('cs-metrics'),
+        links: $<HTMLTextAreaElement>('cs-links'),
+        paged: $<HTMLInputElement>('cs-paged'),
         body: $<HTMLTextAreaElement>('cs-body'),
       };
 
@@ -980,7 +1034,97 @@ const STATUS_VARIANT: Record<string, string> = {
         study.demo.value = data.demoUrl ?? '';
         study.hero.value = data.heroImage ?? '';
         study.architecture.value = data.architectureImage ?? '';
+        study.role.value = data.role ?? '';
+        study.team.value = data.team ?? '';
+        study.metrics.value = (data.metrics ?? []).join('\n');
+        study.links.value = (data.links ?? []).join('\n');
+        study.paged.checked = Boolean(data.paged);
+        showChapters();
       }
+
+      /* The write-up's `## ` headings, live — what a reader will get as pages
+         when Split into chapters is on. Fences dropped first, as the project
+         page does: a `## ` inside one is code. */
+      const chapterBox = $<HTMLElement>('cs-chapters');
+      const chapterList = $<HTMLOListElement>('cs-chapters-list');
+      function showChapters() {
+        const headings = study.body.value
+          .replace(/```[\s\S]*?```/g, '')
+          .split('\n')
+          .map(line => line.match(/^##\s+(.+?)\s*#*$/)?.[1]?.trim())
+          .filter((heading): heading is string => Boolean(heading));
+        chapterBox.hidden = headings.length === 0;
+        chapterList.replaceChildren(
+          ...headings.map(heading => {
+            const item = document.createElement('li');
+            item.textContent = heading;
+            return item;
+          }),
+        );
+      }
+      study.body.addEventListener('input', showChapters);
+
+      /* Screenshots and photos straight into the write-up. */
+      attachMarkdownImages(study.body, { dir: 'images/case-studies', name: () => linkedSlug });
+
+      $<HTMLButtonElement>('cs-outline').addEventListener('click', () => {
+        const category = project.category.value as Category;
+        /* Padded on both sides, or a heading or the text after it would be a
+           lazy continuation of a neighbouring paragraph. */
+        const edit = insertBlock(study.body.value, { start: study.body.selectionStart, end: study.body.selectionStart }, outlineMarkdown(category));
+        study.body.setRangeText(edit.insert, edit.from, edit.to, 'end');
+        study.body.setSelectionRange(edit.selStart, edit.selEnd);
+        study.body.dispatchEvent(new Event('input', { bubbles: true }));
+        study.body.focus();
+        say(csMessage, 'Outline inserted — rename, reorder or drop any chapter; the work decides.');
+      });
+
+      /* Excalidraw, loaded on the first press and never before — decision 82.
+         On a drawing's own line the button reopens it; anywhere else it starts
+         a new one and inserts its image line at the caret. */
+      const drawLabel = $<HTMLElement>('cs-draw-label');
+      const drawingUnderCaret = () => drawingAt(study.body.value, study.body.selectionStart);
+      const paintDraw = () => {
+        drawLabel.textContent = drawingUnderCaret() ? 'Edit drawing' : 'Draw';
+      };
+      for (const type of ['keyup', 'click', 'input', 'focus'] as const) study.body.addEventListener(type, paintDraw);
+
+      $<HTMLButtonElement>('cs-draw').addEventListener('click', async () => {
+        const existing = drawingUnderCaret();
+        const name = existing?.name ?? `${linkedSlug}-${Date.now().toString(36)}`;
+        const { openDrawing } = await import('../../../lib/drawing');
+        const url = await openDrawing({ src: existing?.url, name });
+        if (!url) return;
+        if (!existing) {
+          /* The caret as it is now, not as it was: a pasted image can land
+             while the editor is open and move everything after it. */
+          const range = { start: study.body.selectionStart, end: study.body.selectionEnd };
+          const insert = insertImageLine(study.body.value, range, 'Drawing', url);
+          study.body.setRangeText(insert.insert, insert.from, insert.to, 'end');
+          study.body.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        toast(existing ? 'Drawing saved — every page showing it has the new version.' : 'Drawing saved. Save the case study to keep the line.', { tone: 'success' });
+        paintDraw();
+      });
+
+      /* The architecture field: draw a new one, or reopen the drawing it holds. */
+      const archLabel = $<HTMLElement>('cs-arch-draw-label');
+      const paintArch = () => {
+        archLabel.textContent = drawingName(study.architecture.value) ? 'Edit the drawing' : 'Draw it';
+      };
+      study.architecture.addEventListener('input', paintArch);
+      $<HTMLButtonElement>('cs-arch-draw').addEventListener('click', async () => {
+        const current = study.architecture.value.trim();
+        const existing = drawingName(current);
+        const { openDrawing } = await import('../../../lib/drawing');
+        const url = await openDrawing({
+          src: existing ? current : undefined,
+          name: existing ?? `${linkedSlug}-architecture`,
+        });
+        if (!url) return;
+        study.architecture.value = url;
+        paintArch();
+      });
 
       attachImageUpload(study.hero, {
         dir: 'images/case-studies',
@@ -1061,6 +1205,13 @@ const STATUS_VARIANT: Record<string, string> = {
             demoUrl: study.demo.value.trim() || undefined,
             heroImage: study.hero.value.trim() || undefined,
             architectureImage: study.architecture.value.trim() || undefined,
+            /* `''` rather than `undefined`: an emptied field has to reach the
+               endpoint to be cleared, and `JSON.stringify` drops `undefined`. */
+            role: study.role.value.trim(),
+            team: study.team.value.trim(),
+            metrics: lines(study.metrics.value),
+            links: lines(study.links.value),
+            paged: study.paged.checked,
           };
 
           /* Fields and prose in one write. The endpoint renders the markdown to
@@ -1960,7 +2111,9 @@ const STATUS_VARIANT: Record<string, string> = {
             highlights: value('cs-achievements'),
             problem: value('cs-problem'),
             solution: value('cs-solution'),
+            category: `${project.category.value} — suggested chapters: ${outlineLine(project.category.value as Category)}`,
           },
+          outline: CHAPTER_OUTLINES[project.category.value as Category]?.map(([heading, brief]) => ({ heading, brief })),
           instruction,
           signal: controller.signal,
           run: panel.runOptions(),
@@ -2118,6 +2271,35 @@ const STATUS_VARIANT: Record<string, string> = {
 
 <style>
   /* The offer to carry on an unfinished long write-up, under the field. */
+  /* The write-up's tools, the drawing button under the architecture field,
+     and the live list of what the chapters will be. */
+  .pd-body-tools,
+  .pd-draw-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+  .pd-draw-row { margin: var(--space-2) 0 0; }
+  .pd-body-hint { font-size: 12px; }
+  .pd-chapters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+    font-size: 13px;
+  }
+  .pd-chapters-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    margin: 0;
+    padding-left: var(--space-4);
+  }
+  .pd-switch-label { display: flex; align-items: center; gap: var(--space-2); font-weight: normal; }
+
   .pd-cs-resume {
     display: flex;
     flex-wrap: wrap;

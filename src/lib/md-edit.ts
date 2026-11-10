@@ -334,6 +334,12 @@ function block(text: string, range: Range, body: string, placeholder: [number, n
   };
 }
 
+/** Any block of markdown at the caret, padded to a paragraph boundary on both sides. */
+export function insertBlock(text: string, range: Range, body: string): MdEdit {
+  const trimmed = body.replace(/\n+$/, '');
+  return block(text, range, trimmed, [trimmed.length, trimmed.length]);
+}
+
 /** A fenced code block, with the language placeholder selected. */
 export function insertFence(text: string, range: Range, language = ''): MdEdit {
   const body = `\`\`\`${language}\n\n\`\`\``;
@@ -363,6 +369,67 @@ export function insertRule(text: string, range: Range): MdEdit {
 export function insertImage(text: string, range: Range): MdEdit {
   const body = '![alt text](/media/path.png)';
   return block(text, range, body, [2, 'alt text'.length + 2]);
+}
+
+/* ------------------------------------------------- pasted images, drawings --- */
+
+/** `[` and `]` would close the alt text early. */
+const altText = (alt: string) => alt.replace(/[[\]]/g, '').trim();
+
+/** An image line at the caret, as its own block. The caret lands after it. */
+export function insertImageLine(text: string, range: Range, alt: string, url: string): MdEdit {
+  const body = `![${altText(alt)}](${url})`;
+  return block(text, range, body, [body.length, body.length]);
+}
+
+/**
+ * What stands in for an image while its bytes upload. The `#id` makes each
+ * one unique, so two pasted at once are replaced by the right upload; and if
+ * the post is saved mid-upload, it is a visibly unfinished image rather than
+ * a path to bytes that were never written.
+ */
+export const uploadPlaceholder = (stem: string, id: string) => `![Uploading ${altText(stem)}…](#${id})`;
+
+/**
+ * Replace the first occurrence of `find`, wherever the author's typing has
+ * since moved it. `null` when it is gone — deleted while the upload ran —
+ * and then the upload is simply not referenced. The DOM layer applies this
+ * and carries the author's selection across by hand — see `swap()` in
+ * `image-upload.ts` for why `'preserve'` is not enough.
+ */
+export function replaceText(text: string, find: string, replacement: string): MdEdit | null {
+  const at = text.indexOf(find);
+  if (at < 0) return null;
+  const end = at + replacement.length;
+  return { from: at, to: at + find.length, insert: replacement, selStart: end, selEnd: end };
+}
+
+/** Where Excalidraw drawings live in the media table — decision 82. */
+export const DRAWING_DIR = 'images/drawings';
+
+const DRAWING = /!\[[^\]]*\]\((\/media\/images\/drawings\/([a-z0-9]+(?:-[a-z0-9]+)*)\.svg)\)/;
+
+/**
+ * The drawing on the caret's line, if there is one — what the editor's
+ * "Edit drawing" reopens. `name` is the file stem, so a save goes back to the
+ * same path and every page showing it shows the new version.
+ */
+export function drawingAt(text: string, caret: number): { url: string; name: string } | null {
+  const start = text.lastIndexOf('\n', caret - 1) + 1;
+  const stop = text.indexOf('\n', caret);
+  const match = DRAWING.exec(text.slice(start, stop < 0 ? text.length : stop));
+  return match ? { url: match[1], name: match[2] } : null;
+}
+
+const DRAWING_PATH = /^\/media\/images\/drawings\/([a-z0-9]+(?:-[a-z0-9]+)*)\.svg$/;
+
+/**
+ * A drawing's stem, when an image field holds exactly a drawing's path and
+ * nothing else — anchored, because the editor fetches what this approves, and
+ * a value that merely *contains* a drawing path could name another origin.
+ */
+export function drawingName(url: string): string | null {
+  return DRAWING_PATH.exec(url.trim())?.[1] ?? null;
 }
 
 /* -------------------------------------------------------------- keyboard --- */

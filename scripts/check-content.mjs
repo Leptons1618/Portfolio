@@ -100,6 +100,23 @@ export function hasHighlightingOff(source) {
 }
 
 /**
+ * Does this source reach the drawing editor's libraries — Excalidraw, React,
+ * ReactDOM — by any import, static or dynamic?
+ *
+ * Several megabytes, and decision 25's property is that no drawing library is
+ * on a public page and none is in the admin bundle until it is used. Only
+ * `src/lib/drawing.ts` may name them, and it is only reached dynamically.
+ */
+export function importsDrawingLibrary(source) {
+  return /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)['"](?:@excalidraw\/[^'"]+|react|react-dom(?:\/[^'"]*)?)['"]/.test(source);
+}
+
+/** Does this source import `drawing.ts` statically — which would bundle it? */
+export function importsDrawingStatically(source) {
+  return /(?:\bfrom\s*|\bimport\s+)['"][^'"]*\/drawing(?:\.ts)?['"]/.test(source);
+}
+
+/**
  * How wide a printed page actually is, in CSS pixels.
  *
  * A4 is 210mm; `resume.css`'s `@page` margin is 14mm a side, leaving a 182mm
@@ -441,6 +458,23 @@ function check() {
     }
   }
 
+  /* The drawing editor stays behind its own door — decision 82. Excalidraw and
+     React are only ever named in `src/lib/drawing.ts`, and that module is only
+     ever reached through `import()`. Either rule broken puts megabytes into a
+     bundle that every admin screen loads — or, from a shared module, onto a
+     public page. Comments are stripped first: the rule is written up beside
+     the code it guards. */
+  const scripted = walk('src').filter(f => /\.(ts|astro|mjs|js)$/.test(f));
+  for (const file of scripted) {
+    const source = stripBlockComments(readFileSync(p(file), 'utf8'));
+    if (file !== 'src/lib/drawing.ts' && importsDrawingLibrary(source)) {
+      fail(file, 'imports Excalidraw or React — only `src/lib/drawing.ts` may, and only it is loaded on demand');
+    }
+    if (importsDrawingStatically(source)) {
+      fail(file, "imports `drawing.ts` statically — reach it with `await import('…/drawing')`, or Excalidraw lands in the bundle");
+    }
+  }
+
   return { errors, counts: { dynamicRoutes: dynamic, pages: pages.length, migrations } };
 }
 
@@ -535,6 +569,16 @@ function selfTest() {
     badTokens(stripBlockComments('/* a note */ padding: var(--space-5);'))[0] === '5',
     'and stripping comments does not hide the real thing',
   );
+
+  /* The drawing-editor guard, both halves. */
+  assert(importsDrawingLibrary("import { Excalidraw } from '@excalidraw/excalidraw';"), 'catches a static Excalidraw import');
+  assert(importsDrawingLibrary("await import('react-dom/client')"), 'catches a dynamic React import');
+  assert(importsDrawingLibrary("import '@excalidraw/excalidraw/index.css';"), 'catches a side-effect import');
+  assert(!importsDrawingLibrary("const label = 'react to this';"), 'does not match the word in a string');
+  assert(!importsDrawingLibrary("import { x } from './reactions';"), 'does not match a module that merely starts with react');
+  assert(importsDrawingStatically("import { openDrawing } from '../lib/drawing';"), 'catches a static drawing.ts import');
+  assert(!importsDrawingStatically("const { openDrawing } = await import('../lib/drawing');"), 'allows the dynamic one');
+  assert(!importsDrawingStatically("import { DRAWING_DIR } from './md-edit';"), 'does not match another module');
 
   console.log('check-content self-test: ok');
 }

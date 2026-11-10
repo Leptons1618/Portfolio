@@ -179,6 +179,9 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
           <button type="button" class="btn btn-secondary md-btn" data-md="fence" title="Code block" aria-label="Code block">{ }</button>
           <button type="button" class="btn btn-secondary md-btn" data-md="table" title="Table" aria-label="Table">table</button>
           <button type="button" class="btn btn-secondary md-btn" data-md="rule" title="Divider" aria-label="Divider">&mdash;</button>
+          {/* No `data-md`: this one is not a markdown transform, and the toolbar
+              handler enrols only buttons that carry it. Decision 82. */}
+          <button type="button" class="btn btn-secondary md-btn" id="f-draw" title="Draw a diagram in Excalidraw — or, on a drawing's line, edit it" aria-label="Draw">draw</button>
         </div>
         <div class="md-group md-group-end">
           <button type="button" class="btn btn-ghost md-btn md-stats-btn" data-md="stats" title="Fill the read time from this count" aria-label="Word count and reading time">
@@ -390,7 +393,8 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
   } from '../lib/content-store';
   import { getToken } from '../lib/github';
   import { formatTag, metaLine } from '../lib/format';
-  import { attachImageUpload } from '../lib/image-upload';
+  import { attachImageUpload, attachMarkdownImages } from '../lib/image-upload';
+  import { drawingAt, insertImageLine } from '../lib/md-edit';
   import { copyText } from '../lib/clipboard';
   import {
     continueList,
@@ -489,6 +493,37 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     attachImageUpload(fields.hero, {
       dir: 'images/journal',
       name: () => `${editing ?? slugify(fields.title.value)}-hero`,
+    });
+
+    /* Paste a screenshot or drop a photo into the body. */
+    attachMarkdownImages(fields.body, {
+      dir: 'images/journal',
+      name: () => editing ?? (slugify(fields.title.value) || 'post'),
+    });
+
+    /* Excalidraw, loaded on the first press — decision 82. On a drawing's own
+       line it reopens that drawing; elsewhere it inserts a new one. */
+    const drawButton = document.getElementById('f-draw') as HTMLButtonElement;
+    const drawingHere = () => drawingAt(fields.body.value, fields.body.selectionStart);
+    const paintDraw = () => {
+      drawButton.textContent = drawingHere() ? 'edit drawing' : 'draw';
+    };
+    for (const type of ['keyup', 'click', 'input', 'focus'] as const) fields.body.addEventListener(type, paintDraw);
+    drawButton.addEventListener('click', async () => {
+      const existing = drawingHere();
+      const stem = editing ?? (slugify(fields.title.value) || 'post');
+      const { openDrawing } = await import('../lib/drawing');
+      const url = await openDrawing({ src: existing?.url, name: existing?.name ?? `${stem}-${Date.now().toString(36)}` });
+      if (!url) return;
+      if (!existing) {
+        /* The caret as it is now: a paste can land while the editor is open. */
+        const range = { start: fields.body.selectionStart, end: fields.body.selectionEnd };
+        const edit = insertImageLine(fields.body.value, range, 'Drawing', url);
+        fields.body.setRangeText(edit.insert, edit.from, edit.to, 'end');
+        fields.body.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      toast(existing ? 'Drawing saved — every page showing it has the new version.' : 'Drawing saved. Save the post to keep the line.', { tone: 'success' });
+      paintDraw();
     });
 
     /* — the preview —

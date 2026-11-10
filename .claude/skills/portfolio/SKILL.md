@@ -84,7 +84,20 @@ convenience rather than a gate — but a create that bounces twice is a bad turn
   `readTime`, `videoDuration`, `heroImage`, `status`. Plus a markdown `body`.
 - **case-study** — `title`, `subtitle`, `problem`, `solution`, `date`. Optional:
   `heroImage`, `heroVideo`, `architectureImage`, `achievements`, `stack`,
-  `repoUrl`, `demoUrl`, `readTime`. Plus a markdown `body`.
+  `repoUrl`, `demoUrl`, `readTime`, `role`, `team`, `metrics`, `links`, `paged`.
+  Plus a markdown `body`.
+  - `metrics` is up to four `"<value> | <label>"` lines — `"40% | latency cut"`.
+    **A metric is a number the owner gave you or one the repository measures —
+    never one you estimated, rounded up or inferred.** It is the first thing a
+    recruiter reads; an invented one is the worst error this site can make. An
+    empty list is a correct answer.
+  - `role` and `team` say what the owner did — from the owner, or from the
+    repository's commit authors. `links` is `"<Label> | <https URL>"` lines;
+    anything not http(s) is dropped from the page.
+  - `paged: true` makes every `## ` of the body its own page at
+    `/case-studies/<slug>/<heading id>`. The heading's id is the URL, so
+    renaming a heading in a paged study moves that page (the old URL redirects
+    to the overview). Write each `## ` section so it reads on its own.
 - **application** — the owner's private job tracker; no page shows it. `company`,
   `role`. The `jobs` skill has the rest, and nothing from a row belongs in public
   content.
@@ -131,6 +144,11 @@ public. Upload only files meant to be published, and prefer paths the author nam
 in the conversation over ones you found by looking around. `action: "list"` shows
 what is already there — reuse an existing image rather than uploading a second
 copy of it.
+
+A diagram is an image too. Mermaid rendered to SVG goes under
+`images/diagrams/`; a drawing made in the admin's Excalidraw editor lives under
+`images/drawings/` and carries its own scene, so it is edited there, not
+re-uploaded from here.
 
 ## When something did not happen, read the log
 

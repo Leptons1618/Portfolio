@@ -1,0 +1,176 @@
+---
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import PathLine from '../../../components/PathLine.astro';
+import SectionSep from '../../../components/SectionSep.astro';
+import Lightbox from '../../../components/Lightbox.astro';
+import { getCaseStudy } from '../../../lib/content';
+import { splitChapters } from '../../../lib/chapters';
+
+/* One `## ` section of a case study's write-up, as a page — decision 81.
+   Read from D1 per request like the overview; the chapters are cut from the
+   stored HTML by `splitChapters()` rather than stored twice. */
+export const prerender = false;
+
+const { DB } = Astro.locals.runtime.env;
+const { slug, chapter: id = '' } = Astro.params;
+/* The same lookup the overview makes, so a study retired with its project is
+   gone here too. */
+const entry = slug ? await getCaseStudy(DB, slug) : undefined;
+if (!entry) return new Response(null, { status: 404 });
+
+const overview = `/case-studies/${entry.slug}`;
+/* Not read as chapters: the section is still on the overview, under the
+   heading this id names. */
+if (!entry.data.paged) return Astro.redirect(`${overview}#${encodeURIComponent(id)}`, 302);
+
+const { chapters } = splitChapters(entry.html);
+const index = chapters.findIndex(chapter => chapter.id === id);
+/* A heading renamed since the link was shared: the study is still here, the
+   section has a new address, and the overview lists it. */
+if (index < 0) return Astro.redirect(overview, 302);
+
+const chapter = chapters[index];
+const prev = index > 0 ? chapters[index - 1] : null;
+const next = index + 1 < chapters.length ? chapters[index + 1] : null;
+const pad = (n: number) => String(n).padStart(2, '0');
+const cwd = Astro.url.pathname.replace(/^\/+|\/+$/g, '');
+---
+<BaseLayout title={`${chapter.title} — ${entry.data.title}`} description={chapter.lead || entry.data.subtitle}>
+  <article class="chapter">
+    <div class="container ch-cover">
+      <a class="btn btn-ghost back-link" href={overview}>← {entry.data.title}</a>
+      <header class="ch-head" data-reveal>
+        <PathLine path={cwd} cmd={`less ${id}.md`} />
+        <p class="ch-kicker">Chapter {pad(index + 1)} of {pad(chapters.length)}</p>
+        <h1 class="ch-title">{chapter.title}</h1>
+      </header>
+    </div>
+
+    <SectionSep />
+
+    <div class="container ch-main">
+      {/* The study's contents, always in view on a wide screen: where this page
+          sits, and every other one a click away. */}
+      <nav class="ch-rail" aria-label="Chapters">
+        <ol class="ch-rail-list">
+          <li><a class="ch-rail-link" href={overview}><span class="ch-rail-num">00</span>Overview</a></li>
+          {chapters.map((item, i) => (
+            <li>
+              <a class="ch-rail-link" href={`${overview}/${item.id}`} aria-current={i === index ? 'page' : undefined}>
+                <span class="ch-rail-num">{pad(i + 1)}</span>{item.title}
+              </a>
+            </li>
+          ))}
+        </ol>
+      </nav>
+      <div class="prose ch-content" data-zoom set:html={chapter.html} />
+    </div>
+
+    <SectionSep />
+
+    <nav class="container ch-nav" aria-label="Previous and next chapter">
+      {prev
+        ? <a href={`${overview}/${prev.id}`} class="ch-nav-link">
+            <span class="text-muted">← Chapter {pad(index)}</span>
+            <strong>{prev.title}</strong>
+          </a>
+        : <a href={overview} class="ch-nav-link">
+            <span class="text-muted">← Overview</span>
+            <strong>{entry.data.title}</strong>
+          </a>}
+      {next
+        ? <a href={`${overview}/${next.id}`} class="ch-nav-link next">
+            <span class="text-muted">Chapter {pad(index + 2)} →</span>
+            <strong>{next.title}</strong>
+          </a>
+        : <a href={overview} class="ch-nav-link next">
+            <span class="text-muted">Back to the overview →</span>
+            <strong>{entry.data.title}</strong>
+          </a>}
+    </nav>
+  </article>
+  <Lightbox />
+</BaseLayout>
+<script>
+  /* On a narrow screen the rail is a strip that scrolls sideways, and chapter
+     seven of eight starts off its right edge. Bring the current one into the
+     strip — `scrollLeft`, not `scrollIntoView`, which would also scroll the page. */
+  const rail = document.querySelector<HTMLElement>('.ch-rail');
+  const current = rail?.querySelector<HTMLElement>('[aria-current="page"]');
+  if (rail && current && rail.scrollWidth > rail.clientWidth) {
+    const offset = current.getBoundingClientRect().left - rail.getBoundingClientRect().left + rail.scrollLeft;
+    rail.scrollLeft = offset - (rail.clientWidth - current.offsetWidth) / 2;
+  }
+</script>
+<style>
+  .ch-cover { padding-top: var(--space-6); padding-bottom: var(--space-8); }
+  .ch-main {
+    display: grid;
+    grid-template-columns: 4fr 8fr;
+    gap: var(--space-6);
+    padding-top: var(--space-8);
+    padding-bottom: var(--space-8);
+  }
+  .ch-main > * { min-width: 0; }
+  .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
+  .ch-kicker {
+    margin: var(--space-3) 0 var(--space-1);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    color: var(--color-accent);
+  }
+  .ch-title { margin: 0; }
+
+  .ch-rail { align-self: start; position: sticky; top: calc(var(--header-h, 64px) + var(--space-4)); }
+  .ch-rail-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
+  .ch-rail-link {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    border-left: 2px solid var(--color-divider);
+    text-decoration: none;
+    color: var(--color-text-muted);
+    font-size: 14px;
+  }
+  .ch-rail-num { font-family: var(--font-mono); font-size: 11px; padding-top: 0.25em; color: var(--color-text-faint); }
+  .ch-rail-link:hover,
+  .ch-rail-link:focus-visible { color: var(--color-text); border-left-color: var(--color-text-muted); }
+  .ch-rail-link[aria-current='page'] { color: var(--color-text); border-left-color: var(--color-accent); font-weight: 600; }
+  .ch-rail-link[aria-current='page'] .ch-rail-num { color: var(--color-accent); }
+
+  .ch-nav {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding-top: var(--space-6);
+    padding-bottom: var(--space-8);
+  }
+  .ch-nav-link { display: flex; flex-direction: column; gap: 2px; max-width: 45%; text-decoration: none; font-size: 13px; overflow-wrap: anywhere; }
+  .ch-nav-link span { font-size: 12px; }
+  .ch-nav-link strong { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 15px; color: var(--color-text); }
+  .ch-nav-link:hover strong,
+  .ch-nav-link:focus-visible strong { color: var(--color-accent); }
+  .ch-nav-link.next { text-align: right; margin-left: auto; }
+
+  /* Narrow screens: the rail becomes a strip above the chapter that scrolls
+     sideways, so the chapter starts on the first screen. `screen`, because a
+     printed page is 688px wide and this is not a print rule. */
+  @media screen and (max-width: 860px) {
+    .ch-main { grid-template-columns: 1fr; gap: var(--space-4); }
+    .ch-rail { position: static; overflow-x: auto; }
+    .ch-rail-list { display: flex; gap: var(--space-1); }
+    .ch-rail-link { white-space: nowrap; border-left: 0; border-bottom: 2px solid var(--color-divider); }
+    .ch-rail-link[aria-current='page'] { border-bottom-color: var(--color-accent); }
+  }
+  @media screen and (max-width: 640px) {
+    .ch-nav { flex-direction: column; }
+    .ch-nav-link { max-width: none; }
+    .ch-nav-link.next { text-align: left; margin-left: 0; }
+  }
+  @media print {
+    .ch-rail { display: none; }
+    .ch-main { grid-template-columns: 1fr; }
+  }
+</style>

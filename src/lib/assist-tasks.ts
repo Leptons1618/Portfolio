@@ -193,7 +193,10 @@ export type AssistField =
   /** An application's fit assessment, for the drafts that must not contradict it. */
   | 'fit'
   /** The people at the company the owner has named, one per line. */
-  | 'contacts';
+  | 'contacts'
+  /** The project's kind, with the chapters an engineer expects from one —
+      `CHAPTER_OUTLINES` in `chapters.ts`. Decision 81. */
+  | 'category';
 
 export interface AssistTask {
   /** Shown on the button in the editor. */
@@ -875,17 +878,18 @@ Rules for FACTS:
 - No invented numbers, users, clients or dates.
 
 Rules for SECTIONS:
-- Six to eight sections, each with a level-2 heading that says what the section is about in plain words — not "Introduction" or "Conclusion".
+- Four to eight sections, each with a level-2 heading that says what the section is about in plain words — not "Introduction" or "Conclusion".
 - The page already shows the problem and the solution above the write-up, so do not plan a section that restates them.
 - Every section is about the project. Never plan one about your own research — what you did or did not read, or what the material leaves unexplained.
-- A good arc: the context and constraints, the architecture as a whole, two or three sections each going deep on one component or decision, what was hard or changed along the way, the results and their limits, what comes next. Follow the actual work rather than this list.
+- Start from the chapters suggested for this kind of project, given above, and adapt them to the actual work: rename, merge, split, drop or add. Follow the work rather than the list.
+- Each section may be read as a page of its own, so each must make sense without the one before it.
 
 Emit nothing before FACTS: and nothing after the last section. Do not wrap the response in a code fence.`,
     format: 'markdown',
     maxTokens: 2400,
     temperature: 0.4,
     needsCorpus: false,
-    context: ['repo', 'readme', 'title', 'summary', 'stack', 'highlights', 'problem', 'solution'],
+    context: ['repo', 'readme', 'title', 'summary', 'stack', 'highlights', 'problem', 'solution', 'category'],
   },
 
   /**
@@ -2202,6 +2206,8 @@ const CONTEXT_LIMITS: Record<AssistField, number> = {
   previous: 1500,
   fit: 4000,
   contacts: 1000,
+  /* A category name and five chapter titles. */
+  category: 600,
 };
 
 const CONTEXT_LABELS: Record<AssistField, string> = {
@@ -2225,6 +2231,7 @@ const CONTEXT_LABELS: Record<AssistField, string> = {
   previous: 'How the previous section ended',
   fit: 'The author’s fit assessment for this role',
   contacts: 'People at the company the author has named',
+  category: 'The kind of project, and the chapters an engineer expects from one',
 };
 
 /**

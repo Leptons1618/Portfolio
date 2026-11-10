@@ -2124,3 +2124,133 @@ the journal and resume panels' history. Owner-only either way; widening the
 spend, for listings the ATS boards mostly already carry. Add one when the
 watchlist proves thin for Indian companies, which most Indian job sites will:
 Naukri, Instahyre and the Keka and Darwinbox boards publish no feed.
+
+---
+
+## 81. A case study is an overview and chapters, and its numbers are the owner's to type
+
+**Extends decisions 46 and 53. Nothing in either is reopened.**
+
+**Context.** A case study has two readers. A recruiter gives it a minute: what
+it is, what the owner did, what it achieved, the stack, one picture. An engineer
+wants the architecture, the decisions and the hard parts. The page was one
+column — Problem, Solution, an optional architecture image, achievements,
+stack, then one long write-up — so the first reader dug for the facts and the
+second scrolled one very long page.
+
+**Decision.** Five columns on `case_studies` (migration 0016) and one new route.
+
+- **`role`, `team`, `metrics`, `links`** are the overview's facts. `metrics` and
+  `links` are lists of `"<value> | <label>"` / `"<Label> | <url>"` strings, the
+  encoding every other list here uses, so the write boundary, the CLI and the
+  MCP server took them with no new code — `check:cli` stayed green untouched.
+  `chapters.ts` reads them at render: four metric cards at most, and **a link
+  that is not an absolute http(s) URL is dropped**, because it becomes an `href`
+  on this origin (the rule `job-boards.ts` applies).
+- **No assistant task writes any of the four.** `CASE_STUDY_KEYS` does not carry
+  them, so no run can produce one. Several case studies here were found to be
+  fabricated; an invented "40%" in front of a recruiter is the worst thing this
+  page could say. `check:ai` pins the absence.
+- **`paged`** reads the write-up as one page per `## ` at
+  `/case-studies/<slug>/<heading id>`. Off by default — every existing study
+  rendered exactly as before on deploy, and a two-minute read split into
+  one-paragraph pages is worse, so the author decides.
+
+**Chapters are cut from the stored HTML on read.** `renderBody()` already gives
+every heading an id, so `splitChapters()` cuts `body_html` at each heading the
+author wrote. One stored body, no chapters column to keep in step with it. The
+match is exact on purpose — a line-start `<h2 id="slug">`, `id` its only
+attribute, slug characters only — because the serialiser leaves `<` unescaped
+inside an attribute value: a link title can hold the text `<h2 id=`, and a
+looser pattern took that attribute's closing quote for the id's opening one,
+cut the body mid-tag and handed `set:html` attribute text as live markup. A
+review caught it; `check:markdown` pins it with that body. A heading inside a
+blockquote is not a boundary, and GFM's footnotes section is lifted off and
+given back to each chapter that cites a note.
+
+**The heading id is the URL**, so renaming a heading moves the chapter. An
+unknown id redirects to the overview rather than 404ing — the study is still
+there — and a chapter URL on a study that is not paged redirects to
+`overview#id`, which lands on the same heading in the full page.
+
+**A save purges every chapter.** `affected()` takes the chapter ids and the
+linking project (whose page now shows the numbers); `POST /api/content` reads
+both back *after* the write, because a patch that only flips `paged` changes
+every chapter URL without carrying a body. Stated limit: a heading renamed by a
+save leaves its old URL's cached copy for up to `s-maxage` (60s) before the
+route answers it with the redirect.
+
+**An outline per kind of project.** `CHAPTER_OUTLINES` is typed against
+`Category`, so a new category fails the typecheck until it has one. The editor's
+Insert outline puts it at the caret as headings with an italic brief — not an
+HTML comment, which the markdown pass would print — and the long case-study
+writer's plan is handed it as its starting point (a new `category` context
+field, capped), with the outline as the fallback when a plan names no sections.
+
+**Rejected.** A chapters table (it splits one markdown body into rows for no
+reader-visible gain); tabs on one page (hidden content has no URL and is
+invisible to find-in-page); splitting automatically above a length (a threshold
+is a guess); a structured `json` encoder for metrics and links (it touches the
+trust boundary, the CLI and the MCP server for what a ` | ` split does).
+
+---
+
+## 82. Drawings are Excalidraw on the admin and an SVG for readers, and the SVG carries its own scene
+
+**Extends decision 25, and removes its stated cost.**
+
+**Context.** Decision 25 made a diagram an image file rather than a renderer on
+every page, and paid one price for it: the Mermaid source is not stored, so
+changing an arrow means generating the whole diagram again.
+
+**Decision.** Excalidraw, on the admin only. `src/lib/drawing.ts` opens it in a
+full-screen native `<dialog>` and saves with `exportEmbedScene`, which **embeds
+the scene in the exported SVG**; `loadFromBlob()` reads it back out of the same
+file. So one row in `media` is both what a reader's `<img>` shows and what the
+editor reopens — no table, no second file, no new media type. A save overwrites
+its own path, and `/api/media` already upserts and purges. Drawings live under
+`images/drawings/`, apart from Mermaid's `images/diagrams/`.
+
+- **Nothing reaches a reader.** React, ReactDOM and Excalidraw are imported
+  inside `openDrawing()`, and `drawing.ts` is itself only reached through
+  `import()`. `check:content` fails the build if anything else names
+  `@excalidraw/*`, `react` or `react-dom`, or imports `drawing.ts` statically.
+  While editing, Excalidraw loads its fonts from its own CDN; the exported SVG
+  embeds the glyphs it used, so the `<img>` fetches nothing.
+- **Dark mode inverts drawings** — `invert(0.93) hue-rotate(180deg)`, what
+  Excalidraw's own dark mode does — on `img[src^="/media/images/drawings/"]`
+  only, under both mode axes and screen-only. Mermaid diagrams bake their
+  colours and are untouched.
+- **Mermaid becomes editable shapes.** The dialog's From Mermaid converts with
+  `@excalidraw/mermaid-to-excalidraw`, so the assistant's `/draw-diagram` source
+  can be tidied by hand instead of regenerated.
+- **The dialog is not modal, on purpose.** Excalidraw appends its own dialogs
+  (help, export, the reset confirmation) and its tooltips to `<body>`, and
+  under `showModal()` everything outside the top layer is drawn beneath and
+  cannot be clicked. So it is opened with `show()` as a fixed overlay at a
+  z-index under Excalidraw's modal layer, with the rest of `<body>` made
+  `inert` while it is open — which also leaves Escape to Excalidraw, where it
+  clears a selection. Cancel works before anything has loaded, a chunk that
+  fails to load leaves Cancel as the way out, Cancel with changes asks first,
+  and both buttons wait for a save in flight.
+- **The stylesheet is inside the dialog.** Imported as a string rather than
+  left as the `<link>` Vite adds to `<head>`, because the admin's
+  `ClientRouter` replaces the head on navigation and Vite never re-adds a
+  preloaded stylesheet — the second drawing of a session would open unstyled.
+
+**Paste and drop, in the same change.** `attachMarkdownImages()` in
+`image-upload.ts` puts a placeholder at the caret, uploads through the one
+`putMedia()` every image path on the surface now shares, and swaps the
+placeholder for the image line. It acts only when the clipboard carries an
+image *file* and is not rich text — a screenshot, a browser's Copy image, a file
+copied in Finder — so pasting words from a document or a page still pastes
+words. Each image gets its own name, because `/api/media` replaces by path.
+
+**Click to enlarge.** An image in a case study opens at the viewport's size in a
+native modal `<dialog>` (`Lightbox.astro`), which gives a reader most of what
+live pan-and-zoom would for twenty lines and no dependency.
+
+**Rejected.** Live Excalidraw on public pages — React and Excalidraw, about a
+megabyte compressed, for every case-study reader; it reverses decision 25. A
+`diagrams` table holding the scene — a table, a write path and a test to store
+what the SVG already carries.

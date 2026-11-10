@@ -14,6 +14,7 @@ import {
 } from '../../lib/content-schema';
 import { pinNewJournalPost } from '../../lib/content';
 import { affected, purge } from '../../lib/edge-cache';
+import { splitChapters } from '../../lib/chapters';
 import { renderBody } from '../../lib/markdown';
 
 /**
@@ -149,6 +150,22 @@ export const GET: APIRoute = async ({ request, locals, url }) => {
   }
 };
 
+/**
+ * What a write to this row can change at the edge. A case study's pages are
+ * read back from the database rather than from the payload: a patch that only
+ * flips `paged` changes every chapter URL without carrying a body, and the
+ * linking project's page shows the study's numbers. Decision 81.
+ */
+async function pagesFor(DB: D1Database, table: string, slug: string): Promise<string[]> {
+  if (table !== 'case_studies') return affected(table, slug);
+  const [row, linked] = await Promise.all([
+    DB.prepare('SELECT body_html FROM case_studies WHERE slug = ?').bind(slug).first<{ body_html: string }>(),
+    DB.prepare('SELECT slug FROM projects WHERE case_study_slug = ?').bind(slug).all<{ slug: string }>(),
+  ]);
+  const chapters = splitChapters(row?.body_html ?? '').chapters.map(chapter => chapter.id);
+  return affected(table, slug, { chapters, projects: linked.results.map(project => project.slug) });
+}
+
 export const POST: APIRoute = async ({ request, locals, url }) => {
   // Identity first, before the body is read at all: an unauthenticated caller
   // should not be able to reach the parser, let alone the database.
@@ -178,11 +195,14 @@ export const POST: APIRoute = async ({ request, locals, url }) => {
     const op = payload.op ?? 'patch';
 
     if (op === 'delete') {
+      /* Read before the row goes: afterwards there is nothing to say which
+         chapter pages it had. */
+      const pages = await pagesFor(DB, table, slug);
       const { meta } = await DB.prepare(`DELETE FROM ${table} WHERE slug = ?`).bind(slug).run();
       if (meta.changes === 0) return json({ error: `No ${table} row with slug "${slug}".` }, 404);
       /* The one write here that does not come back. Worth a line of its own. */
       await record(DB, 'warn', 'content', `Deleted ${table} "${slug}".`, { table, op, slug });
-      purge(url, affected(table, slug), locals.runtime.ctx);
+      purge(url, pages, locals.runtime.ctx);
       return json({ ok: true, slug, changed: meta.changes });
     }
 
@@ -208,7 +228,7 @@ export const POST: APIRoute = async ({ request, locals, url }) => {
          helper. Projects keep their own arrangement; nothing to do there. */
       if (table === 'journal') await pinNewJournalPost(DB, slug);
       await record(DB, 'info', 'content', `Created ${table} "${slug}".`, { table, op, slug, columns });
-      purge(url, affected(table, slug), locals.runtime.ctx);
+      purge(url, await pagesFor(DB, table, slug), locals.runtime.ctx);
       return json({ ok: true, slug, created: true }, 201);
     }
 
@@ -221,7 +241,7 @@ export const POST: APIRoute = async ({ request, locals, url }) => {
         .run();
       if (meta.changes === 0) return json({ error: `No ${table} row with slug "${slug}".` }, 404);
       await record(DB, 'info', 'content', `Saved ${table} "${slug}".`, { table, op, slug, columns });
-      purge(url, affected(table, slug), locals.runtime.ctx);
+      purge(url, await pagesFor(DB, table, slug), locals.runtime.ctx);
       return json({ ok: true, slug, changed: meta.changes });
     }
 

@@ -33,6 +33,7 @@ import {
   sectionContext,
   sectionWords,
   type CaseStudyPlan,
+  type PlannedSection,
 } from './assist-tasks';
 
 /** Everything a stopped run had finished, so it can carry on. */
@@ -50,6 +51,11 @@ export interface LongRunOptions {
   context: Record<string, string>;
   /** The author's steer, passed to every step. */
   instruction?: string;
+  /**
+   * The sections to write when the plan names none — the project's kind's
+   * outline from `CHAPTER_OUTLINES` (decision 81). Absent, the general arc.
+   */
+  outline?: readonly PlannedSection[];
   signal: AbortSignal;
   /** What the panel's toolbar was set to. `tools` is honoured for the plan only. */
   run?: { model?: string; effort?: string; tools?: boolean };
@@ -168,6 +174,7 @@ export async function writeLongCaseStudy(options: LongRunOptions): Promise<{
               highlights: context.highlights ?? '',
               problem: context.problem ?? '',
               solution: context.solution ?? '',
+              category: context.category ?? '',
             },
             instruction,
             { onDelta: () => {}, ...handlers },
@@ -179,16 +186,16 @@ export async function writeLongCaseStudy(options: LongRunOptions): Promise<{
            two lists — is worth one more try before the default arc stands in:
            measured live, the free pool's router sometimes lands on a model
            that answers in its own shape. */
-        text => parsePlan(text).planned,
+        text => parsePlan(text, { fallback: options.outline }).planned,
         options,
       );
-      state.plan = parsePlan(raw);
+      state.plan = parsePlan(raw, { fallback: options.outline });
       options.onState?.(state);
     } catch (error) {
       if (isAbort(error)) throw error;
       /* A plan that failed twice still leaves a write-up worth attempting:
          the default arc, with the README and header as the only source. */
-      state.plan = parsePlan('');
+      state.plan = parsePlan('', { fallback: options.outline });
       options.onState?.(state);
       options.onPhase(
         `Planning failed (${error instanceof Error ? error.message : 'unknown error'}) — writing from the README with a standard outline.`,

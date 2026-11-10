@@ -2185,6 +2185,36 @@ DBSCAN, and why not k-means.
   assert.equal(parsePlan('').planned, false);
 });
 
+check('the long case study plans from the category’s outline, capped, and never writes the overview facts', () => {
+  // Decision 81. The plan is told what kind of project it is and the chapters
+  // an engineer expects from one.
+  assert.ok(ASSIST_TASKS.casestudyplan.context.includes('category'), 'the plan is sent the category');
+  const outline = 'systems — suggested chapters: ' + 'Design → '.repeat(400);
+  const messages = assistPrompt(ASSIST_TASKS.casestudyplan, {
+    ownerName: 'Someone',
+    context: { category: outline, title: 'T' },
+    instruction: '',
+    corpus: '',
+    persona: '',
+  });
+  const wire = messages.map(m => m.content).join('\n');
+  assert.ok(wire.includes('systems — suggested chapters: Design'), 'the category reaches the request');
+  assert.ok(!wire.includes(outline), 'and travels capped, like every context field');
+  assert.ok(!ASSIST_TASKS.casestudy.context.includes('category'), 'only the plan asks for it');
+
+  // The overview's facts are the owner's to type: no shape a task answers in
+  // can carry them, so no run can write one. An invented number in front of a
+  // recruiter is the failure this keeps out.
+  const labels = JSON.stringify(CASE_STUDY_KEYS).toLowerCase();
+  for (const fact of ['metric', 'role', 'team', 'link', 'paged']) {
+    assert.ok(!labels.includes(fact), `CASE_STUDY_KEYS must not carry ${fact}`);
+  }
+
+  // A plan that names no sections falls back to the outline it was given.
+  const fallback = [{ heading: 'Design', brief: 'b' }, { heading: 'Internals', brief: 'b' }, { heading: 'Performance', brief: 'b' }, { heading: 'Results', brief: 'b' }];
+  assert.deepEqual(parsePlan('', { fallback }).sections, fallback);
+});
+
 check('each section request is sized, placed and capped', () => {
   const plan = parsePlan(['FACTS:', '- a', 'SECTIONS:', ...['A', 'B', 'C', 'D', 'E', 'F', 'G'].map(h => `## ${h}`)].join('\n'));
   const first = sectionContext(plan, 0, '');
