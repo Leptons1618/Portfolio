@@ -36,6 +36,8 @@ export interface FitView {
   recognised: boolean;
   verdict: { level: 'Strong' | 'Reasonable' | 'Stretch' | 'Poor' | null; why: string };
   score: { value: number | null; why: string };
+  /** The advert's own facts, from an optional "Role at a glance" section. */
+  facts: Record<string, string>;
   must: FitItem[];
   nice: FitItem[];
   gaps: string[];
@@ -122,6 +124,7 @@ export function parseFit(markdown: string | null | undefined): FitView {
     recognised: false,
     verdict: { level: null, why: '' },
     score: { value: null, why: '' },
+    facts: {},
     must: [],
     nice: [],
     gaps: [],
@@ -133,14 +136,16 @@ export function parseFit(markdown: string | null | undefined): FitView {
   if (typeof markdown !== 'string' || !markdown) return view;
   const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
 
-  /* The verdict and the score are the first lines, before the first `###`. An
-     emphasis pass rather than a pattern per arrangement: `**Verdict:**` is
-     `Verdict` wrapped around every character, and stripping the wrappers is
-     more honest than spelling out each one. */
+  /* The verdict and the score are found wherever they sit, not only before the
+     first `###`: an assessment may lead with `### Role at a glance`, and that
+     section used to swallow the two lines below it. An emphasis pass rather than
+     a pattern per arrangement: `**Verdict:**` is `Verdict` wrapped around every
+     character, and stripping the wrappers is more honest than spelling out each
+     one. */
   let sawVerdict = false;
   let sawScore = false;
   for (const line of lines) {
-    if (/^###\s/.test(line)) break;
+    if (sawVerdict && sawScore) break;
     const plain = line.replace(/\*{1,2}|_{1,2}/g, '');
 
     if (!sawVerdict) {
@@ -176,7 +181,7 @@ export function parseFit(markdown: string | null | undefined): FitView {
     }
   }
 
-  type Section = 'must' | 'nice' | 'gaps' | 'keywords' | 'projects' | 'extra';
+  type Section = 'must' | 'nice' | 'gaps' | 'keywords' | 'projects' | 'facts' | 'extra';
   let section: Section | null = null;
   let lastItem: FitItem | null = null;
   let lastGap = -1;
@@ -194,6 +199,7 @@ export function parseFit(markdown: string | null | undefined): FitView {
       else if (/nice/i.test(title)) section = 'nice';
       else if (/gap/i.test(title)) section = 'gaps';
       else if (/keyword/i.test(title)) section = 'keywords';
+      else if (/role at a glance|at a glance|facts/i.test(title)) section = 'facts';
       else if (/projects?.*lead/i.test(title)) section = 'projects';
       else {
         extra = { title, markdown: '' };
@@ -243,6 +249,24 @@ export function parseFit(markdown: string | null | undefined): FitView {
       const slug = (cut >= 0 ? body.slice(0, cut) : body).trim();
       const text = cut >= 0 ? body.slice(cut + 3).trim() : '';
       if (SLUG.test(slug)) view.projects.push({ slug, line: text });
+    } else if (section === 'facts') {
+      /* The glance is a short block: a blank line, the next heading, or a bold
+         line ends it. That last rule is what keeps a `**Verdict:**` written
+         directly under it from becoming a fact in an assessment that leads with
+         the glance. A key is a plain word; anything else is not a fact. */
+      if (!line.trim() || /^\s*\*\*/.test(line)) {
+        section = null;
+        continue;
+      }
+      const body = stripListMarker(line);
+      if (!body) continue;
+      for (const piece of body.split('·')) {
+        const at = piece.indexOf(':');
+        if (at <= 0) continue;
+        const key = piece.slice(0, at).trim();
+        const value = piece.slice(at + 1).trim();
+        if (/^[A-Za-z][A-Za-z ]*$/.test(key) && value) view.facts[key] = value;
+      }
     } else if (section === 'extra' && extra) {
       extra.markdown += `${line}\n`;
     }
@@ -255,12 +279,42 @@ export function parseFit(markdown: string | null | undefined): FitView {
   return view;
 }
 
+/**
+ * The score the marks themselves imply, independent of the model's own number.
+ *
+ * Must-haves weigh three and nice-to-haves one, because a missing must-have is
+ * the thing that decides an application and a missing nice-to-have is a talking
+ * point. Met is worth all of its weight, adjacent half, missing nothing. The
+ * result is scaled to ten and rounded to the nearest half — which is the
+ * resolution a person reads, not a false precision.
+ *
+ * `null` when the assessment has no recognised requirements: there is nothing
+ * to score, and zero would read as "Poor" rather than "not assessed".
+ *
+ * Pure and import-free, so `check:cli` pins it and the Fit tab computes the
+ * same number the harness's `fitScore` validator compares against.
+ */
+export function scoreFromMarks(view: FitView): number | null {
+  const total = view.must.length * 3 + view.nice.length;
+  if (!total) return null;
+  const credit = (items: FitItem[], weight: number): number =>
+    items.reduce(
+      (sum, item) =>
+        sum + weight * (item.mark === 'met' ? 1 : item.mark === 'adjacent' ? 0.5 : 0),
+      0,
+    );
+  const earned = credit(view.must, 3) + credit(view.nice, 1);
+  return Math.round((earned / total) * 20) / 2;
+}
+
 /* ---------- contacts ---------- */
 
 export interface Contact {
   name: string;
   title: string;
   url: string | null;
+  /** The address the owner typed, pulled out wherever it sat in the line. */
+  email: string | null;
   raw: string;
 }
 
@@ -274,26 +328,42 @@ export interface Contact {
  *
  * The em dash is the separator the form writes, so it is tried first: a title
  * can itself contain a spaced hyphen (`Recruiter - India`), and splitting on any
- * dash before looking for the URL lost the link entirely. The URL is whatever
- * follows the last separator and is http(s); the rest is name and title.
+ * dash before looking for the URL lost the link entirely. The URL is any part
+ * that is http(s); the rest is name and title, with any email-shaped part taken
+ * out as `email`.
  */
 export function parseContact(line: string): Contact {
   const raw = typeof line === 'string' ? line.trim() : '';
-  if (!raw) return { name: '', title: '', url: null, raw };
+  if (!raw) return { name: '', title: '', url: null, email: null, raw };
 
   const byDash = raw.split(/\s+[—–]\s+/);
-  const parts = byDash.length > 1 ? byDash : raw.split(/\s+-\s+/);
+  let parts = byDash.length > 1 ? byDash : raw.split(/\s+-\s+/);
 
+  /* The address is a part of its own wherever the owner put it — before the
+     title, after the link, or inside the name. Pulling it out first is what
+     keeps it out of `title`, and it is why a four-part line no longer loses its
+     link to a "last part is the URL" rule. */
+  const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/;
+  let email: string | null = null;
+  parts = parts.flatMap(part => {
+    const found = EMAIL.exec(part);
+    if (!found) return [part];
+    if (!email) email = found[0];
+    const rest = part.replace(found[0], '').trim();
+    return rest ? [rest] : [];
+  });
+
+  /* The link may be any part, not only the last. */
+  const urlAt = parts.findIndex(part => isWeb(part.trim()));
   let url: string | null = null;
-  const last = parts[parts.length - 1]?.trim() ?? '';
-  if (parts.length > 1 && isWeb(last)) {
-    url = last;
-    parts.pop();
+  if (urlAt >= 0) {
+    url = parts[urlAt].trim();
+    parts.splice(urlAt, 1);
   }
 
   const name = (parts[0] ?? '').trim();
   const title = parts.slice(1).map(part => part.trim()).filter(Boolean).join(' — ');
-  return { name, title, url, raw };
+  return { name, title, url, email, raw };
 }
 
 /** The inverse of `parseContact`, for what the Add / Edit dialog writes back. */
@@ -301,7 +371,8 @@ export function formatContact(contact: Omit<Contact, 'raw'>): string {
   const name = contact.name.trim();
   const title = contact.title.trim();
   const url = contact.url && isWeb(contact.url) ? contact.url.trim() : '';
-  return [name, title, url].filter(Boolean).join(' — ');
+  const email = contact.email?.trim() ?? '';
+  return [name, title, url, email].filter(Boolean).join(' — ');
 }
 
 /* ---------- outreach ---------- */
@@ -338,6 +409,12 @@ export const OUTREACH_CHANNELS = {
     unit: 'words',
     instruction: (who: string, _appliedOn?: string) => `Email to ${who}`,
   },
+  cover: {
+    label: 'Cover email',
+    limit: 220,
+    unit: 'words',
+    instruction: (who: string, _appliedOn?: string) => `Application email to ${who}`,
+  },
   followup: {
     label: 'Follow-up',
     limit: 150,
@@ -353,6 +430,28 @@ export interface Draft {
   contact: string;
   channel: string;
   text: string;
+  /** The day it was sent, from the heading's optional `· sent YYYY-MM-DD`. */
+  sent?: string;
+}
+
+/**
+ * A draft's own `Subject:` line, split off for a `mailto:` link.
+ *
+ * An email draft opens with `Subject: …` by the task's contract. Leaving that
+ * line in the body duplicates the subject the link already carries, so the
+ * mailto builder removes it — and only falls back to a generated subject when
+ * the draft has none. Leading blank lines are ignored; the blank line after the
+ * subject is dropped; `Subject:` alone is a subject with an empty body.
+ */
+export function splitSubject(text: string): { subject: string; body: string } {
+  const clean = typeof text === 'string' ? text.trim() : '';
+  if (!clean) return { subject: '', body: '' };
+  const lines = clean.split('\n');
+  const match = /^\s*Subject\s*:\s*(.*)$/i.exec(lines[0]);
+  if (!match) return { subject: '', body: clean };
+  const rest = lines.slice(1);
+  if (rest.length && !rest[0].trim()) rest.shift();
+  return { subject: match[1].trim(), body: rest.join('\n').trim() };
 }
 
 /**
@@ -380,11 +479,25 @@ export function parseOutreach(markdown: string | null | undefined): Draft[] {
     if (line.startsWith('## ')) {
       commit();
       const heading = line.slice(3).trim();
-      const at = heading.indexOf('·');
-      current =
-        at < 0
-          ? { contact: heading, channel: '', text: '' }
-          : { contact: heading.slice(0, at).trim(), channel: heading.slice(at + 1).trim(), text: '' };
+      const parts = heading.split('·').map(part => part.trim());
+      const sentMatch = /^sent\s+(\d{4}-\d{2}-\d{2})$/i.exec(parts[parts.length - 1] ?? '');
+      /* A heading without the optional part parses exactly as it did before:
+         the first `·` splits the contact from everything else. With the third
+         part and only the third, `sent` is read and the channel is the middle. */
+      if (parts.length >= 3 && sentMatch) {
+        current = {
+          contact: parts[0] ?? '',
+          channel: parts.slice(1, -1).join(' · '),
+          text: '',
+          sent: sentMatch[1],
+        };
+      } else {
+        const at = heading.indexOf('·');
+        current =
+          at < 0
+            ? { contact: heading, channel: '', text: '' }
+            : { contact: heading.slice(0, at).trim(), channel: heading.slice(at + 1).trim(), text: '' };
+      }
       continue;
     }
     if (current) body.push(line);
@@ -396,7 +509,9 @@ export function parseOutreach(markdown: string | null | undefined): Draft[] {
 export function formatOutreach(drafts: Draft[]): string {
   return drafts
     .map(draft => {
-      const heading = [draft.contact.trim(), draft.channel.trim()].filter(Boolean).join(' · ');
+      const heading = [draft.contact.trim(), draft.channel.trim(), draft.sent ? `sent ${draft.sent}` : '']
+        .filter(Boolean)
+        .join(' · ');
       return `## ${heading}\n${draft.text.trim()}`;
     })
     .join('\n\n');
@@ -404,10 +519,70 @@ export function formatOutreach(drafts: Draft[]): string {
 
 const firstName = (name: string): string => (name.trim().split(/\s+/)[0] ?? '').trim();
 
-/** What a model is told to write for, and for whom — never a prompt of its own. */
-export function outreachInstruction(contact: Contact, channel: Channel, appliedOn?: string): string {
+/** What the owner asked the message to do, beyond the channel. */
+export type OutreachAsk = 'process' | 'team' | 'referral' | 'fifteen';
+export type OutreachTone = 'direct' | 'warm';
+
+export interface OutreachOptions {
+  ask?: OutreachAsk;
+  tone?: OutreachTone;
+  /** One line of the owner's own, quoted into the draft. */
+  note?: string;
+}
+
+const ASKS: Record<OutreachAsk, string> = {
+  process: 'Ask about the hiring process and what the team is looking for in this role.',
+  team: 'Ask about the team’s hardest current problem, and how the role touches it.',
+  referral: 'Ask whether they would refer me for this role.',
+  fifteen: 'Ask for fifteen minutes to hear how the team works.',
+};
+
+const TONES: Record<OutreachTone, string> = {
+  direct: 'Write plainly and directly, with no throat-clearing.',
+  warm: 'Write warmly, but without flattery or exclamation marks.',
+};
+
+/**
+ * What a model is told to write for, and for whom — never a prompt of its own.
+ *
+ * The first argument set is the channel and the contact; `options` is the
+ * composer's ask, tone and the owner's own line. Every part is data, and the
+ * result is a fixed sentence pattern, so nothing a caller supplies can become
+ * an instruction of its own beyond the four things the composer offers.
+ */
+export function outreachInstruction(
+  contact: Contact,
+  channel: Channel,
+  appliedOn?: string,
+  options: OutreachOptions = {},
+): string {
   const who = [firstName(contact.name), contact.title.trim()].filter(Boolean).join(', ') || 'the contact';
-  return OUTREACH_CHANNELS[channel].instruction(who, appliedOn);
+  const parts = [OUTREACH_CHANNELS[channel].instruction(who, appliedOn)];
+  if (options.ask) parts.push(ASKS[options.ask]);
+  if (options.tone) parts.push(TONES[options.tone]);
+  if (options.note?.trim()) parts.push(`Include this line from me: ${options.note.trim().slice(0, 300)}`);
+  return parts.join(' ');
+}
+
+/**
+ * `YYYY-MM-DD` plus N working days — the follow-up date.
+ *
+ * Monday-to-Friday only, and the start day does not count: a note sent on
+ * Friday with five days is due the following Friday, which is the interval a
+ * person means. A malformed date is returned unchanged rather than guessed at.
+ */
+export function workingDaysAfter(date: string, days: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
+  if (!match) return date;
+  const at = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  if (!Number.isFinite(at.getTime())) return date;
+  let left = Math.max(0, Math.trunc(days));
+  while (left > 0) {
+    at.setUTCDate(at.getUTCDate() + 1);
+    const day = at.getUTCDay();
+    if (day !== 0 && day !== 6) left -= 1;
+  }
+  return at.toISOString().slice(0, 10);
 }
 
 /** Counted here rather than trusted from the model. Over is `>`: at the limit is inside it. */
@@ -434,7 +609,7 @@ export interface NextAction {
    * page that matched on button copy silently stopped working the first time a
    * label was reworded.
    */
-  act?: 'assess' | 'draft' | 'applied' | 'details' | 'notes';
+  act?: 'assess' | 'draft' | 'applied' | 'details' | 'notes' | 'followup';
 }
 
 /** The fields this reads. A subset of `ApplicationFields`, so the screen can pass its holder. */
@@ -537,6 +712,27 @@ export function nextAction(fields: NextActionFields, today: string): NextAction 
   }
 
   const due = dayNumber(nextOn);
+  /* A sent message with nothing after it is the conversation's open end. Its
+     date is the next step the owner set, or five working days after it went —
+     whichever is stored — and the offer is the follow-up task, not "open the
+     outreach tab". */
+  const lastSent = drafts
+    .map((draft, index) => ({ draft, index }))
+    .filter(entry => entry.draft.sent)
+    .at(-1);
+  if (lastSent && !drafts.slice(lastSent.index + 1).length) {
+    const followUpOn = textOf(fields.nextOn) || workingDaysAfter(lastSent.draft.sent!, 5);
+    const when = dayNumber(followUpOn);
+    if (when !== null && todayNumber !== null && when <= todayNumber) {
+      return {
+        text: `Follow up with ${firstName(lastSent.draft.contact)} — the ${lastSent.draft.channel.toLowerCase()} was sent ${lastSent.draft.sent}.`,
+        button: 'Draft the follow-up',
+        tab: 'outreach',
+        act: 'followup',
+      };
+    }
+  }
+
   if (due !== null && todayNumber !== null && due <= todayNumber) {
     const step = textOf(fields.nextStep);
     return {

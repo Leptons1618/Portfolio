@@ -385,7 +385,15 @@ export function clampCaseStudyProgress(raw: unknown, now: Date): CaseStudyProgre
     p && Array.isArray(p.sections)
       ? p.sections
           .filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === 'object')
-          .map(x => ({ heading: str(x.heading, 120), brief: str(x.brief, 400) }))
+          .map(x => ({
+            heading: str(x.heading, 120),
+            brief: str(x.brief, 400),
+            ...(typeof x.figure === 'string' &&
+            ['flowchart', 'sequence', 'state', 'table', 'none'].includes(x.figure)
+              ? { figure: x.figure as PlannedSection['figure'] }
+              : {}),
+            ...(str(x.figureBrief, 200) ? { figureBrief: str(x.figureBrief, 200) } : {}),
+          }))
           .filter(x => x.heading)
           .slice(0, 9)
       : [];

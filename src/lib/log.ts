@@ -22,7 +22,7 @@
  * grow past what one screen can page through.
  */
 
-export const LOG_SOURCES = ['daily', 'content', 'media', 'chat', 'assist', 'admin'] as const;
+export const LOG_SOURCES = ['daily', 'content', 'media', 'chat', 'assist', 'assist-feedback', 'admin'] as const;
 export type LogSource = (typeof LOG_SOURCES)[number];
 export type LogLevel = 'info' | 'warn' | 'error';
 

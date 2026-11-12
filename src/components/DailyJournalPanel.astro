@@ -488,6 +488,12 @@ import { AUTO_DEFAULTS } from '../lib/journal-auto';
               onThinking: chunk => turn.thinking(chunk),
               onTool: frame => turn.tool(frame),
               onUsage: frame => turn.usage(frame),
+              onContext: parts => turn.context(parts),
+              onRepaired: codes => {
+                text = '';
+                turn.note(`Repaired: ${codes.join(', ')}`);
+              },
+              onFindings: codes => turn.note(`Still failing: ${codes.join(', ')}`, 'error'),
             },
             chatAbort.signal,
             panel.history().slice(0, -1),

@@ -47,6 +47,9 @@ import {
   parseFit,
   parseOutreach,
   peopleSearches,
+  scoreFromMarks,
+  splitSubject,
+  workingDaysAfter,
 } from '../src/lib/job-view.ts';
 
 let checks = 0;
@@ -441,6 +444,42 @@ Priya Nair, staff engineer.
 ### Note on the advert
 Posted twice this quarter.`;
 
+check('an optional Role at a glance reads the same before or after the score', () => {
+  const body = `**Verdict:** Reasonable — the stack matches.
+**Score:** 6/10 — mostly from the must-haves.
+
+### Must-haves
+- ✅ **TypeScript** — five years across two roles
+- ⚠️ **Kubernetes** — adjacent: Docker on ECS
+- ❌ **Rust** — nothing in the record
+
+### Nice-to-haves
+- ✅ **Design systems** — one role`;
+  const glance = `### Role at a glance
+Location: Bengaluru · Mode: on-site | hybrid | remote · Level: Senior · Years: 5+ · Pay: not stated · Posted: 2026-11-02`;
+  const expectedFacts = {
+    Location: 'Bengaluru',
+    Mode: 'on-site | hybrid | remote',
+    Level: 'Senior',
+    Years: '5+',
+    Pay: 'not stated',
+    Posted: '2026-11-02',
+  };
+  for (const [name, text, facts] of [
+    ['after the score', `${body}\n\n${glance}`, expectedFacts],
+    ['before the score', `${glance}\n\n${body}`, expectedFacts],
+    ['absent', body, {}],
+  ]) {
+    const view = parseFit(text);
+    assert.equal(view.recognised, true, `${name}: recognised`);
+    assert.deepEqual(view.verdict, { level: 'Reasonable', why: 'the stack matches.' }, `${name}: verdict`);
+    assert.deepEqual(view.score, { value: 6, why: 'mostly from the must-haves.' }, `${name}: score`);
+    assert.deepEqual(view.must.map(item => item.requirement), ['TypeScript', 'Kubernetes', 'Rust'], `${name}: must`);
+    assert.deepEqual(view.nice.map(item => item.requirement), ['Design systems'], `${name}: nice`);
+    assert.deepEqual(view.facts, facts, `${name}: facts`);
+  }
+});
+
 check('a fit in the template shape parses into the comparison', () => {
   const view = parseFit(FIT_TEMPLATE);
   assert.equal(view.recognised, true);
@@ -488,6 +527,43 @@ check('a fit in the real shape keeps every item and every extra section', () => 
   assert.equal(view.extra[2].markdown, 'Posted twice this quarter.');
 });
 
+check('the marks imply a score, independent of the model’s number', () => {
+  /* Must weigh three, nice one; met is all, adjacent half, missing none;
+     scaled to ten and rounded to a half. */
+  assert.equal(scoreFromMarks(parseFit(FIT_TEMPLATE)), 5.5);
+  assert.equal(scoreFromMarks(parseFit(FIT_REAL)), 5.5);
+  assert.equal(scoreFromMarks(parseFit('no marks here')), null, 'nothing assessed is not zero');
+  assert.equal(
+    scoreFromMarks(
+      parseFit('**Verdict:** Strong\n**Score:** 10/10\n### Must-haves\n- ✅ **A** — evidence'),
+    ),
+    10,
+  );
+});
+
+check('an optional Role at a glance becomes facts; its absence is an empty object', () => {
+  const withFacts = parseFit(`**Verdict:** Reasonable
+**Score:** 6/10
+
+### Role at a glance
+Location: Bengaluru · Mode: hybrid · Level: Senior · Years: 5+ · Pay: not stated
+
+### Must-haves
+- ✅ **TypeScript** — five years`);
+  assert.deepEqual(withFacts.facts, {
+    Location: 'Bengaluru',
+    Mode: 'hybrid',
+    Level: 'Senior',
+    Years: '5+',
+    Pay: 'not stated',
+  });
+  assert.deepEqual(parseFit(FIT_TEMPLATE).facts, {}, 'an older assessment still parses');
+  /* An unknown key made of plain words is kept as text rather than dropped. */
+  const unknown = parseFit('**Verdict:** Poor\n**Score:** 2/10\n### Role at a glance\nTeam: Platform · On call: yes\n### Must-haves\n- ❌ **Rust** — nothing');
+  assert.equal(unknown.facts.Team, 'Platform');
+  assert.equal(unknown.facts['On call'], 'yes');
+});
+
 check('garbage, prose and CRLF are objects rather than throws', () => {
   for (const input of ['', '   ', 'A paragraph about the role, with no structure at all.', null, undefined, 7]) {
     const view = parseFit(input);
@@ -516,6 +592,7 @@ check('a contact line splits into name, title and a link only when http(s)', () 
     name: 'Priya Raman',
     title: 'Technical Recruiter',
     url: 'https://www.linkedin.com/in/priya',
+    email: null,
     raw: 'Priya Raman — Technical Recruiter — https://www.linkedin.com/in/priya',
   });
   for (const bad of [
@@ -527,13 +604,14 @@ check('a contact line splits into name, title and a link only when http(s)', () 
     assert.equal(contact.name, 'Priya Nair');
     assert.equal(contact.url, null, `${bad} is not a link`);
   }
-  assert.deepEqual(parseContact('Priya Nair'), { name: 'Priya Nair', title: '', url: null, raw: 'Priya Nair' });
+  assert.deepEqual(parseContact('Priya Nair'), { name: 'Priya Nair', title: '', url: null, email: null, raw: 'Priya Nair' });
   assert.equal(parseContact('').name, '');
   /* A title may contain a spaced hyphen, and the link is still the last part. */
   assert.deepEqual(parseContact('Priya Nair — Recruiter - India — https://example.com/priya'), {
     name: 'Priya Nair',
     title: 'Recruiter - India',
     url: 'https://example.com/priya',
+    email: null,
     raw: 'Priya Nair — Recruiter - India — https://example.com/priya',
   });
   /* With no em dash at all, the plain hyphen is still the separator. */
@@ -544,17 +622,68 @@ check('a contact line splits into name, title and a link only when http(s)', () 
   );
 });
 
+check('an email is its own part, never the title, and the URL need not be last', () => {
+  const four = parseContact(
+    'Priya Nair — priya@example.com — Technical Recruiter — https://example.com/priya',
+  );
+  assert.deepEqual(
+    { name: four.name, title: four.title, url: four.url, email: four.email },
+    {
+      name: 'Priya Nair',
+      title: 'Technical Recruiter',
+      url: 'https://example.com/priya',
+      email: 'priya@example.com',
+    },
+  );
+  const middle = parseContact('Priya Nair — https://example.com/priya — Technical Recruiter');
+  assert.deepEqual(
+    { name: middle.name, title: middle.title, url: middle.url, email: middle.email },
+    {
+      name: 'Priya Nair',
+      title: 'Technical Recruiter',
+      url: 'https://example.com/priya',
+      email: null,
+    },
+  );
+  const noUrl = parseContact('Priya Nair — priya@example.com — Technical Recruiter');
+  assert.deepEqual(
+    { name: noUrl.name, title: noUrl.title, url: noUrl.url, email: noUrl.email },
+    { name: 'Priya Nair', title: 'Technical Recruiter', url: null, email: 'priya@example.com' },
+  );
+  /* The address is removed wherever it sat in the line. */
+  const trailing = parseContact('Priya Nair — Technical Recruiter — priya@example.com');
+  assert.equal(trailing.title, 'Technical Recruiter');
+  assert.equal(trailing.email, 'priya@example.com');
+});
+
 check('a contact written back reads the same again', () => {
-  const contact = { name: 'Priya Raman', title: 'Technical Recruiter', url: 'https://example.com/priya' };
+  const contact = { name: 'Priya Raman', title: 'Technical Recruiter', url: 'https://example.com/priya', email: null };
   assert.equal(formatContact(contact), 'Priya Raman — Technical Recruiter — https://example.com/priya');
   const again = parseContact(formatContact(contact));
   assert.deepEqual(
-    { name: again.name, title: again.title, url: again.url },
-    contact,
+    { name: again.name, title: again.title, url: again.url, email: again.email },
+    { name: contact.name, title: contact.title, url: contact.url, email: contact.email },
     'format → parse round-trips',
   );
   /* Without a link the title is still the second part, not a URL. */
-  assert.equal(formatContact({ name: 'Priya', title: 'Engineer', url: 'javascript:alert(1)' }), 'Priya — Engineer');
+  assert.equal(formatContact({ name: 'Priya', title: 'Engineer', url: 'javascript:alert(1)', email: null }), 'Priya — Engineer');
+  /* New four-part lines round-trip, and an email without a URL is written as
+     the third part. */
+  const full = { name: 'Priya Nair', title: 'Recruiter', url: 'https://example.com/priya', email: 'priya@example.com' };
+  assert.equal(
+    formatContact(full),
+    'Priya Nair — Recruiter — https://example.com/priya — priya@example.com',
+  );
+  assert.deepEqual(parseContact(formatContact(full)), { ...full, raw: formatContact(full) });
+  const emailOnly = { name: 'Priya Nair', title: 'Recruiter', url: null, email: 'priya@example.com' };
+  assert.equal(formatContact(emailOnly), 'Priya Nair — Recruiter — priya@example.com');
+  assert.deepEqual(
+    (({ name, title, url, email }) => ({ name, title, url, email }))(parseContact(formatContact(emailOnly))),
+    emailOnly,
+  );
+  /* Old three-part lines still round-trip byte-for-byte. */
+  const old = 'Priya Nair — Technical Recruiter — https://example.com/priya';
+  assert.equal(formatContact(parseContact(old)), old);
 });
 
 /* ---------- job view: outreach ---------- */
@@ -569,6 +698,93 @@ check('kept drafts round-trip through the stored markdown', () => {
   assert.deepEqual(parseOutreach(null), []);
 });
 
+check('a sent date is part of a kept draft, and an older heading still parses', () => {
+  const sent = [
+    { contact: 'Priya Nair', channel: 'LinkedIn note', text: 'Hi Priya…' },
+    { contact: 'Priya Nair', channel: 'Email', text: 'Subject: hello\n\nHi Priya…', sent: '2026-11-12' },
+  ];
+  assert.deepEqual(parseOutreach(formatOutreach(sent)), sent);
+  /* Without the optional part, the heading is read exactly as it was. */
+  assert.deepEqual(parseOutreach('## Priya Nair · LinkedIn note\nHi'), [
+    { contact: 'Priya Nair', channel: 'LinkedIn note', text: 'Hi' },
+  ]);
+  /* A third part that is not `sent …` is still part of the channel. */
+  assert.deepEqual(parseOutreach('## Priya · Email · very long\nHi')[0].channel, 'Email · very long');
+});
+
+check('the composer’s ask, tone and line reach the instruction', () => {
+  const person = { name: 'Priya Nair', title: 'Recruiter', url: null, raw: 'Priya Nair' };
+  const steer = outreachInstruction(person, 'message', undefined, {
+    ask: 'referral',
+    tone: 'warm',
+    note: 'I built the eval harness at Acme.',
+  });
+  assert.match(steer, /LinkedIn message to Priya, Recruiter/);
+  assert.match(steer, /refer me/);
+  assert.match(steer, /warmly/);
+  assert.match(steer, /eval harness at Acme/);
+  /* Nothing supplied is a prompt of its own: every part is a fixed sentence. */
+  const plain = outreachInstruction(person, 'note');
+  assert.match(plain, /^LinkedIn connection note to Priya, Recruiter$/);
+});
+
+check('five working days skips the weekend', () => {
+  /* 2026-11-13 is a Friday; five working days later is the following Friday. */
+  assert.equal(workingDaysAfter('2026-11-13', 5), '2026-11-20');
+  assert.equal(workingDaysAfter('2026-11-09', 1), '2026-11-10');
+  assert.equal(workingDaysAfter('not a date', 5), 'not a date');
+});
+
+check('nextAction: a sent draft with nothing after it offers the follow-up', () => {
+  const evaluated = {
+    jobDescription: 'the advert',
+    fit: '**Verdict:** Reasonable\n**Score:** 6/10\n### Must-haves\n- ✅ **TypeScript** — five years',
+  };
+  const next = nextAction(
+    {
+      ...evaluated,
+      status: 'applied',
+      appliedOn: '2026-11-01',
+      nextOn: '2026-11-09',
+      nextStep: 'Follow up with Priya',
+      outreach: '## Priya Nair · Email · sent 2026-11-01\nSubject: hi\n\nHi Priya…',
+    },
+    '2026-11-10',
+  );
+  assert.match(next.text, /Follow up with Priya/);
+  assert.equal(next.button, 'Draft the follow-up');
+  assert.equal(next.act, 'followup');
+  /* A later draft closes the thread, so the due rule is back. */
+  const later = nextAction(
+    {
+      ...evaluated,
+      status: 'applied',
+      appliedOn: '2026-11-01',
+      nextOn: '2026-11-09',
+      nextStep: 'Follow up with Priya',
+      outreach:
+        '## Priya Nair · Email · sent 2026-11-01\nHi\n\n## Priya Nair · Follow-up\nA second note.',
+    },
+    '2026-11-10',
+  );
+  assert.equal(later.act, undefined);
+});
+
+check('a draft’s Subject line becomes the mailto subject, not the body', () => {
+  assert.deepEqual(splitSubject('Subject: Hello\n\nBody here'), { subject: 'Hello', body: 'Body here' });
+  assert.deepEqual(splitSubject('subject: lower case\nBody'), { subject: 'lower case', body: 'Body' });
+  assert.deepEqual(splitSubject('\n\nSubject:   Spaced   \n\n\nBody line one\nBody line two'), {
+    subject: 'Spaced',
+    body: 'Body line one\nBody line two',
+  });
+  assert.deepEqual(splitSubject('No subject here\nBody'), {
+    subject: '',
+    body: 'No subject here\nBody',
+  });
+  assert.deepEqual(splitSubject('Subject: Only'), { subject: 'Only', body: '' });
+  assert.deepEqual(splitSubject(''), { subject: '', body: '' });
+});
+
 check('a `## ` line inside a draft body starts a draft — the format’s one limit', () => {
   /* Pinned, not accidental: the heading is the only delimiter the column has.
      Drafts are messages, not markdown documents, so this is the trade taken. */
@@ -580,10 +796,11 @@ check('a `## ` line inside a draft body starts a draft — the format’s one li
 });
 
 check('the channel table is closed and its instructions name the person', () => {
-  assert.deepEqual(Object.keys(OUTREACH_CHANNELS), ['note', 'message', 'referral', 'email', 'followup']);
+  assert.deepEqual(Object.keys(OUTREACH_CHANNELS), ['note', 'message', 'referral', 'email', 'cover', 'followup']);
   assert.equal(OUTREACH_CHANNELS.note.limit, 200);
   assert.equal(OUTREACH_CHANNELS.message.limit, 600);
   assert.equal(OUTREACH_CHANNELS.email.unit, 'words');
+  assert.equal(OUTREACH_CHANNELS.cover.limit, 220);
 
   const priya = { name: 'Priya Raman', title: 'Technical Recruiter', url: null, raw: '' };
   assert.equal(outreachInstruction(priya, 'note'), 'LinkedIn connection note to Priya, Technical Recruiter');

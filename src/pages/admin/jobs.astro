@@ -54,6 +54,19 @@ import { Icon } from 'astro-icon/components';
     <div class="tab-panel" id="jb-panel-list" role="tabpanel" aria-labelledby="jb-tab-list">
       <div class="jb-grid">
         <section class="card elev-sm jb-main">
+          <div class="jb-due" id="jb-due" hidden></div>
+          <div class="jb-tools">
+            <div class="jb-chips" id="jb-status-chips"></div>
+            <label class="jb-sort">
+              <span>Sort</span>
+              <select class="input" id="jb-sort">
+                <option value="status">Status</option>
+                <option value="score">Score</option>
+                <option value="next">Next date</option>
+                <option value="updated">Last updated</option>
+              </select>
+            </label>
+          </div>
           <div id="jb-list" class="jb-list"></div>
           <div class="admin-empty" id="jb-empty" hidden>
             <div class="admin-empty-art admin-empty-art-sm"><Illustration name="no-data" /></div>
@@ -170,7 +183,13 @@ import { Icon } from 'astro-icon/components';
 
 <script>
   import { navigate } from 'astro:transitions/client';
-  import { onAdminPage, setBusy, toast, wireTabs } from '../../lib/admin';
+  import {
+    onAdminPage,
+    ADMIN_KEYS,
+    setBusy,
+    toast,
+    wireTabs,
+  } from '../../lib/admin';
   import {
     APPLICATION_STATUSES,
     CLOSED_STATUSES,
@@ -182,6 +201,7 @@ import { Icon } from 'astro-icon/components';
     type ApplicationStatus,
   } from '../../lib/content-store';
   import { getToken } from '../../lib/github';
+  import { nextAction, parseFit, scoreFromMarks } from '../../lib/job-view';
   import {
     WATCHLIST_KEY,
     formatBoard,
@@ -217,6 +237,9 @@ import { Icon } from 'astro-icon/components';
     const scanBtn = $<HTMLButtonElement>('jb-scan');
     const scanNote = $('jb-scan-note');
     const found = $('jb-found');
+    const dueHost = $('jb-due');
+    const chipsHost = $('jb-status-chips');
+    const sortSelect = $<HTMLSelectElement>('jb-sort');
 
     wireTabs($('jb-tabs'));
 
@@ -242,6 +265,29 @@ import { Icon } from 'astro-icon/components';
 
     /* ---------- the manifest ---------- */
 
+    /* The chosen sort is a browser preference, not a stored fact — the same
+       kind of state as the sidebar's width. */
+    const SORTS = ['status', 'score', 'next', 'updated'] as const;
+    type Sort = (typeof SORTS)[number];
+    const stored = localStorage.getItem(ADMIN_KEYS.jobsSort);
+    let sort: Sort = (SORTS as readonly string[]).includes(stored ?? '') ? (stored as Sort) : 'status';
+    sortSelect.value = sort;
+    sortSelect.addEventListener('change', () => {
+      sort = (SORTS as readonly string[]).includes(sortSelect.value) ? (sortSelect.value as Sort) : 'status';
+      localStorage.setItem(ADMIN_KEYS.jobsSort, sort);
+      render();
+    });
+
+    let statusFilter: ApplicationStatus | null = null;
+
+    /** The module score, the marks' score, and the missing must-haves. */
+    function assess(fit: string | null) {
+      const view = parseFit(fit);
+      const byMarks = scoreFromMarks(view);
+      const missing = view.must.filter(item => item.mark === 'missing').length;
+      return { view, byMarks, missing };
+    }
+
     /* Every value is `textContent`: a company, a role and a note are all text
        the owner pasted from somewhere else. */
     function row(app: Application): HTMLElement {
@@ -250,7 +296,28 @@ import { Icon } from 'astro-icon/components';
       link.href = `/admin/jobs/${encodeURIComponent(app.slug)}`;
       const head = node('span', 'jb-row-head');
       head.append(node('strong', '', f.company), node('span', 'jb-row-role', f.role));
+
+      /* The score is the triage. The model's number is what the owner reads;
+         when the marks disagree by more than two, the fit tab says why. */
+      const { view, byMarks, missing } = assess(f.fit);
+      if (view.recognised) {
+        const value = view.score.value ?? byMarks;
+        const chip = node(
+          'span',
+          'jb-score',
+          `${value === null ? '—' : value}/10 · ${view.verdict.level ?? '—'}`,
+        );
+        chip.dataset.level = (view.verdict.level ?? '').toLowerCase();
+        head.append(chip);
+      } else {
+        head.append(node('span', 'jb-score jb-score-none', 'Not assessed'));
+      }
+
       const meta = node('span', 'jb-row-meta');
+      if (!view.recognised) meta.append(node('span', 'jb-assess', 'assess →'));
+      if (missing) {
+        meta.append(node('span', 'jb-missing', `${missing} missing`));
+      }
       if (f.nextStep || f.nextOn) {
         const next = node('span', 'jb-next', [f.nextStep, f.nextOn].filter(Boolean).join(' · '));
         /* Text comparison is the point of storing YYYY-MM-DD. */
@@ -265,31 +332,120 @@ import { Icon } from 'astro-icon/components';
       return link;
     }
 
+    /** How many days since a `YYYY-MM-DD`, or `null`. */
+    const daysSince = (date: string): number | null => {
+      const then = Date.parse(`${date}T00:00:00Z`);
+      const now = Date.parse(`${today()}T00:00:00Z`);
+      return Number.isFinite(then) ? Math.round((now - then) / 86_400_000) : null;
+    };
+
+    /**
+     * The due strip: what to do this morning.
+     *
+     * Two rules, both from `nextAction()`: a follow-up date that has arrived,
+     * and an application with no reply a week on. The sentence is the rule's
+     * own, and the button is its own — the first rule in the list, not a
+     * second copy of the order.
+     */
+    function renderDue() {
+      const due = rows.filter(app => {
+        const f = app.fields;
+        if (CLOSED_STATUSES.includes(f.status)) return false;
+        const overdue = Boolean(f.nextOn && f.nextOn <= today());
+        const stale =
+          f.status === 'applied' &&
+          Boolean(f.appliedOn) &&
+          !f.nextOn &&
+          (daysSince(f.appliedOn ?? '') ?? 0) >= 7;
+        return overdue || stale;
+      });
+      if (!due.length) {
+        dueHost.hidden = true;
+        dueHost.replaceChildren();
+        return;
+      }
+      dueHost.hidden = false;
+      const head = node('p', 'jb-due-title', `Due today (${due.length})`);
+      const list = node('ul', 'jb-due-list');
+      for (const app of due) {
+        const action = nextAction(app.fields, today());
+        const item = node('li', 'jb-due-item');
+        item.append(node('span', 'jb-due-text', `${app.fields.company} — ${action.text}`));
+        const go = node('a', 'btn btn-secondary btn-sm', action.button || 'Open');
+        go.href = `/admin/jobs/${encodeURIComponent(app.slug)}#${action.tab}`;
+        item.append(go);
+        list.append(item);
+      }
+      dueHost.replaceChildren(head, list);
+    }
+
+    function renderChips() {
+      const chips: HTMLElement[] = [];
+      for (const status of Object.keys(APPLICATION_STATUSES) as ApplicationStatus[]) {
+        const count = rows.filter(app => app.fields.status === status).length;
+        if (!count) continue;
+        const chip = node('button', 'jb-chip', `${APPLICATION_STATUSES[status]} ${count}`);
+        chip.type = 'button';
+        chip.dataset.status = status;
+        if (statusFilter === status) chip.dataset.active = '';
+        chip.addEventListener('click', () => {
+          statusFilter = statusFilter === status ? null : status;
+          render();
+        });
+        chips.push(chip);
+      }
+      chipsHost.replaceChildren(...chips);
+    }
+
     function render() {
-      const groups = (Object.keys(APPLICATION_STATUSES) as ApplicationStatus[])
-        .map(status => ({ status, apps: rows.filter(app => app.fields.status === status) }))
-        .filter(group => group.apps.length);
+      renderDue();
+      renderChips();
 
-      const open = groups.filter(group => !CLOSED_STATUSES.includes(group.status));
-      const closed = groups.filter(group => CLOSED_STATUSES.includes(group.status));
-
-      const blocks: HTMLElement[] = open.map(group => {
-        const section = node('section', 'jb-group');
-        const title = node('h3', 'jb-group-title', APPLICATION_STATUSES[group.status]);
-        title.append(node('span', 'jb-count', String(group.apps.length)));
-        section.append(title, ...group.apps.map(row));
-        return section;
+      const visible = rows.filter(app => !statusFilter || app.fields.status === statusFilter);
+      const scoreOf = (app: Application) => {
+        const { view, byMarks } = assess(app.fields.fit);
+        return view.score.value ?? byMarks ?? -1;
+      };
+      const bySort = [...visible].sort((a, b) => {
+        if (sort === 'score') return scoreOf(b) - scoreOf(a);
+        if (sort === 'next') {
+          return (a.fields.nextOn ?? '9999-99-99').localeCompare(b.fields.nextOn ?? '9999-99-99');
+        }
+        if (sort === 'updated') return (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '');
+        return 0;
       });
 
-      /* Outcomes fold away: they are the record, not the work. */
-      if (closed.length) {
-        const fold = node('details', 'jb-group jb-closed');
-        const count = closed.reduce((sum, group) => sum + group.apps.length, 0);
-        fold.append(node('summary', 'jb-group-title', `Closed · ${count}`));
-        for (const group of closed) {
-          fold.append(node('p', 'jb-sub', APPLICATION_STATUSES[group.status]), ...group.apps.map(row));
+      let blocks: HTMLElement[];
+      if (sort === 'status') {
+        const groups = (Object.keys(APPLICATION_STATUSES) as ApplicationStatus[])
+          .map(status => ({ status, apps: visible.filter(app => app.fields.status === status) }))
+          .filter(group => group.apps.length);
+
+        const open = groups.filter(group => !CLOSED_STATUSES.includes(group.status));
+        const closed = groups.filter(group => CLOSED_STATUSES.includes(group.status));
+
+        blocks = open.map(group => {
+          const section = node('section', 'jb-group');
+          const title = node('h3', 'jb-group-title', APPLICATION_STATUSES[group.status]);
+          title.append(node('span', 'jb-count', String(group.apps.length)));
+          section.append(title, ...group.apps.map(row));
+          return section;
+        });
+
+        /* Outcomes fold away: they are the record, not the work. */
+        if (closed.length) {
+          const fold = node('details', 'jb-group jb-closed');
+          const count = closed.reduce((sum, group) => sum + group.apps.length, 0);
+          fold.append(node('summary', 'jb-group-title', `Closed · ${count}`));
+          for (const group of closed) {
+            fold.append(node('p', 'jb-sub', APPLICATION_STATUSES[group.status]), ...group.apps.map(row));
+          }
+          blocks.push(fold);
         }
-        blocks.push(fold);
+      } else {
+        const section = node('section', 'jb-group');
+        if (bySort.length) section.append(...bySort.map(row));
+        blocks = bySort.length ? [section] : [];
       }
 
       list.replaceChildren(...blocks);
@@ -523,6 +679,48 @@ import { Icon } from 'astro-icon/components';
   .jb-main { min-width: 0; }
   .jb-side { display: flex; flex-direction: column; gap: var(--space-2); }
   .jb-list { display: flex; flex-direction: column; }
+
+  /* The desk: due first, then the filters and the sort. Built in script, so
+     its children go through the global door. */
+  .jb-due {
+    margin: 0 0 var(--space-4);
+    padding: var(--space-3);
+    border: 1px solid var(--color-accent-400);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+  .jb-tools {
+    display: flex;
+    justify-content: space-between;
+    align-items: end;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-4);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--color-divider);
+  }
+  .jb-sort { display: flex; flex-direction: column; gap: 4px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-text-faint); }
+  .jb-sort .input { min-width: 150px; }
+
+  #jb-due :global(.jb-due-title) { margin: 0 0 var(--space-2); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--color-accent-700); }
+  #jb-due :global(.jb-due-list) { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+  #jb-due :global(.jb-due-item) { display: flex; justify-content: space-between; align-items: center; gap: var(--space-3); flex-wrap: wrap; font-size: 13px; }
+  #jb-due :global(.jb-due-text) { min-width: 0; }
+
+  #jb-status-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  #jb-status-chips :global(.jb-chip) {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    padding: 4px 8px;
+    border: 1px solid var(--color-divider);
+    border-radius: 999px;
+    background: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+  #jb-status-chips :global(.jb-chip:hover) { border-color: var(--color-accent-400); color: var(--color-text); }
+  #jb-status-chips :global(.jb-chip[data-active]) { border-color: var(--color-accent); color: var(--color-accent-700); }
   .jb-boards, .jb-jd { font-family: var(--font-mono); font-size: 13px; }
   .jb-filters { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
   .jb-acts { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-3); }
@@ -568,6 +766,26 @@ import { Icon } from 'astro-icon/components';
   #jb-list :global(.jb-row-meta),
   #jb-found :global(.jb-row-meta) { display: flex; gap: var(--space-3); font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); }
   #jb-list :global(.jb-next[data-overdue]) { color: var(--color-accent-700); font-weight: 600; }
+
+  /* The score chip, coloured by verdict — a token per level, so it survives a
+     theme switch. A row with no assessment says so; its next step is Assess. */
+  #jb-list :global(.jb-score) {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.04em;
+    padding: 2px 7px;
+    border: 1px solid var(--color-divider);
+    border-radius: 999px;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+  }
+  #jb-list :global(.jb-score[data-level='strong']) { border-color: var(--color-accent); color: var(--color-accent-700); }
+  #jb-list :global(.jb-score[data-level='reasonable']) { border-color: var(--color-accent-400); color: var(--color-text); }
+  #jb-list :global(.jb-score[data-level='stretch']) { border-color: var(--color-divider); color: var(--color-text-muted); }
+  #jb-list :global(.jb-score[data-level='poor']) { border-color: var(--color-accent-700); color: var(--color-accent-700); }
+  #jb-list :global(.jb-score-none) { border-style: dashed; }
+  #jb-list :global(.jb-missing) { color: var(--color-accent-700); font-weight: 600; }
+  #jb-list :global(.jb-assess) { color: var(--color-accent-700); }
 
   #jb-found :global(.jb-hit-acts) { display: flex; gap: var(--space-1); margin-top: var(--space-1); }
   #jb-found :global(.jb-act) { font-size: 11px; padding: 2px 10px; min-height: 0; }

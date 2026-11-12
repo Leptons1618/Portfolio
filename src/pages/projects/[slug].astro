@@ -3,9 +3,11 @@ import { Icon } from 'astro-icon/components';
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import PathLine from '../../components/PathLine.astro';
 import SectionSep from '../../components/SectionSep.astro';
+import FlowStrip from '../../components/FlowStrip.astro';
+import Lightbox from '../../components/Lightbox.astro';
 import { categoryLabel, getCaseStudy, getProject, getProjects } from '../../lib/content';
 import { formatDate } from '../../lib/format';
-import { metricsOf, splitChapters } from '../../lib/chapters';
+import { flowOf, galleryOf, metricsOf, splitChapters } from '../../lib/chapters';
 
 /* Read from D1 per request. `getProject` applies the same `hidden` filter the
    listing does, so a retired project's URL 404s rather than staying reachable
@@ -15,7 +17,7 @@ export const prerender = false;
 const { DB } = Astro.locals.runtime.env;
 const project = Astro.params.slug ? await getProject(DB, Astro.params.slug) : undefined;
 if (!project) return new Response(null, { status: 404 });
-const { title, summary, category, tags, stack, status, year, highlights, repoUrl, demoUrl, caseStudySlug, heroImage } = project.data;
+const { title, summary, category, tags, stack, status, year, highlights, repoUrl, demoUrl, caseStudySlug, heroImage, plain, flow, gallery } = project.data;
 
 /* The write-up, when there is one, read through the public filter like every
    other page — a study this page links to is one a visitor may read. Its
@@ -63,6 +65,27 @@ const STATUS_LABEL: Record<string, string> = {
   archived: 'Archived',
 };
 const statusLabel = STATUS_LABEL[status] ?? status;
+
+/* The structured explainer — decision 85. `plain` is a lead paragraph and is
+   dropped when it merely restates the summary. `flow` and `gallery` are data,
+   so the page renders a picture without an upload or a client-side renderer. */
+const lead = typeof plain === 'string' && plain.trim() && plain.trim() !== summary.trim() ? plain.trim() : '';
+const steps = flowOf(flow);
+const screens = galleryOf(gallery);
+const architecture = study?.data.architectureImage;
+
+/* Section numbers come from the list of sections this project actually has,
+   rather than hand arithmetic — the same rule `CaseStudyLayout` keeps. The
+   write-up and the plain lead are not numbered; they are not sections of the
+   specification. */
+const sectionOrder = [
+  ...(steps.length || architecture ? ['how'] : []),
+  ...(screens.length ? ['screens'] : []),
+  ...(highlights.length ? ['highlights'] : []),
+  ...(stack.length ? ['stack'] : []),
+  ...(study ? ['study'] : []),
+];
+const num = (name: string) => String(sectionOrder.indexOf(name) + 1).padStart(2, '0');
 
 const repoName = repoUrl?.replace(/^https?:\/\/(?:www\.)?github\.com\//i, '').replace(/\/+$/, '') ?? '';
 
@@ -138,6 +161,8 @@ const tagHref = (tag: string) => `/projects?tags=${encodeURIComponent(tag)}`;
     <SectionSep />
 
     <div class="container detail-body">
+      {lead && <p class="detail-plain" data-reveal>{lead}</p>}
+
       <dl class="detail-glance" data-reveal>
         {glance.map(([key, value]) => (
           <div class="detail-glance-item">
@@ -149,9 +174,37 @@ const tagHref = (tag: string) => `/projects?tags=${encodeURIComponent(tag)}`;
 
       <div class="detail-grid">
         <div class="detail-main">
+          {(steps.length > 0 || architecture) && (
+            <section class="detail-section" data-reveal>
+              <h2 class="detail-section-head"><span class="detail-num">{num('how')}</span>How it works</h2>
+              {steps.length > 0 && <FlowStrip steps={steps} />}
+              {architecture && (
+                <figure class="grayscale detail-arch" data-zoom>
+                  <img src={architecture} alt={`Architecture of ${title}`} />
+                </figure>
+              )}
+            </section>
+          )}
+
+          {screens.length > 0 && (
+            <section class="detail-section" data-reveal>
+              <h2 class="detail-section-head"><span class="detail-num">{num('screens')}</span>Screens</h2>
+              <ul class="detail-gallery">
+                {screens.map(screen => (
+                  <li>
+                    <figure>
+                      <img src={screen.src} alt={screen.caption || title} loading="lazy" />
+                      {screen.caption && <figcaption>{screen.caption}</figcaption>}
+                    </figure>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
           {highlights.length > 0 && (
             <section class="detail-section" data-reveal>
-              <h2 class="detail-section-head"><span class="detail-num">01</span>Highlights</h2>
+              <h2 class="detail-section-head"><span class="detail-num">{num('highlights')}</span>Highlights</h2>
               <div class="card elev-sm">
                 {/* Each line arrives on its own, numbered — a changelog rather
                     than a bullet list. The stagger is authored so it follows
@@ -167,7 +220,7 @@ const tagHref = (tag: string) => `/projects?tags=${encodeURIComponent(tag)}`;
 
           {stack.length > 0 && (
             <section class="detail-section" data-reveal>
-              <h2 class="detail-section-head"><span class="detail-num">{highlights.length ? '02' : '01'}</span>Built with</h2>
+              <h2 class="detail-section-head"><span class="detail-num">{num('stack')}</span>Built with</h2>
               <ul class="stack-list">
                 {stack.map((item, i) => (
                   <li class="stack-item" data-reveal style={`--reveal-delay: ${60 + i * 30}ms`}>
@@ -181,7 +234,7 @@ const tagHref = (tag: string) => `/projects?tags=${encodeURIComponent(tag)}`;
           {study && (
             <section class="detail-section" data-reveal aria-labelledby="detail-study-title">
               <h2 class="detail-section-head">
-                <span class="detail-num">{String((highlights.length ? 1 : 0) + (stack.length ? 1 : 0) + 1).padStart(2, '0')}</span>Case study
+                <span class="detail-num">{num('study')}</span>Case study
               </h2>
               <article class="card elev-sm study">
                 <p class="study-meta">
@@ -305,6 +358,7 @@ const tagHref = (tag: string) => `/projects?tags=${encodeURIComponent(tag)}`;
       </div>
     </div>
   </div>
+  <Lightbox />
 </BaseLayout>
 <style>
   /* The wrapper is the page and the two `.container`s inside it are the
@@ -355,6 +409,42 @@ const tagHref = (tag: string) => `/projects?tags=${encodeURIComponent(tag)}`;
     color: var(--color-text-faint);
   }
   .detail-glance-item dd { margin: 0; font-size: 14px; }
+
+  /* The plain-words lead — a reader who is not an engineer stops here. It is
+     not the summary restated; the page drops it when it is. */
+  .detail-plain {
+    font-size: 19px;
+    line-height: 1.65;
+    max-width: 62ch;
+    margin: 0 0 var(--space-6);
+    opacity: 0.92;
+  }
+
+  /* The architecture image under the flow strip, when the linked study has one
+     — the picture the case study already carries, seen before the write-up. */
+  .detail-arch { margin: 0; }
+  .detail-arch img { width: 100%; height: auto; display: block; }
+
+  /* Screens, two up. Captions are part of the figure, in the muted voice every
+     other caption on the site uses. */
+  .detail-gallery {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3);
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .detail-gallery figure { margin: 0; display: flex; flex-direction: column; gap: var(--space-1); }
+  .detail-gallery img { width: 100%; height: auto; display: block; border: 1px solid var(--color-divider); border-radius: var(--radius-md); }
+  .detail-gallery figcaption { font-size: 12px; line-height: 1.45; color: var(--color-text-muted); }
+
+  @media screen and (max-width: 640px) {
+    .detail-gallery { grid-template-columns: 1fr; }
+  }
+  @media print {
+    .detail-gallery { grid-template-columns: 1fr; }
+  }
 
   .detail-section { margin-bottom: var(--space-8); }
   .detail-section-head { display: flex; align-items: baseline; gap: var(--space-2); margin: 0 0 var(--space-3); }

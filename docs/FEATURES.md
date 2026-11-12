@@ -329,3 +329,26 @@ The `applications` table (migration 0015) — the owner's private job tracker, r
 | `npm run check:worker` | Origin allowlist, route surface, `redirect_uri` pinning, fail-closed, refresh-token drop |
 
 Neither `astro check` nor `astro build` runs the other. Run both.
+
+## Harness, explainers and the job desk
+
+Decisions 84–86. The machinery existed before this phase; the published pages did not use it.
+
+| Feature | State | Notes |
+| --- | --- | --- |
+| Answer validation before an answer is offered | ✅ | `assist-validate.ts`: shape, flow, slugs, Mermaid, fit shape/score, channel limits, banned phrases, prose with no figure, truncation. Named per task |
+| One repair round | ✅ | A repairable finding is sent back once with no tools; a second failure is reported in a `findings` frame. Never on the public chat |
+| Per-task tool allowlist | ✅ | `tools?: ToolName[]`, intersected inside `toolsFor()`. It can only narrow |
+| Context manifest | ✅ | One `{ context }` frame and a field in the run's log row: part, field, chars, capped. Never the text |
+| Per-tool tallies | ✅ | calls, ms, errors, result chars in the run's log row |
+| The owner's verdict | ✅ | Undo / Try again / kept / kept-edited as bounded `assist-feedback` log rows. No text stored |
+| `npm run eval:ai` | ✅ | Fixtures × task × model, deterministic columns, optional JSON. Not in `npm run check` |
+| Project explainer: plain words, flow, screens | ✅ | Migration 0018. `FlowStrip` renders the flow from data with no image or renderer; gallery is `/media/` only |
+| Reader's-view checklist and `visuals n/5` | ✅ | Beside the completeness checklist; an unfilled line runs the task that fills it, or focuses the owner's field |
+| `explain-project` / `draw-architecture` | ✅ | The diagram renders in the browser and offers the architecture image or the caret; a failed parse is retried once |
+| A figure per planned case-study section | ✅ | `parsePlan()` names one; the section writes it inline; the long writer uploads the SVG and keeps a failed fence as code |
+| Job desk: score, sort, due strip, chips, dealbreaker mark | ✅ | Everything derived on read; the sort is a browser preference |
+| Fit tab: marks score, bars, missing must-haves, links, facts, stale banner, keywords | ✅ | `scoreFromMarks()`; project slugs in evidence link to their admin page; keywords are `<mark>` from text nodes |
+| Outreach composer, sent state, follow-up, cover, reply, `mailto:` | ✅ | Three new tasks; `· sent YYYY-MM-DD` in the heading; Mark sent offers Applied and a five-working-day follow-up |
+| Full explainer backfill of every published page | 🟡 | Content, not code. Pilot on local D1 and owner approval first — decision 85 |
+| Metrics and gallery content | ✂️ | The owner's: numbers typed, screenshots uploaded. Delivered as questions, not written by an agent |

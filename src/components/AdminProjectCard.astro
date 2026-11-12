@@ -24,10 +24,12 @@ interface Props {
   path: string;
   owner: string;
   repoName: string;
+  /** How many of the five reader-facing visuals the page has — decision 85. */
+  visuals: number;
   data: ProjectFields;
 }
 
-const { slug, path, owner, repoName, data } = Astro.props;
+const { slug, path, owner, repoName, visuals, data } = Astro.props;
 
 const STATUS_VARIANT: Record<string, string> = {
   active: 'tag-accent-2',
@@ -60,6 +62,7 @@ const STATUS_VARIANT: Record<string, string> = {
       <h3 class="pm-card-title">{data.title}</h3>
       <p class="pm-card-meta">
         <span class="pm-branch">branch: —</span> · <span class="pm-sync">last sync: not fetched</span>
+        · <span class="pm-visuals" data-count={visuals} title="plain words, flow, screens, architecture image, a figure in the write-up">visuals {visuals}/5</span>
       </p>
     </div>
     <div class="pm-visibility">
@@ -137,6 +140,10 @@ const STATUS_VARIANT: Record<string, string> = {
   .pm-card-id { min-width: 0; flex: 1; }
   .pm-card-title { font-size: 18px; margin: 0 0 4px; }
   .pm-card-meta { font-family: var(--font-mono); font-size: 11px; color: var(--color-text-muted); margin: 0; }
+  /* The backlog at a glance. The token tone is the state: the accent once the
+     page has all five, the muted ink while it does not. */
+  .pm-visuals { color: var(--color-text-faint); }
+  .pm-visuals[data-count='5'] { color: var(--color-accent-700); }
 
   /* Editing affordances exist only where editing does: signed out, this screen
      is a manifest and the cards do not move. The class is put on by script. */

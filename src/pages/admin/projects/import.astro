@@ -1038,6 +1038,12 @@ const seedJson = JSON.stringify(seed).replace(/</g, '\\u003c');
             },
             onTool: frame => turn.tool(frame),
             onUsage: frame => turn.usage(frame),
+            onContext: parts => turn.context(parts),
+            onRepaired: codes => {
+              raw = '';
+              turn.note(`Repaired: ${codes.join(', ')}`);
+            },
+            onFindings: codes => turn.note(`Still failing: ${codes.join(', ')}`, 'error'),
           },
           controller.signal,
           name === 'chat' ? panel.history() : undefined,

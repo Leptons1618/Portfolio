@@ -17,7 +17,13 @@ import { MAX_TOOL_CALLS, runTool, toolSummary, toolsFor } from '../../../lib/ai-
 import { jevRoute, needs, toolNamesFor, type JevCategory } from '../../../lib/ai-jev';
 import { getCaseStudies, getPosts, getProjects } from '../../../lib/content';
 import { getResume } from '../../../lib/resume';
-import { ASSIST_TASKS, assistPrompt, isAssistTask, parseFields } from '../../../lib/assist-tasks';
+import { ASSIST_TASKS, buildAssistPrompt, isAssistTask, parseFields, type AssistTask } from '../../../lib/assist-tasks';
+import {
+  OUTREACH_BANNED,
+  validate as validateAnswer,
+  type ChannelSpec,
+} from '../../../lib/assist-validate';
+import { OUTREACH_CHANNELS, parseFit, scoreFromMarks } from '../../../lib/job-view';
 import { site } from '../../../lib/site';
 import { record } from '../../../lib/log';
 
@@ -121,6 +127,52 @@ function turns(raw: unknown): { role: 'user' | 'assistant'; content: string }[] 
   return out;
 }
 
+/**
+ * The channel a message task was asked for, as the harness's limit checker
+ * reads it.
+ *
+ * `jobOutreach` names its channel in the author's instruction; the three
+ * sibling tasks are one channel each. A task with no channel is not a message
+ * and gets no limit. Every limit is read from `OUTREACH_CHANNELS` in
+ * `job-view.ts`; the instructions in `assist-tasks.ts` name the same numbers.
+ */
+function channelFor(taskName: string, instruction: string): ChannelSpec | undefined {
+  let key: keyof typeof OUTREACH_CHANNELS;
+  let expect: number | undefined;
+  let subject = false;
+  if (taskName === 'jobCover') {
+    key = 'cover';
+    expect = 1;
+    subject = true;
+  } else if (taskName === 'jobFollowUp') {
+    key = 'followup';
+    expect = 1;
+  } else if (taskName === 'jobReply') {
+    key = 'message';
+    expect = 2;
+  } else if (taskName === 'jobOutreach') {
+    key = /e-?mail/i.test(instruction)
+      ? 'email'
+      : /note/i.test(instruction)
+        ? 'note'
+        : /referral/i.test(instruction)
+          ? 'referral'
+          : 'message';
+    expect = 2;
+    subject = key === 'email';
+  } else {
+    return undefined;
+  }
+  const channel = OUTREACH_CHANNELS[key];
+  return {
+    label: channel.label,
+    limit: channel.limit,
+    unit: channel.unit,
+    ...(expect !== undefined ? { expect } : {}),
+    ...(subject ? { subject } : {}),
+  };
+}
+
 export const POST: APIRoute = async ({ request, locals }) => {
   try {
     await requireOwner(request);
@@ -135,7 +187,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
   if (!isAssistTask(payload.task)) {
     return json({ error: `Unknown task. Expected one of: ${Object.keys(ASSIST_TASKS).join(', ')}.` }, 400);
   }
-  const task = ASSIST_TASKS[payload.task];
+  const taskName = payload.task;
+  /* Widened to the interface: the table is `as const`, so a property an entry
+     omits is absent from that literal's type rather than optional. */
+  const task: AssistTask = ASSIST_TASKS[taskName];
 
   const providers = await usableProviders(DB);
   if (!providers.length) {
@@ -147,13 +202,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
 
   const settings = await getAiSettings(DB);
 
-  /* Tools go to the tasks that were given the index, and to conversation.
-     A task that rewrites a selection has nothing to look up, and offering it
-     tools is a round trip it will occasionally take anyway. */
-  const repoOnly = (task as { lookups?: 'repo' }).lookups === 'repo';
+  /* Tools go to the tasks that were given the index, to a task that names its
+     own allowlist, and to conversation. A task that rewrites a selection has
+     nothing to look up, and offering it tools is a round trip it will
+     occasionally take anyway. */
   const wantsTools =
     payload.tools !== false &&
-    (task.needsCorpus || repoOnly || payload.task === 'chat') &&
+    (task.needsCorpus || Boolean(task.tools) || payload.task === 'chat') &&
     Boolean(providers[0]?.toolsEnabled);
   /* The owner's own token, checked by `requireOwner()` above and forwarded so
      the repository tools can read GitHub as them. It is the same credential
@@ -172,7 +227,6 @@ export const POST: APIRoute = async ({ request, locals }) => {
       (task.context as readonly string[]).includes('readme') &&
       typeof readme === 'string' &&
       Boolean(readme.trim()),
-    repoOnly,
   };
   /* Jev, for conversation only: the fixed tasks already know what they need,
      and a decision request per command would be pure overhead. It can only
@@ -191,7 +245,17 @@ export const POST: APIRoute = async ({ request, locals }) => {
         })
       : { route: null, detail: {} };
   const route = jev.route;
-  const narrowed = route ? { ...toolOptions, only: toolNamesFor(route) } : toolOptions;
+
+  /* The allowlist is an intersection, never an addition: a task can remove a
+     tool its surface already permits, and can never name one it does not. Jev's
+     route is the second narrowing, applied on top. */
+  let only: Set<string> | undefined;
+  if (task.tools) only = new Set<string>(task.tools);
+  if (route) {
+    const names = toolNamesFor(route);
+    only = only ? new Set([...only].filter(name => names.has(name))) : new Set(names);
+  }
+  const narrowed = only ? { ...toolOptions, only } : toolOptions;
   const tools = wantsTools ? toolsFor('assist', narrowed) : [];
 
   /* The author's own voice is the point of a writing assistant, and the only
@@ -210,11 +274,12 @@ export const POST: APIRoute = async ({ request, locals }) => {
      is `chat`: the tools take a slug, and the index is the only list of slugs
      there is. Tools without it would be a model told never to invent a slug and
      given nowhere to find one. */
-  /* A task that may only read the repository needs no slugs, so no index
-     either — see `lookups` in `assist-tasks.ts`. */
+  /* A task whose lookups are only the repository needs no slugs, so no index
+     either — see `tools` in `assist-tasks.ts`. */
   let voice = '';
+  let slugs: string[] = [];
   const indexed = !route || needs(route, 'work') || needs(route, 'writing') || needs(route, 'resume');
-  if (task.needsCorpus || (wantsTools && !repoOnly && indexed)) {
+  if (task.needsCorpus || (wantsTools && !task.tools && indexed)) {
     const [projects, caseStudies, posts, resume] = await Promise.all([
       needs(route, 'work') ? getProjects(DB) : [],
       needs(route, 'work') ? getCaseStudies(DB) : [],
@@ -222,9 +287,10 @@ export const POST: APIRoute = async ({ request, locals }) => {
       needs(route, 'resume') ? getResume(DB) : null,
     ]);
     voice = buildIndex({ projects, caseStudies, posts, resume });
+    slugs = [...projects, ...caseStudies, ...posts].map(row => row.slug);
   }
 
-  const messages = assistPrompt(task, {
+  const { messages, manifest } = buildAssistPrompt(task, {
     ownerName: site.name,
     context: payload.context ?? {},
     instruction: question,
@@ -233,6 +299,31 @@ export const POST: APIRoute = async ({ request, locals }) => {
     history,
     tools: tools.length ? toolSummary('assist', narrowed) : '',
   });
+
+  /* What this answer has to satisfy before the owner is offered it. The shape
+     is the task's own field contract; the slugs are the index that was just
+     built; the channel comes from the instruction for the message tasks. The
+     one rule every task carries is `truncated`, which is about the finish
+     reason rather than the text. */
+  const shape = task.keys
+    ? {
+        labels: [...task.keys.head, task.keys.tail].map(spec => spec.label),
+        required: task.keys.head.slice(0, 2).map(spec => spec.label),
+        tail: task.keys.tail.label,
+      }
+    : undefined;
+  const validators = [...(task.validators ?? []), 'truncated' as const];
+  const validate = (answer: string, stopReason: string) =>
+    validateAnswer(validators, answer, {
+      shape,
+      slugs: slugs.length ? slugs : undefined,
+      channel: channelFor(taskName, question),
+      banned: task.validators?.includes('banned') ? OUTREACH_BANNED : undefined,
+      stopReason,
+      expectedScore: task.validators?.includes('fitScore')
+        ? scoreFromMarks(parseFit(answer))
+        : undefined,
+    });
 
   const model = pickModel(providers, payload.model);
 
@@ -290,6 +381,11 @@ export const POST: APIRoute = async ({ request, locals }) => {
         messages,
         runTool: (name, args) => runTool(DB, name, args, { githubToken }),
         maxCalls: MAX_TOOL_CALLS,
+        /* What the answer has to satisfy, and the one repair round it buys. */
+        validate,
+        /* What this run carried, as numbers — the panel's footer line and the
+           log row's denominators. Never the text. */
+        context: manifest,
         /* One row per run, whatever it did — decision 64. The owner is the
            only caller here, so the row may say what the answer looked like:
            for a `document` task, whether it parsed into fields at all, and
@@ -311,6 +407,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
               effort,
               ...report.detail,
               ...jev.detail,
+              context: manifest,
               ...(shaped ? { shape: shaped.recognised ? 'fields' : 'unrecognised' } : {}),
               ...(unrecognised ? { head: summary.answer.slice(0, 600) } : {}),
             },

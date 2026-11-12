@@ -861,6 +861,23 @@ textarea[data-grow] { max-height: 60vh; }
 .pf-check-mark { width: 1em; text-align: center; font-family: var(--font-mono); color: var(--color-text-faint); }
 .pf-checks li.is-done .pf-check-mark { color: var(--color-accent-700); }
 
+/* An unfilled reader's-view line is the button that fills it — decision 85.
+   A link-shaped control in the checklist's own size, not a `.btn`, because
+   six of these stacked would read as the page's primary actions. */
+.pf-check-do {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-accent-700);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.pf-check-do:hover,
+.pf-check-do:focus-visible { color: var(--color-accent); }
+
 
 .pf-message { min-height: 18px; font-size: 12px; margin: var(--space-3) 0 0; }
 .pf-message[data-tone='error'] { color: var(--color-accent-700); }
@@ -2614,6 +2631,24 @@ body[data-asx-freeze] {
   color: var(--color-text-faint);
 }
 
+/* — what the run carried —
+
+   The same footnote position as usage, and the same weight. A disclosure
+   because the one-line summary is the fact worth seeing while reading, and the
+   parts are for the afternoon a case study comes out generic. */
+.asx-context {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--color-text-faint);
+}
+.asx-context-summary { cursor: pointer; list-style: none; }
+.asx-context-summary::-webkit-details-marker { display: none; }
+.asx-context-summary::before { content: '▸ '; }
+.asx-context[open] .asx-context-summary::before { content: '▾ '; }
+.asx-context-body { margin-top: 4px; padding-left: 10px; line-height: 1.6; }
+
 @keyframes asx-pulse {
   50% { opacity: 0.4; }
 }
@@ -3353,7 +3388,18 @@ body[data-asx-freeze] {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* An ATS keyword the fit says is true of the author — marked in the advert so
+   the owner can see where the role says it and the resume does not. */
+.jw-advert-body mark {
+  background: var(--color-accent-100);
+  color: inherit;
+  padding: 0 1px;
+}
 .jw-advert-toggle { margin-top: var(--space-2); }
+
+/* The advert's own facts, from the fit's optional "Role at a glance". */
+.jw-role-facts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: var(--space-4); }
+.jw-role-fact { font-family: var(--font-mono); font-size: 11px; }
 
 .jw-fact-line {
   display: flex;
@@ -3409,6 +3455,42 @@ body[data-asx-freeze] {
 .jw-fit-level { margin: 0; font-size: 20px; }
 .jw-fit-why { margin: 0; max-width: 62ch; color: var(--color-text-muted); }
 .jw-fit-score { margin: 0; font-family: var(--font-mono); font-size: 13px; }
+.jw-fit-disagree { margin: 0; font-size: 12px; color: var(--color-accent-700); }
+.jw-fit-stale { margin: 0; font-size: 12px; font-weight: 600; color: var(--color-accent-700); }
+
+/* — the marks as bars —
+
+   Two rows, must and nice, each a flex bar grown by count. Token colours by
+   mark; the text equivalent is on the bar's aria-label. */
+.jw-fit-bars { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
+.jw-bar-row { display: flex; align-items: center; gap: var(--space-2); }
+.jw-bar-label {
+  flex: none;
+  width: 110px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-faint);
+}
+.jw-bar { display: flex; flex: 1; height: 10px; border-radius: 999px; overflow: hidden; background: var(--color-surface); }
+.jw-bar-seg { display: block; min-width: 3px; }
+.jw-bar-seg[data-mark='met'] { background: var(--color-accent); }
+.jw-bar-seg[data-mark='adjacent'] { background: var(--color-accent-400); }
+.jw-bar-seg[data-mark='missing'] { background: var(--color-divider); }
+
+/* missing must-haves, first — the fastest triage on the page */
+.jw-missing { list-style: none; margin: 0 0 var(--space-4); padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.jw-missing-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--color-accent-700);
+  background: var(--color-surface);
+  font-size: 13px;
+}
+.jw-missing-gap { font-size: 12px; color: var(--color-text-muted); }
 
 .jw-fit-filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-3); }
 .jw-filter {
@@ -3532,11 +3614,31 @@ body[data-asx-freeze] {
 .jw-contact-id { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; min-width: 0; }
 .jw-contact-name { font-size: 18px; font-weight: 600; }
 .jw-contact-title { color: var(--color-text-muted); font-size: 13px; }
+.jw-contact-email { font-family: var(--font-mono); font-size: 11px; overflow-wrap: anywhere; }
 .jw-profile { font-family: var(--font-mono); font-size: 11px; }
 .jw-card-menu { flex: none; }
 
 .jw-channels { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
 .jw-blocked { margin: var(--space-2) 0 0; font-size: 12px; color: var(--color-accent-700); }
+
+/* The composer: channel, ask, tone and one line of the owner's own. Three
+   closed lists where the free-text steer used to be — decision 83. */
+.jw-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: var(--space-3);
+  padding: var(--space-3);
+  border: 1px dashed var(--color-divider);
+  border-radius: var(--radius-sm);
+}
+.jw-comp-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.jw-comp-select { flex: 1 1 130px; font-size: 12px; }
+.jw-comp-row .input { min-width: 0; }
+
+/* A kept draft that has been sent reads as part of the conversation rather than
+   as another thing to edit: accent rule, and the date in its heading. */
+.jw-kept[data-sent] { border-left: 3px solid var(--color-accent); }
 
 .jw-kept {
   margin-top: var(--space-3);

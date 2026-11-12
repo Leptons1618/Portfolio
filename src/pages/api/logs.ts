@@ -117,7 +117,41 @@ export const POST: APIRoute = async ({ request, locals }) => {
     return refusal(error) ?? json({ error: 'Unauthorized.' }, 401);
   }
   const { DB } = locals.runtime.env;
-  const body = (await request.json().catch(() => ({}))) as { message?: unknown; context?: unknown; path?: unknown };
+  const body = (await request.json().catch(() => ({}))) as {
+    message?: unknown;
+    context?: unknown;
+    path?: unknown;
+    feedback?: {
+      task?: unknown;
+      model?: unknown;
+      effort?: unknown;
+      outcome?: unknown;
+      codes?: unknown;
+    };
+  };
+
+  /* The owner's verdict on a run — A5 in decision 84. Numbers and closed words
+     only: never the draft, never the advert, never a message. The row's source
+     is the filter `/admin/logs` already has. */
+  if (body.feedback) {
+    const outcome = String(body.feedback.outcome ?? '');
+    const task = clip(String(body.feedback.task ?? ''), 40);
+    if (!task || !['undone', 'retried', 'kept', 'kept-edited'].includes(outcome)) {
+      return json({ error: 'Unknown feedback.' }, 400);
+    }
+    const codes = Array.isArray(body.feedback.codes)
+      ? body.feedback.codes.slice(0, 8).map(code => clip(String(code), 40)).filter(Boolean)
+      : [];
+    await record(DB, 'info', 'assist-feedback', `${task}: ${outcome}`, {
+      task,
+      model: clip(String(body.feedback.model ?? ''), 80),
+      effort: clip(String(body.feedback.effort ?? ''), 12),
+      outcome,
+      codes,
+    });
+    return json({ ok: true });
+  }
+
   const message = clip(String(body.message ?? ''));
   if (!message) return json({ error: 'A message is required.' }, 400);
   await record(DB, 'error', 'admin', message, {

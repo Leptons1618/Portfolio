@@ -169,6 +169,42 @@ export function linksOf(lines: string[]): Link[] {
   });
 }
 
+export interface FlowStep { name: string; detail: string }
+export interface Screen { src: string; caption: string }
+
+/**
+ * The project's "How it works" steps — decision 85.
+ *
+ * The same `"a | b"` convention `metricsOf()` uses, with three differences that
+ * matter: a step with no name is dropped rather than rendered blank, the detail
+ * may be empty (a step can be a name alone), and seven is the ceiling. A flow
+ * that needs eight steps is a paragraph, and a strip that wraps to four lines
+ * is no longer a glance.
+ */
+export function flowOf(lines: string[]): FlowStep[] {
+  return lines
+    .map(halves)
+    .filter(([name]) => name)
+    .slice(0, 7)
+    .map(([name, detail]) => ({ name, detail }));
+}
+
+/**
+ * The project's screens — decision 85.
+ *
+ * `"/media/… | caption"`, and anything that is not a `/media/` path is dropped
+ * because the left half becomes an `<img src>` on this origin. That is the same
+ * rule `linksOf()` applies to an `href`: a model or a typo cannot point a
+ * reader at another site from this page.
+ */
+export function galleryOf(lines: string[]): Screen[] {
+  return lines.flatMap(line => {
+    const [src, caption] = halves(line);
+    if (!src.startsWith('/media/') || src.includes('..')) return [];
+    return [{ src, caption }];
+  });
+}
+
 /**
  * A starting outline per kind of project — what an engineer expects to read,
  * in the order they expect it. Offered by the editor's Insert outline and

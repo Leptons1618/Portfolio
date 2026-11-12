@@ -50,6 +50,12 @@ export interface ProjectData {
   year: number;
   heroImage?: string;
   highlights: string[];
+  /** A few sentences for a reader who is not an engineer — decision 85. */
+  plain?: string;
+  /** "Step name | what happens here" lines; `flowOf()` reads them. */
+  flow: string[];
+  /** "/media/… | caption" lines; `galleryOf()` drops anything not /media/. */
+  gallery: string[];
   hidden: boolean;
 }
 
@@ -189,6 +195,9 @@ const toProject = (r: Row): Project => ({
     year: r.year,
     heroImage: opt(r.hero_image),
     highlights: list(r.highlights),
+    plain: opt(r.plain),
+    flow: list(r.flow),
+    gallery: list(r.gallery),
     hidden: r.hidden === 1,
   },
 });

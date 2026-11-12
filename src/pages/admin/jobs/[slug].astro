@@ -117,6 +117,8 @@ const slug = Astro.params.slug ?? '';
 
       <div class="tab-panel" id="jw-panel-overview" role="tabpanel" aria-labelledby="jw-tab-overview">
         <div class="jw-overview">
+          {/* The advert's own facts, as chips — decision 84's job desk. */}
+          <div class="jw-role-facts" id="jw-role-facts" hidden></div>
           <div class="jw-overview-grid">
             <section class="card elev-sm jw-card">
               <div class="jw-card-head">
@@ -225,6 +227,8 @@ const slug = Astro.params.slug ?? '';
 
           <div id="jw-fit-view" hidden>
             <div class="jw-fit-banner" id="jw-fit-banner"></div>
+            <div class="jw-fit-bars" id="jw-fit-bars"></div>
+            <div id="jw-fit-missing"></div>
             <div class="jw-fit-filters" id="jw-fit-filters" role="group" aria-label="Filter the comparison"></div>
             <div class="jw-fit-table-wrap">
               <table class="jw-fit-table" id="jw-fit-table"></table>
@@ -401,6 +405,10 @@ const slug = Astro.params.slug ?? '';
             <label for="jc-url">Profile URL (optional)</label>
             <input class="input" id="jc-url" type="url" placeholder="https://…" />
           </div>
+          <div class="field">
+            <label for="jc-email">Email (optional)</label>
+            <input class="input" id="jc-email" type="email" placeholder="name@example.com" />
+          </div>
         </div>
       </div>
       <div class="modal-foot">
@@ -455,15 +463,21 @@ const slug = Astro.params.slug ?? '';
     measure,
     nextAction,
     outreachInstruction,
+    workingDaysAfter,
     parseContact,
     parseFit,
     parseOutreach,
     peopleSearches,
+    scoreFromMarks,
+    splitSubject,
     type Channel,
     type Contact,
     type Draft,
     type FitItem,
     type FitView,
+    type OutreachAsk,
+    type OutreachOptions,
+    type OutreachTone,
   } from '../../../lib/job-view';
   import {
     RESUME_KEY,
@@ -520,6 +534,7 @@ const slug = Astro.params.slug ?? '';
     const contactName = $<HTMLInputElement>('jc-name');
     const contactTitle = $<HTMLInputElement>('jc-title');
     const contactUrl = $<HTMLInputElement>('jc-url');
+    const contactEmail = $<HTMLInputElement>('jc-email');
     const resumeFacts = $('jw-resume-facts');
     const resumeShortlist = $('jw-project-shortlist');
     const resumeKeywords = $('jw-resume-keywords');
@@ -558,6 +573,9 @@ const slug = Astro.params.slug ?? '';
     const fitView = $('jw-fit-view');
     const fitRaw = $('jw-fit-raw');
     const fitBanner = $('jw-fit-banner');
+    const fitBars = $('jw-fit-bars');
+    const fitMissing = $('jw-fit-missing');
+    const roleFacts = $('jw-role-facts');
     const fitFilters = $('jw-fit-filters');
     const fitTable = $('jw-fit-table');
     const fitGaps = $('jw-fit-gaps');
@@ -603,14 +621,6 @@ const slug = Astro.params.slug ?? '';
       const month = String(now.getMonth() + 1).padStart(2, '0');
       const day = String(now.getDate()).padStart(2, '0');
       return `${now.getFullYear()}-${month}-${day}`;
-    };
-
-    const inSevenDays = (): string => {
-      const date = new Date();
-      date.setDate(date.getDate() + 7);
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      return `${date.getFullYear()}-${month}-${day}`;
     };
 
     const firstName = (name: string): string => (name.trim().split(/\s+/)[0] ?? '').trim();
@@ -691,6 +701,12 @@ const slug = Astro.params.slug ?? '';
       variantPick.value = selected;
     }
 
+    /* What the advert and the assessment were when the row was read. The Fit
+       tab compares against these to say "the advert changed — re-assess"; it is
+       page state only and nothing is stored. */
+    let advertAtLoad = '';
+    let fitAtLoad = '';
+
     function fill(fields: ApplicationFields) {
       for (const key of Object.keys(inputs) as Scalar[]) {
         if (key === 'resumeVariant') continue;
@@ -699,6 +715,8 @@ const slug = Astro.params.slug ?? '';
       paintVariants(fields.resumeVariant ?? '');
       contacts.value = fields.contacts.join('\n');
       tracker.reset();
+      advertAtLoad = inputs.jobDescription.value;
+      fitAtLoad = inputs.fit.value;
     }
 
     function changes(): Partial<ApplicationFields> {
@@ -782,6 +800,43 @@ const slug = Astro.params.slug ?? '';
 
     /* ---------- Overview ---------- */
 
+    /**
+     * The advert, with the assessment's ATS keywords marked.
+     *
+     * Built from text nodes by splitting on the terms — never `innerHTML`. The
+     * advert is the owner's pasted text and the keywords are a model's output;
+     * neither is markup. Longest term first, so "machine learning" wins over
+     * "learning" and a keyword inside another is not cut in half.
+     */
+    function paintAdvertText(host: HTMLElement, text: string, keywords: string[]) {
+      const terms = [...new Set(keywords.map(term => term.trim()).filter(term => term.length > 1))].sort(
+        (a, b) => b.length - a.length,
+      );
+      if (!terms.length) {
+        host.textContent = text;
+        return;
+      }
+      let pattern: RegExp;
+      try {
+        pattern = new RegExp(`(${terms.map(term => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi');
+      } catch {
+        host.textContent = text;
+        return;
+      }
+      const fragment = document.createDocumentFragment();
+      let at = 0;
+      for (const match of text.matchAll(pattern)) {
+        const index = match.index ?? 0;
+        if (index > at) fragment.append(document.createTextNode(text.slice(at, index)));
+        const mark = document.createElement('mark');
+        mark.textContent = match[0];
+        fragment.append(mark);
+        at = index + match[0].length;
+      }
+      if (at < text.length) fragment.append(document.createTextNode(text.slice(at)));
+      host.replaceChildren(fragment);
+    }
+
     function paintAdvert() {
       const raw = inputs.jobDescription.value;
       const text = raw.trim();
@@ -792,7 +847,8 @@ const slug = Astro.params.slug ?? '';
         advertToggle.hidden = true;
         return;
       }
-      advertBody.textContent = raw;
+      const view = parseFit(inputs.fit.value);
+      paintAdvertText(advertBody, raw, view.keywords);
       const long = raw.length > 1200 || raw.split('\n').length > 28;
       advertToggle.hidden = !long;
       advertBody.classList.toggle('is-clamped', long && !advertExpanded);
@@ -873,6 +929,7 @@ const slug = Astro.params.slug ?? '';
       contactName.value = current?.name ?? '';
       contactTitle.value = current?.title ?? '';
       contactUrl.value = current?.url ?? '';
+      contactEmail.value = current?.email ?? '';
       contactDialog.showModal();
       contactName.focus();
     }
@@ -890,10 +947,21 @@ const slug = Astro.params.slug ?? '';
         contactUrl.focus();
         return;
       }
+      const email = contactEmail.value.trim();
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        toast('The email address does not look like one.', { tone: 'error' });
+        contactEmail.focus();
+        return;
+      }
 
       const all = lines(contacts.value);
       const previousName = editingContact === null ? null : parseContact(all[editingContact] ?? '').name;
-      const line = formatContact({ name, title: contactTitle.value.trim(), url: url || null });
+      const line = formatContact({
+        name,
+        title: contactTitle.value.trim(),
+        url: url || null,
+        email: email || null,
+      });
       if (editingContact === null) all.push(line);
       else all[editingContact] = line;
       contacts.value = all.join('\n');
@@ -974,6 +1042,12 @@ const slug = Astro.params.slug ?? '';
         title.textContent = person.title;
         who.appendChild(title);
       }
+      if (person.email) {
+        const email = document.createElement('span');
+        email.className = 'jw-contact-email';
+        email.textContent = person.email;
+        who.appendChild(email);
+      }
       if (person.url) {
         const profile = document.createElement('a');
         profile.className = 'jw-profile';
@@ -1025,25 +1099,121 @@ const slug = Astro.params.slug ?? '';
       menu.append(summary, panel);
       head.append(who, menu);
 
-      const channels = document.createElement('div');
-      channels.className = 'jw-channels';
+      card.dataset.contact = person.name;
+      card.append(head);
+
+      /* The composer: where, what to ask, in what register, and one line of the
+         owner's own. The old free-text steer is gone because the same box had
+         to mean "be warmer" and "ask for a referral", and it answered neither
+         reliably. Every control is a closed list. */
       const blocked = outreachBlocked();
-      for (const [key, channel] of Object.entries(OUTREACH_CHANNELS) as [Channel, (typeof OUTREACH_CHANNELS)[Channel]][]) {
-        if (key === 'followup' && !inputs.appliedOn.value.trim()) continue;
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'btn btn-secondary btn-sm';
-        button.textContent = channel.label;
-        if (blocked) {
-          button.disabled = true;
-          button.title = blocked;
-        } else {
-          button.addEventListener('click', () => startDraft(person, key, card));
-        }
-        channels.appendChild(button);
+      const composer = document.createElement('div');
+      composer.className = 'jw-composer';
+
+      const channelKeys: Channel[] = ['note', 'message', 'email'];
+      if (inputs.appliedOn.value.trim()) channelKeys.push('followup');
+      const channelSelect = document.createElement('select');
+      channelSelect.className = 'input jw-comp-select';
+      channelSelect.setAttribute('aria-label', `Channel for ${person.name}`);
+      for (const key of channelKeys) {
+        const option = document.createElement('option');
+        option.value = key;
+        option.textContent = OUTREACH_CHANNELS[key].label;
+        channelSelect.append(option);
       }
 
-      card.append(head, channels);
+      const askSelect = document.createElement('select');
+      askSelect.className = 'input jw-comp-select';
+      askSelect.setAttribute('aria-label', 'What to ask for');
+      for (const [value, label] of [
+        ['process', 'Ask about the process'],
+        ['team', 'Ask about the team’s problem'],
+        ['referral', 'Ask for a referral'],
+        ['fifteen', 'Ask for fifteen minutes'],
+      ] as [OutreachAsk, string][]) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        askSelect.append(option);
+      }
+
+      const toneSelect = document.createElement('select');
+      toneSelect.className = 'input jw-comp-select';
+      toneSelect.setAttribute('aria-label', 'Tone');
+      for (const [value, label] of [
+        ['direct', 'Direct'],
+        ['warm', 'Warm'],
+      ] as [OutreachTone, string][]) {
+        const option = document.createElement('option');
+        option.value = value;
+        option.textContent = label;
+        toneSelect.append(option);
+      }
+
+      const noteInput = document.createElement('input');
+      noteInput.className = 'input';
+      noteInput.placeholder = 'One line of your own (optional)';
+      noteInput.setAttribute('aria-label', 'A line to include');
+
+      const draftButton = document.createElement('button');
+      draftButton.type = 'button';
+      draftButton.className = 'btn btn-primary btn-sm';
+      draftButton.textContent = 'Draft';
+      draftButton.disabled = Boolean(blocked);
+      if (blocked) draftButton.title = blocked;
+      draftButton.addEventListener('click', () => {
+        startDraft(person, channelSelect.value as Channel, card, {
+          ask: askSelect.value as OutreachAsk,
+          tone: toneSelect.value as OutreachTone,
+          note: noteInput.value,
+        });
+      });
+
+      const coverButton = document.createElement('button');
+      coverButton.type = 'button';
+      coverButton.className = 'btn btn-secondary btn-sm';
+      coverButton.textContent = 'Cover email';
+      coverButton.disabled = Boolean(blocked);
+      coverButton.addEventListener('click', () => {
+        startDraft(
+          person,
+          'cover',
+          card,
+          {},
+          'jobCover',
+          {},
+          `Email to ${person.name}${person.title ? `, ${person.title}` : ''}.`,
+        );
+      });
+
+      const replyButton = document.createElement('button');
+      replyButton.type = 'button';
+      replyButton.className = 'btn btn-secondary btn-sm';
+      replyButton.textContent = 'Reply';
+      replyButton.disabled = Boolean(blocked);
+      replyButton.addEventListener('click', () => {
+        const received = window.prompt(`Paste what ${person.name} wrote, so the reply answers it.`);
+        if (!received?.trim()) return;
+        startDraft(
+          person,
+          'message',
+          card,
+          {},
+          'jobReply',
+          { received: received.trim() },
+          `Reply to ${person.name}.`,
+        );
+      });
+
+      const draftRow = document.createElement('div');
+      draftRow.className = 'jw-comp-row';
+      draftRow.append(channelSelect, askSelect, toneSelect);
+      const noteRow = document.createElement('div');
+      noteRow.className = 'jw-comp-row';
+      noteRow.append(noteInput, draftButton, coverButton, replyButton);
+      composer.append(draftRow, noteRow);
+      card.append(composer);
+
       if (blocked) {
         const why = document.createElement('p');
         why.className = 'jw-blocked';
@@ -1052,20 +1222,21 @@ const slug = Astro.params.slug ?? '';
       }
 
       for (const draft of drafts.filter(entry => entry.contact === person.name)) {
-        card.appendChild(keptDraft(draft));
+        card.appendChild(keptDraft(draft, person));
       }
       return card;
     }
 
-    function keptDraft(draft: Draft): HTMLElement {
+    function keptDraft(draft: Draft, person: Contact): HTMLElement {
       const box = document.createElement('div');
       box.className = 'jw-kept';
+      if (draft.sent) box.dataset.sent = '';
 
       const head = document.createElement('div');
       head.className = 'jw-kept-head';
       const label = document.createElement('span');
       label.className = 'jw-channel-label';
-      label.textContent = draft.channel;
+      label.textContent = draft.sent ? `${draft.channel} · sent ${draft.sent}` : draft.channel;
 
       const meter = document.createElement('span');
       meter.className = 'jw-meter';
@@ -1089,7 +1260,12 @@ const slug = Astro.params.slug ?? '';
       text.setAttribute('aria-label', `${draft.channel} to ${draft.contact}`);
       text.addEventListener('input', () => {
         const drafts = parseOutreach(inputs.outreach.value);
-        const found = drafts.find(entry => entry.contact === draft.contact && entry.channel === draft.channel);
+        const found = drafts.find(
+          entry =>
+            entry.contact === draft.contact &&
+            entry.channel === draft.channel &&
+            entry.sent === draft.sent,
+        );
         if (found) found.text = text.value;
         inputs.outreach.value = formatOutreach(drafts);
         paintMeter(text.value);
@@ -1108,11 +1284,49 @@ const slug = Astro.params.slug ?? '';
           toast(ok ? 'Copied.' : 'Could not copy — select the text instead.', { tone: ok ? 'success' : 'error' }),
         );
       });
+
+      /* An email draft with an address the owner typed: a plain `mailto:`
+         anchor they click. Nothing is sent by the site — decision 83. The
+         draft's own Subject line becomes the link's subject and comes out of
+         the body; only a draft without one gets the generated subject. */
+      if (person.email && /e-?mail/i.test(draft.channel)) {
+        const split = splitSubject(text.value);
+        const subject =
+          split.subject ||
+          `Application: ${inputs.role.value.trim() || 'the role'} at ${inputs.company.value.trim() || 'the company'}`;
+        const mail = document.createElement('a');
+        mail.className = 'btn btn-secondary btn-sm';
+        mail.href = `mailto:${person.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(split.body)}`;
+        mail.textContent = 'Open in mail ↗';
+        actions.append(mail);
+      }
+
       const sent = document.createElement('button');
       sent.type = 'button';
       sent.className = 'btn btn-secondary btn-sm';
-      sent.textContent = 'Mark sent';
+      sent.textContent = draft.sent ? 'Sent' : 'Mark sent';
+      sent.disabled = Boolean(draft.sent);
       sent.addEventListener('click', () => markSent(draft, text.value));
+
+      /* The conversation's open end: a sent message with nothing after it gets
+         the follow-up task, with the sent text as its context. */
+      const later = parseOutreach(inputs.outreach.value).slice(
+        parseOutreach(inputs.outreach.value).findIndex(
+          entry =>
+            entry.contact === draft.contact &&
+            entry.channel === draft.channel &&
+            entry.sent === draft.sent,
+        ) + 1,
+      );
+      if (draft.sent && !later.length) {
+        const follow = document.createElement('button');
+        follow.type = 'button';
+        follow.className = 'btn btn-secondary btn-sm';
+        follow.textContent = 'Draft follow-up';
+        follow.addEventListener('click', () => startFollowUp(person, draft, box.parentElement ?? box));
+        actions.append(follow);
+      }
+
       const remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'btn btn-ghost btn-sm';
@@ -1120,7 +1334,12 @@ const slug = Astro.params.slug ?? '';
       remove.addEventListener('click', () => {
         inputs.outreach.value = formatOutreach(
           parseOutreach(inputs.outreach.value).filter(
-            entry => !(entry.contact === draft.contact && entry.channel === draft.channel),
+            entry =>
+              !(
+                entry.contact === draft.contact &&
+                entry.channel === draft.channel &&
+                entry.sent === draft.sent
+              ),
           ),
         );
         tracker.check();
@@ -1128,7 +1347,8 @@ const slug = Astro.params.slug ?? '';
         paintOutreach();
         toast('Draft removed. Press Save.', { tone: 'info' });
       });
-      actions.append(copy, sent, remove);
+      actions.prepend(copy, sent);
+      actions.append(remove);
 
       box.append(head, text, actions);
       return box;
@@ -1150,22 +1370,55 @@ const slug = Astro.params.slug ?? '';
 
     function markSent(draft: Draft, text: string) {
       const drafts = parseOutreach(inputs.outreach.value);
-      const found = drafts.find(entry => entry.contact === draft.contact && entry.channel === draft.channel);
+      const found = drafts.find(
+        entry =>
+          entry.contact === draft.contact &&
+          entry.channel === draft.channel &&
+          entry.sent === draft.sent,
+      );
       if (found) {
         found.text = text;
+        found.sent = today();
         inputs.outreach.value = formatOutreach(drafts);
       }
 
       const line = `${today()} — ${draft.channel} to ${draft.contact} (sent)`;
       inputs.notes.value = inputs.notes.value.trim() ? `${line}\n${inputs.notes.value}` : line;
-      if (!inputs.nextStep.value.trim()) inputs.nextStep.value = `Follow up with ${firstName(draft.contact)}`;
-      if (!inputs.nextOn.value.trim()) inputs.nextOn.value = inSevenDays();
+      /* Five working days, not seven calendar ones: the interval a person
+         means. Offered, never silent — the status change is a confirm. */
+      inputs.nextStep.value = `Follow up with ${firstName(draft.contact)}`;
+      inputs.nextOn.value = workingDaysAfter(today(), 5);
+      if (
+        /e-?mail/i.test(draft.channel) &&
+        inputs.status.value === 'saved' &&
+        window.confirm('Was this the application email? Mark the application as applied?')
+      ) {
+        inputs.status.value = 'applied';
+        if (!inputs.appliedOn.value.trim()) inputs.appliedOn.value = today();
+      }
       tracker.check();
       refresh();
-      toast('Noted — press Save.', { tone: 'success' });
+      paintOutreach();
+      toast('Sent — press Save to keep it.', { tone: 'success' });
     }
 
-    function startDraft(person: Contact, channel: Channel, card: HTMLElement) {
+    /**
+     * One drafting run, for any of the four message tasks.
+     *
+     * The zone, the stop button, the live text and the versions box are the
+     * same whatever was asked for; only the task name, the extra context and
+     * the steer change. `jobOutreach` builds its steer from the composer;
+     * the follow-up, cover and reply tasks pass theirs in.
+     */
+    function startDraft(
+      person: Contact,
+      channel: Channel,
+      card: HTMLElement,
+      options: OutreachOptions = {},
+      taskName: 'jobOutreach' | 'jobFollowUp' | 'jobCover' | 'jobReply' = 'jobOutreach',
+      extraContext: Record<string, string> = {},
+      steer?: string,
+    ) {
       const blocked = outreachBlocked();
       if (blocked) {
         toast(blocked, { tone: 'error' });
@@ -1211,9 +1464,15 @@ const slug = Astro.params.slug ?? '';
       void (async () => {
         try {
           const output = await runAssist(
-            'jobOutreach',
-            contextFor('jobOutreach'),
-            outreachInstruction(person, channel, inputs.appliedOn.value.trim() || undefined),
+            taskName,
+            { ...contextFor(taskName), ...extraContext },
+            steer ??
+              outreachInstruction(
+                person,
+                channel,
+                inputs.appliedOn.value.trim() || undefined,
+                options,
+              ),
             {
               onDelta: chunk => {
                 raw += chunk;
@@ -1221,6 +1480,13 @@ const slug = Astro.params.slug ?? '';
               },
               onThinking: () => {
                 status.textContent = 'Thinking…';
+              },
+              onRepaired: codes => {
+                raw = '';
+                status.textContent = `Repaired: ${codes.join(', ')}`;
+              },
+              onFindings: codes => {
+                status.textContent = `Still failing: ${codes.join(', ')}`;
               },
             },
             controller.signal,
@@ -1259,6 +1525,19 @@ const slug = Astro.params.slug ?? '';
       })();
     }
 
+    /** A follow-up to one sent message, with that message as its context. */
+    function startFollowUp(person: Contact, draft: Draft, card: HTMLElement) {
+      startDraft(
+        person,
+        'followup',
+        card,
+        {},
+        'jobFollowUp',
+        { sentDraft: draft.text },
+        `Short follow-up to ${firstName(person.name)}; the ${draft.channel.toLowerCase()} was sent ${draft.sent}.`,
+      );
+    }
+
     function versionsBox(person: Contact, channel: Channel, versions: string[]): HTMLElement {
       const zone = document.createElement('div');
       zone.className = 'jw-versions';
@@ -1295,6 +1574,14 @@ const slug = Astro.params.slug ?? '';
         keep.type = 'button';
         keep.className = 'btn btn-primary btn-sm';
         keep.textContent = 'Keep';
+        /* A version over the channel's limit is not keepable: it is the one
+           failure the owner would otherwise discover when the site refuses to
+           send it. The harness repairs it once; if it is still over, the count
+           is in the error colour and the button is disabled. */
+        if (counted.over) {
+          keep.disabled = true;
+          keep.title = `Over the ${counted.limit} ${counted.unit} limit — ask for a shorter one.`;
+        }
         keep.addEventListener('click', () => keepDraft(person, channel, text));
 
         const controls = document.createElement('div');
@@ -1364,6 +1651,7 @@ const slug = Astro.params.slug ?? '';
         .finally(() => {
           projectsLoading = false;
           paintResumeTab();
+          if (!$('jw-panel-fit').hidden) paintFit();
         });
     }
 
@@ -1633,15 +1921,166 @@ const slug = Astro.params.slug ?? '';
         why.textContent = view.verdict.why;
         parts.push(why);
       }
-      if (view.score.value !== null) {
+      const byMarks = scoreFromMarks(view);
+      if (view.score.value !== null || byMarks !== null) {
         const score = document.createElement('p');
         score.className = 'jw-fit-score';
-        score.textContent = `${view.score.value}/10`;
+        score.textContent = `Model ${view.score.value ?? '—'} · By the marks ${byMarks ?? '—'}`;
         if (view.score.why) score.append(document.createTextNode(` — ${view.score.why}`));
+
+        /* The one disagreement worth explaining. The model's number is what the
+           owner reads; the marks are the arithmetic. When they part company by
+           more than two, name what is pulling the marks down rather than asking
+           the reader to scan sixteen lines for it. */
+        if (view.score.value !== null && byMarks !== null && Math.abs(view.score.value - byMarks) > 2) {
+          const pulling = view.must
+            .filter(item => item.mark !== 'met')
+            .slice(0, 3)
+            .map(item => item.requirement);
+          const note = document.createElement('p');
+          note.className = 'jw-fit-disagree';
+          note.textContent =
+            `The marks differ by ${Math.abs(view.score.value - byMarks).toFixed(1)}.` +
+            (pulling.length ? ` Pulling it down: ${pulling.join('; ')}.` : '');
+          parts.push(note);
+        }
         parts.push(score);
       }
+
+      /* Page state, never stored: the advert changed since this assessment was
+         written, so the comparison is about a posting the owner has edited. */
+      if (inputs.fit.value.trim() && inputs.jobDescription.value !== advertAtLoad && inputs.fit.value === fitAtLoad) {
+        const stale = document.createElement('p');
+        stale.className = 'jw-fit-stale';
+        stale.textContent = 'The advert changed — re-assess.';
+        parts.push(stale);
+      }
+
       fitBanner.replaceChildren(...parts);
       fitBanner.hidden = parts.length === 0;
+    }
+
+    /**
+     * The marks as two stacked bars — must and nice, met / adjacent / missing.
+     *
+     * `flex-grow` sized by count, token colours, and a text equivalent in the
+     * `aria-label`. Not a chart library and not an SVG: this is four divs and
+     * the palette already has the three colours.
+     */
+    function paintBars(view: FitView) {
+      fitBars.replaceChildren();
+      const rows: HTMLElement[] = [];
+      for (const [title, items] of [
+        ['Must-haves', view.must],
+        ['Nice-to-haves', view.nice],
+      ] as const) {
+        if (!items.length) continue;
+        const row = document.createElement('div');
+        row.className = 'jw-bar-row';
+        const label = document.createElement('span');
+        label.className = 'jw-bar-label';
+        label.textContent = title;
+        const bar = document.createElement('div');
+        bar.className = 'jw-bar';
+        const counts = { met: 0, adjacent: 0, missing: 0 };
+        for (const item of items) counts[item.mark] += 1;
+        bar.setAttribute('role', 'img');
+        bar.setAttribute(
+          'aria-label',
+          `${title}: ${counts.met} met, ${counts.adjacent} adjacent, ${counts.missing} missing`,
+        );
+        for (const mark of ['met', 'adjacent', 'missing'] as const) {
+          if (!counts[mark]) continue;
+          const segment = document.createElement('span');
+          segment.className = 'jw-bar-seg';
+          segment.dataset.mark = mark;
+          segment.style.flexGrow = String(counts[mark]);
+          segment.title = `${counts[mark]} ${mark}`;
+          bar.append(segment);
+        }
+        row.append(label, bar);
+        rows.push(row);
+      }
+      fitBars.replaceChildren(...rows);
+      fitBars.hidden = rows.length === 0;
+    }
+
+    /**
+     * Missing must-haves first, as their own block above the table.
+     *
+     * The fastest triage on the page: a row that fails a must-have is the one
+     * worth not applying to. Where the assessment also names a gap that matches,
+     * it is shown beside it rather than making the reader scroll.
+     */
+    function paintMissing(view: FitView) {
+      fitMissing.replaceChildren();
+      const missing = view.must.filter(item => item.mark === 'missing');
+      if (!missing.length) {
+        fitMissing.hidden = true;
+        return;
+      }
+      fitMissing.hidden = false;
+      fitMissing.appendChild(subhead('Missing must-haves'));
+      const list = document.createElement('ul');
+      list.className = 'jw-missing';
+      for (const item of missing) {
+        const entry = document.createElement('li');
+        entry.className = 'jw-missing-item';
+        const name = document.createElement('strong');
+        name.textContent = item.requirement;
+        entry.append(name);
+        const words = item.requirement
+          .toLowerCase()
+          .split(/\W+/)
+          .filter(word => word.length > 4);
+        const gap = view.gaps.find(text => words.some(word => text.toLowerCase().includes(word)));
+        if (gap) {
+          const line = document.createElement('span');
+          line.className = 'jw-missing-gap';
+          line.textContent = `Gap worth closing: ${gap}`;
+          entry.append(line);
+        }
+        list.append(entry);
+      }
+      fitMissing.appendChild(list);
+    }
+
+    /** The advert's own facts, as chips at the top of Overview. */
+    function paintRoleFacts() {
+      const view = parseFit(inputs.fit.value);
+      const facts = Object.entries(view.facts);
+      roleFacts.hidden = !facts.length;
+      roleFacts.replaceChildren(
+        ...facts.map(([key, value]) => {
+          const chip = document.createElement('span');
+          chip.className = 'tag tag-neutral jw-role-fact';
+          chip.textContent = `${key}: ${value}`;
+          return chip;
+        }),
+      );
+    }
+
+    /** Evidence text, with any project slug that exists linked to its admin page. */
+    function appendEvidence(host: HTMLElement, text: string) {
+      const known = new Set((projects ?? []).map(row => row.slug));
+      if (!known.size) {
+        appendInline(host, text);
+        return;
+      }
+      const pattern = /\b[a-z0-9]+(?:-[a-z0-9]+)*\b/g;
+      let at = 0;
+      for (const match of text.matchAll(pattern)) {
+        const token = match[0];
+        if (!known.has(token)) continue;
+        const index = match.index ?? 0;
+        if (index > at) appendInline(host, text.slice(at, index));
+        const anchor = document.createElement('a');
+        anchor.href = `/admin/projects/${encodeURIComponent(token)}`;
+        anchor.textContent = token;
+        host.append(anchor);
+        at = index + token.length;
+      }
+      if (at < text.length) appendInline(host, text.slice(at));
     }
 
     function fitRow(item: FitItem): HTMLTableRowElement {
@@ -1668,7 +2107,7 @@ const slug = Astro.params.slug ?? '';
 
       const evidence = document.createElement('td');
       evidence.className = 'jw-fit-ev';
-      appendInline(evidence, item.evidence || (item.mark === 'missing' ? 'Nothing in the record.' : ''));
+      appendEvidence(evidence, item.evidence || (item.mark === 'missing' ? 'Nothing in the record.' : ''));
 
       row.append(mark, requirement, evidence);
       return row;
@@ -1889,12 +2328,19 @@ const slug = Astro.params.slug ?? '';
 
       fitRaw.hidden = true;
       fitView.hidden = false;
+      /* The evidence links need the project list; asking for it here is what
+         turns a slug in a cell into a link. It is one cached read per page. */
+      ensureProjects();
       paintBanner(view);
+      paintBars(view);
+      paintMissing(view);
       paintFilters(view);
       paintComparison(view);
       paintGaps(view);
       paintKeywords(view);
       paintExtras(view);
+      paintRoleFacts();
+      paintAdvert();
     }
 
     let fitQueued = false;
@@ -2044,6 +2490,24 @@ const slug = Astro.params.slug ?? '';
       }
       if (act === 'fit') return selectTab('jw-panel-fit');
       if (act === 'resume') return selectTab('jw-panel-resume');
+      if (act === 'followup') {
+        /* The strip's sentence came from `nextAction()`, so the button does the
+           thing that sentence is about: the follow-up for the last sent draft. */
+        selectTab('jw-panel-outreach');
+        const last = parseOutreach(inputs.outreach.value)
+          .filter(draft => draft.sent)
+          .at(-1);
+        if (last) {
+          const person = lines(contacts.value)
+            .map(line => parseContact(line))
+            .find(contact => contact.name === last.contact);
+          const card = contactCards.querySelector<HTMLElement>(
+            `[data-contact="${CSS.escape(last.contact)}"]`,
+          );
+          if (person && card) startFollowUp(person, last, card);
+        }
+        return;
+      }
       if (act === 'outreach') return selectTab('jw-panel-outreach');
       selectTab('jw-panel-overview');
     });
@@ -2203,6 +2667,8 @@ const slug = Astro.params.slug ?? '';
         jobDescription: inputs.jobDescription.value,
         fit: inputs.fit.value,
         contacts: contacts.value,
+        sentDraft: '',
+        received: '',
       };
       const out: Record<string, string> = {};
       for (const key of task.context) out[key] = source[key] ?? '';
@@ -2268,6 +2734,12 @@ const slug = Astro.params.slug ?? '';
             },
             onTool: frame => turn.tool(frame),
             onUsage: frame => turn.usage(frame),
+            onContext: parts => turn.context(parts),
+            onRepaired: codes => {
+              raw = '';
+              turn.note(`Repaired: ${codes.join(', ')}`);
+            },
+            onFindings: codes => turn.note(`Still failing: ${codes.join(', ')}`, 'error'),
           },
           controller.signal,
           name === 'chat' ? panel.history().slice(0, -1) : undefined,

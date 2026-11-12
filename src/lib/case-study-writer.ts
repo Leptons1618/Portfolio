@@ -35,6 +35,14 @@ import {
   type CaseStudyPlan,
   type PlannedSection,
 } from './assist-tasks';
+import {
+  diagramMarkdown,
+  diagramName,
+  extractMermaid,
+  renderMermaid,
+  standalone,
+  uploadDiagram,
+} from './diagram';
 
 /** Everything a stopped run had finished, so it can carry on. */
 export interface LongRunState {
@@ -69,6 +77,12 @@ export interface LongRunOptions {
   onTool?: (frame: ToolFrame) => void;
   /** What a step cost, where the vendor reported counts. Last one wins. */
   onUsage?: (usage: UsageFrame) => void;
+  /** A line about something the run could not do — a figure that did not render. */
+  onNote?: (text: string) => void;
+  /** The owner's token, for uploading a rendered diagram. */
+  token?: string;
+  /** The project slug, for the diagram's file name. */
+  slug?: string;
   /** How long the whole thing aims to be. */
   totalWords?: number;
   /** Called whenever a step finishes, so a run stopped by hand can resume too. */
@@ -89,6 +103,48 @@ export class LongRunStopped extends Error {
 }
 
 const words = (text: string) => (text.trim() ? text.trim().split(/\s+/).length : 0);
+
+/**
+ * Turn a section's Mermaid fences into uploaded images — decision 85.
+ *
+ * The same Insert the journal does by hand, done per finished section: render
+ * the SVG in the browser, upload it under `images/diagrams/`, and put the image
+ * line and its caption where the fence was. A fence that still will not render
+ * stays in the body as a code block and is reported; it never fails the
+ * section, because a section without its picture is still a section.
+ */
+async function renderFigures(
+  section: string,
+  planned: PlannedSection,
+  options: LongRunOptions,
+): Promise<string> {
+  const fences = [...section.matchAll(/```mermaid[ \t]*\n([\s\S]*?)```/gi)];
+  if (!fences.length) return section;
+  let out = section;
+  for (const fence of fences) {
+    const caption = planned.figureBrief || `The system as ${planned.heading.toLowerCase()} describes it.`;
+    try {
+      if (!options.token) throw new Error('Sign in to render diagrams.');
+      const svg = standalone(await renderMermaid(extractMermaid(fence[0])));
+      const url = await uploadDiagram(
+        svg,
+        diagramName(`${options.slug ?? 'case-study'}-${planned.heading}`),
+        options.token,
+      );
+      out = out.replace(
+        fence[0],
+        `${diagramMarkdown(url, `Diagram: ${planned.heading}`)}\n*${caption}*`,
+      );
+    } catch (error) {
+      options.onNote?.(
+        `A diagram in “${planned.heading}” did not render and stays as a code fence. ${
+          error instanceof Error ? error.message : ''
+        }`.trim(),
+      );
+    }
+  }
+  return out;
+}
 
 const isAbort = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 
@@ -255,7 +311,7 @@ export async function writeLongCaseStudy(options: LongRunOptions): Promise<{
         text => cleanSection(text, heading, cap).length > heading.length + 20,
         options,
       );
-      state.sections.push(cleanSection(raw, heading, cap));
+      state.sections.push(await renderFigures(cleanSection(raw, heading, cap), plan.sections[index], options));
       options.onState?.(state);
       options.onDraft(joined());
     } catch (error) {

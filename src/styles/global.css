@@ -1505,6 +1505,20 @@ body > main { counter-reset: figure section; }
   opacity: 0.85;
 }
 
+/* A quote that opens with a bold word is a callout, not a quotation — the
+   `> **Note** …` / `> **Result** …` convention. CSS alone, because the markdown
+   already tells us: the processor emits `<p><strong>Note</strong> …</p>` and
+   `:has()` is enough to give it the accent rule and a quiet ground. */
+.prose blockquote:has(> p > strong:first-child) {
+  padding: var(--space-3) var(--space-4);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  opacity: 1;
+}
+.prose blockquote:has(> p > strong:first-child) > p { margin-bottom: 0; }
+.prose blockquote:has(> p > strong:first-child) > p:not(:last-child) { margin-bottom: var(--space-2); }
+
 .prose pre {
   background: var(--color-surface);
   border-radius: var(--radius-md);
@@ -1526,7 +1540,28 @@ body > main { counter-reset: figure section; }
 }
 
 .prose img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
   margin-bottom: var(--space-4);
+}
+
+/* An image followed immediately by an italic line is a figure and its caption:
+   `![alt](src)` then `*caption*` on the next line, which the processor emits as
+   `<img …>\n<em>caption</em>` inside one paragraph. No rehype step is needed —
+   the shape is already there — and keeping it as one `<p>` means the two can
+   never drift apart. */
+.prose p:has(> img:first-child + em) {
+  margin-bottom: var(--space-4);
+}
+.prose > p > img:first-child + em,
+.prose p:has(> img:first-child + em) > em {
+  display: block;
+  margin-top: calc(-1 * var(--space-2));
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
 }
 
 /* — fenced code —
@@ -1691,6 +1726,7 @@ body > main { counter-reset: figure section; }
   border-collapse: collapse;
   font-size: 14px;
   margin-bottom: var(--space-4);
+  font-variant-numeric: tabular-nums;
 }
 
 .prose th {

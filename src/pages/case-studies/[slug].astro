@@ -1,7 +1,7 @@
 ---
 import CaseStudyLayout from '../../layouts/CaseStudyLayout.astro';
 import { caseStudyNeighbours, categoryLabel, getCaseStudy, projectForCaseStudy } from '../../lib/content';
-import { splitChapters } from '../../lib/chapters';
+import { splitChapters, flowOf } from '../../lib/chapters';
 
 /* Read from D1 per request, so a case study published a minute ago is live a
    minute ago. `getStaticPaths` used to hand this page its entry already
@@ -39,7 +39,7 @@ const body = chapters ? split!.intro : entry.html;
   problem={problem} solution={solution} architectureImage={architectureImage}
   achievements={achievements} stack={stack} repoUrl={repoUrl} demoUrl={demoUrl}
   date={date} readTime={readTime} role={role} team={team} metrics={metrics} links={links}
-  chapters={chapters} eyebrow={eyebrow} prev={neighbour(prev)} next={neighbour(next)}
+  chapters={chapters} flow={project ? flowOf(project.data.flow) : []} eyebrow={eyebrow} prev={neighbour(prev)} next={neighbour(next)}
 >
   <Fragment set:html={body} />
 </CaseStudyLayout>

@@ -2279,3 +2279,63 @@ what the SVG already carries.
 **Tests.** `check:cli` drives `job-view.ts` in plain Node: the template-shaped and real-shaped fit fixtures, the one-character-at-a-time parser, the contact URL rule, the outreach round trip, the meters and every `nextAction` rule. `check:schema` covers the new column. `check:ai` is untouched and green; no task, surface or endpoint was added.
 
 **Rejected.** A structured JSON `fit` — a migration, a second representation, and a CLI/MCP change for what a parse on read does. A table for chapters or drafts — a row per paragraph for no reader-visible gain. A per-contact table — contacts are one line each and the drafts one document. New assistant tasks or an endpoint for the card — the closed table and one endpoint are the security property. Handing the advert to the Resume screen in a URL — private text does not belong in history. Autosave — one Save, as on every screen. A direct write from the Resume screen back to the application — the advert already lives here, and a second writer would give two sources of truth.
+
+---
+
+## 84. The harness validates an answer and repairs it once, before the owner has to notice
+
+**Context.** The authoring loop ended when the model stopped. A shape it could not parse, a connection note over the channel's limit and a broken diagram all arrived as a successful run, and the owner's only recourse was "Try again" — which cost a second generation and produced the same failure. Nothing evaluated output quality, and the owner's own verdict (Undo, Try again, a save) was thrown away.
+
+**Decision.** Validation is data on the task, and one bounded repair round is the whole lifecycle hook.
+
+- **`src/lib/assist-validate.ts`** is import-free and holds the closed table: `shape`, `flowShape`, `slugsExist`, `mermaidLint`, `fitShape`, `fitScore`, `channelLimit`, `banned`, `hasFigure`, `truncated`. A task names its rules in `ASSIST_TASKS[...].validators`; a typo fails `astro check`. `truncated` is applied to every task by the route.
+- **One repair round.** `agentStream()` and `agentComplete()` take `validate`; a repairable finding sends the answer back once, with no tools, built by `repairInstruction()`. A second failure is reported, never looped. The deadline bounds it. The streamed repair replaces the first answer: a `repaired` frame tells every client to reset its accumulator, and `findings` names what is still standing. `forPublic()` drops both.
+- **Non-repairable findings are notes.** A truncated answer and a score that disagrees with the marks are reported and change nothing — asking the same model again costs the same money for the same answer.
+- **Tools are an allowlist per task.** `tools?: ToolName[]` replaces `lookups: 'repo'`; it is intersected inside `toolsFor()`, so a task can only narrow and cannot gain a repository reader without a token. `casestudyplan` names the three repository readers; `jobFit` names the four content readers.
+- **The context manifest** is emitted as one `{"context":[…]}` frame on the authoring surface and stored in the run's log row: part, field, characters, capped. Never the text. The panel shows one line under the answer.
+- **Per-tool tallies** (calls, ms, errors, result characters) go into `RunSummary` and the log row. Together with the manifest and A5 they are the denominators `eval:ai` needs.
+- **The owner's verdict is a log row.** `reportFeedback(task, model, outcome, codes)` posts to the one owner-only `/api/logs` path with source `assist-feedback`, level `info`, capped like `reportFault()`. Outcomes are `undone`, `retried`, `kept`, `kept-edited`; kept is compared by value against what the fields held when the run finished. No text is stored.
+- **`npm run eval:ai`** is the third member of the family and deliberately not in `npm run check`: fixtures in `scripts/eval-fixtures/`, each task's real prompt through `agentComplete()`, a table of deterministic checks per model. No judge model — a second provider's opinion has its own failure rate, and is worth adding only when two models tie on every column here.
+
+**Tests.** `check:ai` drives every validator against a passing and a failing answer, `repairInstruction()` naming each code, one repair then stop, a passing answer buying no extra round, the repair round carrying no tools, the deadline bounding it, the allowlist only narrowing, the manifest's cap, and `forPublic()` dropping the manifest and verdicts. `check:cli` pins `scoreFromMarks`, the fit facts and the extended outreach surfaces. `check:schema` pins the three new project columns.
+
+**Rejected.** A hook framework or a second loop. A judge model in this phase. A third repair attempt. Repairing on the public chat — a stranger's budget is not a place for a second guess. Adding a tool of any kind: decision 24 and 37 stand.
+
+---
+
+## 85. The project page explains the system before the case study does, and the flow is data
+
+**Context.** Measured before writing: 16 of 16 public case studies had zero inline images, zero architecture images, zero metric cards and zero chapters; 7 of 7 sampled posts had no inline image; sampled project pages had no hero and no image at all. The machinery for visuals existed — a Mermaid task, Excalidraw, `architecture_image`, `metrics`, paged chapters, a lightbox — and no published page used any of it. The viewer complaint was a content-production problem first and a layout problem second.
+
+**Decision.** Every project gets a structured explainer that renders with no upload, and the writing tasks produce figures by default.
+
+- **Three columns on `projects`** (migration 0018): `plain` text, `flow` list, `gallery` list. `flow` is the important one: `"Step name | what happens here"`, the same convention `metrics` and `links` use, read by `flowOf()`. It renders in theme tokens, works in dark mode and print, needs no Mermaid, and can be drafted from a README. `gallery` is uploads only; no task writes it.
+- **`FlowStrip.astro`** is an ordered list with numbered nodes and gradient/border arrows, horizontal at desktop width, vertical below it and on paper. No SVG data URI (it cannot read a custom property), no renderer, no script.
+- **The project page** prints the plain lead, then How it works (the strip, and the linked study's architecture image under it), then Screens, then highlights and the rest. Section numbers come from a list, not hand arithmetic. **`CaseStudyLayout`** moves Architecture above the write-up and renders the project's flow there too; the layout still queries nothing.
+- **Production path:** `projectExplainer` writes `PLAIN:`/`FLOW:`; `projectDiagram` returns Mermaid which the screen renders, uploads and offers as the architecture image or at the caret; `casestudyplan` names a figure per section and `case-study-writer` renders each fence to an uploaded image, keeping a failed fence as a code block and reporting it. The cron daily journal says tables only — nothing there renders Mermaid.
+- **`.prose` gains** a figure/caption treatment for an image followed by an italic line (CSS alone; the processor already emits that shape), a callout for a blockquote opening with a bold word, and tabular numerals on tables. Posts with three or more `## ` headings get a contents rail built by `splitChapters()`.
+- **The reader's view is a checklist** beside the completeness checklist, with an unfilled line as the button that runs the task (or focuses the field when no task may — metrics and gallery are the owner's). The manifest shows `visuals n/5`.
+
+**Tests.** `check:schema` covers the three columns; `check:ai` covers `flowShape`, the two new tasks and their allowlists; `check:content` still passes with no renderer on a public page and no unscoped breakpoint.
+
+**Rejected.** Interactive demos, client-side Mermaid on public pages, video, a "projects compared" page, a card-grid redesign. The gallery and the numbers stay the owner's.
+
+---
+
+## 86. The job desk scores, sorts and follows up without leaving the card
+
+**Extends decisions 79, 80 and 83. Nothing public reads `applications`; no message is sent.**
+
+**Decision.** The manifest and the last third of the flow.
+
+- **The manifest is a desk.** Every row carries a score-and-verdict chip (`—` when not assessed, with `assess →` as its action), missing must-have count, and a due strip above the list built from `nextAction()`. Sort by status, score, next date or last updated; the choice is remembered under `ADMIN_KEYS.jobsSort`. Status counts are filter chips.
+- **A score you can check.** `scoreFromMarks(view)` in `job-view.ts`: must weigh 3, nice 1; met 1, adjacent 0.5, missing 0; scaled to 10 and rounded to a half. The Fit tab shows `Model n · By the marks m` and, when they differ by more than two, names the requirements pulling it down. Breakdown bars, missing must-haves first, project slugs in evidence linked to their admin page, an optional `### Role at a glance` parsed into facts and shown as chips at the top of Overview, a stale-assessment banner when the advert changed, and ATS keywords marked in the advert from text nodes (never `innerHTML`).
+- **The composer replaces the free-text steer.** Channel, ask (process / team's problem / referral / fifteen minutes), tone (direct / warm) and one optional line. `outreachInstruction()` takes the same options and stays pure.
+- **Three tasks, closed entries:** `jobFollowUp`, `jobCover`, `jobReply`, each with `channelLimit` and `banned`. New capped fields `sentDraft` and `received`.
+- **Sent state is part of the heading:** `## Contact · Channel · sent YYYY-MM-DD`. A heading without it parses exactly as before. Mark sent stamps today, offers — never silently sets — `status: applied` for the cover email, and sets `nextOn` to five working days and `nextStep` to "Follow up with …". `nextAction()` gains the rule: a sent draft with nothing after it offers `jobFollowUp`.
+- **Hand-offs are the owner's click.** Copy, Open in mail (a plain `mailto:` when the contact line carries an address the owner typed) and Open profile. No fetch, embed or preview touches LinkedIn or a mail server.
+- **Over-limit drafts** are repaired once by the harness; a version still over is shown in the error colour and Keep is disabled.
+
+**Tests.** `check:cli` pins `scoreFromMarks`, `parseFit` with and without facts, `parseOutreach`/`formatOutreach` with and without sent, the extended `outreachInstruction`, `workingDaysAfter` and the new `nextAction` rule. `check:ai` pins the three tasks' surfaces, commands and validators.
+
+**Rejected.** Comparison matrices, interview prep, salary research, scraping, and sending anything.

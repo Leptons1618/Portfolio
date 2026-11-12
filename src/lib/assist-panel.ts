@@ -52,6 +52,7 @@ import {
   loadOverview,
   runAssist,
   type ChatSummary,
+  type ManifestPart,
   type ToolFrame,
   type UsageFrame,
 } from './ai-store';
@@ -105,6 +106,14 @@ export interface AssistTurn {
    * counts, cache share, and an approximate cost where the row is priced.
    */
   usage(usage: UsageFrame): void;
+  /**
+   * What the run carried, in numbers — the harness's context manifest.
+   *
+   * One line under the message ("README 6,000 (capped) · advert 3,812"), and a
+   * disclosure with one row per part for the exact numbers. Never the text:
+   * this says a README was cut at eight thousand characters, not what it said.
+   */
+  context(parts: ManifestPart[]): void;
   /** The panel's own voice, under the message. Stored as a `note` row. */
   note(text: string, tone?: 'info' | 'error'): void;
   /** Finish the turn and store it. `text` is what is remembered as the answer. */
@@ -169,6 +178,9 @@ interface Bubble {
   options: HTMLElement;
   actions: HTMLElement;
   usage: HTMLElement;
+  context: HTMLDetailsElement;
+  contextSummary: HTMLElement;
+  contextBody: HTMLElement;
   note: HTMLElement;
 }
 
@@ -313,14 +325,38 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
        would be noise on the providers that never send one. */
     const usage = el('div', 'asx-usage');
     usage.hidden = true;
+    /* What the run carried. A disclosure rather than a paragraph: the one-line
+       summary is the fact worth seeing without asking, and the per-part rows
+       are for the day a case study comes out generic and the question is
+       whether the README arrived at all. */
+    const context = el<HTMLDetailsElement>('details', 'asx-context');
+    context.hidden = true;
+    const contextSummary = el('summary', 'asx-context-summary');
+    const contextBody = el('div', 'asx-context-body');
+    context.append(contextSummary, contextBody);
     const note = el('p', 'asx-msg-note');
     note.hidden = true;
 
-    root.append(think, tools, body, preview, options, actions, usage, note);
+    root.append(think, tools, body, preview, options, actions, usage, context, note);
     log.append(root);
     follow();
 
-    return { root, think, thinkBody, thinkSummary, tools, body, preview, options, actions, usage, note };
+    return {
+      root,
+      think,
+      thinkBody,
+      thinkSummary,
+      tools,
+      body,
+      preview,
+      options,
+      actions,
+      usage,
+      context,
+      contextSummary,
+      contextBody,
+      note,
+    };
   }
 
   /**
@@ -634,6 +670,23 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
         view.usage.hidden = false;
         view.usage.textContent = usageLine(frame);
         view.usage.title = usageTitle(frame);
+        follow();
+      },
+
+      context(parts) {
+        if (!parts.length) return;
+        const label = (part: ManifestPart) =>
+          part.part === 'context' ? (part.field ?? 'field') : part.part;
+        view.context.hidden = false;
+        view.contextSummary.textContent = parts
+          .map(part => `${label(part)} ${part.chars.toLocaleString()}${part.capped ? ' (capped)' : ''}`)
+          .join(' · ');
+        view.contextBody.replaceChildren();
+        for (const part of parts) {
+          const row = document.createElement('div');
+          row.textContent = `${label(part)}: ${part.chars.toLocaleString()} characters${part.capped ? ' — capped' : ''}`;
+          view.contextBody.append(row);
+        }
         follow();
       },
 
@@ -1111,6 +1164,12 @@ export function mountAssistPanel(config: AssistPanelConfig): AssistPanel {
           onThinking: chunk => turn.thinking(chunk),
           onTool: frame => turn.tool(frame),
           onUsage: frame => turn.usage(frame),
+          onContext: parts => turn.context(parts),
+          onRepaired: codes => {
+            live = '';
+            turn.note(`Repaired: ${codes.join(', ')}`);
+          },
+          onFindings: codes => turn.note(`Still failing: ${codes.join(', ')}`, 'error'),
         },
         undefined,
         turns,

@@ -282,6 +282,27 @@ const STATUS_VARIANT: Record<string, string> = {
           </div>
         </fieldset>
 
+        <fieldset class="pf-group">
+          <legend><span class="pf-group-no">06</span>Explainer</legend>
+          <div class="pf-grid">
+            <div class="field pf-wide">
+              <label for="pf-plain">In plain words</label>
+              <textarea class="input" id="pf-plain" data-grow></textarea>
+              <p class="pf-help">Two or three sentences a non-engineer follows. Not the summary restated — the project page prints both.</p>
+            </div>
+            <div class="field pf-wide">
+              <label for="pf-flow">How it works — one step per line</label>
+              <textarea class="input" id="pf-flow" data-grow></textarea>
+              <p class="pf-help"><code>Step name | what happens here</code>, three to seven steps, in the order the system works. Renders as a strip with no image.</p>
+            </div>
+            <div class="field pf-wide">
+              <label for="pf-gallery">Screens — one per line</label>
+              <textarea class="input" id="pf-gallery" data-grow></textarea>
+              <p class="pf-help"><code>/media/… | caption</code>. Only <code>/media/</code> paths render; upload screenshots in the media library. The assistant does not write this.</p>
+            </div>
+          </div>
+        </fieldset>
+
         <div class="modal-actions">
           <button type="button" class="btn btn-secondary" id="pf-reset">Revert</button>
           <button type="button" class="btn btn-primary" id="pf-save">Save changes</button>
@@ -298,6 +319,12 @@ const STATUS_VARIANT: Record<string, string> = {
         <section class="card elev-sm pf-aside-card">
           <p class="admin-eyebrow">Completeness</p>
           <div id="pf-checklist"></div>
+        </section>
+
+        <section class="card elev-sm pf-aside-card">
+          <p class="admin-eyebrow">Reader’s view</p>
+          <p class="text-muted admin-note">What a stranger needs in the first screen and a half. An unfilled line is a button.</p>
+          <div id="pf-reader"></div>
         </section>
 
         <section class="card elev-sm">
@@ -569,11 +596,13 @@ const STATUS_VARIANT: Record<string, string> = {
     saveCaseStudyProgress,
   } from '../../../lib/ai-store';
   import { mountAssistPanel, type AssistTurn } from '../../../lib/assist-panel';
+  import { reportFeedback } from '../../../lib/log-store';
   import { LongRunStopped, writeLongCaseStudy, type LongRunState } from '../../../lib/case-study-writer';
   import {
     ASSIST_MENU,
     ASSIST_TASKS,
     CASE_STUDY_KEYS,
+    EXPLAINER_KEYS,
     PROJECT_KEYS,
     isAssistTask,
     parseEdit,
@@ -607,6 +636,13 @@ const STATUS_VARIANT: Record<string, string> = {
   import { attachImageUpload, attachMarkdownImages } from '../../../lib/image-upload';
   import { CHAPTER_OUTLINES, outlineLine, outlineMarkdown } from '../../../lib/chapters';
   import { drawingAt, drawingName, insertBlock, insertImageLine } from '../../../lib/md-edit';
+  import {
+    diagramName,
+    extractMermaid,
+    renderMermaid,
+    standalone,
+    uploadDiagram,
+  } from '../../../lib/diagram';
   import type { Category } from '../../../lib/content';
   import {
     completeness,
@@ -614,6 +650,8 @@ const STATUS_VARIANT: Record<string, string> = {
     mountCounter,
     renderChecklist,
     renderPreview,
+    readerView,
+    renderReaderView,
     reviewChanges,
     watchValue,
   } from '../../../lib/frontmatter-editor';
@@ -694,6 +732,9 @@ const STATUS_VARIANT: Record<string, string> = {
       demo: $<HTMLInputElement>('pf-demo'),
       hero: $<HTMLInputElement>('pf-hero'),
       highlights: $<HTMLTextAreaElement>('pf-highlights'),
+      plain: $<HTMLTextAreaElement>('pf-plain'),
+      flow: $<HTMLTextAreaElement>('pf-flow'),
+      gallery: $<HTMLTextAreaElement>('pf-gallery'),
     };
 
     function fillProject(fields: ProjectFields) {
@@ -709,6 +750,9 @@ const STATUS_VARIANT: Record<string, string> = {
       project.demo.value = fields.demoUrl ?? '';
       project.hero.value = fields.heroImage ?? '';
       project.highlights.value = (fields.highlights ?? []).join('\n');
+      project.plain.value = fields.plain ?? '';
+      project.flow.value = (fields.flow ?? []).join('\n');
+      project.gallery.value = (fields.gallery ?? []).join('\n');
     }
 
     /** The form as schema-shaped fields, or a sentence saying what is wrong. */
@@ -745,6 +789,9 @@ const STATUS_VARIANT: Record<string, string> = {
         year,
         heroImage: project.hero.value.trim() || undefined,
         highlights: lines(project.highlights.value),
+        plain: project.plain.value.trim() || undefined,
+        flow: lines(project.flow.value),
+        gallery: lines(project.gallery.value),
       };
     }
 
@@ -766,6 +813,7 @@ const STATUS_VARIANT: Record<string, string> = {
     const categoryLabels = new Map<string, string>(PROJECT_CATEGORIES);
     const previewHost = $('pf-preview');
     const checklistHost = $('pf-checklist');
+    const readerHost = $('pf-reader');
     let asideQueued = false;
     /* Coalesced to a frame: a streamed run assigns a dozen fields per frame,
        and each assignment calls this. */
@@ -789,9 +837,34 @@ const STATUS_VARIANT: Record<string, string> = {
           hero: project.hero.value.trim(),
           highlights: lines(project.highlights.value),
           hasCaseStudy: Boolean(seed.project.caseStudySlug),
+          plain: project.plain.value,
+          flow: lines(project.flow.value),
+          gallery: lines(project.gallery.value),
+          architecture:
+            (document.getElementById('cs-arch') as HTMLInputElement | null)?.value ?? '',
+          writeUp:
+            (document.getElementById('cs-body') as HTMLTextAreaElement | null)?.value ?? '',
+          metrics: lines(
+            (document.getElementById('cs-metrics') as HTMLTextAreaElement | null)?.value ?? '',
+          ).length,
         };
         renderPreview(previewHost, values);
         renderChecklist(checklistHost, completeness(values));
+        /* An unfilled reader's-view line runs the task that fills it. The two
+           owner-only fields focus instead — gallery is uploads and key numbers
+           are typed (decision 81), so there is no command that may write them. */
+        renderReaderView(readerHost, readerView(values), action => {
+          if (action === 'explain') {
+            void runTask('projectExplainer', 'Explain this project for a reader who has never seen the repository.');
+          } else if (action === 'diagram' || action === 'writeup') {
+            void runTask('projectDiagram', '');
+          } else if (action === 'gallery') {
+            project.gallery.focus();
+            project.gallery.scrollIntoView({ block: 'center' });
+          } else {
+            (document.getElementById('cs-metrics') as HTMLTextAreaElement | null)?.focus();
+          }
+        });
       });
     };
     for (const field of Object.values(project)) watchValue(field, refreshAside);
@@ -840,6 +913,19 @@ const STATUS_VARIANT: Record<string, string> = {
            A patch writes only the columns handed to it, which is what keeps a
            field this form has never heard of from being cleared by it. */
         const result = await patchProject(seed.slug, fields);
+
+        /* The owner's verdict on the last run — kept or kept-edited by value,
+           nothing about the content stored. A5. */
+        if (lastRun) {
+          const run = lastRun;
+          const same =
+            !run.values ||
+            Object.entries(run.values).every(
+              ([key, value]) => project[key as keyof typeof project]?.value === value,
+            );
+          reportFeedback(run.task, run.model, same ? 'kept' : 'kept-edited', [], run.effort);
+          lastRun = null;
+        }
         sayLink(pageMessage, 'Saved. Live now', result.url);
         pending.update('Project saved and live.', {
           tone: 'success',
@@ -1337,6 +1423,7 @@ const STATUS_VARIANT: Record<string, string> = {
       project: PROJECT_KEYS,
       caseStudy: CASE_STUDY_KEYS,
       caseStudyBody: null,
+      explainer: EXPLAINER_KEYS,
     };
 
     type AnyField = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
@@ -1369,6 +1456,10 @@ const STATUS_VARIANT: Record<string, string> = {
           stack: project.stack,
           highlights: project.highlights,
         };
+      }
+
+      if (target === 'explainer') {
+        return { plain: project.plain, flow: project.flow };
       }
 
       if (!linkedSlug) return null;
@@ -1525,6 +1616,7 @@ const STATUS_VARIANT: Record<string, string> = {
     function undoAssist() {
       const entry = undos.pop();
       if (!entry) return;
+      if (lastRun) reportFeedback(lastRun.task, lastRun.model, 'undone', [], lastRun.effort);
       const target = snapshotTargets.get(entry);
       const inputs = target ? targetInputs(target) : null;
       if (!inputs) return;
@@ -1692,6 +1784,149 @@ const STATUS_VARIANT: Record<string, string> = {
     };
 
     let assisting: AbortController | null = null;
+    /* The last run, for the owner's verdict — A5. `values` is what the form
+       held when the run finished, so Save can say kept or kept-edited. */
+    let lastRun: {
+      task: string;
+      model: string;
+      effort: string;
+      values?: Record<string, string>;
+    } | null = null;
+
+    function rememberRunValues() {
+      if (!lastRun) return;
+      lastRun.values = Object.fromEntries(
+        (Object.keys(project) as (keyof typeof project)[]).map(key => [key, project[key].value]),
+      );
+    }
+
+    /**
+     * The project's architecture diagram: generate, render, upload, place.
+     *
+     * Mermaid's own parser is the judge in the browser — a `mermaidLint` pass
+     * on the route is a first filter, not a renderer. When `renderMermaid()`
+     * throws, the task runs once more with the parser's message as the steer;
+     * a second failure keeps the source with Copy rather than looping or
+     * failing the run. Decision 85.
+     */
+    async function runProjectDiagram(
+      turn: AssistTurn,
+      controller: AbortController,
+      instruction: string,
+    ) {
+      const { readme } = await repoContext();
+      const value = (id: string) =>
+        (document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | null)?.value ?? '';
+      const context = {
+        readme,
+        title: project.title.value,
+        summary: project.summary.value,
+        problem: value('cs-problem'),
+        solution: value('cs-solution'),
+        flow: project.flow.value,
+      };
+
+      const run = async (steer: string) => {
+        let raw = '';
+        return runAssist(
+          'projectDiagram',
+          context,
+          steer,
+          {
+            onDelta: chunk => {
+              raw += chunk;
+              turn.answer(raw);
+            },
+            onThinking: chunk => turn.thinking(chunk),
+            onTool: frame => turn.tool(frame),
+            onUsage: frame => turn.usage(frame),
+            onContext: parts => turn.context(parts),
+            onRepaired: codes => {
+              raw = '';
+              turn.note(`Repaired: ${codes.join(', ')}`);
+            },
+            onFindings: codes => turn.note(`Still failing: ${codes.join(', ')}`, 'error'),
+          },
+          controller.signal,
+          undefined,
+          panel.runOptions(),
+        );
+      };
+
+      const copy = (text: string) => ({
+        label: 'Copy',
+        run: () => void copyText(text).then(() => toast('Copied.', { tone: 'success' })),
+      });
+
+      let output = await run(instruction);
+      let source = extractMermaid(output);
+      let svg = '';
+      try {
+        svg = standalone(await renderMermaid(source));
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : 'It did not parse.';
+        output = await run(`${instruction}\n\nThe previous diagram failed to parse: ${detail}\nReturn a corrected diagram in the same one-fence format.`);
+        source = extractMermaid(output);
+        try {
+          svg = standalone(await renderMermaid(source));
+        } catch (again) {
+          turn.answer(output);
+          turn.actions([copy(output)]);
+          turn.note(
+            `That diagram still will not render: ${again instanceof Error ? again.message : 'unknown error'}. The source is above; copy it and edit it by hand.`,
+            'error',
+          );
+          turn.end(output);
+          return;
+        }
+      }
+
+      turn.preview(svg);
+      turn.answer(output);
+
+      const upload = () => uploadDiagram(svg, diagramName(seed.slug), getToken() ?? '');
+      const architecture = document.getElementById('cs-arch') as HTMLInputElement | null;
+      const body = document.getElementById('cs-body') as HTMLTextAreaElement | null;
+      const range = body ? { start: body.selectionStart, end: body.selectionEnd } : null;
+
+      const actions: { label: string; run: () => void; primary?: boolean }[] = [];
+      if (architecture) {
+        actions.push({
+          label: 'As the architecture image',
+          primary: true,
+          run: () => {
+            void upload()
+              .then(url => {
+                architecture.value = url;
+                projectDirty.check();
+                notifyStudyWrite?.();
+                toast('Architecture image set. Save to publish it.', { tone: 'success' });
+              })
+              .catch(error => toast(error instanceof Error ? error.message : 'Upload failed.', { tone: 'error' }));
+          },
+        });
+      }
+      if (body && range) {
+        actions.push({
+          label: 'At the caret in the write-up',
+          run: () => {
+            void upload()
+              .then(url => {
+                const edit = insertImageLine(body.value, range, 'Architecture', url);
+                body.setRangeText(edit.insert, edit.from, edit.to, 'end');
+                body.dispatchEvent(new Event('input', { bubbles: true }));
+                projectDirty.check();
+                notifyStudyWrite?.();
+                toast('Inserted in the write-up.', { tone: 'success' });
+              })
+              .catch(error => toast(error instanceof Error ? error.message : 'Upload failed.', { tone: 'error' }));
+          },
+        });
+      }
+      actions.push(copy(source));
+      turn.actions(actions);
+      turn.end(output);
+    }
 
     /**
      * One command, from the composer to the fields.
@@ -1714,11 +1949,24 @@ const STATUS_VARIANT: Record<string, string> = {
       const turn = panel.begin(task.label, item?.command ?? null);
       panel.running(true);
 
+      const runOptions = panel.runOptions();
+      lastRun = {
+        task: name,
+        model: String(runOptions.model ?? ''),
+        effort: String(runOptions.effort ?? ''),
+      };
+
       assisting?.abort();
       const controller = new AbortController();
       assisting = controller;
 
-      const again = { label: 'Try again', run: () => void runTask(name, instruction) };
+      const again = {
+        label: 'Try again',
+        run: () => {
+          if (lastRun) reportFeedback(lastRun.task, lastRun.model, 'retried', [], lastRun.effort);
+          void runTask(name, instruction);
+        },
+      };
       const copy = (text: string) => ({
         label: 'Copy',
         run: () => void copyText(text).then(() => toast('Copied.', { tone: 'success' })),
@@ -1766,12 +2014,18 @@ const STATUS_VARIANT: Record<string, string> = {
               },
               onTool: frame => turn.tool(frame),
               onUsage: frame => turn.usage(frame),
+              onContext: parts => turn.context(parts),
+              onRepaired: codes => {
+                said = '';
+                turn.note(`Repaired: ${codes.join(', ')}`);
+              },
+              onFindings: codes => turn.note(`Still failing: ${codes.join(', ')}`, 'error'),
             },
             controller.signal,
             /* The last entry is the message this call is *about*, and the route
                appends it itself. */
             panel.history().slice(0, -1),
-            panel.runOptions(),
+            runOptions,
           );
           if (!answer.trim()) {
             throw new Error(
@@ -1831,6 +2085,7 @@ const STATUS_VARIANT: Record<string, string> = {
           if (target && editing.length) {
             takeSnapshot(target, 'Chat edit');
             applyLive(target, answer);
+            rememberRunValues();
             /* Covers the model that "changed" a field to what it already said,
                which would otherwise offer an Undo that does nothing. */
             dropUnusedSnapshot();
@@ -1864,6 +2119,15 @@ const STATUS_VARIANT: Record<string, string> = {
          see `case-study-writer.ts` and decision 60. */
       if (name === 'casestudybody') {
         await runLong(turn, controller, instruction);
+        return;
+      }
+
+      /* The diagram is not live: its output is Mermaid source, and the two
+         places it can go (the case study's architecture field, or the caret in
+         the write-up) are choices. It renders here, uploads an SVG, and offers
+         both — the same Insert the journal does. */
+      if (name === 'projectDiagram') {
+        await runProjectDiagram(turn, controller, instruction);
         return;
       }
 
@@ -1962,6 +2226,12 @@ const STATUS_VARIANT: Record<string, string> = {
             },
             onTool: frame => turn.tool(frame),
             onUsage: frame => turn.usage(frame),
+            onContext: parts => turn.context(parts),
+            onRepaired: codes => {
+              raw = '';
+              turn.note(`Repaired: ${codes.join(', ')}`);
+            },
+            onFindings: codes => turn.note(`Still failing: ${codes.join(', ')}`, 'error'),
             onDone: reason => {
               truncated = reason === 'length';
             },
@@ -1970,7 +2240,7 @@ const STATUS_VARIANT: Record<string, string> = {
           undefined,
           /* Read at the start of the run, so changing the model between two
              runs is what the control on the panel actually does. */
-          panel.runOptions(),
+          runOptions,
         );
 
         settled = true;
@@ -2005,6 +2275,7 @@ const STATUS_VARIANT: Record<string, string> = {
         }
 
         applyLive(live, output);
+        rememberRunValues();
         if (live === 'project') startReview();
         turn.status(
           `Done — it is in the fields${live === 'project' ? ', and each change is marked for review' : ''}. Nothing is saved until you press Save changes.${
@@ -2127,6 +2398,11 @@ const STATUS_VARIANT: Record<string, string> = {
           onThinking: chunk => turn.thinking(chunk),
           onTool: frame => turn.tool(frame),
           onUsage: frame => turn.usage(frame),
+          /* A diagram that will not render keeps its fence and is reported;
+             it never fails the section. */
+          onNote: text => turn.note(text, 'error'),
+          slug: seed.slug,
+          token: getToken() ?? '',
           onState: state => {
             progress = state;
             /* Kept server-side after every finished step, so a reload or another
