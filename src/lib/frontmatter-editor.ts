@@ -191,6 +191,16 @@ export interface FrontmatterValues {
   hero: string;
   highlights: string[];
   hasCaseStudy: boolean;
+  /** The structured explainer — decision 85. */
+  plain: string;
+  flow: string[];
+  gallery: string[];
+  /** The linked case study's architecture image, when there is one. */
+  architecture: string;
+  /** The case study's write-up, for the "at least one figure" line. */
+  writeUp: string;
+  /** How many `metrics` lines the case study has. */
+  metrics: number;
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string) => {
@@ -296,6 +306,107 @@ export function renderChecklist(host: HTMLElement, checks: Check[]): void {
     list.append(li);
   }
   host.replaceChildren(el('p', 'pf-meter-label', `${done} of ${checks.length} complete`), meter, list);
+}
+
+/** One line of the reader's-view checklist, with the thing that fills it. */
+export interface ReaderCheck extends Check {
+  /** The action an unfilled line runs. `gallery` and `numbers` focus a field. */
+  action: 'explain' | 'diagram' | 'gallery' | 'numbers' | 'writeup';
+}
+
+/**
+ * The stranger test, as a checklist — decision 85.
+ *
+ * What a reader needs from a project page in the first screen and a half, as
+ * six lines. It is the *same mechanism* as `completeness()` rather than a
+ * second kind of gate: advice, not validation, and nothing here refuses a save.
+ * The difference is that an unfilled line is a button, because the whole point
+ * is that the owner should not have to remember which command produces a flow
+ * or where the gallery field is. `metrics` and `gallery` are the owner's — the
+ * assistant writes neither — so those two focus a field.
+ */
+export function readerView(values: FrontmatterValues): ReaderCheck[] {
+  const writeUp = values.writeUp;
+  const figure =
+    /^\s*!\[/m.test(writeUp) || /^\s*```mermaid/m.test(writeUp) || /^\s*\|.*\|/m.test(writeUp);
+  return [
+    {
+      label: 'Plain words',
+      done: values.plain.trim().length > 0,
+      hint: 'Two or three sentences a non-engineer follows.',
+      action: 'explain',
+    },
+    {
+      label: `How it works${values.flow.length ? ` (${values.flow.length} steps)` : ''}`,
+      done: values.flow.length >= 3 && values.flow.length <= 7,
+      hint: 'Three to seven steps, in order.',
+      action: 'explain',
+    },
+    {
+      label: 'Architecture image',
+      done: Boolean(values.architecture.trim()),
+      hint: 'Run the diagram task, or upload one on the case study tab.',
+      action: 'diagram',
+    },
+    {
+      label: 'A figure in the write-up',
+      done: figure,
+      hint: 'A diagram, a table or an image — a wall of prose does not carry it.',
+      action: 'writeup',
+    },
+    {
+      label: 'At least one screen',
+      done: values.gallery.length > 0,
+      hint: 'Upload a screenshot and add its /media/ path here.',
+      action: 'gallery',
+    },
+    {
+      label: 'Key numbers',
+      done: values.metrics > 0,
+      hint: 'The owner types these — decision 81.',
+      action: 'numbers',
+    },
+  ];
+}
+
+/**
+ * The same list, with each unfilled line as a button.
+ *
+ * Rendered separately from `renderChecklist` because a line here does
+ * something. Everything is `textContent`; the only listener is the caller's,
+ * keyed by the check's `action`.
+ */
+export function renderReaderView(
+  host: HTMLElement,
+  checks: ReaderCheck[],
+  run: (action: ReaderCheck['action']) => void,
+): void {
+  const done = checks.filter(check => check.done).length;
+  const meter = el('div', 'pf-meter');
+  meter.setAttribute('role', 'meter');
+  meter.setAttribute('aria-valuemin', '0');
+  meter.setAttribute('aria-valuemax', String(checks.length));
+  meter.setAttribute('aria-valuenow', String(done));
+  meter.setAttribute('aria-label', 'Reader’s view completeness');
+  const fill = el('span', 'pf-meter-fill');
+  fill.style.width = `${Math.round((done / checks.length) * 100)}%`;
+  meter.append(fill);
+
+  const list = el('ul', 'pf-checks');
+  for (const check of checks) {
+    const li = el('li', check.done ? 'is-done' : '');
+    if (check.done) {
+      li.append(el('span', 'pf-check-mark', '✓'), el('span', '', check.label));
+    } else {
+      const button = el('button', 'pf-check-do', `+ ${check.label}`);
+      button.type = 'button';
+      button.title = check.hint;
+      button.addEventListener('click', () => run(check.action));
+      li.append(button);
+    }
+    list.append(li);
+  }
+  host.replaceChildren(el('p', 'pf-meter-label', `${done} of ${checks.length} in the reader’s view`), meter, list);
 }
 
 /**

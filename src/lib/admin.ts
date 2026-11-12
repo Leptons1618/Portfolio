@@ -13,6 +13,8 @@ export const ADMIN_KEYS = {
   /* Session, not local: an advert is private, and the hand-off is one trip
      between two screens rather than a draft worth surviving the browser. */
   resumeHandoff: 'om-admin-resume-handoff',
+  /* The jobs manifest's chosen sort — a preference, not content. */
+  jobsSort: 'om-admin-jobs-sort',
 } as const;
 
 /** Every draft key, for the dashboard's clear-all action. */

@@ -91,6 +91,10 @@ export interface ProjectFields {
   year: number;
   heroImage?: string;
   highlights: string[];
+  /** The structured explainer — decision 85. */
+  plain?: string;
+  flow?: string[];
+  gallery?: string[];
   hidden?: boolean;
 }
 

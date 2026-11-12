@@ -42,9 +42,9 @@ assistant cannot see one. The resume it tailors is the `resume` document. Decisi
 | `url` | The posting. |
 | `jobDescription` | The advert, **verbatim**. Not a summary — postings get taken down, and the fit and the variant are both answers to this text. |
 | `fit` | The assessment, as markdown (below). |
-| `outreach` | Kept drafts, as markdown: one `## Contact · Channel` section each. The channel labels are LinkedIn note, LinkedIn message, Referral ask, Email and Follow-up. Keeping a new draft for the same contact and channel replaces the old one. The screen's Mark sent appends a dated note; you never send anything. |
+| `outreach` | Kept drafts, as markdown: one `## Contact · Channel` section each. The channel labels are LinkedIn note, LinkedIn message, Referral ask, Email and Follow-up. A sent draft carries an optional third part: `## Contact · Channel · sent YYYY-MM-DD`. Keeping a new draft for the same contact and channel replaces the old one. The screen's Mark sent stamps the date, offers Applied for a cover email, and sets the follow-up five working days out; you never send anything. |
 | `resumeVariant` | The `id` of a variant in the resume document. |
-| `contacts` | A list of `"Name — title — profile URL"`. Only people the owner named or pasted. Never look anyone up, never guess an email. The CLI's `contacts=` splits on commas, so an entry with a comma in it ("Director, Engineering") goes in through `portfolio edit` or the MCP tools. |
+| `contacts` | A list of `"Name — title — profile URL — email"`, omitting empty parts. Only people the owner named or pasted. Never look anyone up, never guess an email. The CLI's `contacts=` splits on commas, so an entry with a comma in it ("Director, Engineering") goes in through `portfolio edit` or the MCP tools. |
 | `appliedOn`, `nextOn` | `YYYY-MM-DD`. Nothing checks the format, and "what's due" compares them as text — so get it right. |
 | `nextStep` | One line: "Follow up with Priya", "Take-home due". |
 | `notes` | Append, never overwrite — `portfolio_get` first. Dated lines: `2026-11-08 — LinkedIn note to Priya (sent by owner)`. |
@@ -82,6 +82,10 @@ report the verdict and the top two gaps in chat:
 ```markdown
 **Verdict:** Strong / Reasonable / Stretch / Poor — one sentence why.
 **Score:** 7/10 — mostly the must-haves.
+
+### Role at a glance
+Location: … · Mode: on-site | hybrid | remote · Level: … · Years: … · Pay: … · Posted: …
+(Optional. Write `not stated` rather than guessing; the six keys are Location, Mode, Level, Years, Pay and Posted, and other plain-word keys are kept too.)
 
 ### Must-haves
 - ✅ 5+ years of Python — six years across <role> and <role>
@@ -156,10 +160,19 @@ site or a result from the resume; and **one clear ask** — a referral, fifteen
 minutes, a look at an application already in. The ask differs by who it is for:
 a recruiter is asked about the process, a hiring manager about the team's
 problem, an engineer for a referral. No flattery, no "I hope this finds you
-well", nothing beyond the record. Two variants at most.
+well", nothing beyond the record. Two variants at most. The screen's composer
+offers the same three choices (channel, ask, tone) plus one optional line.
 
-When the owner says it went out: append a dated line to `notes`, set `nextStep`
-to the follow-up and `nextOn` a week out.
+The follow-up is a task of its own (`draft-follow-up`): given the sent text, a
+shorter second message that adds one new thing and does not repeat the first.
+The cover email (`draft-cover-email`) is a `Subject:` line and under 220 words in
+three paragraphs, leaning only on ✅ requirements. The reply (`draft-reply`)
+answers what the recruiter wrote, in two versions.
+
+When the owner says it went out: stamp the draft's heading with
+`· sent YYYY-MM-DD` rather than rewriting it, append a dated line to `notes`,
+set `nextStep` to `Follow up with <first name>` and `nextOn` five working days
+out. A sent draft with nothing after it is what `nextAction()` reports next.
 
 ## Review the pipeline
 

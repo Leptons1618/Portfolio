@@ -22,6 +22,7 @@
     "check:mcp": "node scripts/test-mcp.mjs",
     "check:editor": "node scripts/test-md-edit.mjs",
     "check:worker": "node workers/github-oauth/test.mjs",
+    "eval:ai": "node scripts/eval-ai.mjs",
     "build": "astro build",
     "preview": "wrangler dev",
     "deploy": "npm run check && astro build && wrangler deploy",

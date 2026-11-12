@@ -45,6 +45,12 @@ const PROJECT_COLUMNS: ColumnMap = {
   year: ['year', 'number'],
   heroImage: ['hero_image', 'text'],
   highlights: ['highlights', 'list'],
+  /* The structured explainer — decision 85. `plain` is prose; `flow` and
+     `gallery` use the same "a | b" list convention as `metrics` and `links`,
+     read by `chapters.ts`. `gallery` is uploads, so no task writes it. */
+  plain: ['plain', 'text'],
+  flow: ['flow', 'list'],
+  gallery: ['gallery', 'list'],
   hidden: ['hidden', 'bool'],
 };
 

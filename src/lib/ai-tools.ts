@@ -282,6 +282,27 @@ export const TOOL_SPECS: readonly ToolSpec[] = [
   },
 ];
 
+/**
+ * Every tool's name, as a closed union.
+ *
+ * A task may narrow its lookups with `tools:` in `assist-tasks.ts`, and this is
+ * what makes a typo there an `astro check` failure rather than a task that
+ * silently gets fewer lookups than its instructions promise. `check:ai` pins
+ * that this list and `TOOL_SPECS` name the same tools, so the pair cannot drift.
+ */
+export const TOOL_NAMES = [
+  'search_content',
+  'read_post',
+  'read_project',
+  'read_case_study',
+  'read_resume',
+  'list_repo_files',
+  'read_repo_docs',
+  'read_repo_file',
+] as const;
+
+export type ToolName = (typeof TOOL_NAMES)[number];
+
 /** The names, as a set, so an unknown call is refused rather than dispatched. */
 const BY_NAME = new Map(TOOL_SPECS.map(spec => [spec.name, spec]));
 

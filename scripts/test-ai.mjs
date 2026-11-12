@@ -80,7 +80,7 @@ const {
 const { site } = await load('src/lib/site.ts');
 const { buildCorpus, buildIndex, publicPosts, publicProjects, corpusSize } =
   await load('src/lib/ai-corpus.ts');
-const { TOOL_SPECS, runTool, toolSummary, toolsFor } = await load('src/lib/ai-tools.ts');
+const { TOOL_SPECS, TOOL_NAMES, runTool, toolSummary, toolsFor } = await load('src/lib/ai-tools.ts');
 const { boundTurns, scopePrompt, dayStamp, GuardError, screenQuestion, OFF_TOPIC, charge, remainingFor } =
   await load('src/lib/ai-guard.ts');
 const {
@@ -94,6 +94,7 @@ const {
   PROJECT_KEYS,
   VARIANT_KEYS,
   assistPrompt,
+  buildAssistPrompt,
   cleanSection,
   isAssistTask,
   parseCommand,
@@ -133,6 +134,13 @@ const {
   topicFor,
 } = await load('src/lib/journal-auto.ts');
 const { SLUG } = await load('src/lib/content-schema.ts');
+const {
+  OUTREACH_BANNED,
+  VALIDATORS,
+  repairInstruction,
+  validate: runValidators,
+} = await load('src/lib/assist-validate.ts');
+const { parseFit, scoreFromMarks } = await load('src/lib/job-view.ts');
 const { CodeReadError, ownRepo, safePath } = await load('src/lib/ai-code.ts');
 const {
   ASK_CHATS_KEY,
@@ -1182,7 +1190,7 @@ check('every task belongs to a surface, and each surface has tasks', () => {
   const resume = ASSIST_MENU.filter(entry => entry.surface === 'resume').map(e => e.name);
   assert.ok(journal.includes('compose'), 'the journal lost its headline task');
   assert.ok(!journal.includes('project'), 'a project task is offered in the journal panel');
-  assert.deepEqual(project.sort(), ['casestudy', 'casestudybody', 'project']);
+  assert.deepEqual(project.sort(), ['casestudy', 'casestudybody', 'project', 'projectDiagram', 'projectExplainer']);
   assert.deepEqual(resume.sort(), [
     'resumeBullet',
     'resumeProjects',
@@ -1206,11 +1214,11 @@ check('every task belongs to a surface, and each surface has tasks', () => {
   /* The Jobs screen has an application and the resume, and nothing else — no
      post, no repository. Same argument as the resume's list above. */
   const job = ASSIST_MENU.filter(entry => entry.surface === 'job').map(e => e.name);
-  assert.deepEqual(job.sort(), ['jobFit', 'jobOutreach']);
+  assert.deepEqual(job.sort(), ['jobCover', 'jobFit', 'jobFollowUp', 'jobOutreach', 'jobReply']);
   for (const name of job) {
     for (const field of ASSIST_TASKS[name].context) {
       assert.ok(
-        ['resume', 'jobDescription', 'fit', 'contacts'].includes(field),
+        ['resume', 'jobDescription', 'fit', 'contacts', 'sentDraft', 'received'].includes(field),
         `${name} asks for ${field}, which the Jobs screen does not have`,
       );
     }
@@ -1223,7 +1231,7 @@ check('every live task names a target its own surface can write', () => {
      screen's target would write into fields that are not on the page. */
   const TARGETS = {
     journal: ['document', 'summary', 'body'],
-    project: ['project', 'caseStudy', 'caseStudyBody'],
+    project: ['project', 'caseStudy', 'caseStudyBody', 'explainer'],
     /* One. Everything else the resume assistant does is a proposal about a
        *selection*, and a selection rearranging itself mid-stream is not an edit
        anyone can watch. */
@@ -1246,7 +1254,10 @@ check('every live task names a target its own surface can write', () => {
 
   /* Every project task writes live. There is no Insert on that screen, so one
      that did not would land in a panel with no way to apply it. */
-  for (const name of ['project', 'casestudy', 'casestudybody']) {
+  /* Every project task that writes into the form writes live. The diagram is
+     the exception: its output is Mermaid source, and it lands as a rendered
+     preview with two Insert targets — decision 85. */
+  for (const name of ['project', 'casestudy', 'casestudybody', 'projectExplainer']) {
     assert.ok(ASSIST_TASKS[name].live, `${name} has no live target and no Insert to fall back on`);
   }
 
@@ -1254,7 +1265,7 @@ check('every live task names a target its own surface can write', () => {
      selection rather than a field. Asserted by name: making one of them live
      would typecheck, and the failure would be a form redrawing itself under
      the author for thirty seconds. */
-  for (const name of ['resumeProjects', 'resumeVariant', 'resumeBullet', 'jobOutreach']) {
+  for (const name of ['resumeProjects', 'resumeVariant', 'resumeBullet', 'jobOutreach', 'projectDiagram']) {
     assert.equal(ASSIST_TASKS[name].live, undefined, `${name} must not stream into a field`);
   }
 });
@@ -2283,13 +2294,27 @@ check('a written section is cleaned to exactly its own heading and body', () => 
 });
 
 check('the plan may read the repository and nothing else', () => {
-  assert.equal(ASSIST_TASKS.casestudyplan.lookups, 'repo');
-  const names = toolsFor('assist', { repoAccess: true, readmeGiven: true, repoOnly: true }).map(t => t.function.name);
+  /* A3 replaced `lookups: 'repo'` with a named allowlist. The task names the
+     three repository readers; `read_repo_docs` drops itself when the README is
+     already on the page, and a missing token removes all three. */
+  assert.deepEqual(ASSIST_TASKS.casestudyplan.tools, ['list_repo_files', 'read_repo_docs', 'read_repo_file']);
+  const names = toolsFor('assist', {
+    repoAccess: true,
+    readmeGiven: true,
+    only: new Set(ASSIST_TASKS.casestudyplan.tools),
+  }).map(t => t.function.name);
   assert.deepEqual(names.sort(), ['list_repo_files', 'read_repo_file']);
-  assert.equal(toolsFor('assist', { repoOnly: true }).length, 0, 'no token, no repository tools, and nothing else either');
+  assert.equal(
+    toolsFor('assist', { only: new Set(ASSIST_TASKS.casestudyplan.tools) }).length,
+    0,
+    'no token, no repository tools, and nothing else either',
+  );
   /* Sections look nothing up — the plan's facts are their whole source. */
-  assert.equal(ASSIST_TASKS.casestudysection.lookups, undefined);
+  assert.equal(ASSIST_TASKS.casestudysection.tools, undefined);
   assert.equal(ASSIST_TASKS.casestudysection.needsCorpus, false);
+  /* The explainer and the diagram are both repository-only readers too. */
+  assert.deepEqual(ASSIST_TASKS.projectExplainer.tools, ['list_repo_files', 'read_repo_docs', 'read_repo_file']);
+  assert.deepEqual(ASSIST_TASKS.projectDiagram.tools, ['list_repo_files', 'read_repo_docs', 'read_repo_file']);
 });
 
 /* ---------- 11. commands ---------- */
@@ -4993,6 +5018,455 @@ check('a stored case-study run is re-derived, and garbage is nothing to resume',
   assert.equal(kept.sections[1].length, 12_000);
   assert.equal(kept.instruction.length, 2000);
   assert.ok(!('evil' in kept));
+});
+
+/* ---------- phase 1: validators, the repair round and the allowlist ---------- */
+
+const SHAPE = {
+  labels: ['TITLE', 'SUMMARY', 'BODY'],
+  required: ['TITLE', 'SUMMARY'],
+  tail: 'BODY',
+};
+
+check('every validator has a passing and a failing answer', () => {
+  /* shape */
+  assert.deepEqual(runValidators(['shape'], 'TITLE: A post\nSUMMARY: One line\nBODY:\nText', { shape: SHAPE }), []);
+  assert.equal(runValidators(['shape'], 'Here is a post about caching.', { shape: SHAPE })[0].code, 'shape');
+  assert.equal(
+    runValidators(['shape'], 'TITLE:\nSUMMARY: One line\nBODY:\nText', { shape: SHAPE }).length,
+    1,
+    'a required label with no value is a finding',
+  );
+
+  /* flowShape */
+  const flow = 'PLAIN: It reads a repository.\nFLOW:\nRead the repo | The README and the tree\nDraft | The form fills in\nSave | The owner presses the button';
+  assert.deepEqual(runValidators(['flowShape'], flow, {}), []);
+  assert.equal(runValidators(['flowShape'], 'PLAIN: x', {})[0].code, 'flowShape');
+  assert.equal(
+    runValidators(['flowShape'], 'FLOW:\nOne | a\nTwo | b', {})[0].code,
+    'flowShape',
+    'fewer than three steps',
+  );
+  assert.equal(
+    runValidators(['flowShape'], 'FLOW:\nOne | a\nTwo | b\nThree\nFour | d', {})[0].code,
+    'flowShape',
+    'a step with no separator',
+  );
+
+  /* slugsExist */
+  const cited = 'pinned-skills — a project\nother-project — another';
+  assert.deepEqual(runValidators(['slugsExist'], cited, { slugs: ['pinned-skills', 'other-project'] }), []);
+  const invented = runValidators(['slugsExist'], cited, { slugs: ['pinned-skills'] });
+  assert.equal(invented[0].code, 'slugsExist');
+  assert.match(invented[0].message, /other-project/);
+  assert.deepEqual(
+    runValidators(['slugsExist'], 'The python tooling is described here.', { slugs: [] }),
+    [],
+    'a slug-shaped word in prose is not a citation',
+  );
+
+  /* mermaidLint */
+  const diagram = '```mermaid\nflowchart LR\n  A[Start] --> B[Done]\n```';
+  assert.deepEqual(runValidators(['mermaidLint'], diagram, {}), []);
+  assert.equal(runValidators(['mermaidLint'], 'no fence here', {})[0].code, 'mermaidLint');
+  assert.equal(
+    runValidators(['mermaidLint'], '```mermaid\nnotADiagram\n A-->B\n```', {})[0].code,
+    'mermaidLint',
+    'unknown diagram type',
+  );
+  assert.equal(
+    runValidators(['mermaidLint'], `\`\`\`mermaid\nflowchart LR\n${Array.from({ length: 14 }, (_, i) => `  N${i}[Node ${i}] --> N${i + 1}[Node ${i + 1}]`).join('\n')}\n\`\`\``, {})[0].code,
+    'mermaidLint',
+    'more than twelve nodes',
+  );
+  assert.equal(
+    runValidators(['mermaidLint'], '```mermaid\nflowchart LR\n  A[Start --> B[Done]\n```', {})[0].code,
+    'mermaidLint',
+    'unbalanced brackets',
+  );
+
+  /* fitShape / fitScore */
+  const fit = [
+    '**Verdict:** Reasonable — close enough to try.',
+    '**Score:** 6/10',
+    '',
+    '### Must-haves',
+    '- ✅ **Python** — three roles use it',
+    '- ❌ **Kubernetes** — nothing in the record',
+    '',
+    '### Nice-to-haves',
+    '- ⚠️ **Go** — adjacent systems work',
+  ].join('\n');
+  assert.deepEqual(runValidators(['fitShape'], fit, {}), []);
+  assert.deepEqual(runValidators(['fitScore'], fit, { expectedScore: scoreFromMarks(parseFit(fit)) }), []);
+  const disagreeing = runValidators(['fitScore'], fit, { expectedScore: 2 });
+  assert.equal(disagreeing[0].code, 'fitScore');
+  assert.equal(disagreeing[0].repairable, false, 'a score is reported, never repaired');
+  assert.equal(runValidators(['fitShape'], 'A paragraph, not an assessment.', {})[0].code, 'fitShape');
+  assert.equal(
+    runValidators(['fitShape'], '**Score:** 6/10\n### Must-haves\n- ✅ **Python** — thing', {}).some(f => f.code === 'fitShape'),
+    false,
+  );
+
+  /* channelLimit — a note is characters, an email has a Subject line */
+  const note = 'First version.\n\n---\n\nSecond version.';
+  assert.deepEqual(runValidators(['channelLimit'], note, { channel: { limit: 200, unit: 'characters', expect: 2 } }), []);
+  const over = runValidators(['channelLimit'], `${'x'.repeat(201)}\n\n---\n\nok`, {
+    channel: { limit: 200, unit: 'characters', expect: 2 },
+  });
+  assert.equal(over[0].code, 'channelLimit');
+  assert.match(over[0].message, /201 characters/);
+  const one = runValidators(['channelLimit'], 'Only one.', {
+    channel: { limit: 200, unit: 'characters', expect: 2 },
+  });
+  assert.equal(one[0].code, 'channelLimit', 'not exactly two versions');
+  const email = runValidators(['channelLimit'], 'Hello there.\n\n---\n\nSubject: Hi\n\nHello.', {
+    channel: { limit: 150, unit: 'words', expect: 2, subject: true },
+  });
+  assert.equal(email[0].code, 'channelLimit', 'an email with no Subject line');
+
+  /* banned */
+  assert.deepEqual(runValidators(['banned'], 'Direct and specific.', { banned: OUTREACH_BANNED }), []);
+  assert.equal(runValidators(['banned'], 'Great news!', { banned: OUTREACH_BANNED })[0].code, 'banned');
+  assert.equal(
+    runValidators(['banned'], 'I hope this finds you well.', { banned: OUTREACH_BANNED })[0].code,
+    'banned',
+  );
+
+  /* hasFigure */
+  const wall = `## A section\n\n${'word '.repeat(300)}`;
+  assert.equal(runValidators(['hasFigure'], wall, {})[0].code, 'hasFigure');
+  assert.deepEqual(runValidators(['hasFigure'], `${wall}\n\n- a list item\n- another`, {}), []);
+  assert.deepEqual(runValidators(['hasFigure'], '## Short\n\nA few words.', {}), []);
+
+  /* truncated */
+  assert.equal(runValidators(['truncated'], 'anything', { stopReason: 'length' })[0].code, 'truncated');
+  assert.equal(runValidators(['truncated'], 'anything', { stopReason: 'length' })[0].repairable, false);
+  assert.deepEqual(runValidators(['truncated'], 'anything', { stopReason: 'stop' }), []);
+});
+
+check('repairInstruction names every failing code', () => {
+  const text = repairInstruction([
+    { code: 'shape', message: 'No labels.', repairable: true },
+    { code: 'channelLimit', message: 'Too long.', repairable: true },
+  ]);
+  assert.match(text, /shape/);
+  assert.match(text, /channelLimit/);
+  assert.match(text, /No labels\./);
+});
+
+check('the validator table is closed and every task names only real rules', () => {
+  assert.deepEqual(
+    Object.keys(VALIDATORS).sort(),
+    ['banned', 'channelLimit', 'fitScore', 'fitShape', 'flowShape', 'hasFigure', 'mermaidLint', 'shape', 'slugsExist', 'truncated'],
+  );
+  for (const [name, task] of Object.entries(ASSIST_TASKS)) {
+    for (const rule of task.validators ?? []) {
+      assert.ok(VALIDATORS[rule], `${name} names an unknown validator: ${rule}`);
+    }
+  }
+});
+
+/* ---------- A3: an allowlist can only narrow ---------- */
+
+check('a task allowlist cannot add a tool its surface does not have', () => {
+  assert.deepEqual(
+    TOOL_NAMES.slice().sort(),
+    TOOL_SPECS.map(spec => spec.name).sort(),
+    'TOOL_NAMES and TOOL_SPECS must name the same tools',
+  );
+  const withRepo = toolsFor('assist', { repoAccess: true, only: new Set(['read_post', 'read_repo_file']) });
+  assert.deepEqual(withRepo.map(tool => tool.function.name), ['read_post', 'read_repo_file']);
+  const withoutRepo = toolsFor('assist', { only: new Set(['read_post', 'read_repo_file']) });
+  assert.deepEqual(withoutRepo.map(tool => tool.function.name), ['read_post']);
+  assert.deepEqual(toolsFor('assist', { only: new Set(['not_a_tool']) }), []);
+  /* A chat-only surface does not gain an assist-only tool by naming it. */
+  assert.deepEqual(toolsFor('chat', { only: new Set(['list_repo_files']) }), []);
+});
+
+check('every task tool name is real, and a repository reader still needs a token', () => {
+  for (const [name, task] of Object.entries(ASSIST_TASKS)) {
+    for (const tool of task.tools ?? []) {
+      assert.ok(TOOL_NAMES.includes(tool), `${name} names an unknown tool: ${tool}`);
+    }
+  }
+  assert.deepEqual(ASSIST_TASKS.casestudyplan.tools, ['list_repo_files', 'read_repo_docs', 'read_repo_file']);
+  assert.deepEqual(ASSIST_TASKS.jobFit.tools, ['search_content', 'read_project', 'read_case_study', 'read_resume']);
+  const repoOnly = toolsFor('assist', { only: new Set(ASSIST_TASKS.casestudyplan.tools) });
+  assert.deepEqual(repoOnly, [], 'no token means no repository readers');
+});
+
+/* ---------- A4: the context manifest ---------- */
+
+check('the manifest reports what was carried, and what the cap cut', () => {
+  const { manifest } = buildAssistPrompt(ASSIST_TASKS.project, {
+    ownerName: 'Anish',
+    context: { readme: 'r'.repeat(9000), title: 'T' },
+    instruction: '',
+    corpus: '',
+    persona: '',
+  });
+  const readme = manifest.find(part => part.field === 'readme');
+  assert.equal(readme.chars, 8000);
+  assert.equal(readme.capped, true);
+  assert.ok(manifest.some(part => part.part === 'system'));
+  assert.ok(manifest.some(part => part.field === 'title' && part.capped === false));
+});
+
+await checkAsync('the public channel drops the manifest and the harness verdicts', async () => {
+  const source = (async function* () {
+    yield { context: [{ part: 'system', chars: 10, capped: false }] };
+    yield { repaired: ['shape'] };
+    yield { findings: ['fitScore'] };
+    yield { delta: 'answer' };
+    yield { done: true };
+  })();
+  const frames = [];
+  for await (const frame of forPublic(source)) frames.push(frame);
+  assert.deepEqual(frames, [{ delta: 'answer' }, { done: true }]);
+});
+
+/* ---------- A2: one repair round ---------- */
+
+const sseAnswer = text =>
+  `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n` +
+  'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n' +
+  'data: [DONE]\n\n';
+
+const streamRun = async (first, validate, call = {}) => {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(first));
+      controller.close();
+    },
+  });
+  const stream = agentStream({
+    first: { response: new Response(body, { status: 200 }), provider: row() },
+    which: 'assist',
+    call: { maxTokens: 64, deadline: Date.now() + 5000, stream: true, ...call },
+    messages: [{ role: 'user', content: 'write it' }],
+    runTool: async () => ({ ok: true, text: '', detail: '' }),
+    validate,
+  });
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let raw = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    raw += decoder.decode(value, { stream: true });
+  }
+  return raw
+    .split('\n')
+    .filter(Boolean)
+    .map(line => JSON.parse(line));
+};
+
+await checkAsync('a failing answer is sent back exactly once, and the correction replaces it', async () => {
+  const real = globalThis.fetch;
+  const bodies = [];
+  globalThis.fetch = async (_, init) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(sseAnswer('TITLE: Fixed\nSUMMARY: One line\nBODY:\nCorrected.'), { status: 200 });
+  };
+  let answer = '';
+  try {
+    const frames = await streamRun(sseAnswer('A paragraph with no labels.'), text => {
+      answer = text;
+      return runValidators(['shape'], text, { shape: SHAPE });
+    });
+    assert.equal(bodies.length, 1, 'exactly one repair round');
+    assert.ok(!('tools' in bodies[0]), 'the repair round carries no tools');
+    assert.deepEqual(frames.find(frame => frame.repaired), { repaired: ['shape'] });
+    const repairedIndex = frames.findIndex(frame => frame.repaired);
+    const firstDelta = frames.findIndex(frame => frame.delta);
+    const doneIndex = frames.findIndex(frame => frame.done);
+    assert.ok(firstDelta !== -1 && firstDelta < repairedIndex, 'the first answer streams before the marker');
+    assert.ok(repairedIndex < doneIndex);
+    assert.ok(
+      frames.slice(repairedIndex).some(frame => frame.delta?.includes('TITLE: Fixed')),
+      'the corrected answer streams after the marker',
+    );
+    assert.equal(answer, 'TITLE: Fixed\nSUMMARY: One line\nBODY:\nCorrected.');
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+/** What a client does with the frames: reset on repaired, append on delta. */
+const accumulator = frames => {
+  let text = '';
+  for (const frame of frames) {
+    if (frame.repaired) text = '';
+    if (typeof frame.delta === 'string') text += frame.delta;
+  }
+  return text;
+};
+
+const FIRST_ANSWER = 'A paragraph with no labels.';
+
+await checkAsync('a repair that answers 500 leaves the first answer standing', async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => new Response('{"error":{"message":"boom"}}', { status: 500 });
+  try {
+    const frames = await streamRun(sseAnswer(FIRST_ANSWER), text =>
+      runValidators(['shape'], text, { shape: SHAPE }),
+    );
+    assert.ok(!frames.some(frame => frame.repaired), 'no marker when no correction arrived');
+    assert.deepEqual(frames.find(frame => frame.findings), { findings: ['shape'] });
+    assert.equal(accumulator(frames), FIRST_ANSWER, 'the client keeps the first answer');
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+await checkAsync('a repair that streams no delta leaves the first answer standing', async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = async () => new Response('', { status: 200 });
+  try {
+    const frames = await streamRun(sseAnswer(FIRST_ANSWER), text =>
+      runValidators(['shape'], text, { shape: SHAPE }),
+    );
+    assert.ok(!frames.some(frame => frame.repaired), 'no marker when no delta arrived');
+    assert.deepEqual(frames.find(frame => frame.findings), { findings: ['shape'] });
+    assert.equal(accumulator(frames), FIRST_ANSWER, 'the client keeps the first answer');
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+await checkAsync('an answer that passes buys no extra round', async () => {
+  const real = globalThis.fetch;
+  let called = 0;
+  globalThis.fetch = async () => {
+    called += 1;
+    return new Response(sseAnswer('unexpected'), { status: 200 });
+  };
+  try {
+    const frames = await streamRun(sseAnswer('TITLE: Fine\nSUMMARY: Fine\nBODY:\nFine.'), text =>
+      runValidators(['shape'], text, { shape: SHAPE }),
+    );
+    assert.equal(called, 0);
+    assert.ok(!frames.some(frame => frame.repaired));
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+await checkAsync('a correction that still fails is reported rather than looped', async () => {
+  const real = globalThis.fetch;
+  let called = 0;
+  globalThis.fetch = async () => {
+    called += 1;
+    return new Response(sseAnswer('Still not labelled.'), { status: 200 });
+  };
+  try {
+    const frames = await streamRun(sseAnswer('Not labelled.'), text =>
+      runValidators(['shape'], text, { shape: SHAPE }),
+    );
+    assert.equal(called, 1, 'one repair, never two');
+    assert.deepEqual(frames.find(frame => frame.findings), { findings: ['shape'] });
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+await checkAsync('the run deadline bounds the repair round', async () => {
+  const real = globalThis.fetch;
+  let called = 0;
+  globalThis.fetch = async () => {
+    called += 1;
+    return new Response(sseAnswer('TITLE: Fixed'), { status: 200 });
+  };
+  try {
+    const frames = await streamRun(
+      sseAnswer('Not labelled.'),
+      text => runValidators(['shape'], text, { shape: SHAPE }),
+      { deadline: Date.now() - 1 },
+    );
+    assert.equal(called, 0, 'an expired run does not start another round');
+    assert.ok(!frames.some(frame => frame.repaired));
+    assert.deepEqual(frames.find(frame => frame.findings), { findings: ['shape'] });
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+await checkAsync('a non-streamed run repairs once as well', async () => {
+  const real = globalThis.fetch;
+  const replies = ['Not labelled.', 'TITLE: Fixed\nSUMMARY: One line\nBODY:\nCorrected.'];
+  let call = 0;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        choices: [{ message: { content: replies[Math.min(call++, replies.length - 1)] }, finish_reason: 'stop' }],
+      }),
+      { status: 200 },
+    );
+  try {
+    const done = await agentComplete({
+      providers: [row()],
+      which: 'assist',
+      call: { maxTokens: 64, deadline: Date.now() + 5000, stream: false },
+      messages: [{ role: 'user', content: 'write it' }],
+      runTool: async () => ({ ok: true, text: '', detail: '' }),
+      validate: text => runValidators(['shape'], text, { shape: SHAPE }),
+    });
+    assert.equal(call, 2, 'first answer plus one repair');
+    assert.deepEqual(done.repaired, ['shape']);
+    assert.match(done.text, /TITLE: Fixed/);
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+await checkAsync('a non-streamed repair that fails keeps the first answer', async () => {
+  const real = globalThis.fetch;
+  const first = JSON.stringify({
+    choices: [{ message: { content: 'Not labelled.', reasoning: 'first thought' }, finish_reason: 'stop' }],
+  });
+  const scenarios = [
+    ['a 500', () => new Response('{"error":{"message":"boom"}}', { status: 500 })],
+    [
+      'empty content',
+      () =>
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: '', reasoning: 'second thought' }, finish_reason: 'length' }],
+          }),
+          { status: 200 },
+        ),
+    ],
+    [
+      'an error body',
+      () =>
+        new Response(JSON.stringify({ error: { message: 'refused' } }), {
+          status: 200,
+        }),
+    ],
+  ];
+  try {
+    for (const [name, repair] of scenarios) {
+      let call = 0;
+      globalThis.fetch = async () => (call++ === 0 ? new Response(first, { status: 200 }) : repair());
+      const done = await agentComplete({
+        providers: [row()],
+        which: 'assist',
+        call: { maxTokens: 64, deadline: Date.now() + 5000, stream: false },
+        messages: [{ role: 'user', content: 'write it' }],
+        runTool: async () => ({ ok: true, text: '', detail: '' }),
+        validate: text => runValidators(['shape'], text, { shape: SHAPE }),
+      });
+      assert.equal(done.text, 'Not labelled.', `${name}: the first text stands`);
+      assert.equal(done.reasoning, 'first thought', `${name}: the first reasoning stands`);
+      assert.equal(done.stopReason, 'stop', `${name}: the first finish reason stands`);
+      assert.equal(done.repaired, undefined, `${name}: no repair is announced`);
+      assert.deepEqual(done.findings, ['shape'], `${name}: the finding is reported`);
+    }
+  } finally {
+    globalThis.fetch = real;
+  }
 });
 
 process.stdout.write(`\nai: ${checks} checks passed\n`);

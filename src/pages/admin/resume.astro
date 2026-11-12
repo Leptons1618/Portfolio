@@ -1608,6 +1608,12 @@ const seed = {
             },
             onTool: frame => turn.tool(frame),
             onUsage: frame => turn.usage(frame),
+            onContext: parts => turn.context(parts),
+            onRepaired: codes => {
+              raw = '';
+              turn.note(`Repaired: ${codes.join(', ')}`);
+            },
+            onFindings: codes => turn.note(`Still failing: ${codes.join(', ')}`, 'error'),
           },
           controller.signal,
           /* The last entry is the message this call is *about*, and the route

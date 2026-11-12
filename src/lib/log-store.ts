@@ -91,3 +91,43 @@ export function reportFault(message: string, context: string): void {
     /* A fault about a fault is where this stops. */
   });
 }
+
+/** What the owner did with a run's output — decision 84, A5. */
+export type FeedbackOutcome = 'undone' | 'retried' | 'kept' | 'kept-edited';
+
+let feedbackFiled = 0;
+const FEEDBACK_CAP = 20;
+
+/**
+ * Record what the owner did with one run, as one bounded log row.
+ *
+ * Undo, Try again and "saved while the output was still in the field" are the
+ * only quality labels this system will ever get for free, and none of them was
+ * being kept. No text is stored: the task, the model, the effort and the
+ * outcome, plus the validators' codes when a repair fired. Capped per page view
+ * like `reportFault()` — this is a signal, not an audit trail.
+ */
+export function reportFeedback(
+  task: string,
+  model: string,
+  outcome: FeedbackOutcome,
+  codes: string[] = [],
+  effort = '',
+): void {
+  if (feedbackFiled >= FEEDBACK_CAP || !getToken()) return;
+  feedbackFiled += 1;
+  void call('/api/logs', {
+    method: 'POST',
+    body: JSON.stringify({
+      feedback: {
+        task: task.slice(0, 40),
+        model: model.slice(0, 80),
+        effort: effort.slice(0, 12),
+        outcome,
+        codes: codes.slice(0, 8).map(code => String(code).slice(0, 40)),
+      },
+    }),
+  }).catch(() => {
+    /* Feedback is never worth a second failure. */
+  });
+}

@@ -121,6 +121,27 @@ check('an application takes its kept outreach drafts as text', () => {
   throws(() => bind('projects', { outreach: markdown }));
 });
 
+check('a project takes its structured explainer, and nothing else does', () => {
+  // Decision 85. `plain` is text; `flow` and `gallery` are "a | b" lists, the
+  // same encoder `metrics` and `links` use.
+  const { columns, values } = bind('projects', {
+    plain: 'It reads a repository and writes the summary.',
+    flow: ['Read the repo | The README and the tree', 'Draft | The form fills in'],
+    gallery: ['/media/images/shot.png | The editor'],
+  });
+  assert.deepEqual(columns, ['plain', 'flow', 'gallery']);
+  assert.deepEqual(values, [
+    'It reads a repository and writes the summary.',
+    '["Read the repo | The README and the tree","Draft | The form fills in"]',
+    '["/media/images/shot.png | The editor"]',
+  ]);
+  // Cleared values follow the same rules as every other column.
+  assert.deepEqual(bind('projects', { plain: '', flow: [], gallery: [] }).values, [null, '[]', '[]']);
+  // They are project fields, not another table's.
+  throws(() => bind('case_studies', { flow: ['x'] }));
+  throws(() => bind('journal', { gallery: ['/media/x.png'] }));
+});
+
 check('a SQL fragment as a key is refused', () => {
   throws(() => bind('projects', { 'title = 1; DROP TABLE projects; --': 'x' }));
 });

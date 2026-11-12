@@ -498,6 +498,30 @@ export interface StreamHandlers {
   onUsage?: (usage: UsageFrame) => void;
   /** Why the generation ended, when upstream said. `length` means truncated. */
   onDone?: (stopReason?: string) => void;
+  /**
+   * The harness sent the answer back once because it failed a rule.
+   *
+   * The correction that follows *replaces* the first answer, so anything
+   * accumulating deltas must clear what it holds here — `readStream` resets its
+   * own buffer, and a caller that renders while streaming resets its local one.
+   * `codes` names the rules that fired.
+   */
+  onRepaired?: (codes: string[]) => void;
+  /**
+   * The harness found something it could not repair, or a note it wants the
+   * reader to see. Never a failure: the answer is still offered.
+   */
+  onFindings?: (codes: string[]) => void;
+  /** What the run carried, in numbers. See `ManifestPart` in `assist-tasks.ts`. */
+  onContext?: (parts: ManifestPart[]) => void;
+}
+
+/** The shape `assistPrompt` reports for one part of a run's context. */
+export interface ManifestPart {
+  part: 'system' | 'index' | 'context' | 'history' | 'steer';
+  field?: string;
+  chars: number;
+  capped: boolean;
 }
 
 /**
@@ -548,6 +572,9 @@ export async function readStream(response: Response, handlers: StreamHandlers): 
         error?: string;
         done?: boolean;
         stopReason?: string;
+        repaired?: string[];
+        findings?: string[];
+        context?: ManifestPart[];
       };
       try {
         frame = JSON.parse(raw);
@@ -560,6 +587,14 @@ export async function readStream(response: Response, handlers: StreamHandlers): 
       if (frame.usage) {
         handlers.onUsage?.(frame.model ? { ...frame.usage, model: frame.model } : frame.usage);
       }
+      if (frame.context) handlers.onContext?.(frame.context);
+      if (frame.repaired) {
+        /* The correction replaces the answer: drop what the first round put in
+           the buffer so the returned text is what will actually be kept. */
+        text = '';
+        handlers.onRepaired?.(frame.repaired);
+      }
+      if (frame.findings) handlers.onFindings?.(frame.findings);
       if (frame.delta) {
         text += frame.delta;
         handlers.onDelta(frame.delta);

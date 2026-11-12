@@ -78,6 +78,7 @@ import {
   type ReasoningEffort,
 } from './ai-catalog';
 import { site } from './site';
+import { repairInstruction, type Finding } from './assist-validate';
 
 /* ---------- settings ---------- */
 
@@ -1993,6 +1994,27 @@ export interface AgentOptions {
    * switch. Callers never set it.
    */
   summary?: RunSummary;
+  /**
+   * The answer's own checks, run once before it is offered.
+   *
+   * Given the finish reason as well as the text because one rule —
+   * `truncated` — is about how the generation ended rather than what it said.
+   * A repairable finding buys exactly one more round, sent with no tools and
+   * on the answer round's clock; a non-repairable one is reported and changes
+   * nothing. The callers that pass this are the owner's authoring surfaces;
+   * the public chat passes nothing, because a stranger's budget is not a place
+   * to spend a second guess.
+   */
+  validate?: (answer: string, stopReason: string) => Finding[];
+  /**
+   * One frame emitted before the first delta.
+   *
+   * The authoring route uses it for the context manifest — what the run
+   * carried, in numbers. It is a field rather than an extra JSON line written
+   * by the route so it goes through the same stream, and `forPublic()` can drop
+   * it by name.
+   */
+  context?: unknown;
 }
 
 /**
@@ -2017,6 +2039,14 @@ export interface RunSummary {
   /** The `error` frame's text, or the message of a throw. */
   error?: string;
   usage?: TokenUsage;
+  /**
+   * Per tool: calls, milliseconds spent, errors, and result characters.
+   *
+   * The denominator A6's per-model table needed. A run with lookups said only
+   * *how many* there were; this says which ones, what they cost and whether
+   * they worked, without keeping a character of what they returned.
+   */
+  tools?: Record<string, { calls: number; ms: number; errors: number; chars: number }>;
   answer: string;
 }
 
@@ -2068,6 +2098,7 @@ export function agentStream(options: AgentOptions): ReadableStream<Uint8Array> {
      thing both paths agree the frame protocol is. */
   const lines =
     !options.call.tools?.length &&
+    !options.validate &&
     options.first.response.body &&
     !retryFor(options.first.provider, options.which, options.call)
       ? sseLines(
@@ -2078,7 +2109,14 @@ export function agentStream(options: AgentOptions): ReadableStream<Uint8Array> {
         )
       : agentLines({ ...options, summary });
   const counted = options.onEnd ? tallied(lines, summary, options.onEnd) : lines;
-  return linesToStream(options.public ? forPublic(counted) : counted);
+  const framed = options.context === undefined ? counted : prefixed({ context: options.context }, counted);
+  return linesToStream(options.public ? forPublic(framed) : framed);
+}
+
+/** One frame, then the stream as it was. */
+async function* prefixed(frame: unknown, lines: AsyncGenerator<unknown>): AsyncGenerator<unknown> {
+  yield frame;
+  yield* lines;
 }
 
 /** What a visitor is told when a run fails; the reason is in the log row. */
@@ -2098,8 +2136,21 @@ export const PUBLIC_FAILURE = 'The assistant could not answer just now. Please t
 export async function* forPublic(lines: AsyncGenerator<unknown>): AsyncGenerator<unknown> {
   let thought = false;
   for await (const frame of lines) {
-    const f = frame as { thinking?: string; error?: string; tool?: Record<string, unknown>; usage?: unknown };
-    if (f.usage) continue;
+    const f = frame as {
+      thinking?: string;
+      error?: string;
+      tool?: Record<string, unknown>;
+      usage?: unknown;
+      context?: unknown;
+      repaired?: unknown;
+      findings?: unknown;
+    };
+    /* Usage, the context manifest, and the harness's own verdicts are the
+       owner's business. The public assistant is not offered validators, so the
+       last two should never appear here — dropping them anyway is what keeps
+       a future caller from leaking them by forgetting which surface it is on.
+       `check:ai` pins this list. */
+    if (f.usage || f.context || f.repaired || f.findings) continue;
     if (typeof f.thinking === 'string') {
       if (!thought) yield { phase: 'thinking' };
       thought = true;
@@ -2135,6 +2186,7 @@ export function runReport(
     answerChars: summary.answerChars,
     thinkingChars: summary.thinkingChars,
     stopReason: summary.stopReason,
+    ...(summary.tools ? { tools: summary.tools } : {}),
     ...(summary.usage ? { usage: summary.usage } : {}),
   };
   if (summary.error) return { level: 'error', outcome: summary.error, detail };
@@ -2161,16 +2213,39 @@ async function* tallied(
       const f = frame as {
         delta?: string;
         thinking?: string;
-        tool?: { status?: string };
+        tool?: { status?: string; name?: string; ms?: number; chars?: number };
         error?: string;
         stopReason?: string;
         usage?: TokenUsage;
+        repaired?: string[];
       };
+      /* A repair round replaces the answer rather than adding to it: the first
+         answer was already written into a field, and the correction is the
+         whole new value. Resetting here is what keeps the log row's `answer`
+         (which the route shape-checks) and the reader's count honest. */
+      if (f.repaired) {
+        summary.answer = '';
+        summary.answerChars = 0;
+        summary.stopReason = '';
+      }
       if (typeof f.delta === 'string') {
         summary.answerChars += f.delta.length;
         summary.answer += f.delta;
       } else if (typeof f.thinking === 'string') summary.thinkingChars += f.thinking.length;
-      else if (f.tool?.status === 'running') summary.lookups += 1;
+      else if (f.tool?.status === 'running') {
+        summary.lookups += 1;
+        const name = f.tool.name ?? 'tool';
+        const tally = (summary.tools ??= {});
+        const entry = (tally[name] ??= { calls: 0, ms: 0, errors: 0, chars: 0 });
+        entry.calls += 1;
+      } else if (f.tool && (f.tool.status === 'done' || f.tool.status === 'error')) {
+        const name = f.tool.name ?? 'tool';
+        const tally = (summary.tools ??= {});
+        const entry = (tally[name] ??= { calls: 0, ms: 0, errors: 0, chars: 0 });
+        entry.ms += f.tool.ms ?? 0;
+        if (f.tool.status === 'error') entry.errors += 1;
+        entry.chars += f.tool.chars ?? 0;
+      }
       else if (typeof f.error === 'string') summary.error = f.error;
       else if (f.usage) summary.usage = addUsage(summary.usage, f.usage);
       if (typeof f.stopReason === 'string') summary.stopReason = f.stopReason;
@@ -2213,6 +2288,10 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
   let nudged = false;
   let spent = 0;
   let stopReason = '';
+  /* The answer round's text, kept past the loop so `validate` can read it.
+     Only a round that ended the run without an error sets it — there is
+     nothing to repair about a run that was already told how it failed. */
+  let lastAnswer = '';
   /* Withdrawn rather than refused, once the budget is gone.
 
      Telling a model it is out of lookups and then handing it the tools again
@@ -2354,7 +2433,10 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
       }
     }
 
-    if (!asked.length) break;
+    if (!asked.length) {
+      lastAnswer = said;
+      break;
+    }
 
     /* `tool_calls` is a stop reason, not a truncation. Carrying it into the
        `done` frame would have every surface report a complete answer as having
@@ -2367,7 +2449,10 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
        nothing another round could add, so what it has already said is the
        answer. This is the termination guarantee: the loop cannot continue
        without tools, and the two budgets are the only things that grant them. */
-    if (!call.tools?.length) break;
+    if (!call.tools?.length) {
+      lastAnswer = said;
+      break;
+    }
 
     /* Two ways to be out of lookups, and they end the same way. The round
        count is the model asking too many times; the deadline is the run having
@@ -2465,6 +2550,9 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
           status: outcome.ok ? 'done' : 'error',
           detail: outcome.detail,
           ms: Date.now() - started,
+          /* The size of what the model was handed — a count, never the text.
+             The panel's preview is capped at 600; this is the whole result. */
+          chars: outcome.text.length,
           /* The beginning of what the lookup returned, for the reader watching
              the panel. The whole text is what the model was handed; this is
              capped because it is a UI affordance, not a second copy of the
@@ -2514,6 +2602,84 @@ async function* agentLines(options: AgentOptions): AsyncGenerator<unknown> {
       call.tools?.length ? call : answerCall(call),
       provider,
     );
+  }
+
+  /* One repair round, and only one.
+   *
+   * The loop above ends when the model stops, which is the one thing it never
+   * asked afterwards: whether the answer was any good. A repairable finding —
+   * an unrecognised field shape, an over-limit note — is sent back once, with
+   * no tools, and whatever comes back is the answer. It is the `nudged` rule
+   * again (once per run, same clock, never a third attempt), and it is a
+   * `user` turn rather than a second task so the model sees its own answer.
+   *
+   * The first answer has already streamed into the editor, so the repair
+   * *replaces* what the reader holds: `repaired` tells every client to reset
+   * its accumulator, and the following deltas are the whole new value. */
+  if (options.validate && lastAnswer.trim()) {
+    const findings = options.validate(lastAnswer, stopReason);
+    const repairable = findings.filter(item => item.repairable);
+
+    if (repairable.length && timeLeft(options.call.deadline) > 0) {
+      if (options.summary) options.summary.rounds += 1;
+      messages.push({ role: 'assistant', content: lastAnswer });
+      messages.push({ role: 'user', content: repairInstruction(repairable) });
+
+      /* No tools, and the answer round's own clock — a repair that may still
+         look something up is a second run rather than a correction. */
+      const { tools: _withdrawn, ...noTools } = call;
+      const firstStop = stopReason;
+      let announced = false;
+      try {
+        const response = await nextRound(messages, which, answerCall(noTools), provider);
+        if (response.body) {
+          stopReason = '';
+          let corrected = '';
+          for await (const event of sseEvents(response.body, thinkBudget)) {
+            if (event.kind === 'stop') {
+              stopReason = event.reason;
+              continue;
+            }
+            if (event.kind === 'delta') {
+              /* The marker goes out with the correction's first delta, never
+                 before it: a client resets its accumulator on this frame, and a
+                 repair that fails to answer must leave the first answer in the
+                 field rather than blanking it. */
+              if (!announced) {
+                announced = true;
+                yield { repaired: repairable.map(item => item.code) };
+              }
+              corrected += event.text;
+            }
+            const frame = frameFor(event, provider);
+            if (frame) yield frame;
+          }
+          if (announced) {
+            const still = options.validate(corrected, stopReason);
+            if (still.length) yield { findings: still.map(item => item.code) };
+          } else {
+            /* Nothing arrived. The first answer is still what the reader
+               holds, and the finding is reported instead of a replacement. */
+            stopReason = firstStop;
+            yield { findings: repairable.map(item => item.code) };
+          }
+        } else {
+          stopReason = firstStop;
+          yield { findings: repairable.map(item => item.code) };
+        }
+      } catch {
+        /* The correction failed; the first answer is still the owner's to
+           read. Reported as the finding it was, not as a failed run. */
+        if (!announced) {
+          stopReason = firstStop;
+          yield { findings: repairable.map(item => item.code) };
+        }
+      }
+    } else if (findings.length) {
+      /* Nothing to repair — a truncation, or a score the marks disagree with.
+         Named so the panel can say so, and the run still succeeds. */
+      yield { findings: findings.map(item => item.code) };
+    }
   }
 
   yield stopReason ? { done: true, stopReason } : { done: true };
@@ -2731,6 +2897,12 @@ export interface Completion {
   model: string;
   /** Token counts, when the vendor's body carried them. Never sent for; only read. */
   usage?: TokenUsage;
+  /** The finding codes the one repair round was sent for, when it ran. */
+  repaired?: string[];
+  /** Finding codes still standing after validation, repairable or not. */
+  findings?: string[];
+  /** Per tool: calls, milliseconds, errors and result characters. */
+  tools?: Record<string, { calls: number; ms: number; errors: number; chars: number }>;
 }
 
 /** Token counts a vendor reports back. Read where present, never requested. */
@@ -2842,6 +3014,7 @@ export async function agentComplete(
   let nudged = false;
   let spent = 0;
   let usage: TokenUsage | undefined;
+  const tools: Record<string, { calls: number; ms: number; errors: number; chars: number }> = {};
 
   for (let round = 0; ; round += 1) {
     const armed = Boolean(call.tools?.length);
@@ -2914,14 +3087,71 @@ export async function agentComplete(
       const split = thinkStripper();
       const a = split.split(content);
       const b = split.flush();
+      let text = a.text + b.text;
+      let reasoningText = reasoning + a.reasoning + b.reasoning;
+      let finish = choice?.finish_reason ?? '';
+      let repaired: string[] | undefined;
+      let findings: string[] | undefined;
+
+      /* The same one repair round as the streamed loop, for the callers that
+         have no reader to stream to — the daily job and `eval:ai`. The job
+         does not pass `validate` (a failed step is already its unit of retry),
+         so this is the script's path. */
+      if (options.validate) {
+        const first = options.validate(text, finish);
+        const repairable = first.filter(item => item.repairable);
+        if (repairable.length && timeLeft(options.call.deadline) > 0) {
+          messages.push({ role: 'assistant', content });
+          messages.push({ role: 'user', content: repairInstruction(repairable) });
+          const { tools: _withdrawn, ...noTools } = call;
+          try {
+            const answer = await callChat(
+              [{ ...provider, assistModel: '' }],
+              { ...answerCall(noTools), stream: false, messages: compactToolResults(messages) },
+              which,
+            );
+            const body = (await answer.response.json().catch(() => null)) as {
+              error?: { message?: string } | string;
+              choices?: {
+                message?: { content?: string | null; reasoning?: string | null; reasoning_content?: string | null };
+                finish_reason?: string | null;
+              }[];
+              usage?: unknown;
+            } | null;
+            const repairedContent = body && !body.error ? (body.choices?.[0]?.message?.content ?? '') : '';
+            if (body && !body.error && repairedContent.trim()) {
+              usage = addUsage(usage, readUsage(body.usage));
+              const strip = thinkStripper();
+              const c = strip.split(repairedContent);
+              const d = strip.flush();
+              text = c.text + d.text;
+              reasoningText +=
+                (body.choices?.[0]?.message?.reasoning ??
+                  body.choices?.[0]?.message?.reasoning_content ??
+                  '') + c.reasoning + d.reasoning;
+              finish = body.choices?.[0]?.finish_reason ?? '';
+              repaired = repairable.map(item => item.code);
+            }
+          } catch {
+            /* The correction failed; the first answer stands. */
+          }
+        }
+        const still = options.validate(text, finish);
+        if (still.length) findings = still.map(item => item.code);
+        else if (first.length && !repaired) findings = first.map(item => item.code);
+      }
+
       return {
-        text: a.text + b.text,
-        reasoning: reasoning + a.reasoning + b.reasoning,
-        stopReason: choice?.finish_reason ?? '',
+        text,
+        reasoning: reasoningText,
+        stopReason: finish,
         calls: spent,
-        rounds: round + 1,
+        rounds: round + (repaired ? 2 : 1),
         model: modelName(provider),
+        ...(Object.keys(tools).length ? { tools } : {}),
         ...(usage ? { usage } : {}),
+        ...(repaired ? { repaired } : {}),
+        ...(findings ? { findings } : {}),
       };
     }
 
@@ -2950,11 +3180,17 @@ export async function agentComplete(
       }
       spent += 1;
       let outcome: ToolOutcome;
+      const started = Date.now();
       try {
         outcome = await runTool(wanted.name, parseArguments(wanted.arguments));
       } catch (error) {
         outcome = { ok: false, text: `That lookup failed: ${error instanceof Error ? error.message : 'unknown error'}.`, detail: 'failed' };
       }
+      const tally = (tools[wanted.name] ??= { calls: 0, ms: 0, errors: 0, chars: 0 });
+      tally.calls += 1;
+      tally.ms += Date.now() - started;
+      tally.errors += outcome.ok ? 0 : 1;
+      tally.chars += outcome.text.length;
       messages.push({ role: 'tool', tool_call_id: wanted.id, name: wanted.name, content: outcome.text });
     }
     /* Withdrawn, not merely refused: a model that may still ask, will. */

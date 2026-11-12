@@ -412,6 +412,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
   } from '../lib/md-edit';
   import { runAssist } from '../lib/ai-store';
   import { mountAssistPanel } from '../lib/assist-panel';
+  import { reportFeedback } from '../lib/log-store';
   import {
     ASSIST_MENU,
     ASSIST_TASKS,
@@ -1136,6 +1137,18 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
           ? await updatePost(editing, post, fields.body.value)
           : await createPost(target, post, fields.body.value);
 
+        /* The owner's verdict, taken from what actually saved: kept when the
+           fields are still what the run wrote, kept-edited when they are not.
+           Nothing about the text travels — A5. */
+        if (lastRun) {
+          const run = lastRun;
+          const same =
+            !run.values ||
+            Object.entries(run.values).every(([key, value]) => fields[key as keyof typeof fields]?.value === value);
+          reportFeedback(run.task, run.model, same ? 'kept' : 'kept-edited', [], run.effort);
+          lastRun = null;
+        }
+
         /* The row is the saved state now, so the browser snapshot has nothing
            left to protect — and leaving it would have the restore bar offering
            to put the same content back on the next visit. */
@@ -1352,6 +1365,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     function undoLive() {
       const entry = undos.pop();
       if (!entry) return;
+      if (lastRun) reportFeedback(lastRun.task, lastRun.model, 'undone', [], lastRun.effort);
       for (const [key, value] of Object.entries(entry.values)) {
         fields[key as keyof typeof fields].value = value ?? '';
       }
@@ -1588,6 +1602,23 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
     /* — running — */
 
     let assisting: AbortController | null = null;
+    /* The last run, for the owner's verdict — A5. `values` is what the fields
+       held when the run finished, so a save can say kept or kept-edited by
+       comparing rather than by asking. */
+    let lastRun: {
+      task: string;
+      model: string;
+      effort: string;
+      values?: Record<string, string>;
+    } | null = null;
+
+    /** What the fields held when the last run finished, for the kept verdict. */
+    function rememberRunValues() {
+      if (!lastRun) return;
+      lastRun.values = Object.fromEntries(
+        (Object.keys(fields) as (keyof typeof fields)[]).map(key => [key, fields[key].value]),
+      );
+    }
 
     /** Undo, as a button on a message, while there is anything to undo. */
     const undoAction = () => {
@@ -1695,7 +1726,19 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
         });
       };
 
-      const again = { label: 'Try again', run: () => void runTask(name, instruction) };
+      const runOptions = panel.runOptions();
+      lastRun = {
+        task: name,
+        model: String(runOptions.model ?? ''),
+        effort: String(runOptions.effort ?? ''),
+      };
+      const again = {
+        label: 'Try again',
+        run: () => {
+          if (lastRun) reportFeedback(lastRun.task, lastRun.model, 'retried', [], lastRun.effort);
+          void runTask(name, instruction);
+        },
+      };
       const copy = (text: string) => ({
         label: 'Copy',
         run: () => void copyText(text).then(() => toast('Copied.', { tone: 'success' })),
@@ -1726,6 +1769,15 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
                answer. */
             onTool: frame => turn.tool(frame),
             onUsage: frame => turn.usage(frame),
+            onContext: parts => turn.context(parts),
+            /* The harness sent the answer back once. The correction replaces
+               what the first round wrote, so the accumulator starts again and
+               the final apply is the corrected text. */
+            onRepaired: codes => {
+              raw = '';
+              turn.note(`Repaired: ${codes.join(', ')}`);
+            },
+            onFindings: codes => turn.note(`Still failing: ${codes.join(', ')}`, 'error'),
             onDone: reason => {
               truncated = reason === 'length';
             },
@@ -1737,10 +1789,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
              afternoon. The last entry is dropped because it is the message this
              call is *about*, and the route appends it itself. */
           name === 'chat' ? panel.history().slice(0, -1) : undefined,
-          /* Read at the start of every run rather than when the panel opened:
-             changing the model between two runs is the whole point of having
-             the control on the panel. */
-          panel.runOptions(),
+          runOptions,
         );
 
         /* Names the cause, because there is exactly one that produces this and
@@ -1787,6 +1836,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
           if (editing.length) {
             takeSnapshot('document', 'Chat edit');
             applyLive('document', output, true);
+            rememberRunValues();
             /* Named from the parse rather than from the response, so this says
                what actually reached a field. `dropUnusedSnapshot` covers the
                model that "changed" a field to what it already said. */
@@ -1828,6 +1878,7 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
           }
 
           applyLive(live, output, true);
+          rememberRunValues();
           turn.status(
             `Done — it is in the editor. Nothing is saved until you press Save.${cutOff()}`,
           );
@@ -2066,6 +2117,13 @@ const seedJson = JSON.stringify({ slug, fields }).replace(/</g, '\\u003c');
               selThinkSummary.textContent = 'Thinking…';
               selThinkBody.textContent = thought;
               selThinkBody.scrollTop = selThinkBody.scrollHeight;
+            },
+            onRepaired: codes => {
+              selResult = '';
+              selStatus.textContent = `Repaired: ${codes.join(', ')}`;
+            },
+            onFindings: codes => {
+              selStatus.textContent = `Still failing: ${codes.join(', ')}`;
             },
           },
           controller.signal,

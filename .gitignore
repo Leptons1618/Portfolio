@@ -149,3 +149,7 @@ mockups/
 
 # Local Worker secrets for `astro dev` / `wrangler dev`. Never committed.
 .dev.vars
+
+# `npm run eval:ai --out …` writes a dated result; a local artifact, not a
+# fixture. The checked-in input lives in `scripts/eval-fixtures/`.
+eval-*.json

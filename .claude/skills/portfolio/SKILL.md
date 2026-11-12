@@ -76,7 +76,13 @@ convenience rather than a gate — but a create that bounces twice is a bad turn
 - **project** — `title`, `summary`, `category`, `status`, `year`. Optional:
   `tags`, `stack`, `repoUrl` (omit it for a private repository; the page then says
   so rather than linking a 404), `demoUrl`, `caseStudySlug`, `featuredRank`,
-  `heroImage`, `highlights`, `hidden`.
+  `heroImage`, `highlights`, `plain`, `flow`, `gallery`, `hidden`.
+  - `plain` is two or three sentences a non-engineer follows.
+  - `flow` is 3–7 `"Step name | what happens here"` lines; the project page
+    renders it as a picture with no image. The `explain-project` command drafts
+    both, into the form.
+  - `gallery` is `"/media/… | caption"` lines and is uploads only — point it at
+    a path the owner uploaded; never invent one.
   `category` is one of `ml-cv`, `ai-llm`, `full-stack`, `devtools`, `systems`,
   `simulation`, `other`. `status` is one of `active`, `stable`, `wip`, `archived`.
   Both are closed sets; anything else is refused.

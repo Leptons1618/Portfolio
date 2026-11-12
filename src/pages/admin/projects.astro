@@ -3,7 +3,7 @@ import AdminLayout from '../../layouts/AdminLayout.astro';
 import AdminProjectCard from '../../components/AdminProjectCard.astro';
 import Illustration from '../../components/Illustration.astro';
 import { Icon } from 'astro-icon/components';
-import { getDeepDiveSelection, getProjects } from '../../lib/content';
+import { getCaseStudies, getDeepDiveSelection, getProjects } from '../../lib/content';
 import { PROJECT_CATEGORIES, projectPath } from '../../lib/content-store';
 import { grantAccessUrl, parseRepoUrl } from '../../lib/github';
 import { site } from '../../lib/site';
@@ -18,12 +18,27 @@ export const prerender = false;
 const { DB } = Astro.locals.runtime.env;
 
 const projects = await getProjects(DB, true);
+const studies = await getCaseStudies(DB);
 const GITHUB_USER = site.githubUser;
 
 const rows = projects.map(project => {
   /* A project whose repository is private (or simply unmapped) has no URL to
      parse — the row stays, with nothing to link to. */
   const repo = project.data.repoUrl ? parseRepoUrl(project.data.repoUrl) : null;
+  /* The five visuals the page can carry — decision 85, and the backlog this
+     manifest now shows. Counted here rather than in the card because the last
+     two live on the case study. */
+  const study = project.data.caseStudySlug
+    ? studies.find(entry => entry.slug === project.data.caseStudySlug)
+    : undefined;
+  const writeUp = study?.body ?? '';
+  const visuals = [
+    Boolean(project.data.plain?.trim()),
+    project.data.flow.length >= 3 && project.data.flow.length <= 7,
+    project.data.gallery.length > 0,
+    Boolean(study?.data.architectureImage),
+    /^\s*!\[/m.test(writeUp) || /^\s*```mermaid/m.test(writeUp) || /^\s*\|.*\|/m.test(writeUp),
+  ].filter(Boolean).length;
   return {
     slug: project.slug,
     /* The row every action on this card writes to. Content is in D1, so this
@@ -32,6 +47,7 @@ const rows = projects.map(project => {
     path: projectPath(project.slug),
     owner: repo?.owner ?? '',
     repoName: repo?.name ?? '',
+    visuals,
     data: project.data,
   };
 });
@@ -220,6 +236,7 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
                 path={row.path}
                 owner={row.owner}
                 repoName={row.repoName}
+                visuals={row.visuals}
                 data={row.data}
               />
             ))}
@@ -249,6 +266,7 @@ const restRows = rows.filter(row => !inLineUp.has(row.slug));
                 path={row.path}
                 owner={row.owner}
                 repoName={row.repoName}
+                visuals={row.visuals}
                 data={row.data}
               />
             ))}

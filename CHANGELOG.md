@@ -14,6 +14,12 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **The harness checks an answer before the owner has to.** Tasks name validators — field shape, the project flow, slugs, Mermaid, fit shape and score, channel limits, banned phrases, a wall of prose, truncation — and one bounded repair round sends a failing answer back with no tools. The context manifest says what a run carried; per-tool tallies say what each lookup cost; Undo, Try again and a save are recorded as `assist-feedback` rows; `npm run eval:ai` scores each task on checked-in fixtures and prints a per-model table. Decision **84**.
+
+- **Project pages explain the system.** Three new project columns (migration 0018) — plain words, a "How it works" flow, and screens — render as a lead paragraph, a numbered `FlowStrip` drawn from data, and a two-up gallery. The case study's Architecture section moves above the write-up and shows the same flow. The new `explain-project` and `draw-architecture` commands, a figure per planned section in the long write-up, and figure/caption, callout and table treatments in `.prose`. Posts with three or more headings get a contents rail. Decision **85**.
+
+- **The job desk.** `/admin/jobs` now shows a score/verdict chip, missing-must-have count, a due strip, pipeline filter chips and a remembered sort. The Fit tab shows the model's score beside the marks' own, breakdown bars, missing must-haves first, linked project evidence, an optional Role at a glance, a stale-advert banner and ATS keywords marked in the advert. Outreach gets a composer (channel, ask, tone, one line), a sent date on the kept draft, Mark sent with an offered Applied status and a five-working-day follow-up, `mailto:` hand-off, and three new tasks: follow-up, cover email and reply. Decision **86**.
+
 - **An application is a workspace, not a form.** `/admin/jobs/<slug>` is now four
   tabs — Overview, Fit, Resume & projects and Outreach. The advert is readable at
   a measure; the fit is a two-column comparison with filters; the chosen resume

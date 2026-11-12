@@ -295,3 +295,19 @@ From `migrations/0004–0008_*.sql`:
 Plus `npm run check:worker` (OAuth worker: refresh token never leaves the
 Worker, origin allowlist, fail-closed without secret) and
 `npm run check:schema` (the column allowlist).
+
+---
+
+## 10. Validation, one repair, and evaluation
+
+Decision 84. The loop used to end when the model did; nothing looked at the answer.
+
+- **`assist-validate.ts`** — a closed table of deterministic checks, import-free: field shape, the project flow, cited slugs, Mermaid syntax and size, fit shape, fit score against the marks (`scoreFromMarks()` in `job-view.ts`), channel limits and two-version counts, banned phrases, prose with no figure, and truncation. A task names its rules in `assist-tasks.ts`.
+- **One repair round.** `agentStream()`/`agentComplete()` send a repairable failure back once, with no tools, on the answer round's clock, using `repairInstruction()`. A second failure is reported in a `findings` frame; nothing loops. A streamed repair emits `{ repaired }` first and every client resets its accumulator.
+- **The context manifest** (`{ part, field, chars, capped }[]`) is one frame on the authoring surface and a field in the log row — numbers only. Per-tool tallies (`calls`, `ms`, `errors`, `chars`) join it.
+- **The owner's verdict** (Undo, Try again, kept/kept-edited) is one bounded `assist-feedback` log row through the owner-only `/api/logs`.
+- **`npm run eval:ai`** runs checked-in fixtures through each task's real prompt per model and prints a table of validators, repair, length, rounds, tool calls, latency and usage. Not in `npm run check`; no judge model.
+
+## 11. Public surfaces added in this phase
+
+Project pages render a structured explainer — `plain`, a data-driven `FlowStrip`, a `/media/`-only gallery — and case studies show the linked project's flow above the write-up (decision 85). All of it is CSS and theme tokens: no Mermaid, no renderer, no new script on a public page.

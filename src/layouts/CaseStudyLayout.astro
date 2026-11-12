@@ -4,9 +4,10 @@ import PathLine from '../components/PathLine.astro';
 import SectionSep from '../components/SectionSep.astro';
 import Tag from '../components/Tag.astro';
 import Lightbox from '../components/Lightbox.astro';
+import FlowStrip from '../components/FlowStrip.astro';
 import { Icon } from 'astro-icon/components';
 import { formatDate } from '../lib/format';
-import { linksOf, metricsOf, type Chapter } from '../lib/chapters';
+import { linksOf, metricsOf, type Chapter, type FlowStep } from '../lib/chapters';
 
 /** A neighbouring case study in the prev/next footer. */
 export interface Neighbour { slug: string; title: string }
@@ -16,6 +17,11 @@ interface Props {
   problem: string; solution: string; architectureImage?: string; achievements: string[];
   stack: string[]; repoUrl?: string; demoUrl?: string; date: string; readTime?: string;
   role?: string; team?: string; metrics: string[]; links: string[];
+  /* The linked project's structured flow, passed by the page — this layout
+     queries nothing. Shown under the architecture heading, before the
+     write-up, so a reader sees the system before reading a thousand words
+     about it. Decision 85. */
+  flow?: FlowStep[];
   /* Resolved by the page: the design's eyebrow reads "{category} · {year}",
      neither of which a case study carries. */
   eyebrow: string;
@@ -27,7 +33,7 @@ interface Props {
 const {
   title, subtitle, heroImage, heroVideo, problem, solution, architectureImage,
   achievements, stack, repoUrl, demoUrl, date, readTime, role, team, eyebrow,
-  chapters = null, prev = null, next = null,
+  chapters = null, flow = [], prev = null, next = null,
 } = Astro.props;
 
 const cards = metricsOf(Astro.props.metrics);
@@ -38,7 +44,8 @@ const facts = [role, team && !role?.startsWith(team) ? team : undefined].filter(
 
 /* The sections are numbered as a specification is, so the number follows
    whichever of them this study has. */
-const sections = ['problem', 'solution', ...(architectureImage ? ['architecture'] : []),
+const sections = ['problem', 'solution',
+  ...(architectureImage || flow.length ? ['architecture'] : []),
   ...(chapters?.length ? ['chapters'] : []), 'achievements', 'stack'];
 const num = (name: string) => String(sections.indexOf(name) + 1).padStart(2, '0');
 const base = Astro.url.pathname.replace(/\/+$/, '');
@@ -149,17 +156,25 @@ const glance: [string, string][] = [
         <div class="card elev-sm cs-split-body"><p class="cs-copy">{solution}</p></div>
       </section>
 
+      {/* The system before the thousand words about it. The project's flow is
+          data, so it renders in theme tokens; the study's own architecture
+          image sits under it when there is one. Decision 85. */}
+      {(architectureImage || flow.length > 0) && (
+        <section class="cs-split" data-reveal>
+          <h3 class="cs-split-head"><span class="cs-split-num">{num('architecture')}</span>Architecture</h3>
+          <div class="cs-split-body">
+            {flow.length > 0 && <FlowStrip steps={flow} />}
+            {architectureImage && (
+              <figure class="grayscale cs-arch" data-zoom><img src={architectureImage} alt={`Architecture of ${title}`} /></figure>
+            )}
+          </div>
+        </section>
+      )}
+
       <div class="cs-split">
         <div></div>
         <div class="prose cs-content" data-zoom><slot /></div>
       </div>
-
-      {architectureImage && (
-        <section class="cs-split" data-reveal>
-          <h3 class="cs-split-head"><span class="cs-split-num">{num('architecture')}</span>Architecture</h3>
-          <figure class="grayscale cs-arch" data-zoom><img src={architectureImage} alt={`Architecture of ${title}`} /></figure>
-        </section>
-      )}
 
       {chapters && chapters.length > 0 && (
         <section class="cs-split" data-reveal>

@@ -3,6 +3,7 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import PathLine from '../../components/PathLine.astro';
 import SectionSep from '../../components/SectionSep.astro';
 import { getPost } from '../../lib/content';
+import { splitChapters } from '../../lib/chapters';
 import { formatTag, metaLine } from '../../lib/format';
 import { absoluteUrl, site } from '../../lib/site';
 
@@ -19,6 +20,14 @@ const { title, summary, tags, videoDuration, heroImage } = post.data;
 
 const meta = metaLine(post.data);
 const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
+
+/* A contents rail, from the post's own `## ` headings — read through the same
+   splitter the case study's chapters use rather than a second heading parser.
+   Fewer than three headings is not a contents list, it is a paragraph with a
+   couple of breaks, so the rail renders nothing rather than a box with two
+   lines in it. */
+const contents = splitChapters(post.html).chapters;
+const rail = contents.length >= 3 ? contents : [];
 ---
 <BaseLayout title={title} description={summary}>
   {/* The full container, and the write-up in a 4fr/8fr split — the same shape
@@ -60,6 +69,21 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
     <SectionSep />
 
     <div class="container post-body">
+      {rail.length > 0 && (
+        <nav class="post-contents" aria-label="Contents">
+          <p class="post-contents-label">Contents</p>
+          <ol class="post-contents-list">
+            {rail.map((chapter, i) => (
+              <li>
+                <a href={`#${chapter.id}`}>
+                  <span class="post-contents-num">{String(i + 1).padStart(2, '0')}</span>
+                  {chapter.title}
+                </a>
+              </li>
+            ))}
+          </ol>
+        </nav>
+      )}
       <div class="prose post-prose"><Fragment set:html={post.html} /></div>
     </div>
 
@@ -96,7 +120,17 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
      so vertical rhythm belongs to them: a padding on the article would put
      space outside the bands rather than inside the blocks they separate. */
   .post-cover { padding-top: var(--space-6); padding-bottom: var(--space-8); }
-  .post-body { padding-top: var(--space-8); padding-bottom: var(--space-8); }
+  .post-body {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-6);
+    align-items: start;
+    padding-top: var(--space-8);
+    padding-bottom: var(--space-8);
+  }
+  /* A post long enough for a contents rail gets the 4fr/8fr split the case
+     study uses; one that is not keeps the single readable column. */
+  .post-body:has(> .post-contents) { grid-template-columns: 4fr 8fr; }
   .back-link { padding-inline: 0; margin-bottom: var(--space-3); }
 
   /* Hero, tags, title and lead as one cover block over the full width, closed
@@ -128,7 +162,61 @@ const shareUrl = absoluteUrl(Astro.url.pathname, Astro.site ?? site.url);
      read as a narrow strip under a full-width cover block. Posts are code-heavy,
      so the body takes `--wrap-mid` (900px): wide enough that fenced blocks stop
      clipping, still short of a 100-character line. */
-  .post-prose { max-width: var(--wrap-mid); }
+  .post-prose { max-width: var(--wrap-mid); min-width: 0; }
+  .post-body:has(> .post-contents) .post-prose { max-width: none; }
+
+  /* The contents rail. Sticky on a wide screen so the reader always knows
+     where they are; a plain list above the body on a phone. */
+  .post-contents {
+    position: sticky;
+    top: calc(var(--space-8) + 8px);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .post-contents-label {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-text-faint);
+  }
+  .post-contents-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    border-left: 1px solid var(--color-divider);
+  }
+  .post-contents a {
+    display: flex;
+    gap: 8px;
+    padding-left: var(--space-3);
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--color-text-muted);
+    text-decoration: none;
+  }
+  .post-contents a:hover,
+  .post-contents a:focus-visible { color: var(--color-accent); }
+  .post-contents-num {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--color-text-faint);
+    padding-top: 0.2em;
+  }
+
+  @media screen and (max-width: 900px) {
+    .post-body:has(> .post-contents) { grid-template-columns: 1fr; }
+    .post-contents { position: static; }
+  }
+  @media print {
+    .post-body:has(> .post-contents) { grid-template-columns: 1fr; }
+    .post-contents { display: none; }
+  }
 
   /* Code and tables are the reason the column is wider than prose measure:
      let both use all of it rather than wrapping inside an already-wide box. */

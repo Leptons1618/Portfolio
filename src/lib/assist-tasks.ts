@@ -1,8 +1,8 @@
 /**
- * The twenty-five things the authoring assistant can be asked to do.
+ * The thirty things the authoring assistant can be asked to do.
  *
- * Ten belong to the journal editor, two to the project screen, four to the
- * resume and two to the Jobs screen; each task says which by its `surface`, and each screen renders the
+ * Most belong to the journal editor; the rest to the project screen, the
+ * resume and the Jobs screen. Each task says which by its `surface`, and each screen renders the
  * menu filtered to its own. One table rather than one per screen, because the
  * property below is a property of the *table* — a second table is a second
  * thing to keep closed, and the first one to be forgotten.
@@ -14,7 +14,7 @@
  * token in a browser tab, and an endpoint that forwards arbitrary prompts on
  * the owner's API key is a general-purpose model with a billing account
  * attached, one stolen session away from being someone else's. A table of tasks
- * bounds what a stolen session is worth: twenty-five prompts about writing up
+ * bounds what a stolen session is worth: thirty prompts about writing up
  * this person's own work.
  *
  * It also makes the assistant *better*. Each task carries its own temperature,
@@ -60,6 +60,9 @@
  * holds no secret and no I/O, which is why it is here rather than in the route.
  */
 
+import type { ValidatorName } from './assist-validate';
+import type { ToolName } from './ai-tools';
+
 export type AssistFormat = 'markdown' | 'lines' | 'mermaid' | 'document';
 
 /**
@@ -94,7 +97,7 @@ export type JournalTarget = 'document' | 'summary' | 'body';
  * the value, with no shape to read it against. The screen branches on the
  * absence of a `FieldShape` rather than on the target's name.
  */
-export type ProjectTarget = 'project' | 'caseStudy' | 'caseStudyBody';
+export type ProjectTarget = 'project' | 'caseStudy' | 'caseStudyBody' | 'explainer';
 
 /**
  * The resume screen's one live target: the open variant's summary.
@@ -196,7 +199,14 @@ export type AssistField =
   | 'contacts'
   /** The project's kind, with the chapters an engineer expects from one —
       `CHAPTER_OUTLINES` in `chapters.ts`. Decision 81. */
-  | 'category';
+  | 'category'
+  /** "Step name | what happens here" lines — the project's structured flow.
+      Decision 85. */
+  | 'flow'
+  /** The message that was actually sent, for the follow-up that must not repeat it. */
+  | 'sentDraft'
+  /** What the recruiter wrote, for the reply that answers it. */
+  | 'received';
 
 export interface AssistTask {
   /** Shown on the button in the editor. */
@@ -256,11 +266,24 @@ export interface AssistTask {
   /**
    * Which lookups the task gets, when it is not the whole set.
    *
-   * `repo` offers only the repository readers and skips the published-content
-   * index those other tools need for their slugs — a plan for a write-up about
-   * one repository has no use for either, and the index is thousands of tokens.
+   * An allowlist that can only *narrow*: it is intersected with what the
+   * surface already permits inside `toolsFor()`, so a task cannot name a tool
+   * its surface does not have, and cannot name a repository reader without the
+   * owner's token. `undefined` means the surface's default (the whole set), not
+   * "no tools" — a task that wants none simply does not need lookups and gets
+   * none because nothing asks for them.
    */
-  lookups?: 'repo';
+  tools?: readonly ToolName[];
+  /**
+   * The rules this task's answer has to satisfy, beyond parsing.
+   *
+   * This is the lifecycle hook the harness reads: `assist-validate.ts` owns the
+   * closed table of rules, and a run that returns a repairable finding buys one
+   * more round (A2). A typo here fails `astro check`, the same arrangement as
+   * `AssistField`. `truncated` is applied to every task by the route rather
+   * than repeated across this table.
+   */
+  validators?: readonly ValidatorName[];
 }
 
 /* ---------- the labelled-field format ---------- */
@@ -376,6 +399,12 @@ export const POST_KEYS: FieldShape = {
     { key: 'readTime', label: 'READTIME', also: ['READ TIME', 'READ'] },
   ],
   tail: { key: 'body', label: 'BODY' },
+};
+
+/** What `projectExplainer` returns: plain words and the flow, decision 85. */
+export const EXPLAINER_KEYS: FieldShape = {
+  head: [{ key: 'plain', label: 'PLAIN' }],
+  tail: { key: 'flow', label: 'FLOW' },
 };
 
 /**
@@ -504,6 +533,9 @@ Rules for the body:
 - Use level-2 headings for sections. Do not repeat the title as a heading.
 - 700 to 1100 words unless the author asked for a different length.
 - Concrete over general: name the actual tool, the actual number, the actual failure.
+- Open each section with one sentence a newcomer can follow before any mechanism.
+- Prefer a table for any comparison of three or more things.
+- Name what the author did and decided — the reader wants the work, not a tour of the libraries.
 - No closing summary paragraph restating what was just said.
 
 Emit nothing before TITLE: and nothing after the body. Do not wrap the response in a code fence.`,
@@ -517,6 +549,7 @@ Emit nothing before TITLE: and nothing after the body. Do not wrap the response 
     context: ['title', 'summary', 'tags', 'body'],
     live: 'document',
     needsTopic: true,
+    validators: ['shape'],
   },
 
   outline: {
@@ -668,6 +701,7 @@ Rules, and the first two are hard requirements because the output is rendered ra
     temperature: 0.2,
     needsCorpus: false,
     context: ['title', 'summary', 'body', 'selection'],
+    validators: ['mermaidLint'],
   },
 
   alt: {
@@ -739,6 +773,7 @@ Emit nothing before TITLE: and nothing after the last highlight. Do not wrap the
     needsCorpus: true,
     context: ['repo', 'readme', 'title', 'summary'],
     live: 'project',
+    validators: ['shape'],
   },
 
   /**
@@ -776,6 +811,7 @@ Rules:
 - Work only from the project material you were given. Do not invent a number, a date, a client or a result that is not in it.
 - The problem is a problem, not a preamble. Do not open with "In today's landscape" or with a description of the field.
 - Achievements are outcomes, not activities. "Cut cold-start from 4s to 300ms" is an outcome; "Implemented caching" is an activity.
+- Name what the author did and decided, not the libraries they used.
 
 Emit nothing before TITLE: and nothing after the last achievement. Do not wrap the response in a code fence.`,
     format: 'document',
@@ -785,6 +821,7 @@ Emit nothing before TITLE: and nothing after the last achievement. Do not wrap t
     needsCorpus: true,
     context: ['repo', 'readme', 'title', 'summary', 'stack', 'highlights'],
     live: 'caseStudy',
+    validators: ['shape'],
   },
 
   /**
@@ -826,6 +863,9 @@ Rules:
 - 700 to 1200 words.
 - Do not restate the problem and solution paragraphs from the header. They are above this on the page. Continue from them: what was tried, what failed, what the trade-off was, what the numbers were.
 - Concrete over general. Name the actual library, the actual constraint, the actual failure. A sentence that would be true of any project is a sentence to cut.
+- Open each section with one sentence a newcomer can follow before any mechanism.
+- Prefer a table for any comparison of three or more things; prefer a figure where a section describes how parts connect.
+- Name what the author did and decided — the reader wants the work, not a tour of the libraries.
 - Work only from the material you were given — the README, the repository facts and the header. **Invent nothing**: no benchmark that is not in the material, no user count, no client, no date. If something important is missing, write around it rather than filling it in.
 - Code fences where a snippet is genuinely the clearest way to say it, and never longer than a dozen lines.
 - Markdown only. No preamble, no closing summary paragraph, and do not wrap the response in a code fence.`,
@@ -837,7 +877,87 @@ Rules:
     needsCorpus: true,
     context: ['repo', 'readme', 'title', 'summary', 'stack', 'highlights', 'problem', 'solution'],
     live: 'caseStudyBody',
+    validators: ['hasFigure'],
   },
+
+  /**
+   * The project's structured explainer — decision 85.
+   *
+   * Two fields, and they are what makes a project page a picture rather than a
+   * spec sheet: a paragraph a non-engineer follows, then three to seven steps
+   * saying what the system *does*, in order. The flow is data, so it renders in
+   * `FlowStrip` with no upload and no renderer, and it is the only visual the
+   * thirteen projects without a case study can have.
+   *
+   * `live: 'explainer'` writes straight into the two form fields. The task is
+   * given the repository readers because the honest source is the README and
+   * the tree, not the summary it is replacing.
+   */
+  projectExplainer: {
+    label: 'Explain the project',
+    command: 'explain-project',
+    surface: 'project',
+    group: 'write',
+    hint: 'Plain words, then how it works in three to seven steps.',
+    instructions: `Explain this project to someone who has never seen the repository and is not an engineer of this field. Then describe how it works, in order.
+
+Return it in exactly this shape:
+
+PLAIN: two or three sentences saying what it does, for whom, and what makes it worth a minute. Not a restatement of the summary field — the plain-words version of it.
+FLOW:
+Step name | what happens here
+Step name | what happens here
+
+Rules for FLOW:
+- Three to seven steps, in the order the system actually works through them.
+- Each line is \`Step name | what happens here\`: the name is two to five words, the detail is one sentence under 160 characters.
+- Each step is something the system *does*, named in the user's terms rather than the library's. "Read the repository" is a step; "uses Octokit" is not.
+- Work only from the README and the files you were given. If the material does not say how something works, leave it out rather than inventing a plausible step.
+
+Emit nothing before PLAIN: and nothing after the last flow line. Do not wrap the response in a code fence.`,
+    format: 'document',
+    keys: EXPLAINER_KEYS,
+    maxTokens: 2400,
+    temperature: 0.4,
+    needsCorpus: false,
+    context: ['repo', 'readme', 'title', 'summary', 'stack', 'highlights'],
+    live: 'explainer',
+    tools: ['list_repo_files', 'read_repo_docs', 'read_repo_file'],
+    validators: ['shape', 'flowShape'],
+  },
+
+  /**
+   * The project's architecture diagram — decision 85.
+   *
+   * The journal's `diagram` task with a project's context. It returns Mermaid
+   * source; the screen renders it, uploads the SVG and offers two places to
+   * put it: the case study's architecture field or the caret in the write-up.
+   * A diagram that will not parse gets one retry with the parser's own message
+   * as the steer, and then the source with Copy — never a second renderer.
+   */
+  projectDiagram: {
+    label: 'Draw the architecture',
+    command: 'draw-architecture',
+    surface: 'project',
+    group: 'suggest',
+    hint: 'Mermaid source, rendered here and saved as an SVG.',
+    instructions: `Produce one Mermaid diagram of this project's architecture. Choose the type that fits — flowchart for components and data flow, sequenceDiagram for a request path, stateDiagram-v2 for a lifecycle, erDiagram for a schema.
+
+Rules, and the first two are hard requirements because the output is rendered rather than read:
+- Return exactly one \`\`\`mermaid fenced block and nothing outside it. No explanation before or after.
+- Use only plain alphanumeric text in node labels, with spaces. No parentheses, braces, angle brackets, quotes or backslashes inside a label — they are syntax in Mermaid and will fail to parse.
+- Draw the system as it was actually built, from the README and the files you were given. Invent no component the material does not show.
+- Keep it under about twelve nodes. A diagram that needs more is two diagrams.
+- Do not set any styling, colours or CSS classes. The site's theme colours it.`,
+    format: 'mermaid',
+    maxTokens: 2400,
+    temperature: 0.2,
+    needsCorpus: false,
+    context: ['readme', 'problem', 'solution', 'flow', 'title', 'summary'],
+    tools: ['list_repo_files', 'read_repo_docs', 'read_repo_file'],
+    validators: ['mermaidLint'],
+  },
+
   /**
    * The long case study, step one: read the repository and plan the write-up.
    *
@@ -856,7 +976,7 @@ Rules:
     surface: 'project',
     group: 'write',
     step: true,
-    lookups: 'repo',
+    tools: ['list_repo_files', 'read_repo_docs', 'read_repo_file'],
     hint: 'Reads the repository and plans the write-up: the facts, and the sections.',
     instructions: `Plan a long, detailed case study (about 2,000 words) of this project. You are not writing it yet — you are gathering what it will say and deciding its sections.
 
@@ -869,6 +989,7 @@ FACTS:
 SECTIONS:
 ## First section heading
 One or two sentences: what this section covers, and which facts it draws on.
+Figure: flowchart | what the figure shows, or "table | what it compares", or "none"
 ## Second section heading
 ...
 
@@ -883,6 +1004,7 @@ Rules for SECTIONS:
 - Every section is about the project. Never plan one about your own research — what you did or did not read, or what the material leaves unexplained.
 - Start from the chapters suggested for this kind of project, given above, and adapt them to the actual work: rename, merge, split, drop or add. Follow the work rather than the list.
 - Each section may be read as a page of its own, so each must make sense without the one before it.
+- Every section names a figure: \`Figure: flowchart | what it shows\`, \`sequence\`, \`state\`, \`table | what it compares\`, or \`none\`. At least two sections must carry one that is not none. Choose table for a comparison of three or more things, and a diagram only where parts connect or data moves.
 
 Emit nothing before FACTS: and nothing after the last section. Do not wrap the response in a code fence.`,
     format: 'markdown',
@@ -915,6 +1037,7 @@ Rules:
 - Invent nothing. If a fact is not in the list, do not state it. Where the material is thin, go deeper on what it does say rather than padding.
 - Continue from the previous section. Do not re-introduce the project, and do not repeat a point the outline gives to another section.
 - Level-3 headings, short lists and a small table are fine where they make it clearer. A code fence only when the facts contain the code or command itself, and never longer than twelve lines.
+- If the section names a figure, write it inline before the prose that refers to it: a markdown table for \`table\`, or exactly one \`\`\`mermaid fence for a diagram. Plain alphanumeric labels, no styling and under twelve nodes — the page renders it to an image.
 - Markdown only. No preamble, and do not wrap the response in a code fence.`,
     format: 'markdown',
     /* About 900 words of room for a ~300-word section — the floor every task
@@ -926,6 +1049,7 @@ Rules:
     temperature: 0.6,
     needsCorpus: false,
     context: ['title', 'summary', 'stack', 'problem', 'solution', 'facts', 'outline', 'section', 'previous'],
+    validators: ['hasFigure'],
   },
 
   /**
@@ -991,6 +1115,7 @@ Rules:
 - First person, past tense, as the author, about work they actually did. Never "you", never "we" for one person's work, and never explain the subject the way a tutorial would.
 - Say what was decided and what it cost. Name the wrong turn before the fix.
 - Inline code for every identifier, filename, flag, command, column and setting. A fenced block with a language tag only where the facts contain the code itself, under fifteen lines.
+- A markdown table is fine where it compares three or more things. **Never write a Mermaid fence** — this step runs where nothing renders one, so a diagram here is a code block on the page.
 - Invent nothing. If a fact is not in the list, do not state it — write the sentence without the number rather than inventing one.
 - Continue from the previous section. Do not re-introduce the subject, and do not repeat a point the outline gives to another section.
 - Markdown only. No preamble, and do not wrap the response in a code fence.`,
@@ -999,6 +1124,7 @@ Rules:
     temperature: 0.65,
     needsCorpus: false,
     context: ['title', 'summary', 'facts', 'outline', 'section', 'previous'],
+    validators: ['hasFigure'],
   },
 
   /**
@@ -1111,6 +1237,7 @@ Rules:
     /* The index, so the slugs it returns are real ones. */
     needsCorpus: true,
     context: ['resume', 'jobDescription'],
+    validators: ['slugsExist'],
   },
 
   /**
@@ -1188,6 +1315,7 @@ Emit nothing before LABEL: and nothing after the last project line. Do not wrap 
     temperature: 0.45,
     needsCorpus: true,
     context: ['resume', 'jobDescription'],
+    validators: ['shape'],
   },
 
   /**
@@ -1234,6 +1362,10 @@ Write markdown in exactly this shape:
 **Verdict:** Strong, Reasonable, Stretch or Poor — one sentence why.
 **Score:** n/10, mostly from the must-haves.
 
+### Role at a glance
+Location: … · Mode: on-site | hybrid | remote · Level: … · Years: … · Pay: … · Posted: …
+(Write "not stated" rather than guessing. Keep the keys exactly as written.)
+
 ### Must-haves
 - ✅ the requirement — the evidence: the role, project or skill group that shows it
 - ⚠️ the requirement — adjacent experience, named as adjacent
@@ -1264,6 +1396,8 @@ Rules:
     needsCorpus: true,
     context: ['resume', 'jobDescription'],
     live: 'jobFit',
+    tools: ['search_content', 'read_project', 'read_case_study', 'read_resume'],
+    validators: ['fitShape', 'fitScore', 'slugsExist'],
   },
 
   /**
@@ -1307,6 +1441,104 @@ Rules:
     needsCorpus: false,
     context: ['resume', 'jobDescription', 'fit', 'contacts'],
     needsTopic: true,
+    validators: ['channelLimit', 'banned'],
+  },
+
+  /**
+   * The second message — decision 83.
+   *
+   * Given the draft that was sent, how many days ago and to whom, write the
+   * shorter follow-up that adds one new thing rather than repeating the first.
+   * The sent draft is a context field of its own, capped, because it is the one
+   * input a follow-up cannot do without and the first message is not on the
+   * screen any more.
+   */
+  jobFollowUp: {
+    label: 'Draft the follow-up',
+    command: 'draft-follow-up',
+    surface: 'job',
+    group: 'suggest',
+    hint: 'A shorter second message that adds one new thing.',
+    instructions: `Write a follow-up to the message the author already sent to this person. The first message is under "The message that was actually sent" — read it and do not repeat it.
+
+Return one message only, no Subject line and no labels.
+
+Rules:
+- Under 120 words. Shorter than the first message, because the relationship has moved.
+- Add exactly one new thing: something shipped since, a result, or a specific question about the team's work. Never "just checking in", never "bumping this".
+- Keep the same person and the same channel. No exclamation marks, no flattery.
+- If nothing new exists in the record, ask one specific question about the role instead of inventing an update.
+- Work only from the resume, the advert and the fit assessment. Never lean on a requirement the fit marks ❌.`,
+    format: 'markdown',
+    maxTokens: 1200,
+    temperature: 0.5,
+    needsCorpus: false,
+    context: ['resume', 'jobDescription', 'fit', 'contacts', 'sentDraft'],
+    validators: ['channelLimit', 'banned'],
+  },
+
+  /**
+   * The application email — decision 83.
+   *
+   * `Subject:` and three short paragraphs: why this role, the two strongest ✅
+   * with their evidence, the ask. It never leans on a ❌, because a cover note
+   * that argues against the author is worse than no note.
+   */
+  jobCover: {
+    label: 'Draft the cover email',
+    command: 'draft-cover-email',
+    surface: 'job',
+    group: 'write',
+    hint: 'Subject and three paragraphs, under 220 words.',
+    instructions: `Write the application email for this role: the cover note that goes with the resume.
+
+Return it in exactly this shape:
+Subject: a specific subject line, no more than nine words
+(blank line)
+The email, under 220 words, in three short paragraphs:
+1. Why this role at this company — one specific reason from the advert, not flattery.
+2. The two strongest requirements the fit marks ✅, each with its evidence from the resume or a project. Name the result, not the technology list.
+3. The ask: that they consider the application, and one line offering to talk.
+
+Rules:
+- Never lean on a requirement the fit marks ❌, and never claim a skill the resume does not support.
+- No "I hope this finds you well", no "I came across the role", no exclamation marks.
+- Plain text. No markdown headings, no bullet points, no quoted resume.
+- Use the person's name only when the contacts give one; otherwise address the team.`,
+    format: 'markdown',
+    maxTokens: 1600,
+    temperature: 0.5,
+    needsCorpus: false,
+    context: ['resume', 'jobDescription', 'fit', 'contacts'],
+    validators: ['channelLimit', 'banned'],
+  },
+
+  /**
+   * The reply to a recruiter — decision 83.
+   *
+   * What the recruiter wrote is a capped context field of its own. Two versions,
+   * so the owner can pick the register, and both answer what was asked.
+   */
+  jobReply: {
+    label: 'Draft a reply',
+    command: 'draft-reply',
+    surface: 'job',
+    group: 'suggest',
+    hint: 'Two versions of a reply to what they wrote.',
+    instructions: `Write a reply to the message the recruiter sent, which is under "What the recruiter wrote". Two versions, separated by a line holding only "---".
+
+Rules:
+- Answer every question they asked, in the order they asked it.
+- Under 600 characters each. No Subject line, no greeting longer than one line.
+- Version one is direct and factual; version two is warmer without being effusive.
+- Do not restate the resume. If they asked for something the record does not show, say plainly that it is not there rather than inventing it.
+- No exclamation marks. Nothing else outside the two versions.`,
+    format: 'markdown',
+    maxTokens: 1200,
+    temperature: 0.5,
+    needsCorpus: false,
+    context: ['resume', 'jobDescription', 'fit', 'received'],
+    validators: ['channelLimit', 'banned'],
   },
 
   chat: {
@@ -1502,6 +1734,8 @@ const ROUTE_HINTS: Record<RoutableTask, readonly string[]> = {
   alt: ['alt text', 'caption for', 'hero image', 'describe the image'],
   selection: ['the selection', 'selected text', 'this passage', 'this paragraph'],
   project: ['frontmatter', 'from the readme', 'from the repo'],
+  projectExplainer: ['explain the project', 'plain words', 'how it works', 'explain this'],
+  projectDiagram: ['draw the architecture', 'architecture diagram', 'system diagram', 'draw the system'],
   casestudy: [
     'case study fields',
     'write a case study',
@@ -1541,6 +1775,9 @@ const ROUTE_HINTS: Record<RoutableTask, readonly string[]> = {
     'write an email',
     'cold email',
   ],
+  jobFollowUp: ['follow up', 'follow-up', 'nudge them', 'second message'],
+  jobCover: ['cover email', 'cover letter', 'application email', 'apply by email'],
+  jobReply: ['draft a reply', 'reply to', 'respond to the recruiter'],
 };
 
 /**
@@ -1952,10 +2189,17 @@ export interface AssistContext {
 /** Turns of history kept, and the size of each. Both bound one request's bill. */
 /* ---------- the long case study ---------- */
 
+/** The kinds of figure a section plan may name — decision 85. */
+export type FigureKind = 'flowchart' | 'sequence' | 'state' | 'table' | 'none';
+
 /** One section of the long case study, as the plan describes it. */
 export interface PlannedSection {
   heading: string;
   brief: string;
+  /** What the section should show, when the plan says — decision 85. */
+  figure?: FigureKind;
+  /** One line saying what the figure shows. */
+  figureBrief?: string;
 }
 
 export interface CaseStudyPlan {
@@ -2033,6 +2277,15 @@ export function parsePlan(
     }
     if (mode === 'sections' && sections.length) {
       const last = sections[sections.length - 1];
+      const figure = /^\s*(?:[-*•]\s*)?figure\s*:\s*([a-z-]+)\s*(?:[—–:-]\s*)?(.*)$/i.exec(line);
+      if (figure) {
+        const kind = figure[1].toLowerCase() as FigureKind;
+        if (['flowchart', 'sequence', 'state', 'table', 'none'].includes(kind)) {
+          last.figure = kind;
+          last.figureBrief = figure[2].trim().slice(0, 200) || undefined;
+        }
+        continue;
+      }
       last.brief = `${last.brief} ${line.replace(/^(?:[-*•])\s*/, '')}`.trim().slice(0, 400);
     }
   }
@@ -2073,6 +2326,11 @@ export function sectionContext(
   const outline = plan.sections
     .map((section, at) => `${at === index ? '→ ' : ''}${at + 1}. ${section.heading}${section.brief ? ` — ${section.brief}` : ''}`)
     .join('\n');
+  const figure = current.figure && current.figure !== 'none'
+    ? current.figure === 'table'
+      ? `\nFigure: a markdown table showing ${current.figureBrief || 'what this section compares'}. Write it inline in this section.`
+      : `\nFigure: one \`\`\`mermaid fenced ${MERMAID_FOR[current.figure]} showing ${current.figureBrief || 'how this part works'}. Write it inline in this section, before the prose that refers to it.`
+    : '\nNo figure in this section.';
   return {
     facts: plan.facts.length
       ? plan.facts.map(fact => `- ${fact}`).join('\n')
@@ -2082,11 +2340,19 @@ export function sectionContext(
       `## ${current.heading}\n` +
       (current.brief ? `Covers: ${current.brief}\n` : '') +
       `Length: about ${words} words. Write only this section, then stop — no other level-2 heading.` +
+      figure +
       (index === 0 ? '\nThis is the first section: open with the specific thing, not with background about the field.' : '') +
       (index === count - 1 ? '\nThis is the last section: end on the concrete next step, not a summary.' : ''),
     previous: index === 0 ? '' : previous.trim().slice(-1200),
   };
 }
+
+/** The Mermaid keyword a planned figure becomes. */
+const MERMAID_FOR: Record<Exclude<FigureKind, 'none' | 'table'>, string> = {
+  flowchart: 'flowchart',
+  sequence: 'sequenceDiagram',
+  state: 'stateDiagram-v2',
+};
 
 /**
  * One finished section, cleaned for joining into the write-up.
@@ -2216,6 +2482,12 @@ const CONTEXT_LIMITS: Record<AssistField, number> = {
   contacts: 1000,
   /* A category name and five chapter titles. */
   category: 600,
+  /* The project's flow, as "Step name | what happens here" lines. */
+  flow: 1500,
+  /* The message that went, capped — a follow-up is written against it. */
+  sentDraft: 3000,
+  /* What the recruiter wrote. */
+  received: 3000,
 };
 
 const CONTEXT_LABELS: Record<AssistField, string> = {
@@ -2240,6 +2512,9 @@ const CONTEXT_LABELS: Record<AssistField, string> = {
   fit: 'The author’s fit assessment for this role',
   contacts: 'People at the company the author has named',
   category: 'The kind of project, and the chapters an engineer expects from one',
+  flow: 'The project’s flow, as step name and what happens',
+  sentDraft: 'The message that was actually sent',
+  received: 'What the recruiter wrote',
 };
 
 /**
@@ -2255,10 +2530,22 @@ const CONTEXT_LABELS: Record<AssistField, string> = {
  * like instructions, and the author writing one should not have their assistant
  * quietly hijacked by their own draft.
  */
-export function assistPrompt(
+export interface ManifestPart {
+  part: 'system' | 'index' | 'context' | 'history' | 'steer';
+  /** The editor field, for a `context` part. */
+  field?: AssistField;
+  chars: number;
+  /** True when the cap cut it — the fact the panel exists to show. */
+  capped: boolean;
+}
+
+export function buildAssistPrompt(
   task: AssistTask,
   { ownerName, context, instruction, corpus, persona, history, tools }: AssistContext,
-): { role: 'system' | 'user' | 'assistant'; content: string; cache?: boolean }[] {
+): {
+  messages: { role: 'system' | 'user' | 'assistant'; content: string; cache?: boolean }[];
+  manifest: ManifestPart[];
+} {
   /* — the stable half —
 
      Everything in this message is identical from one run to the next: the
@@ -2300,11 +2587,22 @@ The index above carries titles and summaries, not the writing itself. Read one o
   const system = `TASK
 ${task.instructions}`;
 
+  /* The manifest is what the run *carried*, never the text of it: the panel
+     shows one line under the answer and the log row keeps the numbers. */
+  const manifest: ManifestPart[] = [
+    { part: 'system', chars: shared.length + system.length, capped: false },
+  ];
+  if (corpus.trim()) {
+    manifest.push({ part: 'index', chars: corpus.trim().length, capped: false });
+  }
+
   const parts: string[] = [];
   for (const field of task.context) {
     const value = context[field];
     if (typeof value !== 'string' || !value.trim()) continue;
-    parts.push(`${CONTEXT_LABELS[field]}:\n<<<\n${value.slice(0, CONTEXT_LIMITS[field])}\n>>>`);
+    const limit = CONTEXT_LIMITS[field];
+    parts.push(`${CONTEXT_LABELS[field]}:\n<<<\n${value.slice(0, limit)}\n>>>`);
+    manifest.push({ part: 'context', field, chars: Math.min(value.length, limit), capped: value.length > limit });
   }
 
   /* A README on the page is the repository's documentation, already read.
@@ -2325,6 +2623,7 @@ ${task.instructions}`;
 
   if (instruction.trim()) {
     parts.push(`What ${ownerName} asked for specifically:\n<<<\n${instruction.trim()}\n>>>`);
+    manifest.push({ part: 'steer', chars: instruction.trim().length, capped: false });
   }
 
   if (!parts.length) parts.push('The draft is empty. Work from the task description alone.');
@@ -2361,15 +2660,42 @@ ${task.instructions}`;
      Trimmed here rather than in the panel because this is the function that
      knows what a request costs. The panel decides *whether* a task is
      conversational; how much of a conversation fits is a property of the call. */
-  const turns = (history ?? [])
-    .filter(turn => turn.content.trim())
-    .slice(-HISTORY_LIMITS.turns)
-    .map(turn => ({ role: turn.role, content: turn.content.slice(0, HISTORY_LIMITS.chars) }));
+  const allTurns = (history ?? []).filter(turn => turn.content.trim());
+  const kept = allTurns.slice(-HISTORY_LIMITS.turns);
+  const turns = kept.map(turn => ({
+    role: turn.role,
+    content: turn.content.slice(0, HISTORY_LIMITS.chars),
+  }));
+  if (turns.length) {
+    manifest.push({
+      part: 'history',
+      chars: turns.reduce((sum, turn) => sum + turn.content.length, 0),
+      capped:
+        kept.length < allTurns.length ||
+        kept.some(turn => turn.content.length > HISTORY_LIMITS.chars),
+    });
+  }
 
-  return [
-    { role: 'system', content: shared, cache: true },
-    { role: 'system', content: system },
-    ...turns,
-    { role: 'user', content: parts.join('\n\n') },
-  ];
+  return {
+    messages: [
+      { role: 'system', content: shared, cache: true },
+      { role: 'system', content: system },
+      ...turns,
+      { role: 'user', content: parts.join('\n\n') },
+    ],
+    manifest,
+  };
+}
+
+/**
+ * The messages for one task, without the manifest.
+ *
+ * Kept as the name every caller already used; `buildAssistPrompt` is the same
+ * function with the numbers the panel and the log want attached.
+ */
+export function assistPrompt(
+  task: AssistTask,
+  context: AssistContext,
+): { role: 'system' | 'user' | 'assistant'; content: string; cache?: boolean }[] {
+  return buildAssistPrompt(task, context).messages;
 }
